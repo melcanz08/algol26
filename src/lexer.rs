@@ -83,6 +83,7 @@ pub enum Token {
     // Memory
     Region,
     Unsafe,
+    Extern,
 }
 
 pub struct Lexer {
@@ -335,6 +336,7 @@ impl Lexer {
                             "finally" => tokens.push(Token::Finally),
                             "region" => tokens.push(Token::Region),
                             "unsafe" => tokens.push(Token::Unsafe),
+                            "extern" => tokens.push(Token::Extern),
                             "alloc" => tokens.push(Token::Identifier("alloc".to_string())),
                             "free" => tokens.push(Token::Identifier("free".to_string())),
                             _ => tokens.push(Token::Identifier(ident)),

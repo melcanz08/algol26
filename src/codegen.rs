@@ -158,6 +158,24 @@ impl<'ctx> CodeGen<'ctx> {
         self.register_stdlib();
 
         for func in &functions {
+            if func.is_extern {
+                // Declare external function without a body
+                let return_type_str = func.return_type.as_deref().unwrap_or("void");
+                let param_types: Vec<BasicMetadataTypeEnum> = func.params.iter().map(|(_, t)| {
+                    self.get_type_from_string(t).into()
+                }).collect();
+                
+                let fn_type = if return_type_str == "void" {
+                    self.context.void_type().fn_type(&param_types, false)
+                } else {
+                    self.get_type_from_string(return_type_str).fn_type(&param_types, false)
+                };
+                
+                let clean_name = func.name.trim_end_matches("()").to_string();
+                let function = self.module.add_function(&clean_name, fn_type, None);
+                self.functions.insert(clean_name, function);
+            }
+            
             if func.name == "main" {
                 let i32_type = self.context.i32_type();
                 let fn_type = i32_type.fn_type(&[], false);
@@ -184,7 +202,9 @@ impl<'ctx> CodeGen<'ctx> {
         }
 
         for func in &functions {
-            self.compile_function(&func)?;
+            if !func.is_extern {
+                self.compile_function(&func)?;
+            }
         }
 
         Ok(())
@@ -363,6 +383,11 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     fn compile_function(&mut self, ast: &FunctionDecl) -> Result<()> {
+        if ast.is_extern {
+            // External functions are already declared, skip body compilation
+            return Ok(());
+        }
+
         let clean_name = ast.name.trim_end_matches("()").to_string();
         let function = self.functions.get(&clean_name).unwrap().clone();
         self.current_function = Some(function);

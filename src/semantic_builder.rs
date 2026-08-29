@@ -192,6 +192,7 @@ impl SemanticIRBuilder {
             return_type: SemanticType::Int,
         });
         
+        // Register user-defined functions (including extern)
         for func in functions {
             let return_type = func.return_type.as_deref()
                 .map(SemanticType::from_str)
@@ -200,11 +201,7 @@ impl SemanticIRBuilder {
                 .map(|(n, t)| (n.clone(), SemanticType::from_str(t)))
                 .collect();
             
-            if self.function_types.contains_key(&func.name) {
-                self.diagnostics.push(format!("Duplicate function declaration '{}'", func.name));
-            } else {
-                self.function_types.insert(func.name.clone(), FunctionSignature { params, return_type });
-            }
+            self.function_types.insert(func.name.clone(), FunctionSignature { params, return_type });
         }
         
         for func in functions {

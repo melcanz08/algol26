@@ -178,7 +178,7 @@ impl SemanticAnalyzer {
     }
     
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        // Register user-defined functions first
+        // Register user-defined functions first (including extern)
         for func in functions {
             let params = func.params.iter()
                 .map(|(name, t)| (name.clone(), Type::from_str(t)))
@@ -334,6 +334,11 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
+        if func.is_extern {
+            // External functions don't have bodies to analyze
+            return Ok(());
+        }
+
         self.push_scope();
         // Set current return type
         let return_type = func.return_type

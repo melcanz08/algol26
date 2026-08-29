@@ -21,7 +21,7 @@ fn main() {
     }
     
     if first_arg == "--version" || first_arg == "-v" {
-        println!("ALGOL26 Compiler v0.4.0");
+        println!("ALGOL26 Compiler v0.5.0");
         std::process::exit(0);
     }
     
@@ -126,7 +126,7 @@ fn main() {
 }
 
 fn print_usage() {
-    println!("ALGOL26 Compiler v0.4.0");
+    println!("ALGOL26 Compiler v0.5.0");
     println!("=========================");
     println!();
     println!("Usage: algol26 <command> [options]");

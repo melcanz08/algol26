@@ -37,7 +37,7 @@ impl Parser {
         let mut top_level_imports = Vec::new();
         
         while !matches!(self.peek(), Token::Eof) {
-            if matches!(self.peek(), Token::Procedure | Token::Function) {
+            if matches!(self.peek(), Token::Procedure | Token::Function | Token::Extern) {
                 functions.push(self.parse_function()?);
             } else if matches!(self.peek(), Token::Import) {
                 // Parse top-level import and add it as a statement in a synthetic function
@@ -69,6 +69,10 @@ impl Parser {
     }
 
     fn parse_function(&mut self) -> Result<FunctionDecl> {
+        let is_extern = matches!(self.peek(), Token::Extern);
+        if is_extern {
+            self.advance(); // consume extern
+        }
         let is_function = matches!(self.peek(), Token::Function);
         self.advance();
 
@@ -135,8 +139,12 @@ impl Parser {
             None
         };
 
-        let body = self.parse_block()?;
-        Ok(FunctionDecl { name, params, return_type, body })
+        let body = if is_extern {
+            Vec::new()
+        } else {
+            self.parse_block()?
+        };
+        Ok(FunctionDecl { name, params, return_type, body, is_extern })
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>> {

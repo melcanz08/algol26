@@ -157,6 +157,7 @@ pub struct FunctionDecl {
     pub params: Vec<(String, String)>,
     pub return_type: Option<String>,
     pub body: Vec<Stmt>,
+    pub is_extern: bool,
 }
 
 

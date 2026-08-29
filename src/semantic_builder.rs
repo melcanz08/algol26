@@ -1050,6 +1050,20 @@ impl SemanticIRBuilder {
     
     fn translate_expr(&mut self, expr: &Expr) -> TypedIRValue {
         match expr {
+            Expr::Borrow { expr } => {
+                let inner = self.translate_expr(expr);
+                TypedIRValue::Cast {
+                    value: Box::new(inner),
+                    target_type: SemanticType::Unknown,
+                }
+            }
+            Expr::MutBorrow { expr } => {
+                let inner = self.translate_expr(expr);
+                TypedIRValue::Cast {
+                    value: Box::new(inner),
+                    target_type: SemanticType::Unknown,
+                }
+            }
             Expr::Number(n) => TypedIRValue::Float(*n),
             Expr::Int(i) => TypedIRValue::Int(*i),
             Expr::String(s) => TypedIRValue::String(s.clone()),

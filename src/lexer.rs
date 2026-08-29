@@ -27,6 +27,7 @@ pub enum Token {
     StringLit(String),
     
     // Operators
+    Ampersand,
     Assign,
     Plus,
     Minus,
@@ -360,6 +361,7 @@ impl Lexer {
                                     tokens.push(Token::Colon);
                                 }
                             }
+                            '&' => { chars.next(); tokens.push(Token::Ampersand); }
                             '+' => { chars.next(); tokens.push(Token::Plus); }
                             '-' => { chars.next(); tokens.push(Token::Minus); }
                             '*' => { chars.next(); tokens.push(Token::Star); }

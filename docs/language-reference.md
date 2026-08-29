@@ -4,7 +4,7 @@
 
 ALGOL26 is a programming language inspired by ALGOL 58 with modern features from ISWIM and Python (indentation-based blocks).
 
-## Version: v2.5.0
+## Version: v0.1.0
 
 ## Syntax
 

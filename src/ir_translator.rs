@@ -183,6 +183,8 @@ impl IRTranslator {
     
     fn translate_expr(builder: &mut IRBuilder, expr: &Expr) -> IRValue {
         match expr {
+            Expr::Borrow { expr } => Self::translate_expr(builder, expr),
+            Expr::MutBorrow { expr } => Self::translate_expr(builder, expr),
             Expr::Number(n) => IRValue::Constant(IRConstant::Float(*n)),
             Expr::Int(i) => IRValue::Constant(IRConstant::Int(*i)),
             Expr::String(s) => IRValue::Constant(IRConstant::String(s.clone())),

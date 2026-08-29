@@ -870,6 +870,14 @@ impl<'ctx> CodeGen<'ctx> {
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<BasicValueEnum<'ctx>> {
         match expr {
+            Expr::Borrow { expr } => {
+                // For now, just compile the inner expression
+                self.compile_expr(expr)
+            }
+            Expr::MutBorrow { expr } => {
+                // For now, just compile the inner expression
+                self.compile_expr(expr)
+            }
             Expr::Number(n) => {
                 Ok(self.context.f64_type().const_float(*n).as_basic_value_enum())
             }

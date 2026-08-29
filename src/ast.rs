@@ -9,6 +9,12 @@ pub enum Expr {
     String(String),
     Bool(bool),
     Var(String),
+    Borrow {
+        expr: Box<Expr>,
+    },
+    MutBorrow {
+        expr: Box<Expr>,
+    },
     List(Vec<Expr>),
     ArrayAccess {
         array: Box<Expr>,

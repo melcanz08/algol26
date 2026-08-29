@@ -128,6 +128,8 @@ impl TypeChecker {
     
     pub fn infer_expr_type(&self, expr: &Expr) -> SemanticType {
         match expr {
+            Expr::Borrow { .. } => SemanticType::Unknown,
+            Expr::MutBorrow { .. } => SemanticType::Unknown,
             Expr::Number(_) => SemanticType::Float,
             Expr::Int(_) => SemanticType::Int,
             Expr::String(_) => SemanticType::String,

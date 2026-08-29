@@ -630,6 +630,23 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr> {
+        match self.peek().clone() {
+            Token::Ampersand => {
+                self.advance(); // consume &
+                // Check for "mut" keyword
+                if let Token::Identifier(ref s) = self.peek().clone() {
+                    if s == "mut" {
+                        self.advance(); // consume "mut"
+                        let expr = self.parse_primary()?;
+                        return Ok(Expr::MutBorrow { expr: Box::new(expr) });
+                    }
+                }
+                let expr = self.parse_primary()?;
+                return Ok(Expr::Borrow { expr: Box::new(expr) });
+            }
+            _ => {}
+        }
+        
         match self.advance() {
             Token::FloatLit(v) => Ok(Expr::Number(v)),
             Token::IntLit(v) => Ok(Expr::Int(v)),

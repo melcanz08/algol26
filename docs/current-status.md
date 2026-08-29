@@ -1,6 +1,6 @@
 # ALGOL26 Current Status
 
-**Version**: v2.5.0 (Frozen Language Specification)
+**Version**: v0.1.0 (Frozen Language Specification)
 
 ## Overall Health
 

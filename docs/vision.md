@@ -153,18 +153,18 @@ Instead, it should say:
                           +
               ┌───────────▼───────────┐
               │  68 YEARS OF LESSONS  │
-              │                        │
-              │ type safety            │
-              │ memory safety          │
-              │ concurrency safety     │
-              │ expressive types       │
-              │ good tooling            │
-              │ diagnostics            │
+              │                       │
+              │ type safety           │
+              │ memory safety         │
+              │ concurrency safety    │
+              │ expressive types      │
+              │ good tooling          │
+              │ diagnostics           │
               └───────────┬───────────┘
                           +
               ┌───────────▼───────────┐
               │   SYSTEMS POWER       │
-              │                        │
+              │                       │
               │ C/C++ level control   │
               │ deterministic memory  │
               │ native performance    │
@@ -214,6 +214,24 @@ ALGOL26 succeeds when:
 6. Performance is comparable to native C
 7. The language feels both familiar and modern
 8. Safety guarantees are enforced at compile time
+
+## Vision Progress (v0.1.0)
+
+| Vision Element | Status |
+|---------------|--------|
+| ALGOL 58 heritage | ✅ |
+| Indentation-based blocks | ✅ |
+| Modern compiler (Rust+LLVM) | ✅ |
+| Type safety | ✅ |
+| Immutability | ✅ |
+| Bounds checking | ✅ |
+| Module system | ✅ |
+| 3 backends | ✅ |
+| Borrowing/ownership | 🔴 Future |
+| Controlled memory | 🔴 Future |
+| Raw memory (unsafe) | 🔴 Future |
+| Systems programming | 🔴 Future |
+| Formal "no UB" proof | 🔴 Future |
 
 ## Summary
 

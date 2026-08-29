@@ -1,6 +1,6 @@
 // src/sematic.rs
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::ast::{Expr, FunctionDecl, Stmt, BinOp};
 #[allow(unused_imports)]
 use crate::ast::{MatchCase, Pattern};
@@ -9,6 +9,8 @@ use crate::diagnostics::{CompileError, ErrorCode, Result};
 pub struct SemanticAnalyzer {
     scopes: Vec<HashMap<String, (Type, bool)>>,
     moved_vars: Vec<Vec<String>>,  // Stack of moved variables per scope
+    borrowed_vars: Vec<HashSet<String>>,  // Immutable borrows per scope
+    mutably_borrowed: Vec<HashSet<String>>,  // Mutable borrows per scope
     functions: HashMap<String, FunctionInfo>,
     current_return_type: Option<Type>,
 }
@@ -24,6 +26,8 @@ pub enum Type {
     Unknown,
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
+    Borrow(Box<Type>),
+    MutBorrow(Box<Type>),
 }
 
 impl Type {
@@ -34,6 +38,12 @@ impl Type {
             "string" => Type::String,
             "bool" => Type::Bool,
             "void" => Type::Void,
+            "&float" => Type::Borrow(Box::new(Type::Float)),
+            "&int" => Type::Borrow(Box::new(Type::Int)),
+            "&string" => Type::Borrow(Box::new(Type::String)),
+            "&bool" => Type::Borrow(Box::new(Type::Bool)),
+            "&mut float" => Type::MutBorrow(Box::new(Type::Float)),
+            "&mut int" => Type::MutBorrow(Box::new(Type::Int)),
             _ => Type::Unknown,
         }
     }
@@ -49,6 +59,8 @@ impl Type {
             Type::Unknown => "Unknown".to_string(),
             Type::Option(t) => format!("Option<{}>", t.name().as_str()),
             Type::Result(t, e) => format!("Result<{}, {}>", t.name().as_str(), e.name().as_str()),
+            Type::Borrow(t) => format!("&{}", t.name().as_str()),
+            Type::MutBorrow(t) => format!("&mut {}", t.name().as_str()),
         }
     }
 }
@@ -60,11 +72,14 @@ struct FunctionInfo {
 }
 
 impl SemanticAnalyzer {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         SemanticAnalyzer {
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
             moved_vars: vec![Vec::new()],  // Start with one scope
+            borrowed_vars: vec![HashSet::new()],
+            mutably_borrowed: vec![HashSet::new()],
             current_return_type: None,
         }
     }
@@ -76,11 +91,15 @@ impl SemanticAnalyzer {
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
         self.moved_vars.push(Vec::new());
+        self.borrowed_vars.push(HashSet::new());
+        self.mutably_borrowed.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
         self.moved_vars.pop();
+        self.borrowed_vars.pop();
+        self.mutably_borrowed.pop();
     }
 
     fn is_moved(&self, name: &str) -> bool {
@@ -93,6 +112,63 @@ impl SemanticAnalyzer {
                 scope.push(name.to_string());
             }
         }
+    }
+    
+    #[allow(dead_code)]
+    fn mark_borrowed(&mut self, name: &str) {
+        if let Some(scope) = self.borrowed_vars.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+    
+    #[allow(dead_code)]
+    fn mark_mutably_borrowed(&mut self, name: &str) {
+        if let Some(scope) = self.mutably_borrowed.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+    
+    #[allow(dead_code)]
+    fn is_borrowed(&self, name: &str) -> bool {
+        // Only check current scope (borrows end when scope ends)
+        self.borrowed_vars.last().map(|scope| scope.contains(name)).unwrap_or(false)
+    }
+    
+    fn is_mutably_borrowed(&self, name: &str) -> bool {
+        // Only check current scope (mutable borrows end when scope ends)
+        self.mutably_borrowed.last().map(|scope| scope.contains(name)).unwrap_or(false)
+    }
+    
+    #[allow(dead_code)]
+    fn check_borrow_rules(&self, name: &str, mutable: bool) -> Result<()> {
+        // Rule 1: Can't borrow a moved variable
+        if self.is_moved(name) {
+            return Err(CompileError::new(
+                &format!("Cannot borrow moved variable '{}'", name),
+                0, 0, "",
+                ErrorCode::E0007,
+            ).with_suggestion("The variable has been moved and is no longer available"));
+        }
+        
+        // Rule 2: Can't mutably borrow twice
+        if mutable && self.is_mutably_borrowed(name) {
+            return Err(CompileError::new(
+                &format!("Cannot mutably borrow '{}' more than once", name),
+                0, 0, "",
+                ErrorCode::E0007,
+            ).with_suggestion("Only one mutable borrow is allowed at a time"));
+        }
+        
+        // Rule 3: Can't read while mutably borrowed
+        if !mutable && self.is_mutably_borrowed(name) {
+            return Err(CompileError::new(
+                &format!("Cannot read '{}' while it is mutably borrowed", name),
+                0, 0, "",
+                ErrorCode::E0007,
+            ).with_suggestion("Wait for the mutable borrow to end before reading"));
+        }
+        
+        Ok(())
     }
     
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
@@ -624,6 +700,28 @@ impl SemanticAnalyzer {
     
     fn analyze_expr(&mut self, expr: &Expr) -> Result<Type> {
         match expr {
+            Expr::Borrow { expr } => {
+                // Check the borrow rules
+                if let Expr::Var(name) = expr.as_ref() {
+                    self.check_borrow_rules(name, false)?;
+                    self.mark_borrowed(name);
+                    let inner_type = self.analyze_expr(expr)?;
+                    return Ok(Type::Borrow(Box::new(inner_type)));
+                }
+                let inner_type = self.analyze_expr(expr)?;
+                Ok(Type::Borrow(Box::new(inner_type)))
+            }
+            Expr::MutBorrow { expr } => {
+                // Check the borrow rules for mutable borrow
+                if let Expr::Var(name) = expr.as_ref() {
+                    self.check_borrow_rules(name, true)?;
+                    self.mark_mutably_borrowed(name);
+                    let inner_type = self.analyze_expr(expr)?;
+                    return Ok(Type::MutBorrow(Box::new(inner_type)));
+                }
+                let inner_type = self.analyze_expr(expr)?;
+                Ok(Type::MutBorrow(Box::new(inner_type)))
+            }
             Expr::Number(_) => Ok(Type::Float),
             Expr::Int(_) => Ok(Type::Int),
             Expr::String(_) => Ok(Type::String),
@@ -649,6 +747,15 @@ impl SemanticAnalyzer {
                         0, 0, "",
                         ErrorCode::E0007,
                     ).with_suggestion("Variable ownership was transferred and cannot be used in this scope"));
+                }
+                
+                // Check if variable is mutably borrowed (can't read)
+                if self.is_mutably_borrowed(name) {
+                    return Err(CompileError::new(
+                        &format!("Cannot read '{}' while mutably borrowed", name),
+                        0, 0, "",
+                        ErrorCode::E0007,
+                    ).with_suggestion("Wait for the mutable borrow to end"));
                 }
                 
                 self.lookup_variable(name)

@@ -1,6 +1,6 @@
 # ALGOL26 Formal Language Specification
 
-**Version**: 2.5.0 (Frozen)
+**Version**: 0.1.0
 
 ## 1. Introduction
 
@@ -176,6 +176,6 @@ import "filename.gol"
 
 ## 10. Language Freeze
 
-This specification defines ALGOL26 v2.5.0.
+This specification defines ALGOL26 v0.1.0.
 The language is frozen as of this version.
 Future changes require a new version number.

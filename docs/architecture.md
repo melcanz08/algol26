@@ -1,6 +1,6 @@
 # ALGOL26 Compiler Architecture
 
-**Version**: v2.5.0 (Frozen)
+**Version**: v0.1.0 (Frozen)
 
 ## Pipeline Overview
 

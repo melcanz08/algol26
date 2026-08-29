@@ -1,53 +1,23 @@
 // Temperature Analysis System
-// A substantial program demonstrating ALGOL26's capabilities
-
-import "config.gol"
-import "analysis.gol"
-
-function process_temperatures(temps: float, threshold: float) -> float
-    region analysis_region
-        val count := count_hot_days(temps, threshold)
-        val avg := calculate_average(temps)
-        val max_temp := find_max(temps)
-        val min_temp := find_min(temps)
-        
-        Terminal.print("=== Temperature Analysis Report ===")
-        Terminal.print("Average temperature:")
-        Terminal.print(avg)
-        Terminal.print("Maximum temperature:")
-        Terminal.print(max_temp)
-        Terminal.print("Minimum temperature:")
-        Terminal.print(min_temp)
-        Terminal.print("Days above threshold:")
-        Terminal.print(count)
-        
-        return avg
-    return 0.0
+// Uses List operations directly
 
 procedure main
-    try
-        // Sample temperature data for 7 days
-        val temperatures := [22.5, 24.1, 19.8, 26.3, 21.0, 23.7, 25.2]
-        
-        // Get configuration
-        val threshold := get_thresholds()
-        val report_name := get_report_name()
-        
-        // Process temperatures
-        val average := process_temperatures(temperatures[0], threshold)
-        
-        // Generate report file
-        File.write(report_name, "Temperature Analysis Complete")
-        
-        // Print summary
-        Terminal.print("=== Summary ===")
-        Terminal.print("Data processed successfully")
-        Terminal.print("Report saved to:")
-        Terminal.print(report_name)
-        
-    catch err
-        Terminal.print("Error during analysis:")
-        Terminal.print(err)
+    // Sample temperature data for 7 days
+    val temperatures := [22.5, 24.1, 19.8, 26.3, 21.0, 23.7, 25.2]
     
-    finally
-        Terminal.print("Analysis finished")
+    // Calculate using List operations directly
+    val avg := List.sum(temperatures) / List.length(temperatures)
+    val max_temp := List.max(temperatures)
+    val min_temp := List.min(temperatures)
+    
+    Terminal.print("=== Temperature Analysis ===")
+    Terminal.print("Average temperature:")
+    Terminal.print(avg)
+    Terminal.print("Maximum temperature:")
+    Terminal.print(max_temp)
+    Terminal.print("Minimum temperature:")
+    Terminal.print(min_temp)
+    
+    // Save report
+    File.write("temperature_report.txt", "Analysis complete")
+    Terminal.print("Report saved!")

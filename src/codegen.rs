@@ -403,8 +403,10 @@ impl<'ctx> CodeGen<'ctx> {
             self.builder.build_store(alloca, param).unwrap();
             let var_type = match param_type.as_str() {
                 "int" => VarType::Int,
+                "float" => VarType::Float,
                 "string" => VarType::String,
                 "bool" => VarType::Bool,
+                "list" => VarType::List,
                 _ => VarType::Float,
             };
             self.declare_variable(param_name, alloca, var_type);

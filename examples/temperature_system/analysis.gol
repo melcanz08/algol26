@@ -1,12 +1,13 @@
 // Analysis functions for temperature data
+
 function calculate_average(temps: float) -> float
-    return temps
+    // Calculate average from the list
+    val sum := List.sum(temps)
+    val count := List.length(temps)
+    return sum / count
 
 function find_max(temps: float) -> float
-    return temps
+    return List.max(temps)
 
 function find_min(temps: float) -> float
-    return temps
-
-function count_hot_days(temps: float, threshold: float) -> float
-    return temps
+    return List.min(temps)

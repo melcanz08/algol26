@@ -39,6 +39,7 @@ impl Type {
             "string" => Type::String,
             "bool" => Type::Bool,
             "void" => Type::Void,
+            "list" => Type::List,
             "&float" => Type::Borrow(Box::new(Type::Float)),
             "&int" => Type::Borrow(Box::new(Type::Int)),
             "&string" => Type::Borrow(Box::new(Type::String)),

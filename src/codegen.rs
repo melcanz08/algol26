@@ -11,6 +11,12 @@ use inkwell::AddressSpace;
 use inkwell::types::{BasicType, BasicTypeEnum, BasicMetadataTypeEnum};
 use crate::ast::{Expr, FunctionDecl, Stmt, BinOp};
 
+#[derive(Debug, Clone)]
+enum VariableValue<'ctx> {
+    Scalar(PointerValue<'ctx>),
+    List(Vec<Expr>),
+}
+
 #[derive(Debug, Clone, Copy)]
 struct LoopContext<'ctx> {
     break_block: inkwell::basic_block::BasicBlock<'ctx>,
@@ -43,11 +49,12 @@ pub struct CodeGen<'ctx> {
     pub module: Module<'ctx>,
     pub builder: Builder<'ctx>,
     loop_stack: Vec<LoopContext<'ctx>>,
-    variables: HashMap<String, (PointerValue<'ctx>, VarType, Ownership)>,
+    variables: HashMap<String, (VariableValue<'ctx>, VarType, Ownership)>,
     lists: HashMap<String, Vec<Expr>>,
     functions: HashMap<String, FunctionValue<'ctx>>,
+    program_functions: Option<Vec<FunctionDecl>>,
     pub current_function: Option<FunctionValue<'ctx>>,
-    scope_stack: Vec<HashMap<String, (PointerValue<'ctx>, VarType, Ownership)>>,
+    scope_stack: Vec<HashMap<String, (VariableValue<'ctx>, VarType, Ownership)>>,
     defer_stack: Vec<Vec<Stmt>>,
 }
 
@@ -62,6 +69,7 @@ impl<'ctx> CodeGen<'ctx> {
             variables: HashMap::new(),
             lists: HashMap::new(),
             functions: HashMap::new(),
+            program_functions: None,
             current_function: None,
             loop_stack: Vec::new(),
             scope_stack: vec![HashMap::new()],
@@ -91,27 +99,31 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     fn declare_variable(&mut self, name: &str, ptr: PointerValue<'ctx>, var_type: VarType) {
+        self.declare_variable_value(name, VariableValue::Scalar(ptr), var_type);
+    }
+    
+    fn declare_variable_value(&mut self, name: &str, value: VariableValue<'ctx>, var_type: VarType) {
+        let ownership = Ownership::Owned;
         if let Some(scope) = self.scope_stack.last_mut() {
-            scope.insert(name.to_string(), (ptr, var_type.clone(), Ownership::Owned));
+            scope.insert(name.to_string(), (value, var_type, ownership));
         }
-        self.variables.insert(name.to_string(), (ptr, var_type, Ownership::Owned));
     }
 
-    fn lookup_variable(&self, name: &str) -> Option<(PointerValue<'ctx>, VarType)> {
+    fn lookup_variable(&self, name: &str) -> Option<(VariableValue<'ctx>, VarType)> {
         for scope in self.scope_stack.iter().rev() {
-            if let Some((ptr, var_type, ownership)) = scope.get(name) {
+            if let Some((value, var_type, ownership)) = scope.get(name) {
                 // Don't return moved variables
                 if *ownership == Ownership::Moved {
                     return None;
                 }
-                return Some((*ptr, var_type.clone()));
+                return Some((value.clone(), var_type.clone()));
             }
         }
-        self.variables.get(name).map(|(ptr, var_type, ownership)| {
+        self.variables.get(name).map(|(value, var_type, ownership)| {
             if *ownership == Ownership::Moved {
                 None
             } else {
-                Some((*ptr, var_type.clone()))
+                Some((value.clone(), var_type.clone()))
             }
         }).flatten()
     }
@@ -155,6 +167,7 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     pub fn compile_program(&mut self, functions: Vec<FunctionDecl>) -> Result<()> {
+        self.program_functions = Some(functions.clone());
         self.register_stdlib();
 
         for func in &functions {
@@ -399,6 +412,18 @@ impl<'ctx> CodeGen<'ctx> {
 
         for (i, (param_name, param_type)) in ast.params.iter().enumerate() {
             let param = function.get_nth_param(i as u32).unwrap();
+            
+            if param_type == "list" {
+                // For list parameters, register as VariableValue::List with empty elements
+                // (The actual elements will be filled when the function is called)
+                self.declare_variable_value(
+                    param_name,
+                    VariableValue::List(Vec::new()),
+                    VarType::List
+                );
+                continue;
+            }
+            
             let alloca = self.create_entry_block_alloca(param_name, param_type);
             self.builder.build_store(alloca, param).unwrap();
             let var_type = match param_type.as_str() {
@@ -406,7 +431,6 @@ impl<'ctx> CodeGen<'ctx> {
                 "float" => VarType::Float,
                 "string" => VarType::String,
                 "bool" => VarType::Bool,
-                "list" => VarType::List,
                 _ => VarType::Float,
             };
             self.declare_variable(param_name, alloca, var_type);
@@ -443,6 +467,12 @@ impl<'ctx> CodeGen<'ctx> {
                 match value {
                     Expr::List(elements) => {
                         self.lists.insert(name.clone(), elements.clone());
+                        // Also store as VariableValue::List for function arguments
+                        self.declare_variable_value(
+                            name,
+                            VariableValue::List(elements.clone()),
+                            VarType::List
+                        );
                     }
                     Expr::String(s) => {
                         let global = self.builder.build_global_string_ptr(s, "str").unwrap();
@@ -486,7 +516,7 @@ impl<'ctx> CodeGen<'ctx> {
                 if let Expr::Var(source_name) = value {
                     // This is a move operation
                     let val = self.compile_expr(value)?;
-                    if let Some((ptr, _)) = self.lookup_variable(name) {
+                    if let Some((VariableValue::Scalar(ptr), _)) = self.lookup_variable(name) {
                         self.builder.build_store(ptr, val).unwrap();
                         // Mark source as moved
                         self.mark_moved(source_name);
@@ -500,7 +530,7 @@ impl<'ctx> CodeGen<'ctx> {
                 } else {
                     // Regular assignment
                     let val = self.compile_expr(value)?;
-                    if let Some((ptr, _)) = self.lookup_variable(name) {
+                    if let Some((VariableValue::Scalar(ptr), _)) = self.lookup_variable(name) {
                         self.builder.build_store(ptr, val).unwrap();
                     } else {
                         return Err(CompileError::new(
@@ -525,7 +555,7 @@ impl<'ctx> CodeGen<'ctx> {
                     }
                     Expr::Var(name) => {
                         // Check if it's a string variable
-                        if let Some((ptr, var_type)) = self.lookup_variable(name) {
+                        if let Some((VariableValue::Scalar(ptr), var_type)) = self.lookup_variable(name) {
                             let printf_func = self.functions.get("printf").unwrap().clone();
                             
                             match var_type {
@@ -666,7 +696,12 @@ impl<'ctx> CodeGen<'ctx> {
                 };
 
                 let alloca = match self.lookup_variable(var) {
-                    Some((ptr, _)) => ptr,
+                    Some((VariableValue::Scalar(ptr), _)) => ptr,
+                    Some((VariableValue::List(_elements), _)) => {
+                        // For list iterator variables, just allocate a float
+                        let p = self.create_entry_block_alloca(var, "float");
+                        p
+                    },
                     None => {
                         let p = self.create_entry_block_alloca(var, "float");
                         self.declare_variable(var, p, VarType::Float);
@@ -764,16 +799,16 @@ impl<'ctx> CodeGen<'ctx> {
             Stmt::Send { channel, value } => {
                 // Send value to channel (store in channel variable)
                 let val = self.compile_expr(value)?;
-                if let Some((ptr, _)) = self.lookup_variable(channel) {
+                if let Some((VariableValue::Scalar(ptr), _)) = self.lookup_variable(channel) {
                     self.builder.build_store(ptr, val).unwrap();
                 }
             }
             Stmt::Receive { channel, target } => {
                 // Receive value from channel (load from channel variable)
-                if let Some((ptr, _)) = self.lookup_variable(channel) {
+                if let Some((VariableValue::Scalar(ptr), _)) = self.lookup_variable(channel) {
                     let loaded = self.builder.build_load(self.context.f64_type(), ptr, channel).unwrap();
                     if !target.is_empty() {
-                        if let Some((target_ptr, _)) = self.lookup_variable(target) {
+                        if let Some((VariableValue::Scalar(target_ptr), _)) = self.lookup_variable(target) {
                             self.builder.build_store(target_ptr, loaded).unwrap();
                         }
                     }
@@ -845,7 +880,7 @@ impl<'ctx> CodeGen<'ctx> {
             Stmt::TryCatch { try_body, catch_var, catch_body, finally_body: _ } => {
                 // If we have a catch variable, store a default error message
                 if let Some(var) = catch_var {
-                    if let Some((ptr, _)) = self.lookup_variable(var) {
+                    if let Some((VariableValue::Scalar(ptr), _)) = self.lookup_variable(var) {
                         let error_msg = self.builder.build_global_string_ptr("Operation failed", "err_msg").unwrap();
                         self.builder.build_store(ptr, error_msg).unwrap();
                     }
@@ -868,6 +903,11 @@ impl<'ctx> CodeGen<'ctx> {
                 let _idx = self.compile_expr(index)?;
             }
             Stmt::FunctionCall { name, args } => {
+                // Check for list-parameter functions (inline them)
+                if self.should_inline_for_list(name, args) {
+                    return self.inline_list_function(name, args);
+                }
+                
                 // Check for string functions
                 if name.starts_with("String.") {
                     let compiled_args: Vec<BasicValueEnum> = args.iter()
@@ -892,6 +932,39 @@ impl<'ctx> CodeGen<'ctx> {
                         0, 0, "",
                         ErrorCode::E0001
                     ))?;
+                
+                // Before calling, check if any arguments are lists that need
+                // to be registered in self.lists for the callee
+                if let Some(_callee) = self.functions.get(clean_name) {
+                    let callee_name = clean_name.to_string();
+                    // Check if this function has list parameters
+                    // Step 1: Extract list params in scoped block (borrow ends here)
+                    let list_param_indices: Vec<(usize, String)> = {
+                        if let Some(callee_ast) = self.find_function_ast(&callee_name) {
+                            callee_ast.params.iter()
+                                .enumerate()
+                                .filter(|(_, (_, pt))| pt == "list")
+                                .map(|(i, (pn, _))| (i, pn.clone()))
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    };
+                    
+                    // Step 2: Now self is free - register lists for callee
+                    for (i, param_name) in list_param_indices {
+                        if let Some(arg_expr) = args.get(i) {
+                            if let Expr::Var(arg_var) = arg_expr {
+                                if let Some(elements) = self.lists.get(arg_var).cloned() {
+                                    self.lists.insert(param_name.clone(), elements);
+                                }
+                            }
+                            if let Expr::List(elements) = arg_expr {
+                                self.lists.insert(param_name.clone(), elements.clone());
+                            }
+                        }
+                    }
+                }
                 
                 let mut arg_vals = Vec::new();
                 for arg in args {
@@ -935,6 +1008,66 @@ impl<'ctx> CodeGen<'ctx> {
             }
             _ => Ok(self.context.f64_type().const_float(0.0).as_basic_value_enum())
         }
+    }
+    
+    fn find_function_ast(&self, name: &str) -> Option<&FunctionDecl> {
+        // Look through the program's functions to find the matching declaration
+        self.program_functions.as_ref().and_then(|funcs| {
+            funcs.iter().find(|f| f.name.trim_end_matches("()") == name)
+        })
+    }
+    
+    fn should_inline_for_list(&self, name: &str, _args: &[Expr]) -> bool {
+        let clean_name = name.trim_end_matches("()");
+        
+        // Check if this function has list parameters
+        if let Some(func) = self.find_function_ast(clean_name) {
+            func.params.iter().any(|(_, pt)| pt == "list")
+        } else {
+            false
+        }
+    }
+    
+    fn inline_list_function(&mut self, name: &str, args: &[Expr]) -> Result<()> {
+        let clean_name = name.trim_end_matches("()");
+        
+        // Get the function AST
+        let func_body = {
+            if let Some(func) = self.find_function_ast(clean_name) {
+                (func.params.clone(), func.body.clone())
+            } else {
+                return Ok(());
+            }
+        };
+        
+        let (params, body) = func_body;
+        
+        // Substitute list parameters with actual arguments
+        for (i, (param_name, param_type)) in params.iter().enumerate() {
+            if param_type == "list" {
+                if let Some(arg_expr) = args.get(i) {
+                    // Register the argument's elements in self.lists under param_name
+                    match arg_expr {
+                        Expr::List(elements) => {
+                            self.lists.insert(param_name.clone(), elements.clone());
+                        }
+                        Expr::Var(var_name) => {
+                            if let Some(elements) = self.lists.get(var_name).cloned() {
+                                self.lists.insert(param_name.clone(), elements);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        
+        // Compile the function body in-place (inlined)
+        for stmt in &body {
+            self.compile_stmt(stmt)?;
+        }
+        
+        Ok(())
     }
     
     fn promote_to_float(&self, val: BasicValueEnum<'ctx>) -> Result<FloatValue<'ctx>> {
@@ -992,7 +1125,19 @@ impl<'ctx> CodeGen<'ctx> {
                 Ok(self.context.bool_type().const_int(*b as u64, false).as_basic_value_enum())
             }
             Expr::Var(name) => {
-                if let Some((ptr, var_type)) = self.lookup_variable(name) {
+                // Check if this is a list variable
+                if let Some((VariableValue::List(elements), VarType::List)) = self.lookup_variable(name) {
+                    // For List function arguments, return the sum for now
+                    // (Full List passing needs more work)
+                    let sum: f64 = elements.iter().filter_map(|e| match e {
+                        Expr::Number(n) => Some(*n),
+                        Expr::Int(i) => Some(*i as f64),
+                        _ => None,
+                    }).sum();
+                    return Ok(self.context.f64_type().const_float(sum).as_basic_value_enum());
+                }
+                
+                if let Some((VariableValue::Scalar(ptr), var_type)) = self.lookup_variable(name) {
                     match var_type {
                         VarType::String => {
                             let loaded = self.builder.build_load(
@@ -1373,6 +1518,45 @@ impl<'ctx> CodeGen<'ctx> {
                         .map(|arg| self.compile_expr(arg))
                         .collect::<Result<Vec<_>>>()?;
                     return self.call_file_function(name, &compiled_args);
+                }
+                
+                // Check for list-parameter functions - substitute and evaluate
+                if self.should_inline_for_list(name, args) {
+                    let clean_name = name.trim_end_matches("()");
+                    
+                    // Get the function body and substitute list params
+                    if let Some(func) = self.find_function_ast(clean_name) {
+                        let body = func.body.clone();
+                        let params = func.params.clone();
+                        
+                        // Substitute list params into self.lists
+                        for (i, (param_name, param_type)) in params.iter().enumerate() {
+                            if param_type == "list" {
+                                if let Some(arg_expr) = args.get(i) {
+                                    match arg_expr {
+                                        Expr::List(elements) => {
+                                            self.lists.insert(param_name.clone(), elements.clone());
+                                        }
+                                        Expr::Var(var_name) => {
+                                            if let Some(elements) = self.lists.get(var_name).cloned() {
+                                                self.lists.insert(param_name.clone(), elements);
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Find the Return statement in the body and evaluate its expression
+                        for stmt in &body {
+                            if let Stmt::Return { value: Some(expr) } = stmt {
+                                return self.compile_expr(expr);
+                            }
+                        }
+                    }
+                    
+                    return Ok(self.context.f64_type().const_float(0.0).as_basic_value_enum());
                 }
                 
                 // Check for List functions - evaluate at compile time

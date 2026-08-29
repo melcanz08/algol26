@@ -1,4 +1,4 @@
-# ALGOL26 Language Specification v0.5
+# ALGOL26 Language Specification v0.1.0
 
 ## 1. Introduction
 

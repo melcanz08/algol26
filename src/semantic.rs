@@ -696,6 +696,8 @@ impl SemanticAnalyzer {
                 if let Some(var) = catch_var {
                     self.push_scope();
                     self.declare_variable(var, Type::String, false)?;
+                    // Set a default error message if no error occurred
+                    // (The catch block executes only on error)
                     for s in catch_body {
                         self.analyze_stmt(s)?;
                     }

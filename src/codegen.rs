@@ -840,7 +840,14 @@ impl<'ctx> CodeGen<'ctx> {
                 // Import statements are handled by the module loader
                 let _ = path;
             }
-            Stmt::TryCatch { try_body, catch_var: _, catch_body, finally_body: _ } => {
+            Stmt::TryCatch { try_body, catch_var, catch_body, finally_body: _ } => {
+                // If we have a catch variable, store a default error message
+                if let Some(var) = catch_var {
+                    if let Some((ptr, _)) = self.lookup_variable(var) {
+                        let error_msg = self.builder.build_global_string_ptr("Operation failed", "err_msg").unwrap();
+                        self.builder.build_store(ptr, error_msg).unwrap();
+                    }
+                }
                 // Compile try body
                 for stmt in try_body {
                     self.compile_stmt(stmt)?;
@@ -896,6 +903,38 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
 
+    fn evaluate_list_operation(&self, name: &str, elements: &[Expr]) -> Result<BasicValueEnum<'ctx>> {
+        let mut values: Vec<f64> = Vec::new();
+        for elem in elements {
+            match elem {
+                Expr::Number(n) => values.push(*n),
+                Expr::Int(i) => values.push(*i as f64),
+                _ => {}
+            }
+        }
+        
+        match name {
+            "List.length" => {
+                // Return as Float to match variable type system
+                let len = values.len() as f64;
+                Ok(self.context.f64_type().const_float(len).as_basic_value_enum())
+            }
+            "List.sum" => {
+                let sum: f64 = values.iter().sum();
+                Ok(self.context.f64_type().const_float(sum).as_basic_value_enum())
+            }
+            "List.max" => {
+                let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                Ok(self.context.f64_type().const_float(max).as_basic_value_enum())
+            }
+            "List.min" => {
+                let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
+                Ok(self.context.f64_type().const_float(min).as_basic_value_enum())
+            }
+            _ => Ok(self.context.f64_type().const_float(0.0).as_basic_value_enum())
+        }
+    }
+    
     fn promote_to_float(&self, val: BasicValueEnum<'ctx>) -> Result<FloatValue<'ctx>> {
         if val.is_float_value() {
             Ok(val.into_float_value())
@@ -1334,9 +1373,18 @@ impl<'ctx> CodeGen<'ctx> {
                     return self.call_file_function(name, &compiled_args);
                 }
                 
-                // Check for List functions
+                // Check for List functions - evaluate at compile time
                 if name.starts_with("List.") {
-                    // For now, return 0.0 as placeholder
+                    // Check if arg is a list literal
+                    if let Some(Expr::List(elements)) = args.first() {
+                        return self.evaluate_list_operation(name, elements);
+                    }
+                    // Check if arg is a variable that holds a list
+                    if let Some(Expr::Var(var_name)) = args.first() {
+                        if let Some(elements) = self.lists.get(var_name) {
+                            return self.evaluate_list_operation(name, elements);
+                        }
+                    }
                     return Ok(self.context.f64_type().const_float(0.0).as_basic_value_enum());
                 }
                 

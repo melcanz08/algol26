@@ -1,0 +1,6 @@
+// Configuration constants for the temperature system
+function get_thresholds() -> float
+    return 30.0
+
+function get_report_name() -> string
+    return "temperature_report.txt"

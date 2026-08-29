@@ -279,6 +279,16 @@ impl SemanticAnalyzer {
             return_type: Type::Int,
         });
         
+        // Register Raw memory functions
+        self.functions.insert("alloc".to_string(), FunctionInfo {
+            params: vec![("size".to_string(), Type::Int)],
+            return_type: Type::Pointer(Box::new(Type::Unknown)),
+        });
+        self.functions.insert("free".to_string(), FunctionInfo {
+            params: vec![("ptr".to_string(), Type::Pointer(Box::new(Type::Unknown)))],
+            return_type: Type::Void,
+        });
+        
         // Register List functions
         self.functions.insert("List.length".to_string(), FunctionInfo {
             params: vec![("arr".to_string(), Type::List)],

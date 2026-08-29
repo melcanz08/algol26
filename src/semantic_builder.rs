@@ -156,6 +156,16 @@ impl SemanticIRBuilder {
             return_type: SemanticType::String,
         });
         
+        // Register Raw memory functions
+        self.function_types.insert("alloc".to_string(), FunctionSignature {
+            params: vec![("size".to_string(), SemanticType::Int)],
+            return_type: SemanticType::Pointer(Box::new(SemanticType::Unknown)),
+        });
+        self.function_types.insert("free".to_string(), FunctionSignature {
+            params: vec![("ptr".to_string(), SemanticType::Pointer(Box::new(SemanticType::Unknown)))],
+            return_type: SemanticType::Void,
+        });
+        
         // Register List functions
         self.function_types.insert("List.length".to_string(), FunctionSignature {
             params: vec![("arr".to_string(), SemanticType::List(Box::new(SemanticType::Float)))],

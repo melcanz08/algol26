@@ -335,6 +335,8 @@ impl Lexer {
                             "finally" => tokens.push(Token::Finally),
                             "region" => tokens.push(Token::Region),
                             "unsafe" => tokens.push(Token::Unsafe),
+                            "alloc" => tokens.push(Token::Identifier("alloc".to_string())),
+                            "free" => tokens.push(Token::Identifier("free".to_string())),
                             _ => tokens.push(Token::Identifier(ident)),
                         }
                     } else if c.is_numeric() {

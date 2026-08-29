@@ -279,6 +279,7 @@ impl<'ctx> CodeGen<'ctx> {
         // Register File I/O functions
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let i32_type = self.context.i32_type();
+        let i64_type = self.context.i64_type();
         
         // fopen(filename, mode) -> ptr
         let fopen_fn = self.module.add_function(
@@ -304,6 +305,21 @@ impl<'ctx> CodeGen<'ctx> {
         );
         self.functions.insert("File.read".to_string(), fgets_fn);
 
+        
+        // malloc for raw memory
+        let malloc_raw = self.module.add_function(
+            "malloc",
+            ptr_type.fn_type(&[i64_type.into()], false),
+            None
+        );
+        self.functions.insert("alloc".to_string(), malloc_raw);
+        
+        let free_raw = self.module.add_function(
+            "free",
+            self.context.void_type().fn_type(&[ptr_type.into()], false),
+            None
+        );
+        self.functions.insert("free".to_string(), free_raw);
         
         // fputs(str, stream) -> int (for File.append)
         let fputs_fn = self.module.add_function(

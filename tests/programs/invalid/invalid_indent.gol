@@ -1,0 +1,3 @@
+procedure main
+    var x := 10.0
+      var y := 20.0

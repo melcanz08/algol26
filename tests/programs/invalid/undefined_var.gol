@@ -1,0 +1,2 @@
+procedure main
+    Terminal.print(undefined_variable)

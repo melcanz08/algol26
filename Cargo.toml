@@ -1,0 +1,15 @@
+[package]
+name = "algol26"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+inkwell = { version = "0.7.1", features = ["llvm17-0", "llvm17-0-prefer-dynamic", "target-webassembly"], default-features = false }
+
+[lib]
+name = "algol26"
+path = "src/lib.rs"
+
+[[bin]]
+name = "algol26"
+path = "src/main.rs"

@@ -1,0 +1,4 @@
+procedure main
+    val greeting := "Hello World"
+    val len := String.length(greeting)
+    Terminal.print(len)

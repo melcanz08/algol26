@@ -1,0 +1,10 @@
+// Future ALGOL26 ownership example (not yet implemented)
+procedure main
+    // Safe allocation
+    var x := allocate(100)
+    
+    // x owns the memory
+    process(x)
+    
+    // Automatic cleanup at end of scope
+    // No manual free needed

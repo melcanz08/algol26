@@ -1,0 +1,5 @@
+procedure main
+    if true then
+        val temp := 10.0
+    
+    Terminal.print(temp)

@@ -1,0 +1,22 @@
+# Build artifacts
+/target/
+*.o
+*.out
+*.ll
+a.out
+test_bin
+
+# Generated files
+output.ll
+*.bc
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

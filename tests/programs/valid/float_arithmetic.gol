@@ -1,0 +1,5 @@
+procedure main
+    val x := 5.0
+    val y := 3.14
+    val sum := x + y
+    Terminal.print(sum)

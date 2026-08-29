@@ -1,0 +1,8 @@
+procedure main
+    var shared := 0.0
+    
+    spawn
+        shared := 10.0
+    
+    shared := 20.0
+    Terminal.print(shared)

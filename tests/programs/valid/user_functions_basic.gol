@@ -1,0 +1,12 @@
+function get_number() -> float
+    return 42.0
+
+function get_message() -> float
+    return 99.5
+
+procedure main
+    val num := get_number()
+    Terminal.print(num)
+    
+    val msg := get_message()
+    Terminal.print(msg)

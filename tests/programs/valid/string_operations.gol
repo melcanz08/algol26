@@ -1,0 +1,17 @@
+procedure main
+    val greeting := "Hello"
+    val name := "World"
+    
+    val combined := String.concat(greeting, " ")
+    val full_greeting := String.concat(combined, name)
+    
+    Terminal.print(full_greeting)
+    
+    val len := String.length(full_greeting)
+    Terminal.print(len)
+    
+    val upper := String.to_upper(full_greeting)
+    Terminal.print(upper)
+    
+    val sub := String.substring(full_greeting, 0, 5)
+    Terminal.print(sub)

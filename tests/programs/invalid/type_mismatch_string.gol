@@ -1,0 +1,3 @@
+procedure main
+    val x := "hello" + 5.0
+    Terminal.print(x)

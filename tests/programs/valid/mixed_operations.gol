@@ -1,0 +1,22 @@
+procedure main
+    val a := 10
+    val b := 3
+    val c := 2.5
+    
+    val sum_int := a + b
+    val sum_mixed := a + c
+    val diff_mixed := c - a
+    val prod_mixed := a * c
+    val div_mixed := a / c
+    
+    Terminal.print(sum_int)
+    Terminal.print(sum_mixed)
+    Terminal.print(diff_mixed)
+    Terminal.print(prod_mixed)
+    Terminal.print(div_mixed)
+    
+    if a < c then
+        Terminal.print("a is less than c")
+    
+    if a > 5.0 then
+        Terminal.print("a is greater than 5")

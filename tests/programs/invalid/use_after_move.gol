@@ -1,0 +1,4 @@
+procedure main
+    var x := 10.0
+    var y := x
+    Terminal.print(x)

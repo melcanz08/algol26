@@ -1,0 +1,10 @@
+procedure main
+    val arr := [1.0, 2.0, 3.0, 4.0, 5.0]
+    var sum := 0.0
+    
+    for item in arr do
+        sum := sum + item
+    
+    Terminal.print(sum)
+    Terminal.print(arr[0])
+    Terminal.print(arr[4])

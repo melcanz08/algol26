@@ -1,0 +1,8 @@
+procedure main
+    val x := 10.0
+    
+    if true then
+        val y := x
+        Terminal.print(y)
+    
+    Terminal.print(x)

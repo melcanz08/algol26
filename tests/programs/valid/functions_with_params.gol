@@ -1,0 +1,15 @@
+function double(x: float) -> float
+    return x * 2.0
+
+function add(x: float, y: float) -> float
+    return x + y
+
+procedure main
+    val a := 5.0
+    val b := 10.0
+    
+    val doubled := double(a)
+    Terminal.print(doubled)
+    
+    val sum := add(a, b)
+    Terminal.print(sum)

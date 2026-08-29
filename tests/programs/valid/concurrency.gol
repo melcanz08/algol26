@@ -1,0 +1,9 @@
+procedure main
+    Terminal.print("Before")
+    spawn
+        Terminal.print("Inside spawn")
+    Terminal.print("After")
+    
+    parallel do
+        Terminal.print("P1")
+        Terminal.print("P2")

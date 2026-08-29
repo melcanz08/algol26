@@ -1,0 +1,6 @@
+// Future ALGOL26 bounds checking example (not yet implemented)
+procedure main
+    var values := [10, 20, 30]
+    
+    // This would be caught at compile time or runtime
+    // var x := values[100]  // Error: index out of bounds

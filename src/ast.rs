@@ -15,6 +15,12 @@ pub enum Expr {
     MutBorrow {
         expr: Box<Expr>,
     },
+    Deref {
+        expr: Box<Expr>,
+    },
+    AddrOf {
+        expr: Box<Expr>,
+    },
     List(Vec<Expr>),
     ArrayAccess {
         array: Box<Expr>,
@@ -70,6 +76,13 @@ pub enum Stmt {
     },
     Import {
         path: String,
+    },
+    RegionBlock {
+        name: String,
+        body: Vec<Stmt>,
+    },
+    UnsafeBlock {
+        body: Vec<Stmt>,
     },
     TryCatch {
         try_body: Vec<Stmt>,

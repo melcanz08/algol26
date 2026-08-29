@@ -79,6 +79,10 @@ pub enum Token {
     Try,
     Catch,
     Finally,
+    
+    // Memory
+    Region,
+    Unsafe,
 }
 
 pub struct Lexer {
@@ -329,6 +333,8 @@ impl Lexer {
                             "try" => tokens.push(Token::Try),
                             "catch" => tokens.push(Token::Catch),
                             "finally" => tokens.push(Token::Finally),
+                            "region" => tokens.push(Token::Region),
+                            "unsafe" => tokens.push(Token::Unsafe),
                             _ => tokens.push(Token::Identifier(ident)),
                         }
                     } else if c.is_numeric() {

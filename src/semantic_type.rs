@@ -18,6 +18,7 @@ pub enum SemanticType {
         ok: Box<SemanticType>,
         error: Box<SemanticType>,
     },
+    Pointer(Box<SemanticType>),
 }
 
 impl SemanticType {
@@ -33,6 +34,7 @@ impl SemanticType {
             SemanticType::Option(t) => format!("Option<{}>", t.name()),
             SemanticType::Result { ok, error } => format!("Result<{}, {}>", ok.name(), error.name()),
             SemanticType::Channel(t) => format!("Channel<{}>", t.name()),
+            SemanticType::Pointer(t) => format!("*{}", t.name()),
         }
     }
     
@@ -43,6 +45,10 @@ impl SemanticType {
             "string" => SemanticType::String,
             "bool" => SemanticType::Bool,
             "void" => SemanticType::Void,
+            "*float" => SemanticType::Pointer(Box::new(SemanticType::Float)),
+            "*int" => SemanticType::Pointer(Box::new(SemanticType::Int)),
+            "*string" => SemanticType::Pointer(Box::new(SemanticType::String)),
+            "*bool" => SemanticType::Pointer(Box::new(SemanticType::Bool)),
             _ => SemanticType::Unknown,
         }
     }

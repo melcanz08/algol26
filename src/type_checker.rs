@@ -130,6 +130,8 @@ impl TypeChecker {
         match expr {
             Expr::Borrow { .. } => SemanticType::Unknown,
             Expr::MutBorrow { .. } => SemanticType::Unknown,
+            Expr::Deref { .. } => SemanticType::Unknown,
+            Expr::AddrOf { .. } => SemanticType::Unknown,
             Expr::Number(_) => SemanticType::Float,
             Expr::Int(_) => SemanticType::Int,
             Expr::String(_) => SemanticType::String,

@@ -28,6 +28,7 @@ pub enum Type {
     Result(Box<Type>, Box<Type>),
     Borrow(Box<Type>),
     MutBorrow(Box<Type>),
+    Pointer(Box<Type>),
 }
 
 impl Type {
@@ -44,6 +45,10 @@ impl Type {
             "&bool" => Type::Borrow(Box::new(Type::Bool)),
             "&mut float" => Type::MutBorrow(Box::new(Type::Float)),
             "&mut int" => Type::MutBorrow(Box::new(Type::Int)),
+            "*float" => Type::Pointer(Box::new(Type::Float)),
+            "*int" => Type::Pointer(Box::new(Type::Int)),
+            "*string" => Type::Pointer(Box::new(Type::String)),
+            "*bool" => Type::Pointer(Box::new(Type::Bool)),
             _ => Type::Unknown,
         }
     }
@@ -61,6 +66,7 @@ impl Type {
             Type::Result(t, e) => format!("Result<{}, {}>", t.name().as_str(), e.name().as_str()),
             Type::Borrow(t) => format!("&{}", t.name().as_str()),
             Type::MutBorrow(t) => format!("&mut {}", t.name().as_str()),
+            Type::Pointer(t) => format!("*{}", t.name().as_str()),
         }
     }
 }
@@ -646,6 +652,21 @@ impl SemanticAnalyzer {
                     )
                 })?;
             }
+            Stmt::UnsafeBlock { body } => {
+                // Unsafe block: analyze without safety checks
+                self.push_scope();
+                for s in body {
+                    self.analyze_stmt(s)?;
+                }
+                self.pop_scope();
+            }
+            Stmt::RegionBlock { name: _, body } => {
+                self.push_scope();
+                for s in body {
+                    self.analyze_stmt(s)?;
+                }
+                self.pop_scope();
+            }
             Stmt::Import { path } => {
                 // Import statements are resolved before semantic analysis
                 let _ = path;
@@ -721,6 +742,17 @@ impl SemanticAnalyzer {
                 }
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::MutBorrow(Box::new(inner_type)))
+            }
+            Expr::Deref { expr } => {
+                let inner_type = self.analyze_expr(expr)?;
+                match inner_type {
+                    Type::Pointer(t) => Ok(*t),
+                    _ => Ok(Type::Unknown),
+                }
+            }
+            Expr::AddrOf { expr } => {
+                let inner_type = self.analyze_expr(expr)?;
+                Ok(Type::Pointer(Box::new(inner_type)))
             }
             Expr::Number(_) => Ok(Type::Float),
             Expr::Int(_) => Ok(Type::Int),

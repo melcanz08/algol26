@@ -287,6 +287,18 @@ impl SemanticIRBuilder {
                 Stmt::Defer { stmt } => {
                     self.translate_defer(program, func, current_block, stmt)
                 }
+                Stmt::UnsafeBlock { body } => {
+                    self.push_scope();
+                    let flow = self.translate_block(program, func, current_block, body);
+                    self.pop_scope();
+                    flow
+                }
+                Stmt::RegionBlock { name: _, body } => {
+                    self.push_scope();
+                    let flow = self.translate_block(program, func, current_block, body);
+                    self.pop_scope();
+                    flow
+                }
                 Stmt::Break => {
                     if let Some(loop_ctx) = self.loop_stack.last().copied() {
                         if let Some(block) = func.blocks.iter_mut().find(|b| b.id == current_block) {
@@ -1033,6 +1045,8 @@ impl SemanticIRBuilder {
             }
             Stmt::If { .. } | Stmt::While { .. } | Stmt::For { .. } | Stmt::Match { .. }
             | Stmt::Spawn { .. } | Stmt::Parallel { .. } | Stmt::Defer { .. }
+            | Stmt::RegionBlock { .. }
+            | Stmt::UnsafeBlock { .. }
             | Stmt::Break | Stmt::Continue => {
                 unreachable!("Control flow should be intercepted by translate_block");
             }
@@ -1058,6 +1072,20 @@ impl SemanticIRBuilder {
                 }
             }
             Expr::MutBorrow { expr } => {
+                let inner = self.translate_expr(expr);
+                TypedIRValue::Cast {
+                    value: Box::new(inner),
+                    target_type: SemanticType::Unknown,
+                }
+            }
+            Expr::Deref { expr } => {
+                let inner = self.translate_expr(expr);
+                TypedIRValue::Cast {
+                    value: Box::new(inner),
+                    target_type: SemanticType::Unknown,
+                }
+            }
+            Expr::AddrOf { expr } => {
                 let inner = self.translate_expr(expr);
                 TypedIRValue::Cast {
                     value: Box::new(inner),

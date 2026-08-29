@@ -10,6 +10,7 @@ pub mod compiler;
 pub mod semantic;
 pub mod escape;
 pub mod region;
+pub mod region_memory;
 pub mod stdlib;
 pub mod string_module;
 pub mod file_module;

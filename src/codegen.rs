@@ -783,6 +783,18 @@ impl<'ctx> CodeGen<'ctx> {
                     defer_list.push((**stmt).clone());
                 }
             }
+            Stmt::UnsafeBlock { body } => {
+                // Unsafe block: compile body without safety checks
+                for stmt in body {
+                    self.compile_stmt(stmt)?;
+                }
+            }
+            Stmt::RegionBlock { name: _, body } => {
+                // Region block: compile body normally
+                for stmt in body {
+                    self.compile_stmt(stmt)?;
+                }
+            }
             Stmt::Import { path } => {
                 // Import statements are handled by the module loader
                 let _ = path;
@@ -876,6 +888,12 @@ impl<'ctx> CodeGen<'ctx> {
             }
             Expr::MutBorrow { expr } => {
                 // For now, just compile the inner expression
+                self.compile_expr(expr)
+            }
+            Expr::Deref { expr } => {
+                self.compile_expr(expr)
+            }
+            Expr::AddrOf { expr } => {
                 self.compile_expr(expr)
             }
             Expr::Number(n) => {

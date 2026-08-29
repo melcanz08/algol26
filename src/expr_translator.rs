@@ -36,6 +36,8 @@ impl ExprTranslator {
         match expr {
             Expr::Borrow { expr } => self.translate(expr, scopes),
             Expr::MutBorrow { expr } => self.translate(expr, scopes),
+            Expr::Deref { expr } => self.translate(expr, scopes),
+            Expr::AddrOf { expr } => self.translate(expr, scopes),
             Expr::Number(n) => TypedIRValue::Float(*n),
             Expr::Int(i) => TypedIRValue::Int(*i),
             Expr::String(s) => TypedIRValue::String(s.clone()),

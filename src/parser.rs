@@ -469,6 +469,24 @@ impl Parser {
                 self.advance();
                 self.parse_stmt()
             }
+            Token::Unsafe => {
+                self.advance();
+                let body = self.parse_block()?;
+                Ok(Stmt::UnsafeBlock { body })
+            }
+            Token::Region => {
+                self.advance();
+                let name = match self.advance() {
+                    Token::Identifier(n) => n,
+                    other => return Err(CompileError::new(
+                        &format!("Expected region name, found {:?}", other),
+                            0, 0, "",
+                            ErrorCode::E0001
+                        )),
+                };
+                let body = self.parse_block()?;
+                Ok(Stmt::RegionBlock { name, body })
+            }
             Token::Try => {
                 self.advance();
                 
@@ -631,6 +649,11 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Result<Expr> {
         match self.peek().clone() {
+            Token::Star => {
+                self.advance(); // consume *
+                let expr = self.parse_primary()?;
+                return Ok(Expr::Deref { expr: Box::new(expr) });
+            }
             Token::Ampersand => {
                 self.advance(); // consume &
                 // Check for "mut" keyword

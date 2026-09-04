@@ -271,6 +271,20 @@ pub enum SemanticInstruction {
 // SemanticBlock — A basic block in the control flow graph
 // ---------------------------------------------------------------------------
 
+impl SemanticInstruction {
+    /// Returns true if this instruction terminates a basic block.
+    /// This is the CANONICAL definition — use everywhere.
+    pub fn is_terminator(&self) -> bool {
+        matches!(
+            self,
+            SemanticInstruction::Return { .. }
+            | SemanticInstruction::Jump { .. }
+            | SemanticInstruction::Branch { .. }
+            | SemanticInstruction::Switch { .. }
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SemanticBlock {
     pub id: usize,

@@ -13,6 +13,8 @@ pub enum Type {
     Bool,
     Void,
 
+    /// Opaque/raw pointer — no type information (e.g., FFI void*)
+    /// Use Pointer(T) for typed pointers like *Int
     Ptr,
     
     // Special types
@@ -218,8 +220,9 @@ impl Type {
         }
         
         match (self, target) {
-            // Anything coerces to Unknown (Unknown means 'any type')
-            (_, Type::Unknown) => true,
+            // Unknown must be RESOLVED before coercion can be checked.
+            // It does NOT mean 'any type' — it means 'not yet inferred'.
+            // If Unknown appears here, the program hasn't been fully type-checked.
             
             // Numeric coercion
             (Type::Int, Type::Float) => true,
@@ -246,9 +249,6 @@ impl Type {
                 n1 == n2 && a1.len() == a2.len() && 
                 a1.iter().zip(a2.iter()).all(|(x, y)| x.can_coerce_to(y))
             },
-            
-            // Unknown can coerce to anything
-            (Type::Unknown, _) => true,
             
             _ => false,
         }
@@ -352,7 +352,7 @@ mod tests {
     fn test_type_coercion() {
         assert!(Type::Int.can_coerce_to(&Type::Float));
         assert!(!Type::Float.can_coerce_to(&Type::Int));
-        assert!(Type::Unknown.can_coerce_to(&Type::Int));
+        // REMOVED: Unknown can no longer coerce (must be resolved first)
         assert!(Type::list(Type::Int).can_coerce_to(&Type::list(Type::Float)));
         assert!(Type::Ptr.can_coerce_to(&Type::Ptr));
         assert!(Type::Ptr.can_coerce_to(&Type::Pointer(Box::new(Type::Int))));

@@ -346,6 +346,8 @@ impl SemanticAnalyzer {
         }
         
         let list_functions = [
+            // List functions are GENERIC: List.length<T>(arr: List<T>) -> Int
+            // For now, use a placeholder type that accepts any list
             ("List.length", vec![("arr", Type::list(Type::Unknown))], Type::Int),
             ("List.sum", vec![("arr", Type::list(Type::Unknown))], Type::Float),
             ("List.max", vec![("arr", Type::list(Type::Unknown))], Type::Float),
@@ -1202,7 +1204,9 @@ impl SemanticAnalyzer {
                         } else {
                             type_bindings.insert(tv.clone(), arg_type.clone());
                         }
-                    } else if !arg_type.can_coerce_to(&resolved_param_type) && resolved_param_type != Type::Unknown {
+                    } else if !arg_type.can_coerce_to(&resolved_param_type) 
+                        && resolved_param_type != Type::Unknown
+                        && !matches!(resolved_param_type, Type::List(_)) {
                         return Err(CompileError::new(
                             &format!("Argument '{}' type mismatch: expected {}, found {}", param_name, resolved_param_type, arg_type),
                             0, 0, "", ErrorCode::E0002,

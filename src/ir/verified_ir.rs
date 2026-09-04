@@ -26,10 +26,9 @@ impl VerifiedIR {
         &self.program
     }
     
-    /// Get the verified program (consumes the wrapper)
-    pub fn into_program(self) -> SemanticProgram {
-        self.program
-    }
+    // into_program() REMOVED:
+    // Extracting the raw SemanticProgram would break the verification guarantee.
+    // Backends must use program() to access the verified IR.
 }
 
 /// Backend input type — VerifiedIR is the only accepted input
@@ -84,7 +83,7 @@ mod tests {
     }
     
     #[test]
-    fn test_verified_ir_into_program() {
+    fn test_verified_ir_program_access() {
         let mut program = SemanticProgram::new();
         let entry = program.new_block_id();
         let func = SemanticFunction {
@@ -101,7 +100,7 @@ mod tests {
         program.functions.push(func);
         
         let verified = VerifiedIR::new(program).unwrap();
-        let extracted = verified.into_program();
+        let extracted = verified.program();
         assert_eq!(extracted.functions.len(), 1);
     }
 }

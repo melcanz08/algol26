@@ -1,4 +1,4 @@
-// algol26/src/lexer.rs
+// algol26/src/frontend/lexer.rs
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use std::collections::HashMap;
@@ -680,14 +680,29 @@ impl Lexer {
                     chars.next();
                     *position += 1;
                     tokens.push(Token::Equal);
+                } else {
+                    return Err(CompileError::new(
+                        "Unexpected '='; use ':=' for assignment or '==' for equality",
+                        line_number,
+                        *position,
+                        line,
+                        ErrorCode::E0001
+                    ));
                 }
-                // Standalone = is NOT assignment - use := instead
             }
             '!' => {
                 if let Some(&'=') = chars.peek() {
                     chars.next();
                     *position += 1;
                     tokens.push(Token::NotEqual);
+                } else {
+                    return Err(CompileError::new(
+                        "Unexpected '!'; use '!=' for not-equal or 'not' for logical negation",
+                        line_number,
+                        *position,
+                        line,
+                        ErrorCode::E0001
+                    ));
                 }
             }
             '[' => tokens.push(Token::LBracket),
@@ -831,7 +846,7 @@ mod tests {
 
     #[test]
     fn test_multiline_dedent() {
-        let source = "procedure main\n    if true\n        var x = 1\n        var y = 2\nvar z = 3";
+        let source = "procedure main\n    if true\n        var x := 1\n        var y := 2\nvar z := 3";
         let lexer = Lexer::new(source.to_string()).unwrap();
         
         // Should have proper dedent handling

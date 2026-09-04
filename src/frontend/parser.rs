@@ -1,4 +1,4 @@
-// algol26/src/parser.rs - 100% Orthogonal: for/while as expressions
+// algol26/src/frontend/parser.rs - 100% Orthogonal: for/while as expressions
 
 use crate::frontend::ast::{BinOp, Expr, FunctionDecl, MatchCase, MatchCaseExpr, Pattern, Stmt, WhereClause, TraitDecl, TraitMethod, ImplBlock};
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
@@ -28,10 +28,9 @@ impl Parser {
 
     fn parse_block_with_trailing(&mut self) -> Result<(Vec<Stmt>, Option<Box<Expr>>)> {
         let block_expr = self.parse_block_expr()?;
-        if let Expr::Block { statements, trailing_expr } = block_expr {
-            Ok((statements, trailing_expr))
-        } else {
-            Ok((vec![], None))
+        match block_expr {
+            Expr::Block { statements, trailing_expr } => Ok((statements, trailing_expr)),
+            other => Err(self.error(&format!("Expected block, found: {:?}", other))),
         }
     }
     
@@ -249,7 +248,7 @@ impl Parser {
                 
                 let param_name = self.expect_identifier("parameter name")?;
                 let param_type = self.parse_type_annotation()?
-                    .unwrap_or_else(|| "unknown".to_string());
+                    .unwrap_or_default();
                 params.push((param_name, param_type));
                 
                 if matches!(self.peek(), Token::Comma) {
@@ -1114,7 +1113,7 @@ impl Parser {
                 Token::Lt => BinOp::Less,
                 Token::Equal => BinOp::Equal,
                 Token::NotEqual => BinOp::NotEqual,
-                _ => unreachable!(),
+                other => return Err(self.error(&format!("Unexpected comparison operator: {:?}", other))),
             };
             let right = self.parse_additive()?;
             left = Expr::Binary {
@@ -1135,7 +1134,7 @@ impl Parser {
             let binop = match op {
                 Token::Plus => BinOp::Add,
                 Token::Minus => BinOp::Subtract,
-                _ => unreachable!(),
+                other => return Err(self.error(&format!("Unexpected comparison operator: {:?}", other))),
             };
             let right = self.parse_multiplicative()?;
             left = Expr::Binary {
@@ -1156,7 +1155,7 @@ impl Parser {
             let binop = match op {
                 Token::Star => BinOp::Multiply,
                 Token::Slash => BinOp::Divide,
-                _ => unreachable!(),
+                other => return Err(self.error(&format!("Unexpected comparison operator: {:?}", other))),
             };
             let right = self.parse_unary()?;
             left = Expr::Binary {
@@ -1376,7 +1375,7 @@ impl Parser {
                     while !matches!(self.peek(), Token::RParen | Token::Eof) {
                         let param_name = self.expect_identifier("parameter name")?;
                         let param_type = self.parse_type_annotation()?
-                            .unwrap_or_else(|| "unknown".to_string());
+                            .unwrap_or_default();
                         params.push((param_name, param_type));
                         
                         if matches!(self.peek(), Token::Comma) {

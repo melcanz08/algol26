@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-// algol26/src/ast.rs - 100% Orthogonal: Everything is an Expression
+// algol26/src/frontend/ast.rs - 100% Orthogonal: Everything is an Expression
 
 use crate::ffi::c::{FFIInfo};
 

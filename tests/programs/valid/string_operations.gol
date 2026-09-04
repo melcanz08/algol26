@@ -5,13 +5,13 @@ procedure main
     val combined := String.concat(greeting, " ")
     val full_greeting := String.concat(combined, name)
     
-    Terminal.print(full_greeting)
+    print(full_greeting)
     
     val len := String.length(full_greeting)
-    Terminal.print(len)
+    print(len)
     
     val upper := String.to_upper(full_greeting)
-    Terminal.print(upper)
+    print(upper)
     
     val sub := String.substring(full_greeting, 0, 5)
-    Terminal.print(sub)
+    print(sub)

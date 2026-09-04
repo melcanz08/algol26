@@ -1,0 +1,14 @@
+function identity<T>(x: T) -> T
+    return x
+
+function main() -> Int
+    val a := identity(5)
+    print a
+    
+    val b := identity(3.14)
+    print b
+    
+    val c := identity("hello")
+    print c
+    
+    return 0

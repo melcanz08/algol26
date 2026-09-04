@@ -3,5 +3,5 @@ procedure main
     var y := 20.0
     y := 30.0
     
-    Terminal.print(x)
-    Terminal.print(y)
+    print(x)
+    print(y)

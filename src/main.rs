@@ -1,7 +1,7 @@
-// ALGOL26 - Binary entry point
+// src/main.rs - ALGOL26 - Binary entry point
 
 use algol26::compiler::Compiler;
-use algol26::diagnostics::{CompileError, ErrorCode};
+use algol26::common::diagnostics::{CompileError, ErrorCode};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -21,7 +21,7 @@ fn main() {
     }
     
     if first_arg == "--version" || first_arg == "-v" {
-        println!("ALGOL26 Compiler v0.7.0");
+        println!("ALGOL26 Compiler v{}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
     
@@ -126,7 +126,7 @@ fn main() {
 }
 
 fn print_usage() {
-    println!("ALGOL26 Compiler v0.7.0");
+    println!("ALGOL26 Compiler v0.1.0");
     println!("=========================");
     println!();
     println!("Usage: algol26 <command> [options]");

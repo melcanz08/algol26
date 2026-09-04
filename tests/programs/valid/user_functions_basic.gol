@@ -6,7 +6,7 @@ function get_message() -> float
 
 procedure main
     val num := get_number()
-    Terminal.print(num)
+    print(num)
     
     val msg := get_message()
-    Terminal.print(msg)
+    print(msg)

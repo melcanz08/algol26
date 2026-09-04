@@ -9,14 +9,14 @@ procedure main
     val prod_mixed := a * c
     val div_mixed := a / c
     
-    Terminal.print(sum_int)
-    Terminal.print(sum_mixed)
-    Terminal.print(diff_mixed)
-    Terminal.print(prod_mixed)
-    Terminal.print(div_mixed)
+    print(sum_int)
+    print(sum_mixed)
+    print(diff_mixed)
+    print(prod_mixed)
+    print(div_mixed)
     
     if a < c then
-        Terminal.print("a is less than c")
+        print("a is less than c")
     
     if a > 5.0 then
-        Terminal.print("a is greater than 5")
+        print("a is greater than 5")

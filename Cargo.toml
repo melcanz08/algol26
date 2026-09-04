@@ -1,10 +1,18 @@
 [package]
 name = "algol26"
-version = "0.1.0"
+version = "0.8.0"
 edition = "2021"
+description = "ALGOL 58 reimagined for 2026 - a historically inspired systems programming language"
+authors = ["Rommel Edorot Caneos"]
+license = "MIT"
+repository = "https://github.com/melcanz08/algol26"
+keywords = ["compiler", "programming-language", "llvm", "algol"]
+categories = ["compilers"]
+rust-version = "1.70"
 
 [dependencies]
 inkwell = { version = "0.7.1", features = ["llvm17-0", "llvm17-0-prefer-dynamic", "target-webassembly"], default-features = false }
+lazy_static = "1.4"
 
 [lib]
 name = "algol26"
@@ -13,3 +21,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "algol26"
 path = "src/main.rs"
+
+[dev-dependencies]
+proptest = "1.4"

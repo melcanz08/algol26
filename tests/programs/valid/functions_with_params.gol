@@ -1,15 +1,15 @@
-function double(x: float) -> float
+function double_value(x: Float) -> Float
     return x * 2.0
 
-function add(x: float, y: float) -> float
+function add(x: Float, y: Float) -> Float
     return x + y
 
 procedure main
     val a := 5.0
     val b := 10.0
     
-    val doubled := double(a)
-    Terminal.print(doubled)
+    val doubled := double_value(a)
+    print(doubled)
     
     val sum := add(a, b)
-    Terminal.print(sum)
+    print(sum)

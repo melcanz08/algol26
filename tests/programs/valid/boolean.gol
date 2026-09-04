@@ -3,7 +3,7 @@ procedure main
     val b := 20.0
     
     if a > 5.0 and b > 15.0 then
-        Terminal.print("Both true")
+        print("Both true")
     
     if a < 5.0 or b > 15.0 then
-        Terminal.print("One true")
+        print("One true")

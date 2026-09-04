@@ -1,0 +1,33 @@
+// temperature_analyzer.gol
+
+procedure main
+    val temperatures := [22.5, 24.1, 19.8, 26.3, 21.0, 23.7, 25.2]
+    var total := 0.0
+    var min_temp := temperatures[0]
+    var max_temp := temperatures[0]
+    // Calculate total and find min/max
+    for temp in temperatures do
+        total := total + temp
+        if temp < min_temp then
+            min_temp := temp
+        if temp > max_temp then
+            max_temp := temp
+    val average := total / 7.0
+    // Output results
+    print("Temperature Analysis")
+    print("--------------------")
+    print("Average:")
+    print(average)
+    print("Minimum:")
+    print(min_temp)
+    print("Maximum:")
+    print(max_temp)
+    // Classify days
+    print("Classification:")
+    for temp in temperatures do
+        if temp > average then
+            print(temp)
+            print("  -> Above average")
+        else
+            print(temp)
+            print("  -> Below or equal average")

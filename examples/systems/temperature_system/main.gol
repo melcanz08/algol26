@@ -1,0 +1,23 @@
+// Temperature Analysis System
+// Uses List operations directly
+
+procedure main
+    // Sample temperature data for 7 days
+    val temperatures := [22.5, 24.1, 19.8, 26.3, 21.0, 23.7, 25.2]
+    
+    // Calculate using List operations directly
+    val avg := List.sum(temperatures) / List.length(temperatures)
+    val max_temp := List.max(temperatures)
+    val min_temp := List.min(temperatures)
+    
+    print("=== Temperature Analysis ===")
+    print("Average temperature:")
+    print(avg)
+    print("Maximum temperature:")
+    print(max_temp)
+    print("Minimum temperature:")
+    print(min_temp)
+    
+    // Save report
+    File.write("temperature_report.txt", "Analysis complete")
+    print("Report saved!")

@@ -5,4 +5,4 @@ procedure main
         shared := 10.0
     
     shared := 20.0
-    Terminal.print(shared)
+    print(shared)

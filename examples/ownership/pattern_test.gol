@@ -1,0 +1,19 @@
+function main() -> Int
+    val value := Some(5)
+    
+    match value
+        case Some(x)
+            print x
+        case None
+            print 0
+    
+    val num := 5
+    match num
+        case 1..5
+            print "1 to 5"
+        case 6..10
+            print "6 to 10"
+        case _
+            print "other"
+    
+    return 0

@@ -1,0 +1,189 @@
+// ALGOL26 Comprehensive Feature Test
+// Tests all major language features in one program
+
+import "helpers.gol"
+
+function add_values(x: float, y: float) -> float
+    return x + y
+
+function string_processor(text: string) -> string
+    return String.to_upper(text)
+
+procedure main
+    print("=== ALGOL26 COMPREHENSIVE TEST ===")
+    
+    // Test 1: Variables
+    print("Test 1: Variables")
+    val int_val := 42
+    val float_val := 3.14159
+    val string_val := "Hello ALGOL26"
+    val bool_val := true
+    var mutable_val := 10.0
+    mutable_val := 20.0
+    
+    print("Int:")
+    print(int_val)
+    print("Float:")
+    print(float_val)
+    print("String:")
+    print(string_val)
+    print("Bool:")
+    print(bool_val)
+    print("Mutable:")
+    print(mutable_val)
+    
+    // Test 2: Arithmetic
+    print("Test 2: Arithmetic")
+    val int_sum := int_val + 8
+    val float_sum := int_val + float_val
+    val division := 100.0 / 7.0
+    
+    print("Int + Int:")
+    print(int_sum)
+    print("Int + Float:")
+    print(float_sum)
+    print("Division:")
+    print(division)
+    
+    // Test 3: Control flow
+    print("Test 3: Control Flow")
+    
+    if bool_val then
+        print("If: true")
+    else
+        print("If: false")
+    
+    var counter := 0.0
+    while counter < 3.0 do
+        print("While:")
+        print(counter)
+        counter := counter + 1.0
+    
+    val items := [10.0, 20.0, 30.0, 40.0, 50.0]
+    var total := 0.0
+    for item in items do
+        total := total + item
+    print("For sum:")
+    print(total)
+    
+    // Test 3b: break and continue in loops
+    print("Test 3b: Break and Continue")
+    var break_count := 0.0
+    for item in [1.0, 2.0, 3.0, 4.0, 5.0] do
+        break_count := break_count + 1.0
+        if item > 2.0 then
+            break
+    print("Break count:")
+    print(break_count)
+    
+    var continue_sum := 0.0
+    for item in [1.0, 2.0, 3.0, 4.0, 5.0] do
+        if item < 2.0 then
+            continue
+        continue_sum := continue_sum + item
+    print("Continue sum:")
+    print(continue_sum)
+    
+    // Test 4: Functions
+    print("Test 4: User Functions")
+    val sum_result := add_values(5.0, 7.0)
+    print("add(5,7):")
+    print(sum_result)
+    
+    // Test 5: Math
+    print("Test 5: Math")
+    print("sqrt(16):")
+    print(Math.sqrt(16.0))
+    print("pow(2,3):")
+    print(Math.pow(2.0, 3.0))
+    print("abs(-42):")
+    print(Math.abs(-42.0))
+    print("floor(3.7):")
+    print(Math.floor(3.7))
+    print("ceil(3.2):")
+    print(Math.ceil(3.2))
+    
+    // Test 6: String
+    print("Test 6: String")
+    val full := String.concat(String.concat("hello", " "), "world")
+    print("Combined:")
+    print(full)
+    print("Upper:")
+    print(String.to_upper(full))
+    print("Lower:")
+    print(String.to_lower(full))
+    print("Length:")
+    print(String.length(full))
+    print("Substring:")
+    print(String.substring(full, 0, 5))
+    
+    // Test 7: List (direct)
+    print("Test 7: List")
+    val numbers := [5.0, 2.0, 8.0, 1.0, 9.0]
+    print("Length:")
+    print(List.length(numbers))
+    print("Sum:")
+    print(List.sum(numbers))
+    print("Max:")
+    print(List.max(numbers))
+    print("Min:")
+    print(List.min(numbers))
+    
+    // Test 8: File I/O
+    print("Test 8: File I/O")
+    File.write("/tmp/algol26_test.txt", "ALGOL26 works!")
+    File.append("/tmp/algol26_test.txt", " More content!")
+    print("File content:")
+    print(File.read("/tmp/algol26_test.txt"))
+    
+    // Test 9: Borrow
+    print("Test 9: Borrow")
+    val borrow_src := 42.0
+    val borrowed := &borrow_src
+    print("Borrowed:")
+    print(borrow_src)
+    
+    // Test 10: Module import
+    print("Test 10: Module Import")
+    print("Imported result:")
+    print(string_processor("test import"))
+    
+    // Test 11: Concurrency (sequential)
+    print("Test 11: Concurrency")
+    spawn
+        print("Spawned task")
+    print("After spawn")
+    parallel do
+        print("Parallel 1")
+        print("Parallel 2")
+    
+    print("=== ALL TESTS PASSED ===")
+
+// ============================================
+// ERROR HANDLING TESTS (Uncomment to test)
+// Each test should produce a compile-time error
+// ============================================
+
+// Test E1: Undefined variable (line/column should show)
+// procedure test_undefined
+//     print(undefined_var)
+
+// Test E2: Type mismatch (Int vs String)
+// procedure test_type_mismatch
+//     val x := "hello" + 5.0
+
+// Test E3: Use after move
+// procedure test_use_after_move
+//     val a := 42.0
+//     val b := a
+//     print(a)
+
+// Test E4: Bounds check (index 10 on 3-element array)
+// procedure test_bounds
+//     val arr := [1.0, 2.0, 3.0]
+//     print(arr[10])
+
+// Test E5: Immutability (assign to val)
+// procedure test_immutability
+//     val x := 10.0
+//     x := 20.0

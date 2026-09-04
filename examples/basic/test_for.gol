@@ -1,0 +1,4 @@
+procedure main
+    val temperatures := [1.0, 2.0, 3.0]
+    for temp in temperatures do
+        print(temp)

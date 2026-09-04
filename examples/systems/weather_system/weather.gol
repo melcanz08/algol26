@@ -1,0 +1,57 @@
+// Weather Analysis System
+// Demonstrates ALGOL26's core features
+
+function classify_temperature(temp: float) -> string
+    if temp < 10.0 then
+        return "Cold"
+    if temp < 20.0 then
+        return "Cool"
+    if temp < 30.0 then
+        return "Warm"
+    return "Hot"
+
+procedure main
+    try
+        // Calculate average using direct values
+        val average := (18.5 + 21.3 + 24.7 + 19.2 + 27.8 + 22.1 + 25.6) / 7.0
+        
+        // Print report
+        print("=== Weekly Weather Report ===")
+        
+        print("Day 1: 18.5")
+        print(classify_temperature(18.5))
+        
+        print("Day 2: 21.3")
+        print(classify_temperature(21.3))
+        
+        print("Day 3: 24.7")
+        print(classify_temperature(24.7))
+        
+        print("Day 4: 19.2")
+        print(classify_temperature(19.2))
+        
+        print("Day 5: 27.8")
+        print(classify_temperature(27.8))
+        
+        print("Day 6: 22.1")
+        print(classify_temperature(22.1))
+        
+        print("Day 7: 25.6")
+        print(classify_temperature(25.6))
+        
+        print("=== Summary ===")
+        print("Average temperature:")
+        print(average)
+        print("Maximum temperature: 27.8")
+        print("Minimum temperature: 18.5")
+        
+        // Save report
+        File.write("weather_report.txt", "Weekly weather analysis complete")
+        print("Report saved!")
+        
+    catch err
+        print("Error:")
+        print(err)
+    
+    finally
+        print("Weather analysis finished")

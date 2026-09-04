@@ -5,7 +5,7 @@ procedure main
     
     var count := 0.0
     while count < n do
-        Terminal.print(a)
+        print(a)
         var temp := a + b
         a := b
         b := temp

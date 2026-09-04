@@ -3,12 +3,25 @@
 *.o
 *.out
 *.ll
+*.bc
 a.out
 test_bin
 
-# Generated files
-output.ll
-*.bc
+# Generated executables (no extension)
+examples/**/*
+!examples/**/*.gol
+!examples/**/*.md
+!examples/**/
+benchmarks/programs/*.gol
+/tmp/
+
+# Generated reports
+*_report.txt
+
+# Tools (historical scripts — kept for reference but not published)
+tools/*.py
+tools/*.sh
+tools/*.rs
 
 # Editor files
 *.swp
@@ -20,3 +33,13 @@ output.ll
 # OS files
 .DS_Store
 Thumbs.db
+
+# Test program compiled binaries (no extension)
+tests/programs/valid/concurrency
+tests/programs/valid/scope_moves
+tests/programs/invalid/out_of_bounds
+tests/programs/invalid/use_after_move
+
+# Test program compiled binaries (no .gol extension)
+tests/programs/*/
+!tests/programs/*/*.gol

@@ -1,0 +1,15 @@
+trait Comparable
+    function compare(other: Self) -> Int
+
+impl Comparable for Int
+    function compare(other: Int) -> Int
+        if self < other
+            return -1
+        else if self > other
+            return 1
+        else
+            return 0
+
+function main() -> Int
+    print "traits parsed"
+    return 0

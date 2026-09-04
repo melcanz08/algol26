@@ -1,2 +1,2 @@
 procedure main
-    Terminal.print("Hello, ALGOL26!")
+    print("Hello, ALGOL26!")

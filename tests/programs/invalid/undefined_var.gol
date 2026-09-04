@@ -1,2 +1,2 @@
 procedure main
-    Terminal.print(undefined_variable)
+    print(undefined_variable)

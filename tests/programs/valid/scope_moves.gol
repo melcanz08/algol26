@@ -3,6 +3,6 @@ procedure main
     
     if true then
         val y := x
-        Terminal.print(y)
+        print(y)
     
-    Terminal.print(x)
+    print(x)

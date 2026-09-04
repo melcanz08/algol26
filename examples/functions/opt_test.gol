@@ -1,0 +1,6 @@
+proc main()
+    val base_price := 100.0
+    val tax_rate := 0.12
+    val final_cost := base_price * (1.0 + tax_rate)
+    print final_cost
+end

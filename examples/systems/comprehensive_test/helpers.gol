@@ -1,0 +1,4 @@
+// Helper module for comprehensive test
+
+function helper_multiply(x: float, y: float) -> float
+    return x * y

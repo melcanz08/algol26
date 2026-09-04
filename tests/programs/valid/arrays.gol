@@ -5,6 +5,6 @@ procedure main
     for item in arr do
         sum := sum + item
     
-    Terminal.print(sum)
-    Terminal.print(arr[0])
-    Terminal.print(arr[4])
+    print(sum)
+    print(arr[0])
+    print(arr[4])

@@ -1,0 +1,21 @@
+// Orthogonal Expressions Test
+// Tests if-else as value-producing expressions
+
+proc main()
+    val score := 85
+    val discount_active := true
+
+    // Test 1: Indentation-Based Conditional Assignment
+    val grade := if score >= 75
+        "Passed"
+    else
+        "Failed"
+
+    // Test 2: Infix Mathematical Integration
+    val total_price := 100.0 - if discount_active
+        15.0
+    else
+        0.0
+
+    print(grade)
+    print(total_price)

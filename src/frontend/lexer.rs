@@ -140,13 +140,10 @@ pub struct Lexer {
     pub positions: Vec<(usize, usize)>, // (line, column) for each token
 }
 
-// Define module functions once at module level
-const MODULE_FUNCTIONS: &[&str] = &[
-    "Math.sqrt", "Math.pow", "Math.sin", "Math.cos", "Math.abs", 
-    "Math.floor", "Math.ceil", "Math.exp", "Math.log", "Math.tan",
-    "File.read", "File.write", "File.append",
-    "List.length", "List.sum", "List.max", "List.min",
-];
+// MODULE_FUNCTIONS REMOVED:
+// The lexer should not know about stdlib functions.
+// read_identifier already includes dots, so "Math.sqrt" is just an identifier.
+// Semantic resolution (not lexical analysis) determines if it's a valid function.
 
 // Define keywords lookup table
 lazy_static::lazy_static! {
@@ -483,9 +480,6 @@ impl Lexer {
             _ => {
                 if let Some(token) = KEYWORDS.get(ident.as_str()) {
                     tokens.push(token.clone());
-                } else if MODULE_FUNCTIONS.contains(&ident.as_str()) {
-                    // Module functions are special identifiers
-                    tokens.push(Token::Identifier(ident));
                 } else {
                     tokens.push(Token::Identifier(ident));
                 }
@@ -807,10 +801,11 @@ mod tests {
     }
 
     #[test]
-    fn test_module_functions() {
+    fn test_dotted_identifiers() {
         let source = "var x := Math.sqrt(16)";
         let lexer = Lexer::new(source.to_string()).unwrap();
         
+        // "Math.sqrt" is just an identifier with a dot — not lexer-special
         assert!(lexer.tokens.contains(&Token::Identifier("Math.sqrt".to_string())));
     }
 

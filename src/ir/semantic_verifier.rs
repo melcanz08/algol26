@@ -70,6 +70,40 @@ impl SemanticVerifier {
                                 }
                             }
                         }
+                        SemanticInstruction::Assign { target: _, value } => {
+                            Self::verify_value_no_unknown(value, "assign.value")?;
+                        }
+                        SemanticInstruction::ArrayAssign { array, index, value } => {
+                            Self::verify_value_no_unknown(array, "array_assign.array")?;
+                            Self::verify_value_no_unknown(index, "array_assign.index")?;
+                            Self::verify_value_no_unknown(value, "array_assign.value")?;
+                        }
+                        SemanticInstruction::Print { value } => {
+                            Self::verify_value_no_unknown(value, "print.value")?;
+                        }
+                        SemanticInstruction::Declare { value, type_, .. } => {
+                            if *type_ == Type::Unknown {
+                                return Err(format!("{}:{}: Declare type Unknown", func.name, block.id));
+                            }
+                            Self::verify_value_no_unknown(value, "declare.value")?;
+                        }
+                        SemanticInstruction::Call { args, return_type, .. } => {
+                            if *return_type == Type::Unknown {
+                                return Err(format!("{}:{}: Call return Unknown", func.name, block.id));
+                            }
+                            for (i, arg) in args.iter().enumerate() {
+                                Self::verify_value_no_unknown(arg, &format!("call.arg{}", i))?;
+                            }
+                        }
+                        SemanticInstruction::MethodCall { receiver, args, return_type, .. } => {
+                            if *return_type == Type::Unknown {
+                                return Err(format!("{}:{}: MethodCall return Unknown", func.name, block.id));
+                            }
+                            Self::verify_value_no_unknown(receiver, "method_call.receiver")?;
+                            for (i, arg) in args.iter().enumerate() {
+                                Self::verify_value_no_unknown(arg, &format!("method_call.arg{}", i))?;
+                            }
+                        }
                         _ => {}
                     }
                 }

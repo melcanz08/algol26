@@ -12,19 +12,27 @@ impl ControlFlowTranslator {
         ControlFlowTranslator
     }
     
-    pub fn ensure_block(func: &mut SemanticFunction, block_id: usize) {
+    pub fn ensure_block(func: &mut SemanticFunction, block_id: usize) -> Result<(), String> {
         if !func.blocks.iter().any(|b| b.id == block_id) {
-            func.blocks.push(SemanticBlock {
-                id: block_id,
-                instructions: Vec::new(),
-            });
+            return Err(format!("Block {} does not exist in function '{}'", block_id, func.name));
         }
+        Ok(())
     }
     
-    pub fn add_instruction(func: &mut SemanticFunction, block_id: usize, instruction: SemanticInstruction) {
-        Self::ensure_block(func, block_id);
+    pub fn create_block(func: &mut SemanticFunction, block_id: usize) {
+        func.blocks.push(SemanticBlock {
+            id: block_id,
+            instructions: Vec::new(),
+        });
+    }
+    
+    pub fn add_instruction(func: &mut SemanticFunction, block_id: usize, instruction: SemanticInstruction) -> Result<(), String> {
+        Self::ensure_block(func, block_id)?;
         if let Some(block) = func.blocks.iter_mut().find(|b| b.id == block_id) {
             block.instructions.push(instruction);
+            Ok(())
+        } else {
+            Err(format!("Block {} not found in function '{}'", block_id, func.name))
         }
     }
     
@@ -38,7 +46,7 @@ impl ControlFlowTranslator {
     
     pub fn add_jump_if_needed(func: &mut SemanticFunction, from_block: usize, to_block: usize) {
         if !Self::is_terminated(func, from_block) {
-            Self::add_instruction(func, from_block, SemanticInstruction::Jump { block: to_block });
+            let _ = Self::add_instruction(func, from_block, SemanticInstruction::Jump { block: to_block });
         }
     }
     
@@ -58,12 +66,12 @@ impl ControlFlowTranslator {
         for flow in flows {
             if let FlowResult::Reachable(id) = flow {
                 if !Self::is_terminated(func, *id) {
-                    Self::add_instruction(func, *id, SemanticInstruction::Jump { block: merge_id });
+                    let _ = Self::add_instruction(func, *id, SemanticInstruction::Jump { block: merge_id });
                 }
             }
         }
         
-        Self::ensure_block(func, merge_id);
+        Self::create_block(func, merge_id);
         
         FlowResult::Reachable(merge_id)
     }

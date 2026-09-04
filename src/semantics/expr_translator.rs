@@ -35,10 +35,43 @@ impl ExprTranslator {
         scopes: &[HashMap<String, VariableInfo>],
     ) -> TypedIRValue {
         match expr {
-            Expr::Borrow { expr } => self.translate(expr, scopes),
-            Expr::MutBorrow { expr } => self.translate(expr, scopes),
-            Expr::Deref { expr } => self.translate(expr, scopes),
-            Expr::AddrOf { expr } => self.translate(expr, scopes),
+            Expr::Borrow { expr } => {
+                let inner = self.translate(expr, scopes);
+                let inner_type = inner.type_of();
+                TypedIRValue::Cast {
+                    value: Box::new(inner),
+                    target_type: Type::borrow(inner_type),
+                }
+            }
+            Expr::MutBorrow { expr } => {
+                let inner = self.translate(expr, scopes);
+                let inner_type = inner.type_of();
+                TypedIRValue::Cast {
+                    value: Box::new(inner),
+                    target_type: Type::mut_borrow(inner_type),
+                }
+            }
+            Expr::Deref { expr } => {
+                let inner = self.translate(expr, scopes);
+                let inner_type = inner.type_of();
+                match inner_type {
+                    Type::Borrow(t) | Type::MutBorrow(t) | Type::Pointer(t) => {
+                        TypedIRValue::Cast {
+                            value: Box::new(inner),
+                            target_type: *t,
+                        }
+                    }
+                    _ => inner,
+                }
+            }
+            Expr::AddrOf { expr } => {
+                let inner = self.translate(expr, scopes);
+                let inner_type = inner.type_of();
+                TypedIRValue::Cast {
+                    value: Box::new(inner),
+                    target_type: Type::pointer(inner_type),
+                }
+            }
             Expr::Number(n) => TypedIRValue::Float(*n),
             Expr::Int(i) => TypedIRValue::Int(*i),
             Expr::String(s) => TypedIRValue::String(s.clone()),

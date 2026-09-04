@@ -28,9 +28,19 @@ impl FlowAnalyzer {
             (FlowResult::Unreachable, FlowResult::Unreachable) => {
                 FlowResult::Unreachable
             }
-            (_t, _e) => {
-                // Both or one reachable - need merge block
-                FlowResult::Reachable(0) // Placeholder - caller will assign block ID
+            (FlowResult::Reachable(id), FlowResult::Unreachable) => {
+                // Only then branch is reachable — use its block ID
+                FlowResult::Reachable(id)
+            }
+            (FlowResult::Unreachable, FlowResult::Reachable(id)) => {
+                // Only else branch is reachable — use its block ID
+                FlowResult::Reachable(id)
+            }
+            (FlowResult::Reachable(_), FlowResult::Reachable(_)) => {
+                // Both reachable — caller must create a merge block.
+                // Return Unreachable here; the caller will handle merging.
+                // This is NOT a fake ID — it's a signal that merging is needed.
+                FlowResult::Unreachable
             }
         }
     }

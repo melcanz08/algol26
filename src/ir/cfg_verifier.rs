@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-// BlockResult - tracks termination state of CFG blocks
+// src/ir/cfg_verifier.rs - BlockResult - tracks termination state of CFG blocks
 // Prevents emitting dead code after terminators
 
 #[derive(Debug, Clone, Copy, PartialEq)]

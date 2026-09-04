@@ -1,4 +1,4 @@
-// src/types.rs - Unified Type System for ALGOL26
+// src/common/types.rs - Unified Type System for ALGOL26
 
 #![allow(dead_code)]
 

@@ -510,7 +510,7 @@ impl SemanticAnalyzer {
     fn parse_type_param(&self, type_str: &str) -> Option<String> {
         // Check if the type string is a type parameter (single uppercase letter)
         let trimmed = type_str.trim();
-        if trimmed.len() == 1 && trimmed.chars().next().unwrap().is_uppercase() {
+        if trimmed.len() == 1 && trimmed.chars().next().is_some_and(|c| c.is_uppercase()) {
             Some(trimmed.to_string())
         } else {
             None

@@ -125,11 +125,12 @@ impl Type {
         let s_trimmed = s.trim();
         let s_lower = s_trimmed.to_lowercase();
 
-        // Check if it's a type variable (single uppercase letter)
+        // Check if it's a type variable (single uppercase letter) - Level 3: no unwrap
         if s_trimmed.len() == 1 {
-            let c = s_trimmed.chars().next().unwrap();
-            if c.is_uppercase() {
-                return Type::TypeVar(s_trimmed.to_string());
+            if let Some(c) = s_trimmed.chars().next() {
+                if c.is_uppercase() {
+                    return Type::TypeVar(s_trimmed.to_string());
+                }
             }
         }
 

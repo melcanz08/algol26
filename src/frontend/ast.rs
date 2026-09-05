@@ -305,7 +305,9 @@ impl TypeSyntax {
             TypeSyntax::Unknown
         } else if s.contains('<') {
             // Parse generic type: List<Int>, Option<Result<Int, String>>
-            let open_pos = s.find('<').unwrap();
+            let Some(open_pos) = s.find('<') else {
+                return TypeSyntax::Unknown;
+            };
             let close_pos = s.rfind('>').unwrap_or(s.len());
             let name = &s[..open_pos];
             let args_str = &s[open_pos + 1..close_pos];

@@ -184,10 +184,11 @@ impl Monomorphizer {
     ) -> String {
         let trimmed = type_str.trim();
         if trimmed.len() == 1 {
-            let c = trimmed.chars().next().unwrap();
-            if c.is_uppercase() {
-                if let Some(concrete) = type_bindings.get(trimmed) {
-                    return concrete.to_string();
+            if let Some(c) = trimmed.chars().next() {
+                if c.is_uppercase() {
+                    if let Some(concrete) = type_bindings.get(trimmed) {
+                        return concrete.to_string();
+                    }
                 }
             }
         }

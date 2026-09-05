@@ -420,7 +420,7 @@ impl SemanticIRBuilder {
                     Some(s) => Type::from_str(&s.to_string_rep()),
                     None => Type::Unknown,
                 };
-                if self.scopes.last().unwrap().contains_key(name) {
+                if self.scopes.last().is_some_and(|s| s.contains_key(name)) {
                     self.diagnostics.push(format!(
                         "Duplicate parameter '{}' in function '{}'",
                         name, func.name
@@ -1959,8 +1959,7 @@ impl SemanticIRBuilder {
                 }
                 let typed_value = self.translate_expr(program, func, current_block, value);
                 // Check if expr created a loop merge
-                if self.pending_merge.is_some() {
-                    let merge = self.pending_merge.take().unwrap();
+                if let Some(merge) = self.pending_merge.take() {
                     // Declare with the for result
                     let type_ = if let Some(type_str) = type_annotation {
                         let declared_type = Type::from_str(type_str);
@@ -2246,9 +2245,7 @@ impl SemanticIRBuilder {
             }
             Stmt::Expression(expr) => {
                 let typed_value = self.translate_expr(program, func, current_block, expr);
-                if self.pending_merge.is_some() {
-                    // Expression was a loop that created a merge block
-                    let merge = self.pending_merge.take().unwrap();
+                if let Some(merge) = self.pending_merge.take() {
                     // Need to jump? translate_for_expr already jumped
                     // Return reachable merge so next stmt goes there
                     return FlowResult::Reachable(merge);

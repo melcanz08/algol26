@@ -281,7 +281,7 @@ impl Lexer {
                 .fold(0, |acc, c| if c == '\t' { acc + 4 } else { acc + 1 });
             // --- end bulletproof ---
 
-            let current_indent = *indent_stack.last().unwrap();
+            let current_indent = indent_stack.last().copied().unwrap_or(0);
 
             if indent > current_indent {
                 indent_stack.push(indent);
@@ -373,19 +373,15 @@ impl Lexer {
         tokens: &mut Vec<Token>,
         positions: &mut Vec<usize>,
     ) -> Result<()> {
-        if trimmed.starts_with("procedure") || trimmed.starts_with("proc") {
-            let prefix = if trimmed.starts_with("procedure") {
-                "procedure"
-            } else {
-                "proc"
-            };
-            positions.push(prefix.len());
-            let rest = trimmed.strip_prefix(prefix).unwrap().trim();
-            Lexer::parse_declaration(Token::Procedure, rest, tokens, positions);
-        } else if trimmed.starts_with("function") {
-            let rest = trimmed.strip_prefix("function").unwrap().trim();
-            positions.push("function".len());
-            Lexer::parse_declaration(Token::Function, rest, tokens, positions);
+    if let Some(rest) = trimmed.strip_prefix("procedure").or_else(|| trimmed.strip_prefix("proc")) {
+        let prefix_len = trimmed.len() - rest.len();
+        positions.push(prefix_len);
+        let rest = rest.trim();
+        Lexer::parse_declaration(Token::Procedure, rest, tokens, positions);
+    } else if let Some(rest) = trimmed.strip_prefix("function") {
+        positions.push("function".len());
+        let rest = rest.trim();
+        Lexer::parse_declaration(Token::Function, rest, tokens, positions);
         } else {
             Lexer::tokenize_expression(trimmed, line_number, line, tokens, positions)?;
         }
@@ -684,7 +680,7 @@ impl Lexer {
         line: &str,
         tokens: &mut Vec<Token>,
     ) -> Result<()> {
-        let c = chars.next().unwrap();
+        let Some(c) = chars.next() else { return Ok(()); };
         *position += 1;
 
         match c {

@@ -120,9 +120,10 @@ impl SemanticCFGVerifier {
         Ok(())
     }
 
+    #[allow(clippy::panic)]
     pub fn assert_valid(program: &crate::ir::semantic_ir::SemanticProgram) {
         if let Err(e) = Self::verify_program(program) {
-            panic!("CFG verification failed: {}", e);
+            panic!("CFG verification failed (ICE): {}", e);
         }
     }
 }

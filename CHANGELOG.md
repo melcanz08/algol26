@@ -1,5 +1,50 @@
 # ALGOL26 Changelog
 
+## [0.8.0-hardened] - 2026-09-05 - Level 3 Production Hardened - Lenovo G560 (Opol)
+
+### Hardening - Level 3 Complete
+
+**From 240 prod unwraps / 148 clippy errors → 0 prod unwraps, clippy -D warnings CLEAN, 150/150 tests green.**
+
+#### Enforcement Added - `src/lib.rs`
+```rust
+#![deny(clippy::panic)]
+#![deny(clippy::unwrap_used)]
+#![allow(clippy::expect_used)] // LLVM builder ICE only
+```
+
+#### Panic Surface Reduction
+- **Before:** 240x `unwrap()` / `expect()` / `panic!()` in prod paths
+- **After:** 13 ICE-only `expect("LLVM IR build failed - ICE")` in `src/backends/ir_codegen.rs`
+- `cfg_verifier.rs:126` - `assert_valid` now `#[allow(clippy::panic)]` - intentional ICE
+- All `parser.rs` / `verified_ir.rs` panics confined to `#[cfg(test)]`
+
+#### Critical Fixes (G560)
+- `lexer.rs:375-390` - `procedure`/`proc`/`function` decl: `strip_prefix().unwrap()` → safe len calc (manual_strip)
+- `lexer.rs:683` - `handle_operator`: `chars.next().unwrap()` → `else { return Ok(()) }` (EOF crash - fuzz found)
+- `lexer.rs` - `*indent_stack.last().unwrap_or(&0)` → `.last().copied().unwrap_or(0)`
+- `ast.rs:308` - `List<Int>`: `s.find('<').unwrap()` → `let Some(open_pos) = s.find('<') else { return Unknown }`
+- `semantics/semantic.rs:513` - `trimmed.chars().next().unwrap().is_uppercase()` → `is_some_and(|c| c.is_uppercase())`
+- `common/types.rs, semantic_builder.rs, monomorphize.rs` - all prod `unwrap()` → `is_some_and` / `if let Some`
+
+#### Verification
+```
+cargo clippy --lib -- -D warnings → LEVEL 3 CLEAN ✅
+cargo test -- --test-threads=1 → 150 passed, 0 failed (43 unit + 16 backends + 14 differential + 2 frontend + 4 fuzz + 13 integration + 24 ir + 5 property + 29 semantics)
+./tools/hardening_audit.sh → Count: 13 (ICE only)
+git tag v0.8.0-hardened pushed to origin
+```
+
+#### What Level 3 Means
+- No user input can trigger `panic!()` / `unwrap()` in prod paths
+- Remaining `expect()`s are LLVM builder invariants - only fire on compiler bugs (ICE)
+- Fuzz harness `test_fuzz_compiler_no_panic` passes 3.37s random input
+
+#### Commit
+`e1db260 - hardening Level 3 final: deny panic/unwrap_used, fix parse_type_param is_some_and, 150 tests green on G560`
+
+---
+
 ## v1.3 – Standard Library Foundation (Current)
 
 ### Added

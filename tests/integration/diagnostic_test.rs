@@ -16,13 +16,13 @@ fn test_compile_error_creation() {
         "val x: Int := 3.14",
         ErrorCode::E0002,
     )
-    .with_suggestion("Convert the value to Int");
+   .with_suggestion("Convert the value to Int");
 
-    assert_eq!(err.message, "Type mismatch");
+    assert_eq!(err.message.as_str(), "Type mismatch");
     assert_eq!(err.line, 5);
     assert_eq!(err.column, 10);
     assert_eq!(err.error_code, ErrorCode::E0002);
-    assert_eq!(err.suggestion, Some("Convert the value to Int".to_string()));
+    assert_eq!(err.suggestion.as_deref().map(|s| s.as_str()), Some("Convert the value to Int"));
 }
 
 #[test]

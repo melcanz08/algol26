@@ -6,12 +6,12 @@ use algol26::frontend::parser::Parser;
 use algol26::semantics::semantic::SemanticAnalyzer;
 
 fn analyze(source: &str) -> Result<(), String> {
-    let lexer = Lexer::new(source.to_string()).map_err(|e| e.message)?;
+    let lexer = Lexer::new(source.to_string()).map_err(|e| *e.message)?;
     let mut parser = Parser::new(lexer.tokens);
-    let program = parser.parse_program().map_err(|e| e.message)?;
+    let program = parser.parse_program().map_err(|e| *e.message)?;
     let functions = program.functions;
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze(&functions).map_err(|e| e.message)
+    analyzer.analyze(&functions).map_err(|e| *e.message)
 }
 
 #[test]

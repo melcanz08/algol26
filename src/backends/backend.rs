@@ -51,8 +51,8 @@ impl BackendRegistry {
         self.backends.push(backend);
     }
 
-    pub fn get(&self, name: &str) -> Option<&Box<dyn Backend>> {
-        self.backends.iter().find(|b| b.name() == name)
+    pub fn get(&self, name: &str) -> Option<&dyn Backend> {
+        self.backends.iter().find(|b| b.name() == name).map(|v| v.as_ref())
     }
 
     pub fn list(&self) -> Vec<&str> {

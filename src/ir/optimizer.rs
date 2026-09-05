@@ -137,11 +137,10 @@ impl Optimizer {
                         SemanticInstruction::Print { value } => {
                             Self::propagate_in_value(value, &constants);
                         }
-                        SemanticInstruction::Return { value, .. } => {
-                            if let Some(v) = value {
-                                Self::propagate_in_value(v, &constants);
-                            }
+                        SemanticInstruction::Return { value: Some(v),.. } => {
+                            Self::propagate_in_value(v, &constants);
                         }
+                        SemanticInstruction::Return {.. } => {}
                         SemanticInstruction::Branch { condition, .. } => {
                             Self::propagate_in_value(condition, &constants);
                         }

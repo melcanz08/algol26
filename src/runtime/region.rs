@@ -21,12 +21,6 @@ pub struct RegionManager {
     next_id: usize,
 }
 
-impl Default for RegionManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RegionManager {
     pub fn new() -> Self {
         RegionManager {
@@ -82,5 +76,11 @@ impl RegionManager {
 
     pub fn is_active(&self, id: usize) -> bool {
         self.regions.get(&id).map(|r| r.active).unwrap_or(false)
+    }
+}
+
+impl Default for RegionManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

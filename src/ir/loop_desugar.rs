@@ -5,7 +5,7 @@ use crate::common::span::Span;
 use crate::frontend::ast::{BinOp, Expr, FunctionDecl, Stmt};
 use std::collections::HashMap;
 
-pub fn desugar_loops(functions: &mut Vec<FunctionDecl>) {
+pub fn desugar_loops(functions: &mut [FunctionDecl]) {
     for func in functions.iter_mut() {
         let mut env: HashMap<String, Vec<Expr>> = HashMap::new();
         func.body = desugar_stmts(std::mem::take(&mut func.body), &mut env);

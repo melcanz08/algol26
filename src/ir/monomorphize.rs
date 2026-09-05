@@ -12,12 +12,6 @@ pub struct Monomorphizer {
     type_bindings: HashMap<String, Vec<Vec<Type>>>,
 }
 
-impl Default for Monomorphizer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Monomorphizer {
     pub fn new() -> Self {
         Monomorphizer {
@@ -75,11 +69,10 @@ impl Monomorphizer {
             Stmt::Assign { value, .. } => self.collect_from_expr(value),
             Stmt::Expression(expr) => self.collect_from_expr(expr),
             Stmt::Print { expr } => self.collect_from_expr(expr),
-            Stmt::Return { value, .. } => {
-                if let Some(expr) = value {
-                    self.collect_from_expr(expr);
-                }
+            Stmt::Return { value: Some(expr),.. } => {
+                self.collect_from_expr(expr);
             }
+            Stmt::Return {.. } => {}
             _ => {}
         }
     }
@@ -526,5 +519,11 @@ impl Monomorphizer {
             ),
             _ => expr.clone(),
         }
+    }
+}
+
+impl Default for Monomorphizer {
+    fn default() -> Self {
+        Self::new()
     }
 }

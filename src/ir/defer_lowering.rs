@@ -84,3 +84,7 @@ impl DeferLoweringPass {
         func.blocks = new_blocks;
     }
 }
+
+impl Default for DeferLoweringPass {
+    fn default() -> Self { Self::new() }
+}

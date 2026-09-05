@@ -18,12 +18,6 @@ pub struct EscapeAnalyzer {
     escaped: Vec<EscapeInfo>,
 }
 
-impl Default for EscapeAnalyzer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl EscapeAnalyzer {
     pub fn new() -> Self {
         let mut analyzer = EscapeAnalyzer {
@@ -80,5 +74,11 @@ impl EscapeAnalyzer {
 
     pub fn get_escapes(&self) -> &[EscapeInfo] {
         &self.escaped
+    }
+}
+
+impl Default for EscapeAnalyzer {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -14,12 +14,6 @@ pub struct TraitRegistry {
     pub impls: HashMap<(String, String), ImplBlock>,
 }
 
-impl Default for TraitRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TraitRegistry {
     pub fn new() -> Self {
         TraitRegistry {
@@ -103,6 +97,12 @@ impl TraitRegistry {
         }
 
         Ok(())
+    }
+}
+
+impl Default for TraitRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

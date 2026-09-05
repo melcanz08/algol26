@@ -16,6 +16,7 @@ use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, Point
 use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
 use std::collections::HashMap;
+use crate::ffi::lowering::{FFIRegistry, register_stdlib_functions};
 fn ice_opt<T>(opt: Option<T>, msg: &str) -> Result<T> {
     opt.ok_or_else(|| CompileError::new(msg, 0, 0, "", ErrorCode::E0009))
 }
@@ -40,6 +41,7 @@ pub struct IRCodeGen<'ctx> {
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
     )>,
+    ffi_registry: FFIRegistry,
     // NEW: track list arrays and lengths
     list_arrays: HashMap<String, PointerValue<'ctx>>,
     list_lengths: HashMap<String, usize>,
@@ -61,6 +63,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             current_function: None,
             blocks: HashMap::new(),
             loop_stack: Vec::new(),
+            ffi_registry: FFIRegistry::new(),
             list_arrays: HashMap::new(),
             list_lengths: HashMap::new(),
             iterator_arrays: HashMap::new(),
@@ -2001,31 +2004,33 @@ impl<'ctx> IRCodeGen<'ctx> {
     }
 
     fn register_stdlib(&mut self) {
+        let mut registry = FFIRegistry::new();
+        register_stdlib_functions(&mut registry);
+        self.ffi_registry = registry.clone();
+
         let i32_type = self.context.i32_type();
         let i8_ptr_type = self.context.ptr_type(AddressSpace::default());
         let printf_type = i32_type.fn_type(&[i8_ptr_type.into()], true);
         let printf = self.module.add_function("printf", printf_type, None);
         self.functions.insert("printf".to_string(), printf);
         let f64_type = self.context.f64_type();
-        let math_fns = [
-            ("Math.sqrt", "sqrt"),
-            ("Math.pow", "pow"),
-            ("Math.sin", "sin"),
-            ("Math.cos", "cos"),
-            ("Math.abs", "fabs"),
-            ("Math.floor", "floor"),
-            ("Math.ceil", "ceil"),
-            ("Math.exp", "exp"),
-            ("Math.log", "log"),
-            ("Math.tan", "tan"),
-        ];
-        for (algol_name, c_name) in math_fns {
-            let fn_val =
-                self.module
-                    .add_function(c_name, f64_type.fn_type(&[f64_type.into()], false), None);
-            self.functions.insert(algol_name.to_string(), fn_val);
-            self.functions.insert(c_name.to_string(), fn_val); // ADD THIS
+        for (algol_name, c_name) in registry.all_functions_cloned() {
+            if algol_name.starts_with("Math.") {
+                let fn_type = if algol_name == "Math.pow" {
+                    f64_type.fn_type(&[f64_type.into(), f64_type.into()], false)
+                } else {
+                    f64_type.fn_type(&[f64_type.into()], false)
+                };
+                // avoid duplicate decl
+                if self.module.get_function(&c_name).is_none() {
+                    let fn_val = self.module.add_function(&c_name, fn_type, None);
+                    self.functions.insert(algol_name.clone(), fn_val);
+                    self.functions.insert(c_name.clone(), fn_val);
+                }
+            }
         }
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let strlen_fn = self.module.add_function(
             "strlen",
@@ -2093,6 +2098,10 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.module.add_function("tolower", tolower_type, None);
         let malloc_type = ptr_type.fn_type(&[i64_type.into()], false);
         self.module.add_function("malloc", malloc_type, None);
+    }
+
+    pub fn is_ffi_call(&self, name: &str) -> bool {
+        self.ffi_registry.is_ffi(name)
     }
 
     pub fn evaluate_list_operation(

@@ -69,7 +69,7 @@ function main() -> Int
 | Math | sqrt, pow, sin, cos, abs, floor, ceil, exp, log, tan |
 | String | concat, upper, lower, length, substring |
 | File | read, write, append |
-| List | length, sum, max, min |
+| List | length, sum, max, min, print `[1.0, 2.0]` |
 
 ### Backends
 

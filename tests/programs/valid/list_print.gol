@@ -1,0 +1,7 @@
+procedure main
+    val arr := [1.0, 2.0, 3.0]
+    print(arr)
+    print([10.0, 20.0])
+    print(arr[0])
+    print(arr[1])
+    print(arr[2])

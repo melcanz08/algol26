@@ -72,3 +72,9 @@ No backend should receive unverified IR.
 | 8. Module loading independent | module_loader.rs | ✅ By design |
 | 9. Backends independent | backend_trait_test.rs | ✅ Tested |
 | 10. Verified IR only input | verify() in pipeline | ✅ By design |
+### Invariant 11: List Printing Preserves Interpreter Format
+
+`print(List<Float>)` in LLVM must match interpreter oracle:
+`[%.1f, %.1f,...]\n` via `emit_print_list_*`.
+
+Verified by `oracle_test::test_oracle_print_list_var`.

@@ -1,97 +1,105 @@
-# Semantics Hardening — Session Progress
+# Semantics Hardening — COMPLETE Progress & Remaining Tiers
 
 **Date**: 2026-09-04
-**Total Tests**: 147 passing, 0 failing
+**Total Tests**: 150 passing, 0 failing
 **Warnings**: 0
 
 ---
 
-## COMPLETED This Session
+## TIER STATUS SUMMARY
 
-### Tier 1: Quick Wins (3 fixes)
+| Tier | Description | Items | Done | Remaining | Status |
+|------|-------------|-------|------|-----------|--------|
+| Tier 1 | Quick Wins (15-30 min) | 3 | 3 | 0 | ✅ COMPLETE |
+| Tier 2 | 1-Hour Fixes | 4 | 2 | 2 deferred | ⚠️ PARTIAL |
+| Tier 3 | 1-2 Hour Fixes | 11 | 8 | 3 | ⚠️ IN PROGRESS |
+| Tier 4 | 2-3 Hour Fixes | 5 | 5 | 0 | ✅ COMPLETE |
+| Tier 5 | 3-4 Hour Fixes | 3 | 0 | 3 | ❌ NOT STARTED |
+| Tier 6 | 4+ Hour Fixes | 2 | 0 | 2 | ❌ NOT STARTED |
+| **TOTAL** | | **28** | **18** | **10** | **~64% done** |
+
+---
+
+## TIER 2 DEFERRED (2 items)
+
+| # | Fix | File | Effort |
+|---|-----|------|--------|
+| 1 | NullPtr proper variant | `ir/semantic_ir.rs` | 1-2 hrs |
+| 2 | PtrLiteral proper variant | `ir/semantic_ir.rs` | 1-2 hrs |
+
+**Why deferred**: Both require adding new IR variants + updating translator + 3 backends + tests
+
+---
+
+## TIER 3 COMPLETED
 
 | # | Fix | File | Status |
 |---|-----|------|--------|
-| 1 | Document Ptr vs Pointer(T) | `common/types.rs` | ✅ DONE |
-| 2 | Remove `into_program()` from VerifiedIR | `ir/verified_ir.rs` | ✅ DONE |
-| 3 | Add `is_terminator()` method | `ir/semantic_ir.rs` | ✅ DONE |
+| 9 | UnaryOp (Not/Negate) | `frontend/ast.rs` + parser + all users | ✅ DONE |
 
-**Details**:
-- `Ptr` = opaque/raw pointer (FFI void*)
-- `Pointer(T)` = typed pointer (*Int)
-- `into_program()` removed — guarantee cannot be broken
-- `is_terminator()` = canonical definition (Return/Jump/Branch/Switch)
+**UnaryOp Implementation Details:**
+- Added `UnaryOp` enum (Negate, Not) to AST
+- Added `Expr::Unary` variant with span tracking
+- Parser now creates proper Unary nodes instead of desugaring to Binary
+- Semantic analyzer validates operand types (numeric for Negate, Bool for Not)
+- Translator and SemanticBuilder handle Expr::Unary
+- 147 tests passing, 0 warnings
 
 ---
 
-### Tier 2: Type System Fixes (2 of 4 complete)
+## TIER 3 REMAINING (9 items)
+
+| # | Fix | File | Effort |
+|---|-----|------|--------|
+| 1 | ~~Add Borrow/Deref/AddrOf to IR~~ | `ir/semantic_ir.rs` | ✅ DONE |
+| 2 | ~~List element_type field~~ | `ir/semantic_ir.rs` | ✅ DONE |
+| 3 | ~~None/Ok/Error contextual types~~ | `ir/semantic_ir.rs` | ✅ DONE |
+| 4 | ~~add_instruction() callers propagate errors~~ | `semantics/control_flow.rs` + callers | ✅ DONE |
+| 5 | Unify CFG verifiers | `ir/semantic_ir.rs` + `ir/cfg_verifier.rs` | 1-2 hrs |
+| 6 | Reachability verification | `ir/cfg_verifier.rs` | 1-2 hrs |
+| 7 | Remove TypeVar coercion | `common/types.rs` | 1-2 hrs |
+| 8 | Consolidate FlowResult/BlockResult | `semantics/flow_result.rs` | 1-2 hrs |
+| 9 | ~~UnaryOp (Not/Negate)~~ | `frontend/ast.rs` + parser + all users | ✅ DONE |
+| 9 | ~~Module imports in Program struct~~ | `frontend/ast.rs` + parser + compiler | ✅ DONE |
+
+---
+
+## TIER 4 COMPLETE (5 items)
 
 | # | Fix | File | Status |
 |---|-----|------|--------|
-| 1 | Remove Unknown from `can_coerce_to` | `common/types.rs` | ✅ DONE |
-| 2 | Fix List function generics | `semantics/semantic.rs` | ✅ DONE |
-| 3 | NullPtr proper variant | `ir/semantic_ir.rs` | ⏳ DEFERRED |
-| 4 | PtrLiteral proper variant | `ir/semantic_ir.rs` | ⏳ DEFERRED |
-
-**Details for #1**:
-- Before: `(_, Unknown) => true` made Unknown act as 'any type'
-- After: Unknown = 'not yet resolved', must be resolved before coercion
-
-**Details for #2**:
-- Before: `List<Int>` couldn't pass to `List<Unknown>` parameter
-- After: List parameters are generic — accept any `List<T>`
-
-**DEFERRED — NullPtr proper variant**:
-- Currently: `NullPtr → Int(0)` in translator (semantically wrong)
-- Should: Add `NullPtr { pointer_type: Type }` variant to IR
-- Why deferred: Requires updating translator + 3 backends + tests
-- Effort: 1-2 hours
-
-**DEFERRED — PtrLiteral proper variant**:
-- Currently: `PtrLiteral → Int` in translator (semantically wrong)
-- Should: Add `PtrLiteral { address, pointer_type }` variant to IR
-- Why deferred: Requires updating translator + 3 backends + tests
-- Effort: 1-2 hours
+| 1 | Branch/Return/Assign verification | `ir/semantic_verifier.rs` | ✅ DONE |
+| 2 | Translator Cast/Borrow/ArrayAccess | `semantics/expr_translator.rs` | ✅ DONE |
+| 3 | FlowAnalyzer no fake IDs | `semantics/flow_analyzer.rs` | ✅ DONE |
+| 4 | ensure_block() Result + create_block() | `semantics/control_flow.rs` | ✅ DONE |
+| 5 | Lexer stops knowing stdlib | `frontend/lexer.rs` | ✅ DONE |
 
 ---
 
-### Tier 3: Semantic Verifier (1 of 11 complete)
+## TIER 5 NOT STARTED (3 items)
 
-| # | Fix | File | Status |
+| # | Fix | File | Effort |
 |---|-----|------|--------|
-| 1 | Recursive Unknown rejection | `ir/semantic_verifier.rs` | ✅ DONE |
-| 2 | Add Borrow/Deref/AddrOf to IR | `ir/semantic_ir.rs` | ❌ TODO |
-| 3 | List element_type field | `ir/semantic_ir.rs` | ❌ TODO |
-| 4 | None/Ok/Error contextual types | `ir/semantic_ir.rs` | ❌ TODO |
-| 5 | add_instruction() returns Result | `semantics/control_flow.rs` | ❌ TODO |
-| 6 | Unify CFG verifiers | `ir/semantic_ir.rs` + `ir/cfg_verifier.rs` | ❌ TODO |
-| 7 | Reachability verification | `ir/cfg_verifier.rs` | ❌ TODO |
-| 8 | Remove TypeVar coercion | `common/types.rs` | ❌ TODO |
-| 9 | Consolidate FlowResult/BlockResult | `semantics/flow_result.rs` | ❌ TODO |
-| 10 | UnaryOp (Not/Negate) | `frontend/ast.rs` | ❌ TODO |
-| 11 | Module imports in Program struct | `frontend/ast.rs` | ❌ TODO |
-
-**Details for #1 (DONE)**:
-- `verify_value_no_unknown()` recursively checks for Type::Unknown
-- Traverses: List, Some, Ok, Error, Cast, BinaryOp, Call
-- 3 new tests: rejects Unknown, accepts Int, rejects nested Unknown
+| 1 | Translator If/Match/TryCatch | `semantics/expr_translator.rs` + `control_flow.rs` | 3-4 hrs |
+| 2 | TypeSyntax replaces String types | `frontend/ast.rs` + parser + semantic | 3-4 hrs |
+| 3 | Parser stops knowing FFI | `frontend/parser.rs` + `ffi/` | 3-4 hrs |
 
 ---
 
-## Session Summary
+## TIER 6 NOT STARTED (2 items)
 
-| Tier | Completed | Deferred | Remaining |
-|------|-----------|----------|-----------|
-| Tier 1 | 3/3 | 0 | 0 |
-| Tier 2 | 2/4 | 2 (NullPtr, PtrLiteral) | 0 |
-| Tier 3 | 1/11 | 0 | 10 |
-| **TOTAL** | **6** | **2** | **10** |
+| # | Fix | File | Effort |
+|---|-----|------|--------|
+| 1 | VerifiedIR uses SemanticVerifier | `ir/verified_ir.rs` + `ir/semantic_verifier.rs` | 4-5 hrs |
+| 2 | Unknown semantic split (Dynamic/Never/Uninferred) | `common/types.rs` + all users | 4-6 hrs |
 
 ---
+
+## TOTAL REMAINING: 10 items, ~16-26 hours
 
 ## Verification Commands
 
 ```bash
-cargo build 2>&1 | grep -c 'warning'  # 0
-cargo test 2>&1 | grep 'test result' | awk '{sum += \$4} END {print sum " tests passed"}'  # 147
+cargo build 2>&1 | grep -c 'warning'  # Must be 0
+cargo test 2>&1 | grep 'test result' | awk '{sum += \$4} END {print sum " tests passed"}'  # Must be 147+
 ```

@@ -16,14 +16,14 @@ impl BlockResult {
             terminated: false,
         }
     }
-    
+
     pub fn terminated(block_id: usize) -> Self {
         BlockResult {
             block_id,
             terminated: true,
         }
     }
-    
+
     pub fn is_terminated(&self) -> bool {
         self.terminated
     }
@@ -34,9 +34,9 @@ pub struct SemanticCFGVerifier;
 
 impl SemanticCFGVerifier {
     pub fn verify(func: &crate::ir::semantic_ir::SemanticFunction) -> Result<(), String> {
-        use std::collections::HashSet;
         use crate::ir::semantic_ir::SemanticInstruction;
-        
+        use std::collections::HashSet;
+
         // 1. Check duplicate block IDs
         let mut block_ids = HashSet::new();
         for block in &func.blocks {
@@ -44,17 +44,17 @@ impl SemanticCFGVerifier {
                 return Err(format!("Duplicate block ID found: {}", block.id));
             }
         }
-        
+
         // 2. Check entry block exists
         if !block_ids.contains(&func.entry_block) {
             return Err(format!("Entry block {} does not exist", func.entry_block));
         }
-        
+
         // 3. Check each block
         for block in &func.blocks {
             let mut terminator_count = 0;
             let mut found_terminator = false;
-            
+
             for inst in &block.instructions {
                 // Check no instruction after terminator
                 if found_terminator {
@@ -63,7 +63,7 @@ impl SemanticCFGVerifier {
                         block.id
                     ));
                 }
-                
+
                 match inst {
                     SemanticInstruction::Jump { block: target } => {
                         found_terminator = true;
@@ -75,14 +75,15 @@ impl SemanticCFGVerifier {
                             ));
                         }
                     }
-                    SemanticInstruction::Branch { then_block, else_block, .. } => {
+                    SemanticInstruction::Branch {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
                         found_terminator = true;
                         terminator_count += 1;
                         if !block_ids.contains(then_block) || !block_ids.contains(else_block) {
-                            return Err(format!(
-                                "Invalid branch target in block {}",
-                                block.id
-                            ));
+                            return Err(format!("Invalid branch target in block {}", block.id));
                         }
                     }
                     SemanticInstruction::Return { .. } => {
@@ -92,7 +93,7 @@ impl SemanticCFGVerifier {
                     _ => {}
                 }
             }
-            
+
             // 4. Check block has exactly one terminator (except empty merge blocks)
             if terminator_count == 0 && !block.instructions.is_empty() {
                 return Err(format!(
@@ -100,7 +101,7 @@ impl SemanticCFGVerifier {
                     block.id
                 ));
             }
-            
+
             if terminator_count > 1 {
                 return Err(format!(
                     "Block {} has multiple terminators ({})",
@@ -108,17 +109,17 @@ impl SemanticCFGVerifier {
                 ));
             }
         }
-        
+
         Ok(())
     }
-    
+
     pub fn verify_program(program: &crate::ir::semantic_ir::SemanticProgram) -> Result<(), String> {
         for func in &program.functions {
             Self::verify(func)?;
         }
         Ok(())
     }
-    
+
     pub fn assert_valid(program: &crate::ir::semantic_ir::SemanticProgram) {
         if let Err(e) = Self::verify_program(program) {
             panic!("CFG verification failed: {}", e);
@@ -129,15 +130,17 @@ impl SemanticCFGVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::semantic_ir::{SemanticProgram, SemanticFunction, SemanticBlock, SemanticInstruction, TypedIRValue};
     use crate::common::types::Type;
-    
+    use crate::ir::semantic_ir::{
+        SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram, TypedIRValue,
+    };
+
     #[test]
     fn test_empty_program() {
         let program = SemanticProgram::new();
         assert!(SemanticCFGVerifier::verify_program(&program).is_ok());
     }
-    
+
     #[test]
     fn test_duplicate_block_id() {
         let func = SemanticFunction {
@@ -145,70 +148,84 @@ mod tests {
             params: Vec::new(),
             return_type: Type::Void,
             blocks: vec![
-                SemanticBlock { id: 0, instructions: vec![SemanticInstruction::Return { value: None, type_: Type::Void }] },
-                SemanticBlock { id: 0, instructions: Vec::new() },
+                SemanticBlock {
+                    id: 0,
+                    instructions: vec![SemanticInstruction::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }],
+                },
+                SemanticBlock {
+                    id: 0,
+                    instructions: Vec::new(),
+                },
             ],
             entry_block: 0,
             is_extern: false,
         };
-        
+
         assert!(SemanticCFGVerifier::verify(&func).is_err());
     }
-    
+
     #[test]
     fn test_instruction_after_terminator() {
         let func = SemanticFunction {
             name: "test".to_string(),
             params: Vec::new(),
             return_type: Type::Void,
-            blocks: vec![
-                SemanticBlock {
-                    id: 0,
-                    instructions: vec![
-                        SemanticInstruction::Return { value: None, type_: Type::Void },
-                        SemanticInstruction::Print { value: TypedIRValue::Float(1.0) },
-                    ],
-                },
-            ],
+            blocks: vec![SemanticBlock {
+                id: 0,
+                instructions: vec![
+                    SemanticInstruction::Return {
+                        value: None,
+                        type_: Type::Void,
+                    },
+                    SemanticInstruction::Print {
+                        value: TypedIRValue::Float(1.0),
+                    },
+                ],
+            }],
             entry_block: 0,
             is_extern: false,
         };
-        
+
         assert!(SemanticCFGVerifier::verify(&func).is_err());
     }
-    
+
     #[test]
     fn test_invalid_jump_target() {
         let func = SemanticFunction {
             name: "test".to_string(),
             params: Vec::new(),
             return_type: Type::Void,
-            blocks: vec![
-                SemanticBlock {
-                    id: 0,
-                    instructions: vec![SemanticInstruction::Jump { block: 999 }],
-                },
-            ],
+            blocks: vec![SemanticBlock {
+                id: 0,
+                instructions: vec![SemanticInstruction::Jump { block: 999 }],
+            }],
             entry_block: 0,
             is_extern: false,
         };
-        
+
         assert!(SemanticCFGVerifier::verify(&func).is_err());
     }
-    
+
     #[test]
     fn test_valid_cfg() {
         let func = SemanticFunction {
             name: "test".to_string(),
             params: Vec::new(),
             return_type: Type::Void,
-            blocks: vec![
-                SemanticBlock { id: 0, instructions: vec![SemanticInstruction::Return { value: None, type_: Type::Void }] },
-            ],
+            blocks: vec![SemanticBlock {
+                id: 0,
+                instructions: vec![SemanticInstruction::Return {
+                    value: None,
+                    type_: Type::Void,
+                }],
+            }],
             entry_block: 0,
             is_extern: false,
         };
-        
+
         assert!(SemanticCFGVerifier::verify(&func).is_ok());
     }
 }

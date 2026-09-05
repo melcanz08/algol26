@@ -1,16 +1,17 @@
 // ALGOL26 - Release Hardening Tests
 // Negative testing, stress testing, and equivalence
 
+use algol26::frontend::lexer::Lexer;
+use algol26::frontend::parser::Parser;
+use algol26::ir::optimizer::Optimizer;
 use algol26::ir::semantic_ir::SemanticProgram;
 use algol26::semantics::semantic_builder::SemanticIRBuilder;
-use algol26::frontend::parser::Parser;
-use algol26::frontend::lexer::Lexer;
-use algol26::ir::optimizer::Optimizer;
 
 fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
-    let (functions, _, _) = parser.parse_program().unwrap();
+    let program = parser.parse_program().unwrap();
+    let functions = program.functions;
     SemanticIRBuilder::build(&functions)
 }
 
@@ -22,21 +23,21 @@ procedure main
     val y := x * 2.0
     print(y)
 "#;
-    
+
     let (mut ir, diagnostics) = build_ir(source);
     assert!(diagnostics.is_empty());
-    
+
     // Optimize
     let mut optimizer = Optimizer::new();
     optimizer.optimize(&mut ir);
-    
+
     // The IR should still be valid after optimization
     assert!(!ir.functions.is_empty());
 }
 
 #[test]
 fn test_negative_invalid_syntax() {
-    let source = "procedure main\n    this is not valid syntax";
+    let source = "procedure main\n    val x := (1 + 2";
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     assert!(parser.parse_program().is_err());
@@ -48,9 +49,12 @@ fn test_negative_undefined_variable() {
 procedure main
     print(undefined_var)
 "#;
-    
+
     let (_ir, diagnostics) = build_ir(source);
-    assert!(!diagnostics.is_empty(), "Expected diagnostics for undefined variable");
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected diagnostics for undefined variable"
+    );
 }
 
 #[test]
@@ -59,9 +63,12 @@ fn test_negative_type_mismatch() {
 procedure main
     val x := "hello" + 5.0
 "#;
-    
+
     let (_ir, diagnostics) = build_ir(source);
-    assert!(!diagnostics.is_empty(), "Expected diagnostics for type mismatch");
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected diagnostics for type mismatch"
+    );
 }
 
 #[test]
@@ -76,9 +83,13 @@ procedure main
     
     print(total)
 "#;
-    
+
     let (_ir, diagnostics) = build_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -97,9 +108,13 @@ procedure main
     val result := compute(5.0)
     print(result)
 "#;
-    
+
     let (_ir, diagnostics) = build_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -112,10 +127,11 @@ import "math.gol"
 procedure main
     print("With imports")
 "#;
-    
+
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
-    let (functions, _, _) = parser.parse_program().unwrap();
+    let program = parser.parse_program().unwrap();
+    let functions = program.functions;
     assert!(!functions.is_empty());
 }
 
@@ -126,17 +142,20 @@ procedure main
     val x := 5.0 + 3.0
     print(x)
 "#;
-    
+
     let (mut ir, _) = build_ir(source);
     let mut optimizer = Optimizer::new();
-    
+
     // Optimize once
     optimizer.optimize(&mut ir);
     let _stats1 = optimizer.stats.clone();
-    
+
     // Optimize again - should not change anything
     let mut optimizer2 = Optimizer::new();
     optimizer2.optimize(&mut ir);
-    
-    assert_eq!(optimizer2.stats.folded_constants, 0, "Second optimization should not fold more constants");
+
+    assert_eq!(
+        optimizer2.stats.folded_constants, 0,
+        "Second optimization should not fold more constants"
+    );
 }

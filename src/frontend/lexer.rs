@@ -22,13 +22,13 @@ pub enum Token {
     Print,
     True,
     False,
-    
+
     // Literals
     Identifier(String),
     FloatLit(f64),
     IntLit(i64),
     StringLit(String),
-    
+
     // Operators
     Ampersand,
     Assign,
@@ -36,8 +36,6 @@ pub enum Token {
     Minus,
     Star,
     Slash,
-    Greater,
-    Less,
     GreaterEqual,
     LessEqual,
     Equal,
@@ -45,7 +43,7 @@ pub enum Token {
     And,
     Or,
     Not,
-    
+
     // Delimiters
     LBracket,
     RBracket,
@@ -53,36 +51,40 @@ pub enum Token {
     LParen,
     RParen,
     Colon,
-    
+    Arrow,
+
     // Concurrency
     Spawn,
     Channel,
     Send,
     Receive,
     Parallel,
-    
+
     // Option/Result
     Some,
     None,
     Ok,
     Error,
     Match,
-    
+
     // Structure
     Indent,
     Dedent,
     Eof,
     Break,
     Continue,
-    
+    Defer,
+    Alloc,
+    Free,
+
     // Modules
     Import,
-    
+
     // Error Handling
     Try,
     Catch,
     Finally,
-    
+
     // Memory
     Region,
     Unsafe,
@@ -98,16 +100,16 @@ pub enum Token {
     CType(CTypeName),
     Ellipsis,
 
-    Lt,           // < for generics
-    Gt,           // > for generics
-    DoubleColon,  // :: for trait methods
-    Where,        // where clause
+    Lt,          // < for generics and comparison
+    Gt,          // > for generics and comparison
+    DoubleColon, // :: for trait methods
+    Where,       // where clause
 
     DotDot,
 
     Trait,
     Impl,
-    SelfType, 
+    SelfType,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -203,7 +205,7 @@ fn strip_comment_not_in_string(line: &str) -> String {
     let mut result = String::new();
     let mut in_string = false;
     let mut chars = line.chars().peekable();
-    
+
     while let Some(c) = chars.next() {
         if c == '"' {
             in_string = !in_string;
@@ -218,7 +220,7 @@ fn strip_comment_not_in_string(line: &str) -> String {
             result.push(c);
         }
     }
-    
+
     result
 }
 
@@ -251,7 +253,10 @@ impl Lexer {
             let line = lines[line_idx];
             let line_number = line_idx + 1;
 
-            if line.trim().is_empty() || line.trim().starts_with("//") || line.trim().starts_with("--") {
+            if line.trim().is_empty()
+                || line.trim().starts_with("//")
+                || line.trim().starts_with("--")
+            {
                 line_idx += 1;
                 continue;
             }
@@ -267,13 +272,13 @@ impl Lexer {
                     line_number,
                     0,
                     line,
-                    ErrorCode::E0001
+                    ErrorCode::E0001,
                 ));
             }
 
-            let indent = raw_indent.chars().fold(0, |acc, c| {
-                if c == '\t' { acc + 4 } else { acc + 1 }
-            });
+            let indent = raw_indent
+                .chars()
+                .fold(0, |acc, c| if c == '\t' { acc + 4 } else { acc + 1 });
             // --- end bulletproof ---
 
             let current_indent = *indent_stack.last().unwrap();
@@ -282,18 +287,21 @@ impl Lexer {
                 indent_stack.push(indent);
                 tokens.push(Token::Indent);
             } else if indent < current_indent {
-                if!indent_stack.contains(&indent) {
+                if !indent_stack.contains(&indent) {
                     return Err(CompileError::new(
                         &format!(
                             "Inconsistent indentation: expected {} or {} spaces, found {}",
                             current_indent,
-                            indent_stack.get(indent_stack.len().saturating_sub(2)).copied().unwrap_or(0),
+                            indent_stack
+                                .get(indent_stack.len().saturating_sub(2))
+                                .copied()
+                                .unwrap_or(0),
                             indent
                         ),
                         line_number,
                         indent,
                         line,
-                        ErrorCode::E0001
+                        ErrorCode::E0001,
                     ));
                 }
 
@@ -320,15 +328,20 @@ impl Lexer {
             current_line = line_number;
 
             let token_count_before = tokens.len();
-            Lexer::tokenize_line(trimmed, line_number, line, &mut tokens)?;
+            let mut char_positions: Vec<usize> = Vec::new();
+            Lexer::tokenize_line(trimmed, line_number, line, &mut tokens, &mut char_positions)?;
+            let base_column = indent + 1;
+            for col in &char_positions {
+                token_positions.push((current_line, base_column + col));
+            }
             let token_count_after = tokens.len();
 
             // Record (line, column) for each new token
-            // Column starts after indentation
-            let base_column = indent + 1;
+            // Use actual character positions from tokenization
+            let base_column = indent;
             for i in token_count_before..token_count_after {
                 let col_offset = i - token_count_before;
-                token_positions.push((current_line, base_column + col_offset));
+                token_positions.push((current_line, base_column + col_offset + 1));
             }
         }
 
@@ -353,46 +366,68 @@ impl Lexer {
         Ok(Lexer { tokens, positions })
     }
 
-    fn tokenize_line(trimmed: &str, line_number: usize, line: &str, tokens: &mut Vec<Token>) -> Result<()> {
+    fn tokenize_line(
+        trimmed: &str,
+        line_number: usize,
+        line: &str,
+        tokens: &mut Vec<Token>,
+        positions: &mut Vec<usize>,
+    ) -> Result<()> {
         if trimmed.starts_with("procedure") || trimmed.starts_with("proc") {
-            let prefix = if trimmed.starts_with("procedure") { "procedure" } else { "proc" };
+            let prefix = if trimmed.starts_with("procedure") {
+                "procedure"
+            } else {
+                "proc"
+            };
+            positions.push(prefix.len());
             let rest = trimmed.strip_prefix(prefix).unwrap().trim();
-            Lexer::parse_declaration(Token::Procedure, rest, tokens);
+            Lexer::parse_declaration(Token::Procedure, rest, tokens, positions);
         } else if trimmed.starts_with("function") {
             let rest = trimmed.strip_prefix("function").unwrap().trim();
-            Lexer::parse_declaration(Token::Function, rest, tokens);
+            positions.push("function".len());
+            Lexer::parse_declaration(Token::Function, rest, tokens, positions);
         } else {
-            Lexer::tokenize_expression(trimmed, line_number, line, tokens)?;
+            Lexer::tokenize_expression(trimmed, line_number, line, tokens, positions)?;
         }
         Ok(())
     }
 
-    fn parse_declaration(keyword: Token, rest: &str, tokens: &mut Vec<Token>) {
+    fn parse_declaration(
+        keyword: Token,
+        rest: &str,
+        tokens: &mut Vec<Token>,
+        positions: &mut Vec<usize>,
+    ) {
         tokens.push(keyword);
         if !rest.is_empty() {
             // Parse function name
-            let name: String = rest.chars()
+            let name: String = rest
+                .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
-            
+
             if !name.is_empty() {
                 let name_len = name.len(); // Store length before moving
+                positions.push(name.len()); // Track position for name
                 tokens.push(Token::Identifier(name));
-                
+
                 // Parse the rest (parameters and return type)
                 let after_name = &rest[name_len..];
-                Lexer::parse_signature(after_name, tokens);
+                Lexer::parse_signature(after_name, tokens, positions);
             }
         }
     }
 
-    fn parse_signature(signature: &str, tokens: &mut Vec<Token>) {
+    fn parse_signature(signature: &str, tokens: &mut Vec<Token>, positions: &mut Vec<usize>) {
         let mut chars = signature.chars().peekable();
-        
+
+        let mut pos = 0usize;
         while let Some(&c) = chars.peek() {
             if c.is_whitespace() {
                 chars.next();
+                pos += 1;
             } else if c == '(' {
+                positions.push(pos);
                 chars.next();
                 tokens.push(Token::LParen);
             } else if c == ')' {
@@ -414,7 +449,7 @@ impl Lexer {
                 chars.next();
                 if let Some(&'>') = chars.peek() {
                     chars.next();
-                    tokens.push(Token::Colon);
+                    tokens.push(Token::Arrow);
                 }
             } else if c.is_alphabetic() || c == '_' {
                 let ident = Lexer::read_identifier(&mut chars);
@@ -430,28 +465,41 @@ impl Lexer {
         }
     }
 
-    fn tokenize_expression(expr: &str, line_number: usize, line: &str, tokens: &mut Vec<Token>) -> Result<()> {
+    fn tokenize_expression(
+        expr: &str,
+        line_number: usize,
+        line: &str,
+        tokens: &mut Vec<Token>,
+        positions: &mut Vec<usize>,
+    ) -> Result<()> {
         let mut chars = expr.chars().peekable();
         let mut position = 0usize;
-        
+
         while let Some(&c) = chars.peek() {
             if c.is_whitespace() {
                 chars.next();
                 position += 1;
             } else if c == '"' {
+                positions.push(position);
                 chars.next();
                 position += 1;
-                let string_content = Lexer::read_string(&mut chars, &mut position, line_number, line)?;
+                let string_content =
+                    Lexer::read_string(&mut chars, &mut position, line_number, line)?;
                 tokens.push(Token::StringLit(string_content));
             } else if c.is_alphabetic() || c == '_' {
+                positions.push(position);
                 let ident = Lexer::read_identifier(&mut chars);
                 position += ident.len();
                 Lexer::classify_identifier(ident, tokens);
-            } else if c.is_numeric() || (c == '.' && chars.clone().nth(1).map_or(false, |c| c.is_numeric())) {
+            } else if c.is_numeric()
+                || (c == '.' && chars.clone().nth(1).is_some_and(|c| c.is_numeric()))
+            {
+                positions.push(position);
                 let (token, len) = Lexer::read_number(&mut chars)?;
                 tokens.push(token);
                 position += len;
             } else {
+                positions.push(position);
                 Lexer::handle_operator(&mut chars, &mut position, line_number, line, tokens)?;
             }
         }
@@ -474,9 +522,9 @@ impl Lexer {
     fn classify_identifier(ident: String, tokens: &mut Vec<Token>) {
         match ident.as_str() {
             "print" => tokens.push(Token::Print),
-            "defer" => tokens.push(Token::Identifier("defer".to_string())), // TODO: make Token::Defer
-            "alloc" => tokens.push(Token::Identifier("alloc".to_string())), // TODO: make Token::Alloc
-            "free" => tokens.push(Token::Identifier("free".to_string())), // TODO: make Token::Free
+            "defer" => tokens.push(Token::Defer),
+            "alloc" => tokens.push(Token::Alloc),
+            "free" => tokens.push(Token::Free),
             _ => {
                 if let Some(token) = KEYWORDS.get(ident.as_str()) {
                     tokens.push(token.clone());
@@ -487,9 +535,14 @@ impl Lexer {
         }
     }
 
-    fn read_string(chars: &mut Peekable<Chars>, position: &mut usize, line_number: usize, line: &str) -> Result<String> {
+    fn read_string(
+        chars: &mut Peekable<Chars>,
+        position: &mut usize,
+        line_number: usize,
+        line: &str,
+    ) -> Result<String> {
         let mut string_content = String::new();
-        
+
         while let Some(&ch) = chars.peek() {
             if ch == '"' {
                 chars.next();
@@ -499,11 +552,11 @@ impl Lexer {
                 // Handle escape sequences
                 chars.next();
                 *position += 1;
-                
+
                 if let Some(&escaped) = chars.peek() {
                     chars.next();
                     *position += 1;
-                    
+
                     match escaped {
                         'n' => string_content.push('\n'),
                         't' => string_content.push('\t'),
@@ -517,7 +570,7 @@ impl Lexer {
                                 line_number,
                                 *position,
                                 line,
-                                ErrorCode::E0001
+                                ErrorCode::E0001,
                             ));
                         }
                     }
@@ -527,7 +580,7 @@ impl Lexer {
                         line_number,
                         *position,
                         line,
-                        ErrorCode::E0001
+                        ErrorCode::E0001,
                     ));
                 }
             } else {
@@ -536,13 +589,13 @@ impl Lexer {
                 *position += 1;
             }
         }
-        
+
         Err(CompileError::new(
             "Unterminated string literal",
             line_number,
             *position,
             line,
-            ErrorCode::E0001
+            ErrorCode::E0001,
         ))
     }
 
@@ -551,7 +604,7 @@ impl Lexer {
         let mut has_dot = false;
         let mut has_exp = false;
         let mut length = 0;
-        
+
         while let Some(&ch) = chars.peek() {
             if ch.is_numeric() || ch == '_' {
                 if ch != '_' {
@@ -564,7 +617,7 @@ impl Lexer {
                 num_str.push(ch);
                 chars.next();
                 length += 1;
-                
+
                 // Check if next char is digit (else it's a method call like 5.toString())
                 if let Some(&next) = chars.peek() {
                     if !next.is_numeric() {
@@ -580,7 +633,7 @@ impl Lexer {
                 num_str.push(ch);
                 chars.next();
                 length += 1;
-                
+
                 // Handle optional +/- after exponent
                 if let Some(&sign) = chars.peek() {
                     if sign == '+' || sign == '-' {
@@ -593,10 +646,10 @@ impl Lexer {
                 break;
             }
         }
-        
+
         // Remove trailing underscores if any
         let cleaned: String = num_str.chars().filter(|&c| c != '_').collect();
-        
+
         if has_dot || has_exp {
             if let Ok(val) = cleaned.parse::<f64>() {
                 Ok((Token::FloatLit(val), length))
@@ -606,7 +659,7 @@ impl Lexer {
                     0,
                     0,
                     "",
-                    ErrorCode::E0001
+                    ErrorCode::E0001,
                 ))
             }
         } else {
@@ -618,16 +671,22 @@ impl Lexer {
                     0,
                     0,
                     "",
-                    ErrorCode::E0001
+                    ErrorCode::E0001,
                 ))
             }
         }
     }
 
-    fn handle_operator(chars: &mut Peekable<Chars>, position: &mut usize, line_number: usize, line: &str, tokens: &mut Vec<Token>) -> Result<()> {
+    fn handle_operator(
+        chars: &mut Peekable<Chars>,
+        position: &mut usize,
+        line_number: usize,
+        line: &str,
+        tokens: &mut Vec<Token>,
+    ) -> Result<()> {
         let c = chars.next().unwrap();
         *position += 1;
-        
+
         match c {
             ':' => {
                 if let Some(&'=') = chars.peek() {
@@ -644,7 +703,7 @@ impl Lexer {
                 if let Some(&'>') = chars.peek() {
                     chars.next();
                     *position += 1;
-                    tokens.push(Token::Colon);  // Convert -> to Colon
+                    tokens.push(Token::Arrow);
                 } else {
                     tokens.push(Token::Minus);
                 }
@@ -657,7 +716,7 @@ impl Lexer {
                     *position += 1;
                     tokens.push(Token::LessEqual);
                 } else {
-                    tokens.push(Token::Lt);  // CHANGED from Token::Less
+                    tokens.push(Token::Lt); // CHANGED from Token::Less
                 }
             }
             '>' => {
@@ -666,7 +725,7 @@ impl Lexer {
                     *position += 1;
                     tokens.push(Token::GreaterEqual);
                 } else {
-                    tokens.push(Token::Gt);  // CHANGED from Token::Greater
+                    tokens.push(Token::Gt); // CHANGED from Token::Greater
                 }
             }
             '=' => {
@@ -680,7 +739,7 @@ impl Lexer {
                         line_number,
                         *position,
                         line,
-                        ErrorCode::E0001
+                        ErrorCode::E0001,
                     ));
                 }
             }
@@ -695,7 +754,7 @@ impl Lexer {
                         line_number,
                         *position,
                         line,
-                        ErrorCode::E0001
+                        ErrorCode::E0001,
                     ));
                 }
             }
@@ -723,17 +782,17 @@ impl Lexer {
                         line_number,
                         *position,
                         line,
-                        ErrorCode::E0001
+                        ErrorCode::E0001,
                     ));
                 }
             }
-              _ => {
+            _ => {
                 return Err(CompileError::new(
                     &format!("Unexpected character: '{}'", c),
                     line_number,
                     *position,
                     line,
-                    ErrorCode::E0001
+                    ErrorCode::E0001,
                 ));
             }
         }
@@ -749,24 +808,27 @@ mod tests {
     fn test_simple_tokens() {
         let source = "var x := 5";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        assert_eq!(lexer.tokens, vec![
-            Token::Var,
-            Token::Identifier("x".to_string()),
-            Token::Assign,
-            Token::IntLit(5),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            lexer.tokens,
+            vec![
+                Token::Var,
+                Token::Identifier("x".to_string()),
+                Token::Assign,
+                Token::IntLit(5),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_indentation() {
         let source = "procedure main\n    var x := 5\n    if x > 3\n        print x";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
+
         // Check for proper Indent/Dedent tokens
         assert!(lexer.tokens.contains(&Token::Indent));
         assert!(lexer.tokens.contains(&Token::Dedent));
-        
+
         // Count indents and dedents
         let indent_count = lexer.tokens.iter().filter(|t| **t == Token::Indent).count();
         let dedent_count = lexer.tokens.iter().filter(|t| **t == Token::Dedent).count();
@@ -777,23 +839,27 @@ mod tests {
     fn test_comments_in_strings() {
         let source = "var s := \"hello // world\"";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
-        assert!(lexer.tokens.contains(&Token::StringLit("hello // world".to_string())));
+
+        assert!(lexer
+            .tokens
+            .contains(&Token::StringLit("hello // world".to_string())));
     }
 
     #[test]
     fn test_string_escapes() {
         let source = "var s := \"hello\\nworld\"";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
-        assert!(lexer.tokens.contains(&Token::StringLit("hello\nworld".to_string())));
+
+        assert!(lexer
+            .tokens
+            .contains(&Token::StringLit("hello\nworld".to_string())));
     }
 
     #[test]
     fn test_number_literals() {
         let source = "var a := 123\nvar b := 45.67\nvar c := 1e10\nvar d := 1_000_000";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
+
         assert!(lexer.tokens.contains(&Token::IntLit(123)));
         assert!(lexer.tokens.contains(&Token::FloatLit(45.67)));
         assert!(lexer.tokens.contains(&Token::FloatLit(1e10)));
@@ -804,27 +870,33 @@ mod tests {
     fn test_dotted_identifiers() {
         let source = "var x := Math.sqrt(16)";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
+
         // "Math.sqrt" is just an identifier with a dot — not lexer-special
-        assert!(lexer.tokens.contains(&Token::Identifier("Math.sqrt".to_string())));
+        assert!(lexer
+            .tokens
+            .contains(&Token::Identifier("Math.sqrt".to_string())));
     }
 
     #[test]
     fn test_function_declaration() {
         let source = "function add(a: Float, b: Float) -> Float\n    return a + b";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
+
         assert!(lexer.tokens.contains(&Token::Function));
         assert!(lexer.tokens.contains(&Token::Identifier("add".to_string())));
         assert!(lexer.tokens.contains(&Token::LParen));
         assert!(lexer.tokens.contains(&Token::Identifier("a".to_string())));
         assert!(lexer.tokens.contains(&Token::Colon));
-        assert!(lexer.tokens.contains(&Token::Identifier("Float".to_string())));
+        assert!(lexer
+            .tokens
+            .contains(&Token::Identifier("Float".to_string())));
         assert!(lexer.tokens.contains(&Token::Comma));
         assert!(lexer.tokens.contains(&Token::Identifier("b".to_string())));
         assert!(lexer.tokens.contains(&Token::RParen));
         assert!(lexer.tokens.contains(&Token::Colon));
-        assert!(lexer.tokens.contains(&Token::Identifier("Float".to_string())));
+        assert!(lexer
+            .tokens
+            .contains(&Token::Identifier("Float".to_string())));
         assert!(lexer.tokens.contains(&Token::Return));
     }
 
@@ -832,7 +904,7 @@ mod tests {
     fn test_inconsistent_indentation() {
         let source = "procedure main\n    var x := 5\n  var y = 10";
         let result = Lexer::new(source.to_string());
-        
+
         assert!(result.is_err());
         if let Err(err) = result {
             assert_eq!(err.error_code, ErrorCode::E0001);
@@ -841,9 +913,10 @@ mod tests {
 
     #[test]
     fn test_multiline_dedent() {
-        let source = "procedure main\n    if true\n        var x := 1\n        var y := 2\nvar z := 3";
+        let source =
+            "procedure main\n    if true\n        var x := 1\n        var y := 2\nvar z := 3";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
+
         // Should have proper dedent handling
         let indent_count = lexer.tokens.iter().filter(|t| **t == Token::Indent).count();
         let dedent_count = lexer.tokens.iter().filter(|t| **t == Token::Dedent).count();
@@ -854,7 +927,7 @@ mod tests {
     fn test_operators() {
         let source = "if x >= 5 and y <= 10 or z != 3";
         let lexer = Lexer::new(source.to_string()).unwrap();
-        
+
         assert!(lexer.tokens.contains(&Token::GreaterEqual));
         assert!(lexer.tokens.contains(&Token::LessEqual));
         assert!(lexer.tokens.contains(&Token::And));

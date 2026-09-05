@@ -1,4 +1,4 @@
-use crate::ir::semantic_ir::{SemanticProgram, SemanticFunction, SemanticInstruction};
+use crate::ir::semantic_ir::{SemanticFunction, SemanticInstruction, SemanticProgram};
 
 pub struct DeferLoweringPass {
     defer_stacks: Vec<Vec<usize>>, // Stack of scopes, each containing cleanup block IDs
@@ -51,7 +51,7 @@ impl DeferLoweringPass {
 
         for mut block in std::mem::take(&mut func.blocks) {
             let mut new_instructions = Vec::new();
-            
+
             for instruction in block.instructions {
                 match instruction {
                     SemanticInstruction::Defer { cleanup_block } => {
@@ -67,7 +67,9 @@ impl DeferLoweringPass {
                             let current_target = defers[0];
                             // Note: In a full CFG builder, you link the sequence:
                             // block -> cleanup_1 -> cleanup_2 -> actual return
-                            new_instructions.push(SemanticInstruction::Jump { block: current_target });
+                            new_instructions.push(SemanticInstruction::Jump {
+                                block: current_target,
+                            });
                             // Append instruction sequence to wire cleanups back to return
                         }
                     }

@@ -1,15 +1,13 @@
 #![allow(dead_code)]
-
 // algol26/src/race.rs
-
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
 // ALGOL26 Race Detection
 // Compile-time data race analysis for concurrent code
 
-use std::collections::HashMap;
 use crate::frontend::ast::{Expr, FunctionDecl, Stmt};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct RaceDetector {
@@ -28,6 +26,12 @@ pub enum AccessType {
     ReadWrite,
 }
 
+impl Default for RaceDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RaceDetector {
     pub fn new() -> Self {
         RaceDetector {
@@ -36,22 +40,24 @@ impl RaceDetector {
             shared_mutable: Vec::new(),
         }
     }
-    
+
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Vec<String> {
         let mut races = Vec::new();
-        
+
         for func in functions {
             self.analyze_function(func);
         }
-        
+
         // Check for races - only flag write-write conflicts
         for spawned in &self.spawned_accesses {
             for (var, spawn_access) in spawned {
                 if let Some(main_access) = self.main_accesses.get(var) {
                     // Only flag if BOTH are writing
-                    let spawn_writes = matches!(spawn_access, AccessType::Write | AccessType::ReadWrite);
-                    let main_writes = matches!(main_access, AccessType::Write | AccessType::ReadWrite);
-                    
+                    let spawn_writes =
+                        matches!(spawn_access, AccessType::Write | AccessType::ReadWrite);
+                    let main_writes =
+                        matches!(main_access, AccessType::Write | AccessType::ReadWrite);
+
                     if spawn_writes && main_writes {
                         races.push(format!(
                             "Data race detected: variable '{}' written concurrently (spawn: {:?}, main: {:?})",
@@ -61,16 +67,16 @@ impl RaceDetector {
                 }
             }
         }
-        
+
         races
     }
-    
+
     fn analyze_function(&mut self, func: &FunctionDecl) {
         for stmt in &func.body {
             self.analyze_stmt(stmt, false);
         }
     }
-    
+
     fn analyze_stmt(&mut self, stmt: &Stmt, in_spawn: bool) {
         match stmt {
             Stmt::Spawn { body } => {
@@ -100,25 +106,37 @@ impl RaceDetector {
                 }
                 self.analyze_expr(value, in_spawn);
             }
-            Stmt::Expression(Expr::If { condition, then_branch, else_branch }) => {
+            Stmt::Expression(Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            }) => {
                 self.analyze_expr(condition, in_spawn);
                 let _ = then_branch;
                 let _ = else_branch;
             }
-            Stmt::For { var, iterable, body, .. } => {
+            Stmt::Expression(Expr::For {
+                var,
+                iterable,
+                body,
+                ..
+            }) => {
                 if in_spawn {
                     if let Some(accesses) = self.spawned_accesses.last_mut() {
                         accesses.insert(var.clone(), AccessType::ReadWrite);
                     }
                 } else {
-                    self.main_accesses.insert(var.clone(), AccessType::ReadWrite);
+                    self.main_accesses
+                        .insert(var.clone(), AccessType::ReadWrite);
                 }
                 self.analyze_expr(iterable, in_spawn);
                 for s in body {
                     self.analyze_stmt(s, in_spawn);
                 }
             }
-            Stmt::While { condition, body, .. } => {
+            Stmt::Expression(Expr::While {
+                condition, body, ..
+            }) => {
                 self.analyze_expr(condition, in_spawn);
                 for s in body {
                     self.analyze_stmt(s, in_spawn);
@@ -137,7 +155,7 @@ impl RaceDetector {
             _ => {}
         }
     }
-    
+
     fn collect_accesses(&mut self, stmt: &Stmt, accesses: &mut HashMap<String, AccessType>) {
         match stmt {
             Stmt::Assign { name, value } => {
@@ -154,7 +172,7 @@ impl RaceDetector {
             _ => {}
         }
     }
-    
+
     fn collect_expr_accesses(&mut self, expr: &Expr, accesses: &mut HashMap<String, AccessType>) {
         match expr {
             Expr::Var(name, _) => {
@@ -167,7 +185,7 @@ impl RaceDetector {
             _ => {}
         }
     }
-    
+
     fn merge_access(existing: &mut AccessType, new: AccessType) {
         *existing = match (&*existing, &new) {
             (AccessType::Read, AccessType::Read) => AccessType::Read,
@@ -178,7 +196,7 @@ impl RaceDetector {
             (AccessType::Write, AccessType::Write) => AccessType::Write,
         };
     }
-    
+
     fn analyze_expr(&mut self, expr: &Expr, in_spawn: bool) {
         match expr {
             Expr::Var(name, _) => {
@@ -187,7 +205,9 @@ impl RaceDetector {
                         accesses.entry(name.clone()).or_insert(AccessType::Read);
                     }
                 } else {
-                    self.main_accesses.entry(name.clone()).or_insert(AccessType::Read);
+                    self.main_accesses
+                        .entry(name.clone())
+                        .or_insert(AccessType::Read);
                 }
             }
             Expr::Binary { left, right, .. } => {
@@ -202,7 +222,7 @@ impl RaceDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_no_race() {
         let mut detector = RaceDetector::new();

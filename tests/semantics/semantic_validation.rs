@@ -11,7 +11,7 @@ procedure main
     var x := 10.0
     x := "hello"
 "#;
-    
+
     let result = compile_and_check(source);
     assert!(!result.success, "Type mismatch should be rejected");
 }
@@ -23,7 +23,7 @@ procedure main
     val x := 10.0
     x := 20.0
 "#;
-    
+
     let result = compile_and_check(source);
     assert!(!result.success, "Mutation of val should be rejected");
 }
@@ -35,7 +35,7 @@ procedure main
     val arr := [1.0, 2.0, 3.0]
     Terminal.print(arr[10])
 "#;
-    
+
     let result = compile_and_check(source);
     assert!(!result.success, "Out-of-bounds should be rejected");
 }
@@ -48,7 +48,7 @@ procedure main
     var y := x
     Terminal.print(x)
 "#;
-    
+
     let result = compile_and_check(source);
     assert!(!result.success, "Use-after-move should be rejected");
 }
@@ -61,31 +61,31 @@ procedure main
     val y := 20.0
     print(x + y)
 "#;
-    
+
     let result = compile_and_check(source);
     assert!(result.success, "Valid program should compile");
 }
 
 fn compile_and_check(source: &str) -> CompileResult {
     use std::io::Write;
-    
+
     // Unique ID for this test
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    
+
     let temp_dir = std::env::temp_dir();
     let source_path = temp_dir.join(format!("semantic_test_{}.gol", id));
     let mut file = std::fs::File::create(&source_path).unwrap();
     file.write_all(source.as_bytes()).unwrap();
-    
+
     let compiler = find_compiler();
     let output = Command::new(&compiler)
         .arg(source_path.to_str().unwrap())
         .output()
         .expect("Failed to run compiler");
-    
+
     // Cleanup
     let _ = std::fs::remove_file(&source_path);
-    
+
     CompileResult {
         success: output.status.success(),
         #[allow(dead_code)]

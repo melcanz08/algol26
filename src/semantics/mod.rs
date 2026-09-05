@@ -1,10 +1,10 @@
+pub mod control_flow;
+pub mod escape;
+pub mod expr_translator;
+pub mod flow_analyzer;
+pub mod flow_result;
+pub mod race;
 pub mod semantic;
 pub mod semantic_builder;
-pub mod type_checker;
-pub mod flow_analyzer;
-pub mod race;
-pub mod escape;
 pub mod trait_registry;
-pub mod expr_translator;
-pub mod control_flow;
-pub mod flow_result;
+pub mod type_checker;

@@ -1,45 +1,43 @@
-# Build artifacts
+# Rust
 /target/
-*.o
-*.out
+/build/
+**/*.rs.bk
+Cargo.lock
+
+# Algol26 generated
+**/*.ll
+**/*.bc
+**/*.o
 *.ll
-*.bc
-a.out
-test_bin
+temperature_report.txt
+weather_report.txt
+test_output.ll
 
-# Generated executables (no extension)
-examples/**/*
-!examples/**/*.gol
-!examples/**/*.md
-!examples/**/
-benchmarks/programs/*.gol
-/tmp/
+# Example binaries (keep .gol only)
+examples/**/test
+examples/**/test_for
+examples/**/ffi_test
+examples/**/generics_test
+examples/**/opt_test
+examples/**/orthogonal_test
+examples/**/pattern_test
+examples/**/trait_test
+examples/**/trait_bounds_test
+examples/**/temperature_analyzer
+examples/systems/*/main
+examples/systems/*/weather
+examples/systems/comprehensive_test/full_test
 
-# Generated reports
-*_report.txt
+# Tools temp
+.fingerprint
+incremental
+deps
+*.pyc
+__pycache__/
 
-# Tools (historical scripts — kept for reference but not published)
-tools/*.py
-tools/*.sh
-tools/*.rs
-
-# Editor files
+# OS / Editor
+.DS_Store
 *.swp
 *.swo
 *~
-.vscode/
-.idea/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Test program compiled binaries (no extension)
-tests/programs/valid/concurrency
-tests/programs/valid/scope_moves
-tests/programs/invalid/out_of_bounds
-tests/programs/invalid/use_after_move
-
-# Test program compiled binaries (no .gol extension)
-tests/programs/*/
-!tests/programs/*/*.gol
+.sublime-workspace

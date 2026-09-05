@@ -10,24 +10,22 @@ impl FlowAnalyzer {
     pub fn new() -> Self {
         FlowAnalyzer
     }
-    
+
     pub fn is_terminated(block: &SemanticBlock) -> bool {
         matches!(
             block.instructions.last(),
             Some(SemanticInstruction::Return { .. })
-            | Some(SemanticInstruction::Jump { .. })
-            | Some(SemanticInstruction::Branch { .. })
-            | Some(SemanticInstruction::Switch { .. })
-            | Some(SemanticInstruction::IteratorNext { .. })
-            | Some(SemanticInstruction::Fork { .. })
+                | Some(SemanticInstruction::Jump { .. })
+                | Some(SemanticInstruction::Branch { .. })
+                | Some(SemanticInstruction::Switch { .. })
+                | Some(SemanticInstruction::IteratorNext { .. })
+                | Some(SemanticInstruction::Fork { .. })
         )
     }
-    
+
     pub fn merge_flows(then_flow: FlowResult, else_flow: FlowResult) -> FlowResult {
         match (then_flow, else_flow) {
-            (FlowResult::Unreachable, FlowResult::Unreachable) => {
-                FlowResult::Unreachable
-            }
+            (FlowResult::Unreachable, FlowResult::Unreachable) => FlowResult::Unreachable,
             (FlowResult::Reachable(id), FlowResult::Unreachable) => {
                 // Only then branch is reachable — use its block ID
                 FlowResult::Reachable(id)
@@ -44,7 +42,7 @@ impl FlowAnalyzer {
             }
         }
     }
-    
+
     pub fn is_reachable(flow: &FlowResult) -> bool {
         matches!(flow, FlowResult::Reachable(_))
     }

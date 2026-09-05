@@ -18,6 +18,12 @@ pub struct EscapeAnalyzer {
     escaped: Vec<EscapeInfo>,
 }
 
+impl Default for EscapeAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EscapeAnalyzer {
     pub fn new() -> Self {
         let mut analyzer = EscapeAnalyzer {
@@ -30,7 +36,7 @@ impl EscapeAnalyzer {
         analyzer.active_scopes.push(HashSet::new());
         analyzer
     }
-    
+
     pub fn enter_scope(&mut self) {
         self.scope_depth += 1;
         if self.scope_depth > self.max_scope_depth {
@@ -38,7 +44,7 @@ impl EscapeAnalyzer {
         }
         self.active_scopes.push(HashSet::new());
     }
-    
+
     pub fn exit_scope(&mut self) {
         if let Some(scoped_vars) = self.active_scopes.pop() {
             for var in scoped_vars {
@@ -49,14 +55,14 @@ impl EscapeAnalyzer {
             self.scope_depth -= 1;
         }
     }
-    
+
     pub fn declare(&mut self, name: &str) {
         self.variables.insert(name.to_string(), self.scope_depth);
         if let Some(current_scope) = self.active_scopes.last_mut() {
             current_scope.insert(name.to_string());
         }
     }
-    
+
     pub fn reference(&mut self, name: &str, outlives_scope: bool) {
         if let Some(&decl_depth) = self.variables.get(name) {
             if decl_depth < self.scope_depth || outlives_scope {
@@ -71,7 +77,7 @@ impl EscapeAnalyzer {
             }
         }
     }
-    
+
     pub fn get_escapes(&self) -> &[EscapeInfo] {
         &self.escaped
     }

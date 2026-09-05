@@ -1,14 +1,15 @@
 // ALGOL26 - Borrow Checker Tests (v0.2.0)
 // Verifies the three borrow rules: one owner, many readers, one writer
 
-use algol26::semantics::semantic::SemanticAnalyzer;
-use algol26::frontend::parser::Parser;
 use algol26::frontend::lexer::Lexer;
+use algol26::frontend::parser::Parser;
+use algol26::semantics::semantic::SemanticAnalyzer;
 
 fn analyze(source: &str) -> Result<(), String> {
     let lexer = Lexer::new(source.to_string()).map_err(|e| e.message)?;
     let mut parser = Parser::new(lexer.tokens);
-    let (functions, _, _) = parser.parse_program().map_err(|e| e.message)?;
+    let program = parser.parse_program().map_err(|e| e.message)?;
+    let functions = program.functions;
     let mut analyzer = SemanticAnalyzer::new();
     analyzer.analyze(&functions).map_err(|e| e.message)
 }
@@ -23,7 +24,7 @@ procedure main
     print(x)
     print(y)
 "#;
-    
+
     assert!(analyze(source).is_ok(), "Basic borrow should work");
 }
 
@@ -37,8 +38,11 @@ procedure main
     print(x)
     print(y)
 "#;
-    
-    assert!(analyze(source).is_ok(), "Borrow should not move the variable");
+
+    assert!(
+        analyze(source).is_ok(),
+        "Borrow should not move the variable"
+    );
 }
 
 #[test]
@@ -50,8 +54,11 @@ procedure main
     val y := x
     val z := &x
 "#;
-    
-    assert!(analyze(source).is_err(), "Should fail: borrowing moved variable");
+
+    assert!(
+        analyze(source).is_err(),
+        "Should fail: borrowing moved variable"
+    );
 }
 
 #[test]
@@ -65,8 +72,11 @@ procedure main
     print(y)
     print(z)
 "#;
-    
-    assert!(analyze(source).is_ok(), "Multiple immutable borrows should be allowed");
+
+    assert!(
+        analyze(source).is_ok(),
+        "Multiple immutable borrows should be allowed"
+    );
 }
 
 #[test]
@@ -78,8 +88,11 @@ procedure main
     var y := &mut x
     var z := &mut x
 "#;
-    
-    assert!(analyze(source).is_err(), "Should fail: double mutable borrow");
+
+    assert!(
+        analyze(source).is_err(),
+        "Should fail: double mutable borrow"
+    );
 }
 
 #[test]
@@ -91,8 +104,11 @@ procedure main
     var y := &mut x
     print(x)
 "#;
-    
-    assert!(analyze(source).is_err(), "Should fail: reading while mutably borrowed");
+
+    assert!(
+        analyze(source).is_err(),
+        "Should fail: reading while mutably borrowed"
+    );
 }
 
 #[test]
@@ -109,7 +125,7 @@ procedure main
     
     print(x)
 "#;
-    
+
     // For now, this may fail due to scope tracking limitation
     let _ = analyze(source);
 }
@@ -127,7 +143,7 @@ procedure main
     val result := get_value(&value)
     print(result)
 "#;
-    
+
     let _ = analyze(source);
 }
 
@@ -140,8 +156,11 @@ procedure main
     var y := &mut x
     val z := &x
 "#;
-    
-    assert!(analyze(source).is_err(), "Should fail: immutable borrow after mutable borrow");
+
+    assert!(
+        analyze(source).is_err(),
+        "Should fail: immutable borrow after mutable borrow"
+    );
 }
 
 #[test]
@@ -154,7 +173,7 @@ procedure main
     val z := &y
     print(z)
 "#;
-    
+
     // This may or may not be allowed depending on implementation
     // For now, just verify it doesn't crash
     let _ = analyze(source);

@@ -1,15 +1,16 @@
 // ALGOL26 - Defer Lowering Tests
 // Verifies defer works correctly with all control-flow exits
 
+use algol26::frontend::lexer::Lexer;
+use algol26::frontend::parser::Parser;
 use algol26::ir::semantic_ir::SemanticProgram;
 use algol26::semantics::semantic_builder::SemanticIRBuilder;
-use algol26::frontend::parser::Parser;
-use algol26::frontend::lexer::Lexer;
 
 fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
-    let (functions, _, _) = parser.parse_program().unwrap();
+    let program = parser.parse_program().unwrap();
+    let functions = program.functions;
     SemanticIRBuilder::build(&functions)
 }
 
@@ -20,15 +21,22 @@ procedure main
     defer print("Cleanup")
     return
 "#;
-    
+
     let (ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
-    
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
+
     // The defer should create a cleanup block
     let main = ir.functions.iter().find(|f| f.name == "main").unwrap();
     let has_defer = main.blocks.iter().any(|b| {
         b.instructions.iter().any(|i| {
-            matches!(i, algol26::ir::semantic_ir::SemanticInstruction::Defer { .. })
+            matches!(
+                i,
+                algol26::ir::semantic_ir::SemanticInstruction::Defer { .. }
+            )
         })
     });
     assert!(has_defer, "Expected defer instruction in IR");
@@ -42,9 +50,13 @@ procedure main
         defer print("Inner cleanup")
     print("After")
 "#;
-    
+
     let (_ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -56,9 +68,13 @@ procedure main
         defer print("Loop cleanup")
         print(item)
 "#;
-    
+
     let (_ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -69,9 +85,13 @@ procedure main
     defer print("Second cleanup")
     print("Main body")
 "#;
-    
+
     let (_ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -82,22 +102,31 @@ procedure main
     defer print("Last registered")
     defer print("First registered")
 "#;
-    
+
     let (ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
-    
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
+
     let main = ir.functions.iter().find(|f| f.name == "main").unwrap();
-    
+
     // Find all Defer instructions and verify they're in the right order
-    let defer_blocks: Vec<usize> = main.blocks.iter()
+    let defer_blocks: Vec<usize> = main
+        .blocks
+        .iter()
         .filter(|b| {
             b.instructions.iter().any(|i| {
-                matches!(i, algol26::ir::semantic_ir::SemanticInstruction::Defer { .. })
+                matches!(
+                    i,
+                    algol26::ir::semantic_ir::SemanticInstruction::Defer { .. }
+                )
             })
         })
         .map(|b| b.id)
         .collect();
-    
+
     assert!(!defer_blocks.is_empty(), "Expected defer blocks");
 }
 
@@ -112,9 +141,13 @@ procedure main
             break
         print(item)
 "#;
-    
+
     let (_ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -128,9 +161,13 @@ procedure main
             continue
         print(item)
 "#;
-    
+
     let (_ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -143,7 +180,11 @@ procedure main
         return
     print("Not reached")
 "#;
-    
+
     let (_ir, diagnostics) = build_semantic_ir(source);
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }

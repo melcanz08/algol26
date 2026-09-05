@@ -1,9 +1,9 @@
 // ALGOL26 Property-Based Tests — Simplified version
 // Uses simple random testing without proptest macro
 
+use algol26::common::types::Type;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
-use algol26::common::types::Type;
 
 /// Generate random strings and verify lexer doesn't panic
 #[test]
@@ -22,7 +22,7 @@ fn test_lexer_no_panic_random_strings() {
         " ".repeat(100),
         "\n".repeat(50),
     ];
-    
+
     for input in random_strings {
         let _ = Lexer::new(input);
     }
@@ -40,7 +40,7 @@ fn test_parser_no_panic_random_strings() {
         "trait Test\n    function method()",
         "impl Test for Int\n    function method()\n        return 0",
     ];
-    
+
     for source in random_strings {
         if let Ok(lexer) = Lexer::new(source.to_string()) {
             let _ = std::panic::catch_unwind(|| {
@@ -68,7 +68,7 @@ fn test_type_system_no_panic() {
         Type::result(Type::Int, Type::String),
         Type::TypeVar("T".to_string()),
     ];
-    
+
     for t in &types {
         let _ = format!("{}", t);
         let _ = t.is_numeric();
@@ -82,13 +82,33 @@ fn test_type_system_no_panic() {
 #[test]
 fn test_type_from_str_no_panic() {
     let edge_cases = vec![
-        "", " ", "int", "INT", "Float", "list", "list<int>",
-        "option<float>", "result<int, string>", "T", "U", "V",
-        "*", "&", "&mut", "unknown", "never", "ptr",
-        "list<", ">", "<", "list<>", "option<>", "result<>",
+        "",
+        " ",
+        "int",
+        "INT",
+        "Float",
+        "list",
+        "list<int>",
+        "option<float>",
+        "result<int, string>",
+        "T",
+        "U",
+        "V",
+        "*",
+        "&",
+        "&mut",
+        "unknown",
+        "never",
+        "ptr",
+        "list<",
+        ">",
+        "<",
+        "list<>",
+        "option<>",
+        "result<>",
         "very_long_type_name_that_doesnt_exist",
     ];
-    
+
     for s in edge_cases {
         let _ = Type::from_str(s);
     }
@@ -98,18 +118,18 @@ fn test_type_from_str_no_panic() {
 #[test]
 fn test_compile_no_panic_malformed_source() {
     let malformed_sources = vec![
-        "",                       // Empty
-        "function",               // Incomplete function
-        "function main(",         // Unclosed paren
-        "function main()",        // No body
-        "val",                    // Incomplete declaration
-        "if",                     // Incomplete if
-        "for",                    // Incomplete for
-        "while",                  // Incomplete while
-        "trait",                  // Incomplete trait
-        "impl",                   // Incomplete impl
+        "",                // Empty
+        "function",        // Incomplete function
+        "function main(",  // Unclosed paren
+        "function main()", // No body
+        "val",             // Incomplete declaration
+        "if",              // Incomplete if
+        "for",             // Incomplete for
+        "while",           // Incomplete while
+        "trait",           // Incomplete trait
+        "impl",            // Incomplete impl
     ];
-    
+
     for source in malformed_sources {
         let _ = std::panic::catch_unwind(|| {
             if let Ok(lexer) = Lexer::new(source.to_string()) {

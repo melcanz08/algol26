@@ -22,6 +22,12 @@ pub struct FFIRegistry {
     libraries: Vec<String>,
 }
 
+impl Default for FFIRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FFIRegistry {
     pub fn new() -> Self {
         FFIRegistry {
@@ -29,29 +35,30 @@ impl FFIRegistry {
             libraries: Vec::new(),
         }
     }
-    
+
     /// Register a foreign function
     pub fn register(&mut self, algol_name: &str, c_name: &str) {
-        self.functions.insert(algol_name.to_string(), c_name.to_string());
+        self.functions
+            .insert(algol_name.to_string(), c_name.to_string());
     }
-    
+
     /// Register a library to link against
     pub fn register_library(&mut self, library: &str) {
         if !self.libraries.contains(&library.to_string()) {
             self.libraries.push(library.to_string());
         }
     }
-    
+
     /// Get the C symbol name for an ALGOL26 function
     pub fn get_c_name(&self, algol_name: &str) -> Option<&String> {
         self.functions.get(algol_name)
     }
-    
+
     /// Get all libraries to link against
     pub fn get_libraries(&self) -> &[String] {
         &self.libraries
     }
-    
+
     /// Check if a function is registered as FFI
     pub fn is_ffi(&self, name: &str) -> bool {
         self.functions.contains_key(name)
@@ -77,18 +84,18 @@ pub fn register_stdlib_functions(registry: &mut FFIRegistry) {
         registry.register(algol_name, c_name);
         registry.register_library("m");
     }
-    
+
     // String functions
     registry.register("String.length", "strlen");
     registry.register_library("c");
-    
+
     // File functions
     registry.register("File.open", "fopen");
     registry.register("File.close", "fclose");
     registry.register("File.read", "fgets");
     registry.register("File.write", "fprintf");
     registry.register_library("c");
-    
+
     // Memory functions
     registry.register("alloc", "malloc");
     registry.register("free", "free");
@@ -98,7 +105,7 @@ pub fn register_stdlib_functions(registry: &mut FFIRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_ffi_registry_register() {
         let mut registry = FFIRegistry::new();
@@ -106,7 +113,7 @@ mod tests {
         assert!(registry.is_ffi("Math.sqrt"));
         assert_eq!(registry.get_c_name("Math.sqrt"), Some(&"sqrt".to_string()));
     }
-    
+
     #[test]
     fn test_ffi_registry_libraries() {
         let mut registry = FFIRegistry::new();

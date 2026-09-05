@@ -1,4 +1,4 @@
-use algol26::common::diagnostics::{CompileError, ErrorCode, Diagnostic};
+use algol26::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
 
 #[test]
 fn test_error_code_format() {
@@ -15,8 +15,9 @@ fn test_compile_error_creation() {
         10,
         "val x: Int := 3.14",
         ErrorCode::E0002,
-    ).with_suggestion("Convert the value to Int");
-    
+    )
+    .with_suggestion("Convert the value to Int");
+
     assert_eq!(err.message, "Type mismatch");
     assert_eq!(err.line, 5);
     assert_eq!(err.column, 10);

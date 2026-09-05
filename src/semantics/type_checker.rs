@@ -3,6 +3,8 @@
 use crate::common::types::Type;
 use crate::frontend::ast::{BinOp, Expr};
 
+/// DEPRECATED: TypeChecker is superseded by SemanticIRBuilder::validate_binary_op
+/// Kept for test compatibility only. Do not use in new code paths.
 pub struct TypeChecker {
     diagnostics: Vec<String>,
 }
@@ -13,17 +15,12 @@ impl TypeChecker {
             diagnostics: Vec::new(),
         }
     }
-    
+
     pub fn take_diagnostics(&mut self) -> Vec<String> {
         std::mem::take(&mut self.diagnostics)
     }
-    
-    pub fn validate_binary_op(
-        &mut self,
-        op: &BinOp,
-        left_type: &Type,
-        right_type: &Type,
-    ) -> Type {
+
+    pub fn validate_binary_op(&mut self, op: &BinOp, left_type: &Type, right_type: &Type) -> Type {
         match op {
             BinOp::Add | BinOp::Subtract | BinOp::Multiply | BinOp::Divide => {
                 // Check numeric types only
@@ -68,23 +65,22 @@ impl TypeChecker {
             BinOp::And | BinOp::Or => {
                 if *left_type != Type::Bool && !left_type.is_unknown() {
                     self.diagnostics.push(format!(
-                        "Logical operator requires Bool left operand, found {}", left_type
+                        "Logical operator requires Bool left operand, found {}",
+                        left_type
                     ));
                 }
                 if *right_type != Type::Bool && !right_type.is_unknown() {
                     self.diagnostics.push(format!(
-                        "Logical operator requires Bool right operand, found {}", right_type
+                        "Logical operator requires Bool right operand, found {}",
+                        right_type
                     ));
                 }
                 Type::Bool
             }
         }
     }
-    
-    pub fn needs_int_to_float_coercion(
-        left_type: &Type,
-        right_type: &Type,
-    ) -> Option<bool> {
+
+    pub fn needs_int_to_float_coercion(left_type: &Type, right_type: &Type) -> Option<bool> {
         if *left_type == Type::Int && *right_type == Type::Float {
             Some(true)
         } else if *left_type == Type::Float && *right_type == Type::Int {
@@ -93,18 +89,18 @@ impl TypeChecker {
             None
         }
     }
-    
+
     pub fn infer_list_element_type(&mut self, elements: &[Expr]) -> Type {
         if elements.is_empty() {
             return Type::Unknown;
         }
-        
+
         let mut result = self.infer_expr_type(&elements[0]);
-        
+
         for elem in &elements[1..] {
             let elem_type = self.infer_expr_type(elem);
             result = result.common_supertype(&elem_type);
-            
+
             if result == Type::Unknown {
                 self.diagnostics.push(format!(
                     "Heterogeneous list element types: {} and {}",
@@ -112,11 +108,15 @@ impl TypeChecker {
                 ));
             }
         }
-        
+
         result
     }
-    
+
     pub fn infer_expr_type(&self, expr: &Expr) -> Type {
+        self.infer_expr_type_with_context(expr, None)
+    }
+
+    pub fn infer_expr_type_with_context(&self, expr: &Expr, expected: Option<&Type>) -> Type {
         match expr {
             Expr::Borrow { .. } => Type::Unknown,
             Expr::MutBorrow { .. } => Type::Unknown,
@@ -129,7 +129,10 @@ impl TypeChecker {
             // ADD THESE:
             Expr::PtrLiteral(_) => Type::Ptr,
             Expr::NullPtr => Type::Ptr,
-            Expr::Cast { expr: _cast_expr, target_type } => {
+            Expr::Cast {
+                expr: _cast_expr,
+                target_type,
+            } => {
                 // Try to infer from target type string
                 Type::from_str(target_type)
             }
@@ -141,9 +144,41 @@ impl TypeChecker {
                 }
             }
             Expr::Some { value } => Type::option(self.infer_expr_type(value)),
-            Expr::None => Type::option(Type::Unknown),
-            Expr::Ok { value } => Type::result(self.infer_expr_type(value), Type::Unknown),
-            Expr::Error { value } => Type::result(Type::Unknown, self.infer_expr_type(value)),
+            Expr::None => {
+                if let Some(Type::Option(inner)) = expected {
+                    Type::option((**inner).clone())
+                } else {
+                    Type::option(Type::Unknown)
+                }
+            }
+            Expr::Ok { value } => {
+                let inner = self.infer_expr_type_with_context(
+                    value,
+                    expected.and_then(|t| match t {
+                        Type::Result { ok, .. } => Some(ok.as_ref()),
+                        _ => None,
+                    }),
+                );
+                if let Some(Type::Result { error, .. }) = expected {
+                    Type::result(inner, (**error).clone())
+                } else {
+                    Type::result(inner, Type::Unknown)
+                }
+            }
+            Expr::Error { value } => {
+                let inner = self.infer_expr_type_with_context(
+                    value,
+                    expected.and_then(|t| match t {
+                        Type::Result { error, .. } => Some(error.as_ref()),
+                        _ => None,
+                    }),
+                );
+                if let Some(Type::Result { ok, .. }) = expected {
+                    Type::result((**ok).clone(), inner)
+                } else {
+                    Type::result(Type::Unknown, inner)
+                }
+            }
             _ => Type::Unknown,
         }
     }

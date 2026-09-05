@@ -1,0 +1,16 @@
+function factorial(n: Int) -> Int
+    if n <= 1
+        return 1
+    else
+        return n * factorial(n - 1)
+
+function main() -> Int
+    val result := factorial(10)
+    print result
+    
+    var sum := 0
+    for i in [1, 2, 3, 4, 5]
+        sum := sum + i
+    
+    print sum
+    return 0

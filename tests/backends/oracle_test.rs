@@ -1,18 +1,28 @@
 // ALGOL26 Oracle Tests — Interpreter as Semantic Reference
 // These tests document the INTERPRETER's actual behavior as the oracle.
 
+use algol26::backends::interpreter::Interpreter;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::semantics::semantic::SemanticAnalyzer;
 use algol26::semantics::semantic_builder::SemanticIRBuilder;
-use algol26::backends::interpreter::Interpreter;
 
 fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
-    let (functions, traits, impls) = parser.parse_program().unwrap();
+    let program = parser.parse_program().unwrap();
+    let functions = program.functions;
+    let traits = program.traits;
+    let impls = program.impls;
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze_with_traits(&functions, &traits, &impls, &std::collections::HashMap::new()).unwrap();
+    analyzer
+        .analyze_with_traits(
+            &functions,
+            &traits,
+            &impls,
+            &std::collections::HashMap::new(),
+        )
+        .unwrap();
     let (ir, _) = SemanticIRBuilder::build(&functions);
     ir
 }

@@ -17,15 +17,15 @@ impl VerifiedIR {
     pub fn new(program: SemanticProgram) -> Result<Self, String> {
         // Verify the program
         program.verify()?;
-        
+
         Ok(VerifiedIR { program })
     }
-    
+
     /// Get a reference to the verified program
     pub fn program(&self) -> &SemanticProgram {
         &self.program
     }
-    
+
     // into_program() REMOVED:
     // Extracting the raw SemanticProgram would break the verification guarantee.
     // Backends must use program() to access the verified IR.
@@ -37,9 +37,11 @@ pub type BackendInput = VerifiedIR;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::semantic_ir::{SemanticProgram, SemanticFunction, SemanticBlock, SemanticInstruction};
     use crate::common::types::Type;
-    
+    use crate::ir::semantic_ir::{
+        SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram,
+    };
+
     #[test]
     fn test_verified_ir_accepts_valid_program() {
         let mut program = SemanticProgram::new();
@@ -50,17 +52,20 @@ mod tests {
             return_type: Type::Void,
             blocks: vec![SemanticBlock {
                 id: entry,
-                instructions: vec![SemanticInstruction::Return { value: None, type_: Type::Void }],
+                instructions: vec![SemanticInstruction::Return {
+                    value: None,
+                    type_: Type::Void,
+                }],
             }],
             entry_block: entry,
             is_extern: false,
         };
         program.functions.push(func);
-        
+
         let verified = VerifiedIR::new(program);
         assert!(verified.is_ok());
     }
-    
+
     #[test]
     fn test_verified_ir_rejects_invalid_program() {
         let mut program = SemanticProgram::new();
@@ -70,18 +75,24 @@ mod tests {
             params: vec![],
             return_type: Type::Void,
             blocks: vec![
-                SemanticBlock { id: block_id, instructions: vec![] },
-                SemanticBlock { id: block_id, instructions: vec![] }, // Duplicate!
+                SemanticBlock {
+                    id: block_id,
+                    instructions: vec![],
+                },
+                SemanticBlock {
+                    id: block_id,
+                    instructions: vec![],
+                }, // Duplicate!
             ],
             entry_block: block_id,
             is_extern: false,
         };
         program.functions.push(func);
-        
+
         let verified = VerifiedIR::new(program);
         assert!(verified.is_err());
     }
-    
+
     #[test]
     fn test_verified_ir_program_access() {
         let mut program = SemanticProgram::new();
@@ -98,7 +109,7 @@ mod tests {
             is_extern: false,
         };
         program.functions.push(func);
-        
+
         let verified = VerifiedIR::new(program).unwrap();
         let extracted = verified.program();
         assert_eq!(extracted.functions.len(), 1);

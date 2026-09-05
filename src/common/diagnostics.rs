@@ -1,7 +1,7 @@
 // algol26/src/diagnostics.rs
 
-use std::fmt;
 use crate::common::span::Span;
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct CompileError {
@@ -65,13 +65,13 @@ impl CompileError {
     pub fn suggest_fix(&self) -> Option<&str> {
         self.suggestion.as_deref()
     }
-    
+
     pub fn with_context(mut self, context: &str) -> Self {
         let suggestion = format!("{}. {}", context, self.suggestion.unwrap_or_default());
         self.suggestion = Some(suggestion);
         self
     }
-    
+
     pub fn new(
         message: &str,
         line: usize,
@@ -89,21 +89,26 @@ impl CompileError {
             suggestion: None,
         }
     }
-    
+
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
         self
     }
-    
+
     pub fn with_suggestion(mut self, suggestion: &str) -> Self {
         self.suggestion = Some(suggestion.to_string());
         self
     }
-    
+
     pub fn display(&self) {
         if self.line > 0 {
-            eprintln!("error[{}]: {} (line {}, column {})", 
-                self.error_code.as_str(), self.message, self.line, self.column);
+            eprintln!(
+                "error[{}]: {} (line {}, column {})",
+                self.error_code.as_str(),
+                self.message,
+                self.line,
+                self.column
+            );
         } else {
             eprintln!("error[{}]: {}", self.error_code.as_str(), self.message);
         }
@@ -111,7 +116,7 @@ impl CompileError {
             eprintln!("  --> Line {}:{}", self.line, self.column);
             eprintln!("  |");
             eprintln!("{} | {}", self.line, self.source_line);
-            eprintln!("  | {}{}", " ".repeat(self.column), "^");
+            eprintln!("  | {}^", " ".repeat(self.column));
         }
         if let Some(suggestion) = &self.suggestion {
             eprintln!("  |");

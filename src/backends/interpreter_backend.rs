@@ -2,9 +2,9 @@
 // Implements the Backend trait for direct interpretation
 
 use crate::backends::backend::{Backend, BackendOutput};
-use crate::ir::verified_ir::VerifiedIR;
 use crate::backends::interpreter::Interpreter;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
+use crate::ir::verified_ir::VerifiedIR;
 
 pub struct InterpreterBackend;
 
@@ -24,24 +24,24 @@ impl Backend for InterpreterBackend {
                 }
                 Ok(BackendOutput::InterpreterOutput)
             }
-            Err(e) => {
-                Err(CompileError::new(
-                    &format!("Interpreter error: {}", e),
-                    0, 0, "",
-                    ErrorCode::E0001,
-                ))
-            }
+            Err(e) => Err(CompileError::new(
+                &format!("Interpreter error: {}", e),
+                0,
+                0,
+                "",
+                ErrorCode::E0001,
+            )),
         }
     }
-    
+
     fn name(&self) -> &str {
         "interpreter"
     }
-    
+
     fn description(&self) -> &str {
         "Executes programs directly from SemanticProgram"
     }
-    
+
     fn can_execute(&self) -> bool {
         true
     }

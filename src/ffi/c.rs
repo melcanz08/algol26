@@ -18,18 +18,18 @@ pub enum CType {
     CULongLong,
     CFloat,
     CDouble,
-    CString,           // char* (null-terminated)
+    CString, // char* (null-terminated)
     CPointer(Box<CType>),
     CConstPointer(Box<CType>),
-    CStruct(String),   // Named C struct
-    CUnion(String),    // Named C union
-    CEnum(String),     // Named C enum
+    CStruct(String),           // Named C struct
+    CUnion(String),            // Named C union
+    CEnum(String),             // Named C enum
     CArray(Box<CType>, usize), // Fixed-size array
     CFunctionPointer(Box<CFunctionSignature>),
-    CSizeT,           // size_t
-    CSSizeT,          // ssize_t
-    CIntPtrT,         // intptr_t
-    CUIntPtrT,        // uintptr_t
+    CSizeT,    // size_t
+    CSSizeT,   // ssize_t
+    CIntPtrT,  // intptr_t
+    CUIntPtrT, // uintptr_t
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,30 +97,30 @@ impl FFIInfo {
             None => fallback,
         }
     }
-    
+
     /// Get library name with platform-specific prefix/suffix
     pub fn get_library_filename(&self) -> Option<String> {
         if self.library.is_empty() {
             return None;
         }
-        
+
         let lib = &self.library;
-        
+
         #[cfg(target_os = "linux")]
         {
             Some(format!("lib{}.so", lib))
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             Some(format!("lib{}.dylib", lib))
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             Some(format!("{}.dll", lib))
         }
-        
+
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {
             None
@@ -152,8 +152,14 @@ impl fmt::Display for CType {
             CType::CUnion(name) => write!(f, "union {}", name),
             CType::CEnum(name) => write!(f, "enum {}", name),
             CType::CArray(t, n) => write!(f, "{}[{}]", t, n),
-            CType::CFunctionPointer(sig) => write!(f, "fn({}) -> {}", 
-                sig.params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
+            CType::CFunctionPointer(sig) => write!(
+                f,
+                "fn({}) -> {}",
+                sig.params
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 sig.return_type
             ),
             CType::CSizeT => write!(f, "size_t"),
@@ -222,16 +228,16 @@ mod tests {
             library: "m".to_string(),
             ..Default::default()
         };
-        
+
         let filename = ffi.get_library_filename();
         assert!(filename.is_some());
-        
+
         #[cfg(target_os = "linux")]
         assert_eq!(filename.unwrap(), "libm.so");
-        
+
         #[cfg(target_os = "macos")]
         assert_eq!(filename.unwrap(), "libm.dylib");
-        
+
         #[cfg(target_os = "windows")]
         assert_eq!(filename.unwrap(), "m.dll");
     }

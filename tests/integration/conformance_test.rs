@@ -5,7 +5,7 @@ fn compile_valid(program: &str) -> bool {
         .args(["run", "--release", "--", program, "--emit-llvm"])
         .output()
         .expect("Failed to run compiler");
-    
+
     output.status.success()
 }
 
@@ -14,7 +14,7 @@ fn compile_invalid(program: &str) -> bool {
         .args(["run", "--release", "--", program])
         .output()
         .expect("Failed to run compiler");
-    
+
     !output.status.success()
 }
 
@@ -22,7 +22,7 @@ fn compile_invalid(program: &str) -> bool {
 fn test_valid_programs() {
     let valid_dir = "tests/programs/valid";
     let entries = std::fs::read_dir(valid_dir).unwrap();
-    
+
     let mut count = 0;
     for entry in entries {
         let path = entry.unwrap().path();
@@ -36,7 +36,7 @@ fn test_valid_programs() {
             count += 1;
         }
     }
-    
+
     assert!(count > 0, "No valid test programs found");
     println!("✅ {} valid programs passed", count);
 }
@@ -45,7 +45,7 @@ fn test_valid_programs() {
 fn test_invalid_programs() {
     let invalid_dir = "tests/programs/invalid";
     let entries = std::fs::read_dir(invalid_dir).unwrap();
-    
+
     let mut count = 0;
     for entry in entries {
         let path = entry.unwrap().path();
@@ -59,7 +59,7 @@ fn test_invalid_programs() {
             count += 1;
         }
     }
-    
+
     assert!(count > 0, "No invalid test programs found");
     println!("✅ {} invalid programs correctly rejected", count);
 }

@@ -21,6 +21,12 @@ pub struct RegionManager {
     next_id: usize,
 }
 
+impl Default for RegionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RegionManager {
     pub fn new() -> Self {
         RegionManager {
@@ -29,18 +35,21 @@ impl RegionManager {
             next_id: 0,
         }
     }
-    
+
     pub fn create_region(&mut self, name: &str) -> usize {
         let id = self.next_id;
         self.next_id += 1;
-        self.regions.insert(id, Region {
+        self.regions.insert(
             id,
-            name: name.to_string(),
-            active: true,
-        });
+            Region {
+                id,
+                name: name.to_string(),
+                active: true,
+            },
+        );
         id
     }
-    
+
     pub fn enter_region(&mut self, id: usize) -> Result<(), String> {
         if let Some(region) = self.regions.get(&id) {
             if region.active {
@@ -53,11 +62,11 @@ impl RegionManager {
             Err(format!("Region {} not found", id))
         }
     }
-    
+
     pub fn exit_region(&mut self) {
         self.current_region = None;
     }
-    
+
     pub fn deallocate_region(&mut self, id: usize) -> Result<(), String> {
         if let Some(region) = self.regions.get_mut(&id) {
             region.active = false;
@@ -66,11 +75,11 @@ impl RegionManager {
             Err(format!("Region {} not found", id))
         }
     }
-    
+
     pub fn current_region(&self) -> Option<usize> {
         self.current_region
     }
-    
+
     pub fn is_active(&self, id: usize) -> bool {
         self.regions.get(&id).map(|r| r.active).unwrap_or(false)
     }

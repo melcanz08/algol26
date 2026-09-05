@@ -1,7 +1,7 @@
 // src/main.rs - ALGOL26 - Binary entry point
 
-use algol26::compiler::Compiler;
 use algol26::common::diagnostics::{CompileError, ErrorCode};
+use algol26::compiler::Compiler;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -14,17 +14,17 @@ fn main() {
     }
 
     let first_arg = &args[1];
-    
+
     if first_arg == "--help" || first_arg == "-h" {
         print_usage();
         std::process::exit(0);
     }
-    
+
     if first_arg == "--version" || first_arg == "-v" {
         println!("ALGOL26 Compiler v{}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
-    
+
     let (command, filename) = match first_arg.as_str() {
         "check" => {
             if args.len() < 3 {
@@ -54,21 +54,21 @@ fn main() {
             }
             ("wasm", args[2].clone())
         }
-        _ => {
-            ("build", first_arg.clone())
-        }
+        _ => ("build", first_arg.clone()),
     };
-    
+
     if !filename.ends_with(".gol") {
         eprintln!("Warning: Expected .gol file extension");
     }
-    
+
     let source = match fs::read_to_string(&filename) {
         Ok(content) => content,
         Err(e) => {
             let err = CompileError::new(
                 &format!("Failed to read file '{}': {}", filename, e),
-                0, 0, "",
+                0,
+                0,
+                "",
                 ErrorCode::E0001,
             );
             err.display();
@@ -76,12 +76,24 @@ fn main() {
         }
     };
 
-    let remaining_args: Vec<&String> = args.iter().skip(if args.len() > 2 && (first_arg == "check" || first_arg == "build" || first_arg == "run") { 3 } else { 2 }).collect();
-    
+    let remaining_args: Vec<&String> = args
+        .iter()
+        .skip(
+            if args.len() > 2
+                && (first_arg == "check" || first_arg == "build" || first_arg == "run")
+            {
+                3
+            } else {
+                2
+            },
+        )
+        .collect();
+
     let emit_llvm = remaining_args.iter().any(|a| a.as_str() == "--emit-llvm");
     let run = command == "run" || remaining_args.iter().any(|a| a.as_str() == "--run");
-    
-    let output_name = remaining_args.iter()
+
+    let output_name = remaining_args
+        .iter()
         .position(|a| a.as_str() == "--output" || a.as_str() == "-o")
         .and_then(|i| remaining_args.get(i + 1))
         .map(|s| s.to_string())
@@ -104,11 +116,11 @@ fn main() {
         }
         _ => {}
     }
-    
+
     if command == "wasm" {
         // Use WASM backend
         println!("[Compiling to WASM: {}]", filename);
-        
+
         // Parse the source and compile through WASM backend
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile_to_wasm(&source, &filename, &output_name) {

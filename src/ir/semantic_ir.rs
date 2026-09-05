@@ -74,11 +74,22 @@ pub enum TypedIRValue {
     Float(f64),
     String(String),
     Bool(bool),
-    List(Vec<TypedIRValue>),
+    Void,
+    PtrLiteral(usize),
+    NullPtr,
+    List(Vec<TypedIRValue>, Type),
     Some(Box<TypedIRValue>),
-    None,
-    Ok(Box<TypedIRValue>),
-    Error(Box<TypedIRValue>),
+    None {
+        option_type: Type,
+    },
+    Ok {
+        value: Box<TypedIRValue>,
+        result_type: Type,
+    },
+    Error {
+        value: Box<TypedIRValue>,
+        result_type: Type,
+    },
     Variable(String, Type),
     Cast {
         value: Box<TypedIRValue>,
@@ -99,6 +110,22 @@ pub enum TypedIRValue {
         array: Box<TypedIRValue>,
         index: Box<TypedIRValue>,
         element_type: Type,
+    },
+    Borrow {
+        expr: Box<TypedIRValue>,
+        target_type: Type,
+    },
+    MutBorrow {
+        expr: Box<TypedIRValue>,
+        target_type: Type,
+    },
+    Deref {
+        expr: Box<TypedIRValue>,
+        target_type: Type,
+    },
+    AddrOf {
+        expr: Box<TypedIRValue>,
+        target_type: Type,
     },
     /// Method call on a type (trait method dispatch)
     /// receiver_type is the type that implements the trait
@@ -122,7 +149,7 @@ impl TypedIRValue {
             _ => None,
         }
     }
-    
+
     /// Get the type of this value
     /// INVARIANT: Must never return Type::Unknown for validated IR
     pub fn type_of(&self) -> Type {
@@ -131,22 +158,23 @@ impl TypedIRValue {
             TypedIRValue::Float(_) => Type::Float,
             TypedIRValue::String(_) => Type::String,
             TypedIRValue::Bool(_) => Type::Bool,
-            TypedIRValue::List(v) => {
-                if let Some(first) = v.first() {
-                    Type::list(first.type_of())
-                } else {
-                    Type::list(Type::Unknown)
-                }
-            }
+            TypedIRValue::Void => Type::Void,
+            TypedIRValue::PtrLiteral(_) => Type::Ptr,
+            TypedIRValue::NullPtr => Type::Ptr,
+            TypedIRValue::List(_, element_type) => Type::list(element_type.clone()),
             TypedIRValue::Some(v) => Type::option(v.type_of()),
-            TypedIRValue::None => Type::option(Type::Unknown),
-            TypedIRValue::Ok(v) => Type::result(v.type_of(), Type::Unknown),
-            TypedIRValue::Error(v) => Type::result(Type::Unknown, v.type_of()),
+            TypedIRValue::None { option_type } => option_type.clone(),
+            TypedIRValue::Ok { result_type, .. } => result_type.clone(),
+            TypedIRValue::Error { result_type, .. } => result_type.clone(),
             TypedIRValue::Variable(_, t) => t.clone(),
             TypedIRValue::Cast { target_type, .. } => target_type.clone(),
             TypedIRValue::BinaryOp { result_type, .. } => result_type.clone(),
             TypedIRValue::Call { return_type, .. } => return_type.clone(),
             TypedIRValue::ArrayAccess { element_type, .. } => element_type.clone(),
+            TypedIRValue::Borrow { target_type, .. } => target_type.clone(),
+            TypedIRValue::MutBorrow { target_type, .. } => target_type.clone(),
+            TypedIRValue::Deref { target_type, .. } => target_type.clone(),
+            TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
             TypedIRValue::MethodCall { return_type, .. } => return_type.clone(),
         }
     }
@@ -158,9 +186,18 @@ impl TypedIRValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SemanticBinOp {
-    Add, Subtract, Multiply, Divide,
-    Greater, Less, GreaterEqual, LessEqual,
-    Equal, NotEqual, And, Or,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Greater,
+    Less,
+    GreaterEqual,
+    LessEqual,
+    Equal,
+    NotEqual,
+    And,
+    Or,
 }
 
 // ---------------------------------------------------------------------------
@@ -272,15 +309,54 @@ pub enum SemanticInstruction {
 // ---------------------------------------------------------------------------
 
 impl SemanticInstruction {
+    /// Get successor block IDs for CFG reachability
+    pub fn successors(&self) -> Vec<usize> {
+        match self {
+            SemanticInstruction::Jump { block } => vec![*block],
+            SemanticInstruction::Branch {
+                then_block,
+                else_block,
+                ..
+            } => vec![*then_block, *else_block],
+            SemanticInstruction::Switch {
+                cases,
+                default_block,
+                ..
+            } => {
+                let mut succ: Vec<usize> = cases.iter().map(|(_, b)| *b).collect();
+                if let Some(default) = default_block {
+                    succ.push(*default);
+                }
+                succ
+            }
+            SemanticInstruction::IteratorNext {
+                body_block,
+                exit_block,
+                ..
+            } => vec![*body_block, *exit_block],
+            SemanticInstruction::Spawn { entry_block } => vec![*entry_block],
+            SemanticInstruction::Fork { blocks, join_block } => {
+                let mut succ = blocks.clone();
+                succ.push(*join_block);
+                succ
+            }
+            SemanticInstruction::Defer { cleanup_block } => vec![*cleanup_block],
+            SemanticInstruction::Return { .. } => vec![],
+            _ => vec![],
+        }
+    }
+
     /// Returns true if this instruction terminates a basic block.
     /// This is the CANONICAL definition — use everywhere.
     pub fn is_terminator(&self) -> bool {
         matches!(
             self,
             SemanticInstruction::Return { .. }
-            | SemanticInstruction::Jump { .. }
-            | SemanticInstruction::Branch { .. }
-            | SemanticInstruction::Switch { .. }
+                | SemanticInstruction::Jump { .. }
+                | SemanticInstruction::Branch { .. }
+                | SemanticInstruction::Switch { .. }
+                | SemanticInstruction::IteratorNext { .. }
+                | SemanticInstruction::Fork { .. }
         )
     }
 }
@@ -322,74 +398,61 @@ impl SemanticProgram {
             next_block_id: 0,
         }
     }
-    
+
     pub fn new_block_id(&mut self) -> usize {
         let id = self.next_block_id;
         self.next_block_id += 1;
         id
     }
-    
+
     /// Get a function by name
     pub fn get_function(&self, name: &str) -> Option<&SemanticFunction> {
         self.functions.iter().find(|f| f.name == name)
     }
-    
+
     /// Get the main function (entry point)
     pub fn main_function(&self) -> Option<&SemanticFunction> {
         self.functions.iter().find(|f| f.name == "main")
     }
-    
+
     /// Verify IR invariants
     /// Returns Ok(()) if all invariants hold, Err(String) otherwise
     pub fn verify(&self) -> Result<(), String> {
+        // Delegate to SemanticVerifier for comprehensive verification
+        crate::ir::semantic_verifier::SemanticVerifier::verify(self)
+    }
+
+    /// Verify CFG reachability - all blocks must be reachable from entry
+    pub fn verify_reachability(&self) -> Result<(), String> {
         for func in &self.functions {
-            // Check entry block exists
-            if !func.blocks.iter().any(|b| b.id == func.entry_block) {
-                return Err(format!(
-                    "Function '{}': entry block {} does not exist",
-                    func.name, func.entry_block
-                ));
+            if func.is_extern {
+                continue;
             }
-            
-            // Check all block IDs are unique
-            let mut block_ids = std::collections::HashSet::new();
-            for block in &func.blocks {
-                if !block_ids.insert(block.id) {
-                    return Err(format!(
-                        "Function '{}': duplicate block id {}",
-                        func.name, block.id
-                    ));
+
+            let mut reachable = std::collections::HashSet::new();
+            let mut worklist = vec![func.entry_block];
+
+            while let Some(block_id) = worklist.pop() {
+                if !reachable.insert(block_id) {
+                    continue;
+                }
+
+                if let Some(block) = func.blocks.iter().find(|b| b.id == block_id) {
+                    for instr in &block.instructions {
+                        for succ in instr.successors() {
+                            worklist.push(succ);
+                        }
+                    }
                 }
             }
-            
-            // Check jump targets exist
+
+            // Check all blocks are reachable
             for block in &func.blocks {
-                for instr in &block.instructions {
-                    match instr {
-                        SemanticInstruction::Jump { block: target } => {
-                            if !block_ids.contains(target) {
-                                return Err(format!(
-                                    "Function '{}': Jump to non-existent block {}",
-                                    func.name, target
-                                ));
-                            }
-                        }
-                        SemanticInstruction::Branch { then_block, else_block, .. } => {
-                            if !block_ids.contains(then_block) {
-                                return Err(format!(
-                                    "Function '{}': Branch to non-existent then_block {}",
-                                    func.name, then_block
-                                ));
-                            }
-                            if !block_ids.contains(else_block) {
-                                return Err(format!(
-                                    "Function '{}': Branch to non-existent else_block {}",
-                                    func.name, else_block
-                                ));
-                            }
-                        }
-                        _ => {}
-                    }
+                if !reachable.contains(&block.id) {
+                    return Err(format!(
+                        "Function '{}': block {} is unreachable from entry block {}",
+                        func.name, block.id, func.entry_block
+                    ));
                 }
             }
         }

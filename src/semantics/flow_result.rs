@@ -15,7 +15,7 @@ impl FlowResult {
             FlowResult::Unreachable => None,
         }
     }
-    
+
     pub fn is_reachable(&self) -> bool {
         matches!(self, FlowResult::Reachable(_))
     }

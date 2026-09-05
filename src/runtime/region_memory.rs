@@ -22,7 +22,7 @@ impl RegionAllocator {
             regions: HashMap::new(),
         }
     }
-    
+
     pub fn create_region(&mut self, name: &str) {
         self.regions.insert(
             name.to_string(),
@@ -34,7 +34,7 @@ impl RegionAllocator {
             },
         );
     }
-    
+
     pub fn allocate(&mut self, region_name: &str, size: usize) -> bool {
         if let Some(region) = self.regions.get_mut(region_name) {
             if !region.freed {
@@ -45,25 +45,25 @@ impl RegionAllocator {
         }
         false
     }
-    
+
     pub fn free_region(&mut self, region_name: &str) {
         if let Some(region) = self.regions.get_mut(region_name) {
             region.freed = true;
             region.used = 0;
         }
     }
-    
+
     pub fn is_freed(&self, region_name: &str) -> bool {
         self.regions
             .get(region_name)
             .map(|r| r.freed)
             .unwrap_or(false)
     }
-    
+
     pub fn total_allocated(&self) -> usize {
         self.regions.values().map(|r| r.size).sum()
     }
-    
+
     pub fn total_used(&self) -> usize {
         self.regions.values().map(|r| r.used).sum()
     }

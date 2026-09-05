@@ -1,10 +1,12 @@
 // src/semantic.rs - Orthogonal + unified types + is_copy fix
 
-use std::collections::{HashMap, HashSet};
-use crate::frontend::ast::{Expr, FunctionDecl, Stmt, BinOp, Pattern, WhereClause, TraitDecl, ImplBlock};
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
+use crate::frontend::ast::{
+    BinOp, Expr, FunctionDecl, ImplBlock, Pattern, Stmt, TraitDecl, WhereClause,
+};
 use crate::semantics::trait_registry::TraitRegistry;
+use std::collections::{HashMap, HashSet};
 
 pub struct SemanticAnalyzer {
     span_map: std::collections::HashMap<usize, (usize, usize)>,
@@ -16,9 +18,9 @@ pub struct SemanticAnalyzer {
     current_return_type: Option<Type>,
     list_lengths: Vec<HashMap<String, usize>>,
     list_values: Vec<HashMap<String, Vec<Expr>>>,
-     // NEW: Generic type support
-    type_params: Vec<HashMap<String, Type>>,  // Stack of type param scopes
-    type_constraints: Vec<HashMap<String, Vec<String>>>,  // T -> [Comparable, ...]
+    // NEW: Generic type support
+    type_params: Vec<HashMap<String, Type>>, // Stack of type param scopes
+    type_constraints: Vec<HashMap<String, Vec<String>>>, // T -> [Comparable, ...]
     trait_registry: TraitRegistry,
 }
 
@@ -26,6 +28,12 @@ pub struct SemanticAnalyzer {
 struct FunctionInfo {
     params: Vec<(String, Type)>,
     return_type: Type,
+}
+
+impl Default for SemanticAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SemanticAnalyzer {
@@ -99,7 +107,9 @@ impl SemanticAnalyzer {
     }
 
     fn is_moved(&self, name: &str) -> bool {
-        self.moved_vars.iter().any(|scope| scope.iter().any(|v| v == name))
+        self.moved_vars
+            .iter()
+            .any(|scope| scope.iter().any(|v| v == name))
     }
 
     fn mark_moved(&mut self, name: &str) {
@@ -109,78 +119,92 @@ impl SemanticAnalyzer {
             }
         }
     }
-    
+
     fn mark_borrowed(&mut self, name: &str) {
         if let Some(scope) = self.borrowed_vars.last_mut() {
             scope.insert(name.to_string());
         }
     }
-    
+
     fn mark_mutably_borrowed(&mut self, name: &str) {
         if let Some(scope) = self.mutably_borrowed.last_mut() {
             scope.insert(name.to_string());
         }
     }
-    
+
     fn is_mutably_borrowed(&self, name: &str) -> bool {
-        self.mutably_borrowed.iter().any(|scope| scope.contains(name))
+        self.mutably_borrowed
+            .iter()
+            .any(|scope| scope.contains(name))
     }
-    
+
     fn is_borrowed(&self, name: &str) -> bool {
         self.borrowed_vars.iter().any(|scope| scope.contains(name))
     }
-    
+
     fn check_borrow_rules(&self, name: &str, mutable: bool) -> Result<()> {
         if self.is_moved(name) {
             return Err(CompileError::new(
                 &format!("Cannot borrow moved variable '{}'", name),
-                0, 0, "",
+                0,
+                0,
+                "",
                 ErrorCode::E0007,
-            ).with_suggestion("The variable has been moved and is no longer available"));
+            )
+            .with_suggestion("The variable has been moved and is no longer available"));
         }
-        
+
         if mutable && self.is_mutably_borrowed(name) {
             return Err(CompileError::new(
                 &format!("Cannot mutably borrow '{}' more than once", name),
-                0, 0, "",
+                0,
+                0,
+                "",
                 ErrorCode::E0007,
-            ).with_suggestion("Only one mutable borrow is allowed at a time"));
+            )
+            .with_suggestion("Only one mutable borrow is allowed at a time"));
         }
-        
+
         if mutable && self.is_borrowed(name) {
             return Err(CompileError::new(
                 &format!("Cannot mutably borrow '{}' while immutably borrowed", name),
-                0, 0, "",
+                0,
+                0,
+                "",
                 ErrorCode::E0007,
-            ).with_suggestion("Wait for the immutable borrow to end"));
+            )
+            .with_suggestion("Wait for the immutable borrow to end"));
         }
-        
+
         if !mutable && self.is_mutably_borrowed(name) {
             return Err(CompileError::new(
                 &format!("Cannot read '{}' while it is mutably borrowed", name),
-                0, 0, "",
+                0,
+                0,
+                "",
                 ErrorCode::E0007,
-            ).with_suggestion("Wait for the mutable borrow to end before reading"));
+            )
+            .with_suggestion("Wait for the mutable borrow to end before reading"));
         }
-        
+
         Ok(())
     }
-    
+
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
         self.analyze_with_spans(functions, &[], &[], &std::collections::HashMap::new())
     }
-    
+
     pub fn analyze_with_spans(
         &mut self,
         functions: &[FunctionDecl],
-        traits: &[TraitDecl],      
-        impls: &[ImplBlock],        
+        traits: &[TraitDecl],
+        impls: &[ImplBlock],
         span_map: &std::collections::HashMap<usize, (usize, usize)>,
     ) -> Result<()> {
         self.span_map = span_map.clone();
         self.register_builtin_functions();
         self.register_user_functions(functions);
-        
+
         // Register traits and impls
         for trait_decl in traits {
             self.trait_registry.register_trait(trait_decl.clone());
@@ -188,22 +212,18 @@ impl SemanticAnalyzer {
         for impl_block in impls {
             self.trait_registry.register_impl(impl_block.clone());
         }
-        
+
         // Validate impls
         for impl_block in impls {
             if let Err(err) = self.trait_registry.validate_impl(impl_block) {
-                return Err(CompileError::new(
-                    &err,
-                    0, 0, "",
-                    ErrorCode::E0002,
-                ));
+                return Err(CompileError::new(&err, 0, 0, "", ErrorCode::E0002));
             }
         }
-        
+
         for func in functions {
             self.analyze_function(func)?;
         }
-        
+
         Ok(())
     }
 
@@ -218,7 +238,7 @@ impl SemanticAnalyzer {
         self.span_map = span_map.clone();
         self.register_builtin_functions();
         self.register_user_functions(functions);
-        
+
         // Register traits and impls
         for trait_decl in traits {
             self.trait_registry.register_trait(trait_decl.clone());
@@ -226,71 +246,85 @@ impl SemanticAnalyzer {
         for impl_block in impls {
             self.trait_registry.register_impl(impl_block.clone());
         }
-        
+
         // Validate impls
         for impl_block in impls {
             if let Err(err) = self.trait_registry.validate_impl(impl_block) {
-                return Err(CompileError::new(
-                    &err,
-                    0, 0, "",
-                    ErrorCode::E0002,
-                ));
+                return Err(CompileError::new(&err, 0, 0, "", ErrorCode::E0002));
             }
         }
-        
+
         for func in functions {
             self.analyze_function(func)?;
         }
-        
+
         Ok(())
     }
 
     // Check trait bounds for generics
-    fn check_trait_bounds(&self, _type_params: &[String], where_clauses: &[WhereClause]) -> Result<()> {
+    fn check_trait_bounds(
+        &self,
+        _type_params: &[String],
+        where_clauses: &[WhereClause],
+    ) -> Result<()> {
         for clause in where_clauses {
             let trait_name = &clause.trait_name;
-            
+
             if !self.trait_registry.trait_exists(trait_name) {
                 return Err(CompileError::new(
                     &format!("Unknown trait '{}'", trait_name),
-                    0, 0, "",
+                    0,
+                    0,
+                    "",
                     ErrorCode::E0004,
-                ).with_suggestion(&format!("Define trait '{}' before using it as a constraint", trait_name)));
+                )
+                .with_suggestion(&format!(
+                    "Define trait '{}' before using it as a constraint",
+                    trait_name
+                )));
             }
-            
+
             // For now, just check that the trait exists
             // Full type checking of bounds happens during monomorphization
         }
         Ok(())
     }
-    
+
     // Resolve trait method call
     fn resolve_trait_method(&self, type_: &Type, method_name: &str) -> Option<FunctionDecl> {
-        for ((_, _), _) in &self.trait_registry.impls {
-        }
-        self.trait_registry.resolve_method(type_, method_name).cloned()
+        for (_, _) in self.trait_registry.impls.keys() {}
+        self.trait_registry
+            .resolve_method(type_, method_name)
+            .cloned()
     }
-    
+
     // Check if type implements trait
     #[allow(dead_code)]
     fn check_trait_implementation(&self, type_: &Type, trait_name: &str) -> Result<()> {
         if !self.trait_registry.type_implements_trait(type_, trait_name) {
             return Err(CompileError::new(
                 &format!("Type {} does not implement trait '{}'", type_, trait_name),
-                0, 0, "",
+                0,
+                0,
+                "",
                 ErrorCode::E0002,
-            ).with_suggestion(&format!(
+            )
+            .with_suggestion(&format!(
                 "Add 'impl {} for {}' with the required methods",
                 trait_name, type_
             )));
         }
         Ok(())
     }
-    
+
     fn register_builtin_functions(&mut self) {
         let math_functions = [
             ("Math.sqrt", vec![("x", Type::Float)], Type::Float),
-            ("Math.pow", vec![("x", Type::Float), ("y", Type::Float)], Type::Float),
+            (
+                "Math.pow",
+                vec![("x", Type::Float), ("y", Type::Float)],
+                Type::Float,
+            ),
             ("Math.sin", vec![("x", Type::Float)], Type::Float),
             ("Math.cos", vec![("x", Type::Float)], Type::Float),
             ("Math.abs", vec![("x", Type::Float)], Type::Float),
@@ -300,108 +334,175 @@ impl SemanticAnalyzer {
             ("Math.log", vec![("x", Type::Float)], Type::Float),
             ("Math.tan", vec![("x", Type::Float)], Type::Float),
         ];
-        
+
         for (name, params, return_type) in math_functions {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
-                }
+                },
             );
         }
-        
+
         let string_functions = [
             ("String.length", vec![("s", Type::String)], Type::Int),
-            ("String.concat", vec![("s1", Type::String), ("s2", Type::String)], Type::String),
-            ("String.substring", vec![("s", Type::String), ("start", Type::Int), ("length", Type::Int)], Type::String),
+            (
+                "String.concat",
+                vec![("s1", Type::String), ("s2", Type::String)],
+                Type::String,
+            ),
+            (
+                "String.substring",
+                vec![
+                    ("s", Type::String),
+                    ("start", Type::Int),
+                    ("length", Type::Int),
+                ],
+                Type::String,
+            ),
             ("String.to_upper", vec![("s", Type::String)], Type::String),
             ("String.to_lower", vec![("s", Type::String)], Type::String),
         ];
-        
+
         for (name, params, return_type) in string_functions {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
-                }
+                },
             );
         }
-        
+
         let file_functions = [
             ("File.read", vec![("path", Type::String)], Type::String),
-            ("File.write", vec![("path", Type::String), ("content", Type::String)], Type::Int),
-            ("File.append", vec![("path", Type::String), ("content", Type::String)], Type::Int),
+            (
+                "File.write",
+                vec![("path", Type::String), ("content", Type::String)],
+                Type::Int,
+            ),
+            (
+                "File.append",
+                vec![("path", Type::String), ("content", Type::String)],
+                Type::Int,
+            ),
         ];
-        
+
         for (name, params, return_type) in file_functions {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
-                }
+                },
             );
         }
-        
+
         let list_functions = [
             // List functions are GENERIC: List.length<T>(arr: List<T>) -> Int
             // For now, use a placeholder type that accepts any list
-            ("List.length", vec![("arr", Type::list(Type::Unknown))], Type::Int),
-            ("List.sum", vec![("arr", Type::list(Type::Unknown))], Type::Float),
-            ("List.max", vec![("arr", Type::list(Type::Unknown))], Type::Float),
-            ("List.min", vec![("arr", Type::list(Type::Unknown))], Type::Float),
+            (
+                "List.length",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Int,
+            ),
+            (
+                "List.sum",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Float,
+            ),
+            (
+                "List.max",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Float,
+            ),
+            (
+                "List.min",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Float,
+            ),
         ];
-        
+
         for (name, params, return_type) in list_functions {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
-                }
+                },
             );
         }
-        
-        self.functions.insert("alloc".to_string(), FunctionInfo {
-            params: vec![("size".to_string(), Type::Int)],
-            return_type: Type::pointer(Type::Unknown),
-        });
-        self.functions.insert("free".to_string(), FunctionInfo {
-            params: vec![("ptr".to_string(), Type::pointer(Type::Unknown))],
-            return_type: Type::Void,
-        });
+
+        self.functions.insert(
+            "alloc".to_string(),
+            FunctionInfo {
+                params: vec![("size".to_string(), Type::Int)],
+                return_type: Type::pointer(Type::Unknown),
+            },
+        );
+        self.functions.insert(
+            "free".to_string(),
+            FunctionInfo {
+                params: vec![("ptr".to_string(), Type::pointer(Type::Unknown))],
+                return_type: Type::Void,
+            },
+        );
     }
-    
+
     fn register_user_functions(&mut self, functions: &[FunctionDecl]) {
         for func in functions {
-            let params = func.params.iter()
+            let params = func
+                .params
+                .iter()
                 .map(|(name, t)| {
-                    let type_ = if let Some(type_param) = self.parse_type_param(t) {
-                        Type::TypeVar(type_param)
-                    } else {
-                        Type::from_str(t)
+                    let type_ = match t {
+                        Some(ts) => {
+                            let type_str = ts.to_string_rep();
+                            if let Some(type_param) = self.parse_type_param(&type_str) {
+                                Type::TypeVar(type_param)
+                            } else {
+                                Type::from_str(&type_str)
+                            }
+                        }
+                        None => Type::Unknown,
                     };
                     (name.clone(), type_)
                 })
                 .collect();
-            
-            let return_type = func.return_type
-                .as_deref()
+
+            let return_type = func
+                .return_type
+                .as_ref()
                 .map(|t| {
-                    if let Some(type_param) = self.parse_type_param(t) {
+                    let t_str = t.to_string_rep();
+                    if let Some(type_param) = self.parse_type_param(&t_str) {
                         Type::TypeVar(type_param)
                     } else {
-                        Type::from_str(t)
+                        Type::from_str(&t_str)
                     }
                 })
                 .unwrap_or(Type::Void);
-            
+
             let clean_name = func.name.trim_end_matches("()").to_string();
             self.functions.insert(
                 clean_name,
-                FunctionInfo { params, return_type }
+                FunctionInfo {
+                    params,
+                    return_type,
+                },
             );
         }
     }
@@ -423,42 +524,58 @@ impl SemanticAnalyzer {
 
         self.push_scope();
 
-            // Check trait bounds on type parameters
+        // Check trait bounds on type parameters
         self.check_trait_bounds(&func.type_params, &func.where_clauses)?;
-        
+
         // Register type parameters
         for type_param in &func.type_params {
             self.declare_type_param(type_param, Type::TypeVar(type_param.clone()));
         }
-        
+
         // Register type constraints
         for clause in &func.where_clauses {
             self.declare_type_constraint(&clause.type_param, &clause.trait_name);
         }
-        
+
         let return_type = self.resolve_type(
-            &func.return_type.as_deref().map(Type::from_str).unwrap_or(Type::Void)
+            &func
+                .return_type
+                .as_ref()
+                .map(|t| Type::from_str(&t.to_string_rep()))
+                .unwrap_or(Type::Void),
         );
         self.current_return_type = Some(return_type.clone());
-        
+
         // Resolve parameter types with type variables
         for (name, type_str) in &func.params {
-            let param_type = self.resolve_type(&Type::from_str(type_str));
+            let param_type = match type_str {
+                Some(s) => {
+                    let s_str = s.to_string_rep();
+                    self.resolve_type(&Type::from_str(&s_str))
+                }
+                None => Type::Unknown,
+            };
             self.declare_variable(name, param_type, false)?;
         }
-        
+
         for stmt in &func.body {
             self.analyze_stmt(stmt)?;
         }
-        
+
         self.pop_scope();
         self.current_return_type = None;
         Ok(())
     }
-    
+
     fn analyze_stmt(&mut self, stmt: &Stmt) -> Result<()> {
         match stmt {
-            Stmt::VarDecl { name, value, type_annotation, mutable, .. } => {
+            Stmt::VarDecl {
+                name,
+                value,
+                type_annotation,
+                mutable,
+                ..
+            } => {
                 // Track list literals for bounds checking
                 if let Expr::List(elements) = value {
                     self.declare_list_length(name, elements.len());
@@ -472,8 +589,13 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                let value_type = self.analyze_expr(value)?;
-                
+                let value_type = if let Some(annotated) = type_annotation {
+                    let expected = Type::from_str(annotated);
+                    self.analyze_expr_with_context(value, Some(&expected))?
+                } else {
+                    self.analyze_expr(value)?
+                };
+
                 if let Some(annotated) = type_annotation {
                     let expected = Type::from_str(annotated);
                     if expected != Type::Unknown && !value_type.can_coerce_to(&expected) {
@@ -482,54 +604,69 @@ impl SemanticAnalyzer {
                                 "Type mismatch: variable '{}' declared as {} but assigned {}",
                                 name, expected, value_type
                             ),
-                            0, 0, "",
+                            0,
+                            0,
+                            "",
                             ErrorCode::E0002,
-                        ).with_suggestion(&format!(
+                        )
+                        .with_suggestion(&format!(
                             "Change the type annotation to {} or change the value to {}",
                             value_type, expected
                         )));
                     }
                 }
-                
+
                 self.declare_variable(name, value_type.clone(), *mutable)?;
-                
+
                 if let Expr::Var(source, _) = value {
-                    if source != name && !self.is_moved(source) {
-                        if !value_type.is_copy() { self.mark_moved(source); }
-                    }
+                    if source != name && !self.is_moved(source)
+                        && !value_type.is_copy() {
+                            self.mark_moved(source);
+                        }
                 }
             }
             Stmt::Assign { name, value } => {
                 let (var_type, mutable) = self.lookup_variable(name).ok_or_else(|| {
                     CompileError::new(
                         &format!("Undefined variable '{}'", name),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0003,
-                    ).with_suggestion(&format!(
+                    )
+                    .with_suggestion(&format!(
                         "Declare '{}' with 'var {} := ...' or 'val {} := ...'",
                         name, name, name
                     ))
                 })?;
-                
+
                 if !mutable {
                     return Err(CompileError::new(
                         &format!("Cannot assign to immutable variable '{}'", name),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0005,
-                    ).with_suggestion(&format!(
+                    )
+                    .with_suggestion(&format!(
                         "Change 'val {}' to 'var {}' if you need to reassign it",
                         name, name
                     )));
                 }
-                
-                let value_type = self.analyze_expr(value)?;
-                if var_type != value_type && var_type != Type::Unknown && !value_type.can_coerce_to(&var_type) {
+
+                let value_type = self.analyze_expr_with_context(value, Some(&var_type))?;
+                if var_type != value_type
+                    && var_type != Type::Unknown
+                    && !value_type.can_coerce_to(&var_type)
+                {
                     return Err(CompileError::new(
                         &format!(
                             "Type mismatch: cannot assign {} to variable of type {}",
                             value_type, var_type
                         ),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0002,
                     ));
                 }
@@ -537,70 +674,25 @@ impl SemanticAnalyzer {
             Stmt::Expression(expr) => {
                 self.analyze_expr(expr)?;
             }
-            Stmt::For { var, iterable, body, trailing_expr } => {
-                let iter_type = self.analyze_expr(iterable)?;
-                if let Type::List(element_type) = &iter_type {
-                    self.push_scope();
-                    self.declare_variable(var, *element_type.clone(), false)?;
-                    for s in body {
-                        self.analyze_stmt(s)?;
-                    }
-                    let _ = if let Some(expr) = trailing_expr {
-                        self.analyze_expr(expr)?
-                    } else {
-                        Type::Void
-                    };
-                    self.pop_scope();
-                } else if iter_type != Type::Unknown {
-                    return Err(CompileError::new(
-                        &format!("For loop requires list, found {}", iter_type),
-                        0, 0, "",
-                        ErrorCode::E0002,
-                    ).with_suggestion("Use a list literal like [1, 2, 3]"));
-                } else {
-                    // Unknown iterable - still check body
-                    self.push_scope();
-                    self.declare_variable(var, Type::Unknown, false)?;
-                    for s in body { self.analyze_stmt(s)?; }
-                    if let Some(expr) = trailing_expr { self.analyze_expr(expr)?; }
-                    self.pop_scope();
-                }
-            }
-            Stmt::While { condition, body, trailing_expr } => {
-                let cond_type = self.analyze_expr(condition)?;
-                if cond_type != Type::Bool && cond_type != Type::Unknown {
-                    return Err(CompileError::new(
-                        &format!("Condition must be boolean, found {}", cond_type),
-                        0, 0, "",
-                        ErrorCode::E0002,
-                    ));
-                }
-                
-                self.push_scope();
-                for s in body {
-                    self.analyze_stmt(s)?;
-                }
-                let _ = if let Some(expr) = trailing_expr {
-                    self.analyze_expr(expr)?
-                } else {
-                    Type::Void
-                };
-                self.pop_scope();
-            }
             Stmt::Return { value } => {
                 let expected_type = self.current_return_type.clone().unwrap_or(Type::Void);
-                
+
                 match (value, &expected_type) {
                     (Some(_expr), Type::Void) => {
                         return Err(CompileError::new(
                             "Cannot return a value from a void function",
-                            0, 0, "",
+                            0,
+                            0,
+                            "",
                             ErrorCode::E0002,
-                        ).with_suggestion("Remove the return value or change the function return type"));
+                        )
+                        .with_suggestion(
+                            "Remove the return value or change the function return type",
+                        ));
                     }
                     (None, Type::Void) => {}
                     (Some(expr), expected) => {
-                        let actual_type = self.analyze_expr(expr)?;
+                        let actual_type = self.analyze_expr_with_context(expr, Some(expected))?;
                         if !actual_type.can_coerce_to(expected) && *expected != Type::Unknown {
                             return Err(CompileError::new(
                                 &format!(
@@ -618,9 +710,12 @@ impl SemanticAnalyzer {
                     (None, expected) => {
                         return Err(CompileError::new(
                             &format!("Missing return value: function should return {}", expected),
-                            0, 0, "",
+                            0,
+                            0,
+                            "",
                             ErrorCode::E0002,
-                        ).with_suggestion("Add a return statement with the appropriate value"));
+                        )
+                        .with_suggestion("Add a return statement with the appropriate value"));
                     }
                 }
             }
@@ -654,7 +749,9 @@ impl SemanticAnalyzer {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::new(
                         &format!("Undefined channel '{}'", channel),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0003,
                     )
                 })?;
@@ -664,7 +761,9 @@ impl SemanticAnalyzer {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::new(
                         &format!("Undefined channel '{}'", channel),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0003,
                     )
                 })?;
@@ -689,24 +788,32 @@ impl SemanticAnalyzer {
                 self.pop_scope();
             }
             Stmt::Import { .. } => {}
-            Stmt::ArrayAssign { array, index, value } => {
+            Stmt::ArrayAssign {
+                array,
+                index,
+                value,
+            } => {
                 let (array_type, _) = self.lookup_variable(array).ok_or_else(|| {
                     CompileError::new(
                         &format!("Undefined array '{}'", array),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0003,
                     )
                 })?;
-                
+
                 if let Type::List(_) = &array_type {
                 } else if array_type != Type::Unknown {
                     return Err(CompileError::new(
                         &format!("Array assignment requires list, found {}", array_type),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0002,
                     ));
                 }
-                
+
                 self.analyze_expr(index)?;
                 self.analyze_expr(value)?;
             }
@@ -716,6 +823,10 @@ impl SemanticAnalyzer {
 
     fn bind_pattern_variables(&mut self, pattern: &Pattern, value_type: &Type) {
         match pattern {
+            Pattern::Binding(var) => {
+                // Binding pattern: bind variable to the whole value
+                self.declare_variable(var, value_type.clone(), false).ok();
+            }
             Pattern::Some(var) => {
                 // For Some(x) matching against Option<Inner>, x has type Inner
                 if let Type::Option(inner) = value_type {
@@ -760,8 +871,16 @@ impl SemanticAnalyzer {
             _ => {} // None, Wildcard, Literal, Range, ListDestructure don't bind variables
         }
     }
-    
+
     fn analyze_expr(&mut self, expr: &Expr) -> Result<Type> {
+        self.analyze_expr_with_context(expr, None)
+    }
+
+    fn analyze_expr_with_context(
+        &mut self,
+        expr: &Expr,
+        expected_type: Option<&Type>,
+    ) -> Result<Type> {
         match expr {
             Expr::Borrow { expr } => {
                 if let Expr::Var(name, _) = expr.as_ref() {
@@ -816,16 +935,41 @@ impl SemanticAnalyzer {
                 let inner = self.analyze_expr(value)?;
                 Ok(Type::option(inner))
             }
-            Expr::None => Ok(Type::option(Type::Unknown)),
+            Expr::None => {
+                if let Some(Type::Option(inner)) = expected_type {
+                    Ok(Type::option((**inner).clone()))
+                } else {
+                    Ok(Type::option(Type::Unknown))
+                }
+            }
             Expr::Ok { value } => {
-                let inner = self.analyze_expr(value)?;
-                Ok(Type::result(inner, Type::Unknown))
+                let inner = if let Some(Type::Result { ok, .. }) = expected_type {
+                    self.analyze_expr_with_context(value, Some(ok.as_ref()))?
+                } else {
+                    self.analyze_expr(value)?
+                };
+                if let Some(Type::Result { error, .. }) = expected_type {
+                    Ok(Type::result(inner, (**error).clone()))
+                } else {
+                    Ok(Type::result(inner, Type::Unknown))
+                }
             }
             Expr::Error { value } => {
-                let inner = self.analyze_expr(value)?;
-                Ok(Type::result(Type::Unknown, inner))
+                let inner = if let Some(Type::Result { error, .. }) = expected_type {
+                    self.analyze_expr_with_context(value, Some(error.as_ref()))?
+                } else {
+                    self.analyze_expr(value)?
+                };
+                if let Some(Type::Result { ok, .. }) = expected_type {
+                    Ok(Type::result((**ok).clone(), inner))
+                } else {
+                    Ok(Type::result(Type::Unknown, inner))
+                }
             }
-            Expr::Block { statements, trailing_expr } => {
+            Expr::Block {
+                statements,
+                trailing_expr,
+            } => {
                 self.push_scope();
                 for s in statements {
                     self.analyze_stmt(s)?;
@@ -838,11 +982,22 @@ impl SemanticAnalyzer {
                 self.pop_scope();
                 Ok(result)
             }
-            Expr::If { condition, then_branch, else_branch } => {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond_type = self.analyze_expr(condition)?;
                 // Allow Void condition (represents else without condition)
-                if cond_type != Type::Bool && cond_type != Type::Unknown && cond_type != Type::Void {
-                    return Err(CompileError::new("If condition must be Bool", 0, 0, "", ErrorCode::E0002));
+                if cond_type != Type::Bool && cond_type != Type::Unknown && cond_type != Type::Void
+                {
+                    return Err(CompileError::new(
+                        "If condition must be Bool",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
                 }
                 let then_type = self.analyze_expr(then_branch)?;
                 if let Some(else_expr) = else_branch {
@@ -854,45 +1009,49 @@ impl SemanticAnalyzer {
             }
             Expr::Match { value, cases } => {
                 let _value_type = self.analyze_expr(value)?;
-                
+
                 if let Some(first_case) = cases.first() {
                     // NEW: Bind pattern variables for first case
                     self.push_scope();
                     self.bind_pattern_variables(&first_case.pattern, &_value_type);
-                    
+
                     // Analyze pattern guard
                     if let Pattern::Guarded { condition, .. } = &first_case.pattern {
                         let cond_type = self.analyze_expr(condition)?;
                         if cond_type != Type::Bool && cond_type != Type::Unknown {
                             return Err(CompileError::new(
                                 "Pattern guard must be boolean",
-                                0, 0, "",
+                                0,
+                                0,
+                                "",
                                 ErrorCode::E0002,
                             ));
                         }
                     }
-                    
+
                     let first_type = self.analyze_expr(&first_case.body)?;
                     self.pop_scope();
-                    
+
                     let mut result_type = first_type.clone();
                     for case in &cases[1..] {
                         // Bind pattern variables for each case
                         self.push_scope();
                         self.bind_pattern_variables(&case.pattern, &_value_type);
-                        
+
                         // Analyze pattern guard
                         if let Pattern::Guarded { condition, .. } = &case.pattern {
                             let cond_type = self.analyze_expr(condition)?;
                             if cond_type != Type::Bool && cond_type != Type::Unknown {
                                 return Err(CompileError::new(
                                     "Pattern guard must be boolean",
-                                    0, 0, "",
+                                    0,
+                                    0,
+                                    "",
                                     ErrorCode::E0002,
                                 ));
                             }
                         }
-                        
+
                         let case_type = self.analyze_expr(&case.body)?;
                         self.pop_scope();
                         result_type = result_type.common_supertype(&case_type);
@@ -902,27 +1061,50 @@ impl SemanticAnalyzer {
                     Ok(Type::Unknown)
                 }
             }
-            Expr::TryCatch { try_branch, catch_var: _, catch_branch, finally_body: _ } => {
+            Expr::TryCatch {
+                try_branch,
+                catch_var: _,
+                catch_branch,
+                finally_body: _,
+            } => {
                 let try_type = self.analyze_expr(try_branch)?;
                 let catch_type = self.analyze_expr(catch_branch)?;
                 Ok(try_type.common_supertype(&catch_type))
             }
             // --- ORTHOGONAL: For/While as expressions ---
-            Expr::For { var, iterable, body, trailing_expr, span } => {
+            Expr::For {
+                var,
+                iterable,
+                body,
+                trailing_expr,
+                span,
+            } => {
                 let iter_type = self.analyze_expr(iterable)?;
                 let elem_type = if let Type::List(t) = iter_type.clone() {
                     *t
                 } else if iter_type != Type::Unknown {
                     return Err(CompileError::new(
                         &format!("For loop requires list, found {}", iter_type),
-                        span.0, span.1, "",
+                        span.start_line,
+                        span.start_column,
+                        "",
                         ErrorCode::E0002,
                     ));
                 } else {
                     Type::Unknown
                 };
                 self.push_scope();
+                eprintln!(
+                    "DEBUG FOR: declaring '{}' with type {:?} in scope depth {}",
+                    var,
+                    elem_type,
+                    self.scopes.len()
+                );
                 self.declare_variable(var, elem_type, false)?;
+                eprintln!(
+                    "DEBUG FOR: body analysis with scope depth {}",
+                    self.scopes.len()
+                );
                 for s in body {
                     self.analyze_stmt(s)?;
                 }
@@ -931,15 +1113,27 @@ impl SemanticAnalyzer {
                 } else {
                     Type::Void
                 };
+                eprintln!(
+                    "DEBUG FOR: popping scope, depth before pop {}",
+                    self.scopes.len()
+                );
                 self.pop_scope();
+                eprintln!("DEBUG FOR: after pop, depth {}", self.scopes.len());
                 Ok(result_type)
             }
-            Expr::While { condition, body, trailing_expr, span } => {
+            Expr::While {
+                condition,
+                body,
+                trailing_expr,
+                span,
+            } => {
                 let cond_type = self.analyze_expr(condition)?;
                 if cond_type != Type::Bool && cond_type != Type::Unknown {
                     return Err(CompileError::new(
                         &format!("While condition must be Bool, found {}", cond_type),
-                        span.0, span.1, "",
+                        span.start_line,
+                        span.start_column,
+                        "",
                         ErrorCode::E0002,
                     ));
                 }
@@ -956,36 +1150,47 @@ impl SemanticAnalyzer {
                 Ok(result_type)
             }
             Expr::Var(name, span) => {
-                let (line, column) = *span;
+                let line = span.start_line;
+                let column = span.start_column;
                 if self.is_moved(name) {
                     return Err(CompileError::new(
                         &format!("Use of moved variable '{}'", name),
-                        line, column, "",
+                        line,
+                        column,
+                        "",
                         ErrorCode::E0007,
-                    ).with_suggestion("Variable ownership was transferred and cannot be used in this scope"));
+                    )
+                    .with_suggestion(
+                        "Variable ownership was transferred and cannot be used in this scope",
+                    ));
                 }
                 if self.is_mutably_borrowed(name) {
                     return Err(CompileError::new(
                         &format!("Cannot read '{}' while mutably borrowed", name),
-                        line, column, "",
+                        line,
+                        column,
+                        "",
                         ErrorCode::E0007,
-                    ).with_suggestion("Wait for the mutable borrow to end"));
+                    )
+                    .with_suggestion("Wait for the mutable borrow to end"));
                 }
-                
-                let result = self.lookup_variable(name)
-                    .map(|(t, _)| t)
-                    .ok_or_else(|| CompileError::new(
+
+                let result = self.lookup_variable(name).map(|(t, _)| t).ok_or_else(|| {
+                    CompileError::new(
                         &format!("Undefined variable '{}'", name),
-                        line, column, "",
+                        line,
+                        column,
+                        "",
                         ErrorCode::E0003,
-                    ).with_suggestion(&format!(
+                    )
+                    .with_suggestion(&format!(
                         "Declare '{}' with 'var {} := ...' or 'val {} := ...' in this scope",
                         name, name, name
-                    )));
+                    ))
+                });
+
                 
-                if name == "self" || name == "other" {
-                }
-                
+
                 result
             }
             Expr::ArrayAccess { array, index } => {
@@ -996,7 +1201,9 @@ impl SemanticAnalyzer {
                     _ => {
                         return Err(CompileError::new(
                             &format!("Array access requires list, found {}", array_type),
-                            0, 0, "",
+                            0,
+                            0,
+                            "",
                             ErrorCode::E0002,
                         ));
                     }
@@ -1049,7 +1256,9 @@ impl SemanticAnalyzer {
                 if index_type != Type::Int && index_type != Type::Unknown {
                     return Err(CompileError::new(
                         &format!("Array index must be Int, found {}", index_type),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0002,
                     ));
                 }
@@ -1066,9 +1275,16 @@ impl SemanticAnalyzer {
                             Ok(left_type.common_supertype(&right_type))
                         } else {
                             Err(CompileError::new(
-                                &format!("Addition requires matching types, found {} and {}", left_type, right_type),
-                                0, 0, "", ErrorCode::E0002,
-                            ).with_suggestion("Use matching types or add type conversion"))
+                                &format!(
+                                    "Addition requires matching types, found {} and {}",
+                                    left_type, right_type
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion("Use matching types or add type conversion"))
                         }
                     }
                     BinOp::Subtract | BinOp::Multiply | BinOp::Divide => {
@@ -1076,9 +1292,16 @@ impl SemanticAnalyzer {
                             Ok(left_type.common_supertype(&right_type))
                         } else {
                             Err(CompileError::new(
-                                &format!("Arithmetic requires numeric types, found {} and {}", left_type, right_type),
-                                0, 0, "", ErrorCode::E0002,
-                            ).with_suggestion("Both operands must be numeric (Int or Float)"))
+                                &format!(
+                                    "Arithmetic requires numeric types, found {} and {}",
+                                    left_type, right_type
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion("Both operands must be numeric (Int or Float)"))
                         }
                     }
                     BinOp::Greater | BinOp::Less | BinOp::GreaterEqual | BinOp::LessEqual => {
@@ -1086,19 +1309,35 @@ impl SemanticAnalyzer {
                             Ok(Type::Bool)
                         } else {
                             Err(CompileError::new(
-                                &format!("Comparison requires numeric types, found {} and {}", left_type, right_type),
-                                0, 0, "", ErrorCode::E0002,
-                            ).with_suggestion("Use numeric types for comparison"))
+                                &format!(
+                                    "Comparison requires numeric types, found {} and {}",
+                                    left_type, right_type
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion("Use numeric types for comparison"))
                         }
                     }
                     BinOp::Equal | BinOp::NotEqual => {
-                        if left_type == right_type || (left_type.is_numeric() && right_type.is_numeric()) {
+                        if left_type == right_type
+                            || (left_type.is_numeric() && right_type.is_numeric())
+                        {
                             Ok(Type::Bool)
                         } else {
                             Err(CompileError::new(
-                                &format!("Equality requires matching types, found {} and {}", left_type, right_type),
-                                0, 0, "", ErrorCode::E0002,
-                            ).with_suggestion("Use matching types for equality comparison"))
+                                &format!(
+                                    "Equality requires matching types, found {} and {}",
+                                    left_type, right_type
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion("Use matching types for equality comparison"))
                         }
                     }
                     BinOp::And | BinOp::Or => {
@@ -1106,9 +1345,16 @@ impl SemanticAnalyzer {
                             Ok(Type::Bool)
                         } else {
                             Err(CompileError::new(
-                                &format!("Logical operators require boolean operands, found {} and {}", left_type, right_type),
-                                0, 0, "", ErrorCode::E0002,
-                            ).with_suggestion("Use 'and' and 'or' only with boolean values"))
+                                &format!(
+                                    "Logical operators require boolean operands, found {} and {}",
+                                    left_type, right_type
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion("Use 'and' and 'or' only with boolean values"))
                         }
                     }
                 }
@@ -1121,41 +1367,66 @@ impl SemanticAnalyzer {
                     if parts.len() == 2 {
                         let receiver = parts[0];
                         let method_name = parts[1];
-                        
+
                         // Look up the receiver type
                         if let Some((receiver_type, _)) = self.lookup_variable(receiver) {
                             // Resolve the method using trait registry
-                            if let Some(method) = self.resolve_trait_method(&receiver_type, method_name) {
+                            if let Some(method) =
+                                self.resolve_trait_method(&receiver_type, method_name)
+                            {
                                 // Check arguments
                                 if args.len() != method.params.len() {
                                     return Err(CompileError::new(
-                                        &format!("Method '{}' expects {} arguments, got {}", method_name, method.params.len(), args.len()),
-                                        0, 0, "", ErrorCode::E0002,
+                                        &format!(
+                                            "Method '{}' expects {} arguments, got {}",
+                                            method_name,
+                                            method.params.len(),
+                                            args.len()
+                                        ),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0002,
                                     ));
                                 }
-                                
+
                                 // Analyze arguments
-                                for (arg, (param_name, param_type)) in args.iter().zip(&method.params) {
+                                for (arg, (param_name, param_type)) in
+                                    args.iter().zip(&method.params)
+                                {
                                     let arg_type = self.analyze_expr(arg)?;
-                                    let expected_type = Type::from_str(param_type);
-                                    if !arg_type.can_coerce_to(&expected_type) && expected_type != Type::Unknown {
+                                    let expected_type = match param_type {
+                                        Some(s) => Type::from_str(&s.to_string_rep()),
+                                        None => Type::Unknown,
+                                    };
+                                    if !arg_type.can_coerce_to(&expected_type)
+                                        && expected_type != Type::Unknown
+                                    {
                                         return Err(CompileError::new(
                                             &format!("Argument '{}' type mismatch: expected {}, found {}", param_name, expected_type, arg_type),
                                             0, 0, "", ErrorCode::E0002,
                                         ));
                                     }
                                 }
-                                
+
                                 // Return the method's return type
-                                return Ok(method.return_type
-                                    .as_deref()
-                                    .map(Type::from_str)
+                                return Ok(method
+                                    .return_type
+                                    .as_ref()
+                                    .map(|t| Type::from_str(&t.to_string_rep()))
                                     .unwrap_or(Type::Void));
                             } else {
                                 return Err(CompileError::new(
-                                    &format!("Type {} does not have method '{}'", receiver_type, method_name),
-                                    0, 0, "", ErrorCode::E0004,
-                                ).with_suggestion(&format!(
+                                    &format!(
+                                        "Type {} does not have method '{}'",
+                                        receiver_type, method_name
+                                    ),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0004,
+                                )
+                                .with_suggestion(&format!(
                                     "Implement a trait for {} that provides method '{}'",
                                     receiver_type, method_name
                                 )));
@@ -1166,28 +1437,47 @@ impl SemanticAnalyzer {
                 let func_info = self.functions.get(clean_name).cloned().ok_or_else(|| {
                     CompileError::new(
                         &format!("Undefined function '{}'", name),
-                        0, 0, "",
+                        0,
+                        0,
+                        "",
                         ErrorCode::E0004,
-                    ).with_suggestion(&format!("Check if function '{}' is defined or imported", name))
+                    )
+                    .with_suggestion(&format!(
+                        "Check if function '{}' is defined or imported",
+                        name
+                    ))
                 })?;
-                
+
                 // Check argument count
                 if args.len() != func_info.params.len() {
                     return Err(CompileError::new(
-                        &format!("Function '{}' expects {} arguments, got {}", name, func_info.params.len(), args.len()),
-                        0, 0, "", ErrorCode::E0002,
-                    ).with_suggestion(&format!("Provide exactly {} argument(s) to '{}'", func_info.params.len(), name)));
+                        &format!(
+                            "Function '{}' expects {} arguments, got {}",
+                            name,
+                            func_info.params.len(),
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(&format!(
+                        "Provide exactly {} argument(s) to '{}'",
+                        func_info.params.len(),
+                        name
+                    )));
                 }
-                
+
                 // Analyze arguments and unify type variables
                 let mut type_bindings: HashMap<String, Type> = HashMap::new();
-                
+
                 for (arg, (param_name, param_type)) in args.iter().zip(&func_info.params) {
-                    let arg_type = self.analyze_expr(arg)?;
-                    
+                    let arg_type = self.analyze_expr_with_context(arg, Some(param_type))?;
+
                     // Resolve param type (may be TypeVar)
                     let resolved_param_type = self.resolve_type(param_type);
-                    
+
                     // If param is a TypeVar, bind it to the argument type
                     if let Type::TypeVar(tv) = &resolved_param_type {
                         if let Some(existing_binding) = type_bindings.get(tv) {
@@ -1204,29 +1494,72 @@ impl SemanticAnalyzer {
                         } else {
                             type_bindings.insert(tv.clone(), arg_type.clone());
                         }
-                    } else if !arg_type.can_coerce_to(&resolved_param_type) 
+                    } else if !arg_type.can_coerce_to(&resolved_param_type)
                         && resolved_param_type != Type::Unknown
-                        && !matches!(resolved_param_type, Type::List(_)) {
+                        && !matches!(resolved_param_type, Type::List(_))
+                    {
                         return Err(CompileError::new(
-                            &format!("Argument '{}' type mismatch: expected {}, found {}", param_name, resolved_param_type, arg_type),
-                            0, 0, "", ErrorCode::E0002,
-                        ).with_suggestion(&format!("Convert the argument to {} or change the function signature", resolved_param_type)));
+                            &format!(
+                                "Argument '{}' type mismatch: expected {}, found {}",
+                                param_name, resolved_param_type, arg_type
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(&format!(
+                            "Convert the argument to {} or change the function signature",
+                            resolved_param_type
+                        )));
                     }
                 }
-                
+
                 // Resolve return type with bindings
                 let return_type = self.substitute_type_vars(&func_info.return_type, &type_bindings);
                 Ok(return_type)
             }
-            Expr::PtrLiteral(_) => {
-                Ok(Type::Ptr)
+            Expr::Unary { op, expr, .. } => {
+                let operand_type = self.analyze_expr_with_context(expr, expected_type)?;
+                match op {
+                    crate::frontend::ast::UnaryOp::Negate => {
+                        if operand_type.is_numeric() || operand_type == Type::Unknown {
+                            Ok(operand_type)
+                        } else {
+                            Err(CompileError::new(
+                                &format!("Cannot negate non-numeric type {}", operand_type),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion("Negation requires Int or Float operand"))
+                        }
+                    }
+                    crate::frontend::ast::UnaryOp::Not => {
+                        if operand_type == Type::Bool || operand_type == Type::Unknown {
+                            Ok(Type::Bool)
+                        } else {
+                            Err(CompileError::new(
+                                &format!("Logical not requires Bool, found {}", operand_type),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion("Use 'not' only with boolean values"))
+                        }
+                    }
+                }
             }
+            Expr::PtrLiteral(_) => Ok(Type::Ptr),
 
-            Expr::NullPtr => {
-                Ok(Type::Ptr)
-            }
+            Expr::NullPtr => Ok(Type::Ptr),
 
-            Expr::Cast { expr: cast_expr, target_type } => {
+            Expr::Cast {
+                expr: cast_expr,
+                target_type,
+            } => {
                 // Analyze the source expression
                 let _source_type = self.analyze_expr(cast_expr)?;
                 // Return the target type
@@ -1237,31 +1570,25 @@ impl SemanticAnalyzer {
 
     fn substitute_type_vars(&self, type_: &Type, bindings: &HashMap<String, Type>) -> Type {
         match type_ {
-            Type::TypeVar(name) => {
-                bindings.get(name).cloned().unwrap_or_else(|| type_.clone())
-            }
-            Type::List(inner) => {
-                Type::list(self.substitute_type_vars(inner, bindings))
-            }
-            Type::Option(inner) => {
-                Type::option(self.substitute_type_vars(inner, bindings))
-            }
-            Type::Result { ok, error } => {
-                Type::result(
-                    self.substitute_type_vars(ok, bindings),
-                    self.substitute_type_vars(error, bindings)
-                )
-            }
+            Type::TypeVar(name) => bindings.get(name).cloned().unwrap_or_else(|| type_.clone()),
+            Type::List(inner) => Type::list(self.substitute_type_vars(inner, bindings)),
+            Type::Option(inner) => Type::option(self.substitute_type_vars(inner, bindings)),
+            Type::Result { ok, error } => Type::result(
+                self.substitute_type_vars(ok, bindings),
+                self.substitute_type_vars(error, bindings),
+            ),
             _ => type_.clone(),
         }
     }
-    
+
     fn declare_variable(&mut self, name: &str, type_: Type, mutable: bool) -> Result<()> {
         if let Some(scope) = self.scopes.last_mut() {
             if scope.contains_key(name) {
                 return Err(CompileError::new(
                     &format!("Variable '{}' already declared", name),
-                    0, 0, "",
+                    0,
+                    0,
+                    "",
                     ErrorCode::E0003,
                 ));
             }
@@ -1269,7 +1596,7 @@ impl SemanticAnalyzer {
         }
         Ok(())
     }
-    
+
     fn lookup_variable(&self, name: &str) -> Option<(Type, bool)> {
         for scope in self.scopes.iter().rev() {
             if let Some((t, m)) = scope.get(name) {
@@ -1296,7 +1623,8 @@ impl SemanticAnalyzer {
 
     fn declare_type_constraint(&mut self, type_param: &str, trait_name: &str) {
         if let Some(scope) = self.type_constraints.last_mut() {
-            scope.entry(type_param.to_string())
+            scope
+                .entry(type_param.to_string())
                 .or_default()
                 .push(trait_name.to_string());
         }
@@ -1304,20 +1632,13 @@ impl SemanticAnalyzer {
 
     fn resolve_type(&self, type_: &Type) -> Type {
         match type_ {
-            Type::TypeVar(name) => {
-                self.lookup_type_param(name).unwrap_or_else(|| Type::TypeVar(name.clone()))
-            }
-            Type::List(inner) => {
-                Type::list(self.resolve_type(inner))
-            }
-            Type::Option(inner) => {
-                Type::option(self.resolve_type(inner))
-            }
+            Type::TypeVar(name) => self
+                .lookup_type_param(name)
+                .unwrap_or_else(|| Type::TypeVar(name.clone())),
+            Type::List(inner) => Type::list(self.resolve_type(inner)),
+            Type::Option(inner) => Type::option(self.resolve_type(inner)),
             Type::Result { ok, error } => {
-                Type::result(
-                    self.resolve_type(ok),
-                    self.resolve_type(error)
-                )
+                Type::result(self.resolve_type(ok), self.resolve_type(error))
             }
             _ => type_.clone(),
         }

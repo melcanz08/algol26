@@ -1,12 +1,15 @@
-use algol26::ir::optimizer::Optimizer;
-use algol26::ir::semantic_ir::{SemanticProgram, SemanticFunction, SemanticBlock, SemanticInstruction, TypedIRValue, SemanticBinOp};
 use algol26::common::types::Type;
+use algol26::ir::optimizer::Optimizer;
+use algol26::ir::semantic_ir::{
+    SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram,
+    TypedIRValue,
+};
 
 #[test]
 fn test_constant_folding() {
     let mut optimizer = Optimizer::new();
     let mut program = SemanticProgram::new();
-    
+
     let entry = 0;
     let func = SemanticFunction {
         name: "main".to_string(),
@@ -29,23 +32,21 @@ fn test_constant_folding() {
         entry_block: entry,
         is_extern: false,
     };
-    
+
     program.functions.push(func);
-    
+
     optimizer.optimize(&mut program);
-    
+
     let func = &program.functions[0];
     let block = &func.blocks[0];
-    
+
     // After folding, the BinaryOp should be replaced with a constant Float
     match &block.instructions[0] {
-        SemanticInstruction::Declare { value, .. } => {
-            match value {
-                TypedIRValue::Float(f) => assert_eq!(*f, 8.0),
-                TypedIRValue::Int(i) => assert_eq!(*i, 8),
-                _ => panic!("Expected constant Float(8.0) after folding"),
-            }
-        }
+        SemanticInstruction::Declare { value, .. } => match value {
+            TypedIRValue::Float(f) => assert_eq!(*f, 8.0),
+            TypedIRValue::Int(i) => assert_eq!(*i, 8),
+            _ => panic!("Expected constant Float(8.0) after folding"),
+        },
         _ => panic!("Expected Declare instruction"),
     }
     assert_eq!(optimizer.stats.folded_constants, 1);
@@ -55,7 +56,7 @@ fn test_constant_folding() {
 fn test_dead_code_elimination() {
     let mut optimizer = Optimizer::new();
     let mut program = SemanticProgram::new();
-    
+
     let entry = 0;
     let unreachable = 1;
     let func = SemanticFunction {
@@ -65,7 +66,10 @@ fn test_dead_code_elimination() {
         blocks: vec![
             SemanticBlock {
                 id: entry,
-                instructions: vec![SemanticInstruction::Return { value: None, type_: Type::Void }],
+                instructions: vec![SemanticInstruction::Return {
+                    value: None,
+                    type_: Type::Void,
+                }],
             },
             SemanticBlock {
                 id: unreachable,
@@ -75,11 +79,11 @@ fn test_dead_code_elimination() {
         entry_block: entry,
         is_extern: false,
     };
-    
+
     program.functions.push(func);
-    
+
     optimizer.optimize(&mut program);
-    
+
     assert_eq!(program.functions[0].blocks.len(), 1);
     assert_eq!(optimizer.stats.removed_blocks, 1);
 }

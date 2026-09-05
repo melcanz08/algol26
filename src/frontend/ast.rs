@@ -2,7 +2,7 @@
 
 // algol26/src/frontend/ast.rs - 100% Orthogonal: Everything is an Expression
 
-use crate::ffi::c::{FFIInfo};
+use crate::common::span::Span;
 
 #[derive(Clone, Debug)]
 pub enum Expr {
@@ -10,7 +10,7 @@ pub enum Expr {
     Int(i64),
     String(String),
     Bool(bool),
-    Var(String, (usize, usize)),
+    Var(String, Span),
     /// Represents an inline scoped block of code that evaluates to a value.
     /// Example: val result := val a := 5; a + 10 end
     Block {
@@ -20,8 +20,8 @@ pub enum Expr {
     /// Evolved If-Else that acts as a value-producing expression.
     If {
         condition: Box<Expr>,
-        then_branch: Box<Expr>,          // Must be an Expr::Block
-        else_branch: Option<Box<Expr>>,  // Must be an Expr::Block
+        then_branch: Box<Expr>,         // Must be an Expr::Block
+        else_branch: Option<Box<Expr>>, // Must be an Expr::Block
     },
     /// Evolved Match that acts as a value-producing expression.
     Match {
@@ -50,10 +50,15 @@ pub enum Expr {
         op: BinOp,
         right: Box<Expr>,
     },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+        span: Span,
+    },
     FunctionCall {
         name: String,
         args: Vec<Expr>,
-        span: (usize, usize),
+        span: Span,
     },
     // Option type
     Some {
@@ -66,9 +71,9 @@ pub enum Expr {
     },
     /// Evolved Try-Catch that acts as a value-producing expression.
     TryCatch {
-        try_branch: Box<Expr>,          // Must be an Expr::Block
+        try_branch: Box<Expr>, // Must be an Expr::Block
         catch_var: Option<String>,
-        catch_branch: Box<Expr>,        // Must be an Expr::Block
+        catch_branch: Box<Expr>,         // Must be an Expr::Block
         finally_body: Option<Vec<Stmt>>, // Finalizing side-effects (runs regardless)
     },
     Error {
@@ -82,7 +87,7 @@ pub enum Expr {
         iterable: Box<Expr>,
         body: Vec<Stmt>,
         trailing_expr: Option<Box<Expr>>,
-        span: (usize, usize),
+        span: Span,
     },
     /// While loop as expression - returns last trailing_expr, or Void
     /// Example: val result := while x < 10.0 do x := x + 1.0; x
@@ -90,7 +95,7 @@ pub enum Expr {
         condition: Box<Expr>,
         body: Vec<Stmt>,
         trailing_expr: Option<Box<Expr>>,
-        span: (usize, usize),
+        span: Span,
     },
     /// Raw pointer value (only valid in unsafe blocks)
     PtrLiteral(usize),
@@ -100,7 +105,13 @@ pub enum Expr {
     Cast {
         expr: Box<Expr>,
         target_type: String,
-    }
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum UnaryOp {
+    Negate, // -x
+    Not,    // not x
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -127,7 +138,7 @@ pub enum Stmt {
         value: Expr,
         type_annotation: Option<String>,
         mutable: bool,
-        span: (usize, usize),
+        span: Span,
     },
     Import {
         path: String,
@@ -147,17 +158,6 @@ pub enum Stmt {
         array: String,
         index: Expr,
         value: Expr,
-    },
-    For {
-        var: String,
-        iterable: Expr,
-        body: Vec<Stmt>,
-        trailing_expr: Option<Box<Expr>>,
-    },
-    While {
-        condition: Expr,
-        body: Vec<Stmt>,
-        trailing_expr: Option<Box<Expr>>,
     },
     Return {
         value: Option<Expr>,
@@ -202,19 +202,13 @@ pub struct WhereClause {
 #[derive(Clone, Debug)]
 pub struct FunctionDecl {
     pub name: String,
-    pub params: Vec<(String, String)>,
-    pub return_type: Option<String>,
+    pub params: Vec<(String, Option<TypeSyntax>)>,
+    pub return_type: Option<TypeSyntax>,
     pub body: Vec<Stmt>,
     pub is_extern: bool,
-    pub ffi_info: Option<FFIInfo>,
+    pub ffi_info: Option<ExternDecl>,
     pub type_params: Vec<String>,
     pub where_clauses: Vec<WhereClause>,
-}
-
-#[derive(Clone, Debug)]
-pub struct MatchCase {
-    pub pattern: Pattern,
-    pub body: Vec<Stmt>,
 }
 
 #[derive(Clone, Debug)]
@@ -230,8 +224,9 @@ pub enum Pattern {
     Ok(String),
     Error(String),
     Wildcard,
+    Binding(String),
     Literal(Expr),
-        // NEW: Nested patterns
+    // NEW: Nested patterns
     SomeNested(Box<Pattern>),
     OkNested(Box<Pattern>),
     ErrorNested(Box<Pattern>),
@@ -261,8 +256,8 @@ pub struct TraitDecl {
 #[derive(Clone, Debug)]
 pub struct TraitMethod {
     pub name: String,
-    pub params: Vec<(String, String)>,  // (param_name, type)
-    pub return_type: Option<String>,
+    pub params: Vec<(String, Option<TypeSyntax>)>, // (param_name, type)
+    pub return_type: Option<TypeSyntax>,
 }
 
 #[derive(Clone, Debug)]
@@ -270,4 +265,81 @@ pub struct ImplBlock {
     pub trait_name: String,
     pub target_type: String,
     pub methods: Vec<FunctionDecl>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TypeSyntax {
+    /// Named type like Int, Float, String, Self
+    Named(String),
+    /// Generic type like Option<Int>, Result<Int, String>
+    Generic { name: String, args: Vec<TypeSyntax> },
+    /// Unknown/inferred type (no annotation)
+    Unknown,
+}
+
+impl TypeSyntax {
+    /// Convert TypeSyntax to string for backward compatibility
+    pub fn to_string_rep(&self) -> String {
+        match self {
+            TypeSyntax::Named(name) => name.clone(),
+            TypeSyntax::Generic { name, args } => {
+                let args_str: Vec<String> = args.iter().map(|a| a.to_string_rep()).collect();
+                format!("{}<{}>", name, args_str.join(", "))
+            }
+            TypeSyntax::Unknown => String::new(),
+        }
+    }
+
+    /// Get the string representation (for semantic analysis)
+    pub fn as_str(&self) -> &str {
+        match self {
+            TypeSyntax::Named(name) => name,
+            TypeSyntax::Generic { name, .. } => name,
+            TypeSyntax::Unknown => "",
+        }
+    }
+
+    /// Create TypeSyntax from a type name string
+    pub fn from_string(s: &str) -> Self {
+        if s.is_empty() {
+            TypeSyntax::Unknown
+        } else if s.contains('<') {
+            // Parse generic type: List<Int>, Option<Result<Int, String>>
+            let open_pos = s.find('<').unwrap();
+            let close_pos = s.rfind('>').unwrap_or(s.len());
+            let name = &s[..open_pos];
+            let args_str = &s[open_pos + 1..close_pos];
+
+            // Simple comma split (not handling nested generics for now)
+            let args: Vec<TypeSyntax> = args_str
+                .split(',')
+                .map(|a| TypeSyntax::from_string(a.trim()))
+                .collect();
+
+            TypeSyntax::Generic {
+                name: name.to_string(),
+                args,
+            }
+        } else {
+            TypeSyntax::Named(s.to_string())
+        }
+    }
+}
+
+/// Raw FFI declaration syntax captured by the parser
+/// The FFI lowering pass converts this to FFIInfo
+#[derive(Clone, Debug, Default)]
+pub struct ExternDecl {
+    pub abi: Option<String>,
+    pub library: Option<String>,
+    pub symbol_name: Option<String>,
+    pub variadic: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Program {
+    pub imports: Vec<String>,
+    pub functions: Vec<FunctionDecl>,
+    pub traits: Vec<TraitDecl>,
+    pub impls: Vec<ImplBlock>,
 }

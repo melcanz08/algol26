@@ -1,43 +1,47 @@
-# Rust
-/target/
-/build/
-**/*.rs.bk
-Cargo.lock
 
+*~
 # Algol26 generated
-**/*.ll
 **/*.bc
-**/*.o
-*.ll
-temperature_report.txt
-weather_report.txt
-test_output.ll
-
+benchmarks/programs/*.out
+# Binaries without extension
+/build/
+Cargo.lock
+deps
+.DS_Store
 # Example binaries (keep .gol only)
-examples/**/test
-examples/**/test_for
 examples/**/ffi_test
 examples/**/generics_test
 examples/**/opt_test
 examples/**/orthogonal_test
 examples/**/pattern_test
-examples/**/trait_test
-examples/**/trait_bounds_test
-examples/**/temperature_analyzer
+examples/systems/comprehensive_test/full_test
 examples/systems/*/main
 examples/systems/*/weather
-examples/systems/comprehensive_test/full_test
-
-# Tools temp
+examples/**/temperature_analyzer
+examples/**/test
+examples/**/test_for
+examples/**/trait_bounds_test
+examples/**/trait_test
 .fingerprint
 incremental
-deps
+**/*.ll
+*.ll
+# LLVM artifacts
+**/*.o
+# OS / Editor
 *.pyc
 __pycache__/
-
-# OS / Editor
-.DS_Store
-*.swp
-*.swo
-*~
+**/*.rs.bk
+# Rust
 .sublime-workspace
+*.swo
+*.swp
+/target/
+temperature_report.txt
+test_output.ll
+tests/programs/valid/fibonacci
+tests/programs/valid/*[!.][!g][!o][!l]
+tests/programs/valid/hello
+tests/programs/valid/move
+# Tools temp
+weather_report.txt

@@ -224,9 +224,7 @@ fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
         Stmt::Spawn { body } | Stmt::RegionBlock { body, .. } | Stmt::UnsafeBlock { body } => {
             body.iter().any(stmt_has_complex_cf)
         }
-        Stmt::Parallel { blocks } => blocks
-            .iter()
-            .any(|b| b.iter().any(stmt_has_complex_cf)),
+        Stmt::Parallel { blocks } => blocks.iter().any(|b| b.iter().any(stmt_has_complex_cf)),
         _ => false,
     }
 }
@@ -248,9 +246,7 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
             ..
         } => {
             expr_has_complex_cf(then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_has_complex_cf(e))
+                || else_branch.as_ref().is_some_and(|e| expr_has_complex_cf(e))
         }
         Expr::Match { cases, .. } => cases.iter().any(|c| expr_has_complex_cf(&c.body)),
         Expr::TryCatch {

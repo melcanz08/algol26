@@ -619,10 +619,9 @@ impl SemanticAnalyzer {
                 self.declare_variable(name, value_type.clone(), *mutable)?;
 
                 if let Expr::Var(source, _) = value {
-                    if source != name && !self.is_moved(source)
-                        && !value_type.is_copy() {
-                            self.mark_moved(source);
-                        }
+                    if source != name && !self.is_moved(source) && !value_type.is_copy() {
+                        self.mark_moved(source);
+                    }
                 }
             }
             Stmt::Assign { name, value } => {
@@ -1188,8 +1187,6 @@ impl SemanticAnalyzer {
                         name, name, name
                     ))
                 });
-
-                
 
                 result
             }

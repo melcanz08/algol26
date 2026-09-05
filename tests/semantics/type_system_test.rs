@@ -3,11 +3,11 @@
 #[test]
 fn test_option_some() {
     // Test that Some(value) works
-    assert!(true);
+    // placeholder test - keep for structure
 }
 
 #[test]
 fn test_option_none() {
     // Test that None works
-    assert!(true);
+    // placeholder test - keep for structure
 }

@@ -373,15 +373,18 @@ impl Lexer {
         tokens: &mut Vec<Token>,
         positions: &mut Vec<usize>,
     ) -> Result<()> {
-    if let Some(rest) = trimmed.strip_prefix("procedure").or_else(|| trimmed.strip_prefix("proc")) {
-        let prefix_len = trimmed.len() - rest.len();
-        positions.push(prefix_len);
-        let rest = rest.trim();
-        Lexer::parse_declaration(Token::Procedure, rest, tokens, positions);
-    } else if let Some(rest) = trimmed.strip_prefix("function") {
-        positions.push("function".len());
-        let rest = rest.trim();
-        Lexer::parse_declaration(Token::Function, rest, tokens, positions);
+        if let Some(rest) = trimmed
+            .strip_prefix("procedure")
+            .or_else(|| trimmed.strip_prefix("proc"))
+        {
+            let prefix_len = trimmed.len() - rest.len();
+            positions.push(prefix_len);
+            let rest = rest.trim();
+            Lexer::parse_declaration(Token::Procedure, rest, tokens, positions);
+        } else if let Some(rest) = trimmed.strip_prefix("function") {
+            positions.push("function".len());
+            let rest = rest.trim();
+            Lexer::parse_declaration(Token::Function, rest, tokens, positions);
         } else {
             Lexer::tokenize_expression(trimmed, line_number, line, tokens, positions)?;
         }
@@ -680,7 +683,9 @@ impl Lexer {
         line: &str,
         tokens: &mut Vec<Token>,
     ) -> Result<()> {
-        let Some(c) = chars.next() else { return Ok(()); };
+        let Some(c) = chars.next() else {
+            return Ok(());
+        };
         *position += 1;
 
         match c {
@@ -803,7 +808,7 @@ mod tests {
     #[test]
     fn test_simple_tokens() {
         let source = "var x := 5";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
         assert_eq!(
             lexer.tokens,
             vec![
@@ -819,7 +824,7 @@ mod tests {
     #[test]
     fn test_indentation() {
         let source = "procedure main\n    var x := 5\n    if x > 3\n        print x";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         // Check for proper Indent/Dedent tokens
         assert!(lexer.tokens.contains(&Token::Indent));
@@ -834,7 +839,7 @@ mod tests {
     #[test]
     fn test_comments_in_strings() {
         let source = "var s := \"hello // world\"";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         assert!(lexer
             .tokens
@@ -844,7 +849,7 @@ mod tests {
     #[test]
     fn test_string_escapes() {
         let source = "var s := \"hello\\nworld\"";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         assert!(lexer
             .tokens
@@ -854,7 +859,7 @@ mod tests {
     #[test]
     fn test_number_literals() {
         let source = "var a := 123\nvar b := 45.67\nvar c := 1e10\nvar d := 1_000_000";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         assert!(lexer.tokens.contains(&Token::IntLit(123)));
         assert!(lexer.tokens.contains(&Token::FloatLit(45.67)));
@@ -865,7 +870,7 @@ mod tests {
     #[test]
     fn test_dotted_identifiers() {
         let source = "var x := Math.sqrt(16)";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         // "Math.sqrt" is just an identifier with a dot — not lexer-special
         assert!(lexer
@@ -876,7 +881,7 @@ mod tests {
     #[test]
     fn test_function_declaration() {
         let source = "function add(a: Float, b: Float) -> Float\n    return a + b";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         assert!(lexer.tokens.contains(&Token::Function));
         assert!(lexer.tokens.contains(&Token::Identifier("add".to_string())));
@@ -911,7 +916,7 @@ mod tests {
     fn test_multiline_dedent() {
         let source =
             "procedure main\n    if true\n        var x := 1\n        var y := 2\nvar z := 3";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         // Should have proper dedent handling
         let indent_count = lexer.tokens.iter().filter(|t| **t == Token::Indent).count();
@@ -922,7 +927,7 @@ mod tests {
     #[test]
     fn test_operators() {
         let source = "if x >= 5 and y <= 10 or z != 3";
-        let lexer = Lexer::new(source.to_string()).unwrap();
+        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
 
         assert!(lexer.tokens.contains(&Token::GreaterEqual));
         assert!(lexer.tokens.contains(&Token::LessEqual));

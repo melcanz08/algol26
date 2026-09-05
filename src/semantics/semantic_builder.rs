@@ -2013,7 +2013,7 @@ impl SemanticIRBuilder {
                 };
 
                 self.declare_var(name, type_.clone(), *mutable);
-                
+
                 SemanticInstruction::Declare {
                     name: name.clone(),
                     mutable: *mutable,

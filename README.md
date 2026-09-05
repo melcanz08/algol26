@@ -7,9 +7,9 @@ A historically inspired systems programming language combining ALGOL's clarity w
 > **Control without unsafe defaults.**
 
 **Version**: v0.8.0
-**Status**: Architecture Hardening COMPLETE — 144 tests, zero warnings
+**Status**: Architecture Hardening COMPLETE — 150+ tests, zero warnings
 **License**: MIT
-**Built with**: Rust 1.70+ + LLVM 18 (inkwell 0.7.1)
+**Built with**: Rust 1.70+ + LLVM 17 (inkwell 0.7.1)
 
 ---
 
@@ -18,7 +18,7 @@ A historically inspired systems programming language combining ALGOL's clarity w
 ```bash
 # Build
 cargo build
-cargo test   # 144 tests, 23 suites, zero failures
+cargo test   # 150+ tests, 23 suites, zero failures
 
 # Run a program
 ./target/debug/algol26 examples/basic/test.gol
@@ -102,7 +102,7 @@ Lex → Parse → Desugar → Expand Impl → Monomorphize → Type Check
 → Safety Check → Build IR → Verify → Optimize → Verify → Lower to Backend
 ```
 
-## Testing (144 tests, 23 suites)
+## Testing (150+ tests, 23 suites)
 
 | Suite | Tests | Purpose |
 |-------|-------|---------|
@@ -158,4 +158,4 @@ MIT — Rommel Edorot Caneos
 
 ## Acknowledgments
 
-ALGOL 58 (inspiration) · Python (indentation) · Rust (implementation) · LLVM 18 (backend)
+ALGOL 58 (inspiration) · Python (indentation) · Rust (implementation) · LLVM 17 (backend)

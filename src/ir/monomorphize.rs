@@ -69,10 +69,12 @@ impl Monomorphizer {
             Stmt::Assign { value, .. } => self.collect_from_expr(value),
             Stmt::Expression(expr) => self.collect_from_expr(expr),
             Stmt::Print { expr } => self.collect_from_expr(expr),
-            Stmt::Return { value: Some(expr),.. } => {
+            Stmt::Return {
+                value: Some(expr), ..
+            } => {
                 self.collect_from_expr(expr);
             }
-            Stmt::Return {.. } => {}
+            Stmt::Return { .. } => {}
             _ => {}
         }
     }
@@ -205,9 +207,11 @@ impl Monomorphizer {
             .params
             .iter()
             .map(|(name, t)| {
-                let type_ = t.as_ref().map(|s| TypeSyntax::from_string(
+                let type_ = t.as_ref().map(|s| {
+                    TypeSyntax::from_string(
                         &self.substitute_type_string(&s.to_string_rep(), type_bindings),
-                    ));
+                    )
+                });
                 (name.clone(), type_)
             })
             .collect();

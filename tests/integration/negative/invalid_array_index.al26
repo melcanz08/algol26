@@ -1,0 +1,3 @@
+function main()
+    var arr := [1]
+    print arr["bad"]

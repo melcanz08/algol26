@@ -159,3 +159,29 @@ procedure main
         "Second optimization should not fold more constants"
     );
 }
+#[test]
+fn test_negative_corpus_no_ice() {
+    use std::fs;
+    use std::path::Path;
+    let dir = Path::new("tests/integration/negative");
+    assert!(dir.exists(), "negative corpus dir missing");
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str())!= Some("al26") { continue; }
+        let source = fs::read_to_string(&path).unwrap();
+        println!("Testing negative file: {:?}", path);
+        let result = std::panic::catch_unwind(|| {
+            let lexer_res = Lexer::new(source.clone());
+            if lexer_res.is_err() { return true; }
+            let lexer = lexer_res.unwrap();
+            let mut parser = Parser::new(lexer.tokens);
+            let prog_res = parser.parse_program();
+            if prog_res.is_err() { return true; }
+            let prog = prog_res.unwrap();
+            let (_ir, _diagnostics) = SemanticIRBuilder::build(&prog.functions);
+            true
+        });
+        assert!(result.is_ok() && result.unwrap(), "ICE detected on file {:?}", path);
+    }
+}

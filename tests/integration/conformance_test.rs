@@ -2,7 +2,15 @@ use std::process::Command;
 
 fn compile_valid(program: &str) -> bool {
     let output = Command::new("cargo")
-        .args(["run", "--release", "--bin", "algol26", "--", program, "--emit-llvm"])
+        .args([
+            "run",
+            "--release",
+            "--bin",
+            "algol26",
+            "--",
+            program,
+            "--emit-llvm",
+        ])
         .output()
         .expect("Failed to run compiler");
 

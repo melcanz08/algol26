@@ -57,7 +57,9 @@ fn test_diag_use_after_move_has_line() {
 fn test_all_negative_corpus_produce_structured_errors() {
     for path in fs::read_dir("tests/integration/negative").unwrap() {
         let path = path.unwrap().path();
-        if path.extension().and_then(|s| s.to_str())!= Some("al26") { continue; }
+        if path.extension().and_then(|s| s.to_str()) != Some("al26") {
+            continue;
+        }
         let src = fs::read_to_string(&path).unwrap();
         let lexer = match Lexer::new(src.clone()) {
             Ok(l) => l,
@@ -77,14 +79,26 @@ fn test_all_negative_corpus_produce_structured_errors() {
         let mut analyzer = SemanticAnalyzer::new();
         match analyzer.analyze(&prog.functions) {
             Ok(_) => {
-                if path.to_str().unwrap().contains("double_borrow") || path.to_str().unwrap().contains("use_after_move") {
+                if path.to_str().unwrap().contains("double_borrow")
+                    || path.to_str().unwrap().contains("use_after_move")
+                {
                     panic!("Expected error for {:?}, got Ok", path);
                 }
-            },
+            }
             Err(e) => {
                 assert!(!e.message.is_empty(), "empty message for {:?}", path);
-                assert!(e.error_code.as_str().starts_with('E'), "no error code for {:?}", path);
-                println!("{:?} => {} [{}] help: {:?}", path, e.message, e.error_code.as_str(), e.suggestion);
+                assert!(
+                    e.error_code.as_str().starts_with('E'),
+                    "no error code for {:?}",
+                    path
+                );
+                println!(
+                    "{:?} => {} [{}] help: {:?}",
+                    path,
+                    e.message,
+                    e.error_code.as_str(),
+                    e.suggestion
+                );
             }
         }
     }

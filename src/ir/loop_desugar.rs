@@ -1,4 +1,4 @@
-// src/loop_desugar.rs - Orthogonal: handles both Stmt::For and Expr::For/While as values
+// src/semantics/loop_desugar.rs - Orthogonal: handles both Stmt::For and Expr::For/While as values
 // 100% orthogonal desugar with environment tracking + trailing_expr support
 
 use crate::common::span::Span;

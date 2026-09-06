@@ -1,47 +1,21 @@
-// ALGOL26 VerifiedIR — Type-safe verified IR wrapper
-// Makes it impossible to pass unverified IR to a backend
 
 use crate::ir::semantic_ir::SemanticProgram;
-
-/// VerifiedIR wraps a SemanticProgram that has passed verification.
-/// The ONLY way to create a VerifiedIR is through `VerifiedIR::new()`.
 #[derive(Debug, Clone)]
-pub struct VerifiedIR {
-    /// The verified program
-    program: SemanticProgram,
-}
-
+pub struct VerifiedIR { program: SemanticProgram }
 impl VerifiedIR {
-    /// Create a VerifiedIR by verifying the given program.
-    /// Returns Err if verification fails.
     pub fn new(program: SemanticProgram) -> Result<Self, String> {
-        // Verify the program
         program.verify()?;
-
         Ok(VerifiedIR { program })
     }
-
-    /// Get a reference to the verified program
-    pub fn program(&self) -> &SemanticProgram {
-        &self.program
-    }
-
-    // into_program() REMOVED:
-    // Extracting the raw SemanticProgram would break the verification guarantee.
-    // Backends must use program() to access the verified IR.
+    pub fn program(&self) -> &SemanticProgram { &self.program }
 }
-
-/// Backend input type — VerifiedIR is the only accepted input
 pub type BackendInput = VerifiedIR;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::types::Type;
-    use crate::ir::semantic_ir::{
-        SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram,
-    };
-
+    use crate::ir::semantic_ir::{SemanticBlock, SemanticFunction, Terminator};
     #[test]
     fn test_verified_ir_accepts_valid_program() {
         let mut program = SemanticProgram::new();
@@ -50,68 +24,26 @@ mod tests {
             name: "main".to_string(),
             params: vec![],
             return_type: Type::Void,
-            blocks: vec![SemanticBlock {
-                id: entry,
-                instructions: vec![SemanticInstruction::Return {
-                    value: None,
-                    type_: Type::Void,
-                }],
-            }],
+            blocks: vec![SemanticBlock { id: entry, instructions: vec![], terminator: Some(Terminator::Return { value: None, type_: Type::Void }) }],
             entry_block: entry,
             is_extern: false,
         };
         program.functions.push(func);
-
-        let verified = VerifiedIR::new(program);
-        assert!(verified.is_ok());
+        assert!(VerifiedIR::new(program).is_ok());
     }
-
     #[test]
     fn test_verified_ir_rejects_invalid_program() {
-        let mut program = SemanticProgram::new();
-        let block_id = program.new_block_id();
-        let func = SemanticFunction {
-            name: "main".to_string(),
-            params: vec![],
-            return_type: Type::Void,
-            blocks: vec![
-                SemanticBlock {
-                    id: block_id,
-                    instructions: vec![],
-                },
-                SemanticBlock {
-                    id: block_id,
-                    instructions: vec![],
-                }, // Duplicate!
-            ],
-            entry_block: block_id,
-            is_extern: false,
-        };
-        program.functions.push(func);
-
-        let verified = VerifiedIR::new(program);
-        assert!(verified.is_err());
-    }
-
-    #[test]
-    fn test_verified_ir_program_access() {
         let mut program = SemanticProgram::new();
         let entry = program.new_block_id();
         let func = SemanticFunction {
             name: "main".to_string(),
             params: vec![],
             return_type: Type::Void,
-            blocks: vec![SemanticBlock {
-                id: entry,
-                instructions: vec![],
-            }],
+            blocks: vec![SemanticBlock { id: entry, instructions: vec![], terminator: None }],
             entry_block: entry,
             is_extern: false,
         };
         program.functions.push(func);
-
-        let verified = VerifiedIR::new(program).expect("ICE: unwrap - should be unreachable");
-        let extracted = verified.program();
-        assert_eq!(extracted.functions.len(), 1);
+        assert!(VerifiedIR::new(program).is_err());
     }
 }

@@ -1,60 +1,33 @@
 #![allow(dead_code)]
-#![allow(unused_variables)]
-
-// ALGOL26 Interpreter - Consumes SemanticProgram (New IR)
-
-use crate::ir::semantic_ir::{
-    SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram,
-    TypedIRValue,
-};
+use crate::ir::semantic_ir::{Instruction, Terminator, SemanticBinOp, SemanticFunction, SemanticProgram, TypedIRValue};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub enum RuntimeValue {
-    Int(i64),
-    Float(f64),
-    String(String),
-    Bool(bool),
-    List(Vec<RuntimeValue>),
-    Void,
-}
+pub enum RuntimeValue { Int(i64), Float(f64), String(String), Bool(bool), List(Vec<RuntimeValue>), Void }
 
 impl RuntimeValue {
-    fn as_float(&self) -> f64 {
-        match self {
-            RuntimeValue::Float(f) => *f,
-            RuntimeValue::Int(i) => *i as f64,
-            _ => 0.0,
-        }
-    }
-
-    fn as_int(&self) -> i64 {
-        match self {
-            RuntimeValue::Int(i) => *i,
-            RuntimeValue::Float(f) => *f as i64,
-            _ => 0,
-        }
-    }
-
     fn as_bool(&self) -> bool {
         match self {
             RuntimeValue::Bool(b) => *b,
-            RuntimeValue::Int(i) => *i != 0,
-            RuntimeValue::Float(f) => *f != 0.0,
-            _ => false,
+            RuntimeValue::Int(i) => *i!= 0,
+            RuntimeValue::Float(f) => *f!= 0.0,
+            RuntimeValue::String(s) =>!s.is_empty(),
+            RuntimeValue::List(l) =>!l.is_empty(),
+            RuntimeValue::Void => false,
         }
     }
-
     fn display(&self) -> String {
         match self {
             RuntimeValue::Int(i) => format!("{}", i),
-            RuntimeValue::Float(f) => format!("{:.1}", f),
+            RuntimeValue::Float(f) => {
+                if f.fract() == 0.0 { format!("{:.1}", f) } else { format!("{}", f) }
+            },
             RuntimeValue::String(s) => s.clone(),
             RuntimeValue::Bool(b) => format!("{}", b),
-            RuntimeValue::List(list) => {
-                let items: Vec<String> = list.iter().map(|v| v.display()).collect();
+            RuntimeValue::List(l) => {
+                let items: Vec<String> = l.iter().map(|v| v.display()).collect();
                 format!("[{}]", items.join(", "))
-            }
+            },
             RuntimeValue::Void => String::new(),
         }
     }
@@ -68,513 +41,276 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub fn new(program: SemanticProgram) -> Self {
-        Interpreter {
-            variables: HashMap::new(),
-            output: Vec::new(),
-            program,
-            return_value: None,
-        }
-    }
-
-    pub fn run(&mut self) -> crate::common::diagnostics::Result<String> {
-        let main_func = self
-            .program
-            .functions
-            .iter()
-            .find(|f| f.name == "main")
-            .cloned()
-            .ok_or("No main function found")?;
-
+    pub fn new(program: SemanticProgram) -> Self { Self { variables: HashMap::new(), output: Vec::new(), program, return_value: None } }
+    pub fn run(&mut self) -> Result<String, String> {
+        let main_func = self.program.functions.iter().find(|f| f.name == "main").cloned().ok_or("No main")?;
         self.execute_function(&main_func)?;
         Ok(self.output.join("\n"))
     }
 
+    fn eval_value(&self, v: &TypedIRValue) -> RuntimeValue {
+        match v {
+            TypedIRValue::Int(i) => RuntimeValue::Int(*i),
+            TypedIRValue::Float(f) => RuntimeValue::Float(*f),
+            TypedIRValue::Bool(b) => RuntimeValue::Bool(*b),
+            TypedIRValue::String(s) => RuntimeValue::String(s.clone()),
+            TypedIRValue::Void => RuntimeValue::Void,
+            TypedIRValue::Variable(name, _) => self.variables.get(name).cloned().unwrap_or(RuntimeValue::Void),
+            TypedIRValue::List(elems, _) => RuntimeValue::List(elems.iter().map(|e| self.eval_value(e)).collect()),
+            TypedIRValue::ArrayAccess { array, index,.. } => {
+                let arr = self.eval_value(array);
+                let idx = self.eval_value(index);
+                let idx_usize = match idx {
+                    RuntimeValue::Int(i) => if i < 0 { 0 } else { i as usize },
+                    RuntimeValue::Float(f) => f as usize,
+                    _ => 0,
+                };
+                if let RuntimeValue::List(list) = arr { list.get(idx_usize).cloned().unwrap_or(RuntimeValue::Void) } else { RuntimeValue::Void }
+            },
+            TypedIRValue::Call { function, args,.. } => self.eval_builtin_call(function, args),
+            TypedIRValue::MethodCall { receiver, method_name, args,.. } => {
+                let recv = self.eval_value(receiver);
+                let arg_vals: Vec<RuntimeValue> = args.iter().map(|a| self.eval_value(a)).collect();
+                self.eval_method_call(recv, method_name, &arg_vals)
+            },
+            TypedIRValue::BinaryOp { op, left, right,.. } => {
+                let l = self.eval_value(left);
+                let r = self.eval_value(right);
+                Self::eval_binop(op, l, r)
+            },
+            TypedIRValue::Cast { value,.. } => self.eval_value(value),
+            _ => RuntimeValue::Void,
+        }
+    }
+
+    fn eval_binop(op: &SemanticBinOp, l: RuntimeValue, r: RuntimeValue) -> RuntimeValue {
+        match op {
+            SemanticBinOp::Add => match (l, r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Int(a + b),
+                (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a + b),
+                (RuntimeValue::Int(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a as f64 + b),
+                (RuntimeValue::Float(a), RuntimeValue::Int(b)) => RuntimeValue::Float(a + b as f64),
+                (RuntimeValue::String(a), RuntimeValue::String(b)) => RuntimeValue::String(a + &b),
+                _ => RuntimeValue::Void,
+            },
+            SemanticBinOp::Subtract => match (l, r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Int(a - b),
+                (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a - b),
+                (RuntimeValue::Int(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a as f64 - b),
+                (RuntimeValue::Float(a), RuntimeValue::Int(b)) => RuntimeValue::Float(a - b as f64),
+                _ => RuntimeValue::Void,
+            },
+            SemanticBinOp::Multiply => match (l, r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Int(a * b),
+                (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a * b),
+                (RuntimeValue::Int(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a as f64 * b),
+                (RuntimeValue::Float(a), RuntimeValue::Int(b)) => RuntimeValue::Float(a * b as f64),
+                _ => RuntimeValue::Void,
+            },
+            SemanticBinOp::Divide => match (l, r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => if b!= 0 { RuntimeValue::Int(a / b) } else { RuntimeValue::Void },
+                (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a / b),
+                (RuntimeValue::Int(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a as f64 / b),
+                (RuntimeValue::Float(a), RuntimeValue::Int(b)) => RuntimeValue::Float(a / b as f64),
+                _ => RuntimeValue::Void,
+            },
+            SemanticBinOp::Equal => RuntimeValue::Bool(Self::values_equal(&l, &r)),
+            SemanticBinOp::NotEqual => RuntimeValue::Bool(!Self::values_equal(&l, &r)),
+            SemanticBinOp::Greater => Self::compare(l, r, |o| o > 0),
+            SemanticBinOp::Less => Self::compare(l, r, |o| o < 0),
+            SemanticBinOp::GreaterEqual => Self::compare(l, r, |o| o >= 0),
+            SemanticBinOp::LessEqual => Self::compare(l, r, |o| o <= 0),
+            SemanticBinOp::And => RuntimeValue::Bool(l.as_bool() && r.as_bool()),
+            SemanticBinOp::Or => RuntimeValue::Bool(l.as_bool() || r.as_bool()),
+        }
+    }
+
+    fn values_equal(a: &RuntimeValue, b: &RuntimeValue) -> bool {
+        match (a, b) {
+            (RuntimeValue::Int(x), RuntimeValue::Int(y)) => x == y,
+            (RuntimeValue::Float(x), RuntimeValue::Float(y)) => (x - y).abs() < 1e-9,
+            (RuntimeValue::Int(x), RuntimeValue::Float(y)) => (*x as f64 - *y).abs() < 1e-9,
+            (RuntimeValue::Float(x), RuntimeValue::Int(y)) => (*x - *y as f64).abs() < 1e-9,
+            (RuntimeValue::String(x), RuntimeValue::String(y)) => x == y,
+            (RuntimeValue::Bool(x), RuntimeValue::Bool(y)) => x == y,
+            _ => false,
+        }
+    }
+
+    fn compare<F: Fn(i32)->bool>(l: RuntimeValue, r: RuntimeValue, f: F) -> RuntimeValue {
+        let ord = match (&l, &r) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a.cmp(b) as i32,
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => if a < b { -1 } else if a > b { 1 } else { 0 },
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => if (*a as f64) < *b { -1 } else if (*a as f64) > *b { 1 } else { 0 },
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => if *a < *b as f64 { -1 } else if *a > *b as f64 { 1 } else { 0 },
+            (RuntimeValue::String(a), RuntimeValue::String(b)) => if a < b { -1 } else if a > b { 1 } else { 0 },
+            _ => return RuntimeValue::Bool(false),
+        };
+        RuntimeValue::Bool(f(ord))
+    }
+
+    fn eval_method_call(&self, recv: RuntimeValue, method: &str, args: &[RuntimeValue]) -> RuntimeValue {
+        match recv {
+            RuntimeValue::String(s) => match method {
+                "upper" | "to_upper" | "toUpperCase" => RuntimeValue::String(s.to_uppercase()),
+                "lower" | "to_lower" | "toLowerCase" => RuntimeValue::String(s.to_lowercase()),
+                "len" | "length" => RuntimeValue::Float(s.len() as f64),
+                "trim" => RuntimeValue::String(s.trim().to_string()),
+                _ => RuntimeValue::Void,
+            },
+            RuntimeValue::List(list) => match method {
+                "len" | "length" => RuntimeValue::Float(list.len() as f64),
+                "get" => {
+                    if let Some(RuntimeValue::Int(i)) = args.first() {
+                        list.get(*i as usize).cloned().unwrap_or(RuntimeValue::Void)
+                    } else { RuntimeValue::Void }
+                },
+                _ => RuntimeValue::Void,
+            },
+            _ => RuntimeValue::Void,
+        }
+    }
+
+    fn eval_builtin_call(&self, func: &str, args: &[TypedIRValue]) -> RuntimeValue {
+        let arg_vals: Vec<RuntimeValue> = args.iter().map(|a| self.eval_value(a)).collect();
+        match func {
+            "List.length" | "len" | "length" => {
+                if let Some(first) = arg_vals.first() {
+                    match first {
+                        RuntimeValue::String(s) => RuntimeValue::Float(s.len() as f64),
+                        RuntimeValue::List(l) => RuntimeValue::Float(l.len() as f64),
+                        _ => RuntimeValue::Float(0.0),
+                    }
+                } else { RuntimeValue::Float(0.0) }
+            },
+            "String.length" | "String.len" => {
+                if let Some(first) = arg_vals.first() {
+                    match first {
+                        RuntimeValue::String(s) => RuntimeValue::Int(s.len() as i64),
+                        RuntimeValue::List(l) => RuntimeValue::Int(l.len() as i64),
+                        _ => RuntimeValue::Int(0),
+                    }
+                } else { RuntimeValue::Int(0) }
+            },
+            "List.sum" | "sum" => {
+                if let Some(RuntimeValue::List(list)) = arg_vals.first() {
+                    let mut sum_f = 0.0;
+                    for v in list {
+                        match v {
+                            RuntimeValue::Int(i) => sum_f += *i as f64,
+                            RuntimeValue::Float(f) => sum_f += f,
+                            _ => {},
+                        }
+                    }
+                    RuntimeValue::Float(sum_f)
+                } else { RuntimeValue::Float(0.0) }
+            },
+            "String.to_upper" | "String.upper" | "to_upper" | "upper" => {
+                if let Some(RuntimeValue::String(s)) = arg_vals.first() { RuntimeValue::String(s.to_uppercase()) } else { RuntimeValue::Void }
+            },
+            "String.to_lower" | "String.lower" | "to_lower" | "lower" => {
+                if let Some(RuntimeValue::String(s)) = arg_vals.first() { RuntimeValue::String(s.to_lowercase()) } else { RuntimeValue::Void }
+            },
+            _ => {
+                let norm = func.split('.').last().unwrap_or(func);
+                match norm {
+                    "length" | "len" => {
+                        if let Some(first) = arg_vals.first() {
+                            match first {
+                                RuntimeValue::String(s) => RuntimeValue::Float(s.len() as f64),
+                                RuntimeValue::List(l) => RuntimeValue::Float(l.len() as f64),
+                                _ => RuntimeValue::Float(0.0),
+                            }
+                        } else { RuntimeValue::Float(0.0) }
+                    },
+                    "sum" => {
+                        if let Some(RuntimeValue::List(list)) = arg_vals.first() {
+                            let mut sum_f = 0.0;
+                            for v in list { match v { RuntimeValue::Int(i) => sum_f += *i as f64, RuntimeValue::Float(f) => sum_f += f, _ => {}, } }
+                            RuntimeValue::Float(sum_f)
+                        } else { RuntimeValue::Float(0.0) }
+                    },
+                    "to_upper" | "upper" => {
+                        if let Some(RuntimeValue::String(s)) = arg_vals.first() { RuntimeValue::String(s.to_uppercase()) } else { RuntimeValue::Void }
+                    },
+                    "to_lower" | "lower" => {
+                        if let Some(RuntimeValue::String(s)) = arg_vals.first() { RuntimeValue::String(s.to_lowercase()) } else { RuntimeValue::Void }
+                    },
+                    _ => RuntimeValue::Void,
+                }
+            }
+        }
+    }
+
     fn execute_function(&mut self, func: &SemanticFunction) -> Result<(), String> {
-        self.return_value = None;
         let mut current = func.entry_block;
-        for _ in 0..10000 {
-            let blk = func.blocks.iter().find(|b| b.id == current).cloned();
-            if blk.is_none() {
-                break;
+        let mut visited = 0;
+        loop {
+            if visited > 10000 { return Err("infinite loop".into()); }
+            visited += 1;
+            let block = func.blocks.iter().find(|b| b.id == current).ok_or("block not found")?.clone();
+            for instr in &block.instructions {
+                match instr {
+                    Instruction::Declare { name, value,.. } => { self.variables.insert(name.clone(), self.eval_value(value)); },
+                    Instruction::Assign { target, value } => { self.variables.insert(target.clone(), self.eval_value(value)); },
+                    Instruction::ArrayAssign { array, index, value } => {
+                        if let TypedIRValue::Variable(arr_name, _) = array.as_ref() {
+                            let idx = self.eval_value(index);
+                            let val = self.eval_value(value);
+                            let idx_usize = match idx { RuntimeValue::Int(i) => i as usize, RuntimeValue::Float(f) => f as usize, _ => 0 };
+                            if let Some(RuntimeValue::List(list)) = self.variables.get(arr_name).cloned() {
+                                let mut new_list = list;
+                                if idx_usize < new_list.len() { new_list[idx_usize] = val; } else if idx_usize == new_list.len() { new_list.push(val); }
+                                self.variables.insert(arr_name.clone(), RuntimeValue::List(new_list));
+                            }
+                        }
+                    },
+                    Instruction::Print { value } => { self.output.push(self.eval_value(value).display()); },
+                    Instruction::Call { func: fname, args, result } => {
+                        if fname == "println" || fname == "print" {
+                            if let Some(a) = args.first() { self.output.push(self.eval_value(a).display()); }
+                        } else {
+                            let rv = self.eval_builtin_call(fname, args);
+                            if let Some(res) = result { self.variables.insert(res.clone(), rv); }
+                        }
+                    },
+                    Instruction::MethodCall { object, method, args, result } => {
+                        let recv = self.variables.get(object).cloned().unwrap_or(RuntimeValue::Void);
+                        let arg_vals: Vec<RuntimeValue> = args.iter().map(|a| self.eval_value(a)).collect();
+                        let rv = self.eval_method_call(recv, method, &arg_vals);
+                        if let Some(res) = result { self.variables.insert(res.clone(), rv); }
+                    },
+                    _ => {}
+                }
             }
-            let next = self.execute_block_cfg(&blk.expect("CFG block should exist"))?;
-            if self.return_value.is_some() {
-                break;
-            }
-            match next {
-                Some(n) => current = n,
+            match &block.terminator {
+                Some(Terminator::Return { value,.. }) => { if let Some(v) = value { self.return_value = Some(self.eval_value(v)); } break; },
+                Some(Terminator::Jump { block: b }) => { current = *b; continue; },
+                Some(Terminator::Branch { condition, then_block, else_block }) => {
+                    let cond = self.eval_value(condition).as_bool();
+                    current = if cond { *then_block } else { *else_block };
+                    continue;
+                },
+                Some(Terminator::Switch {.. }) => break,
+                Some(Terminator::IteratorNext { iterator, target, body_block, exit_block }) => {
+                    let idx_key = format!("{}_idx", iterator);
+                    let idx = match self.variables.get(&idx_key) { Some(RuntimeValue::Int(i)) => *i as usize, _ => 0 };
+                    let iter_val = self.variables.get(iterator).cloned().unwrap_or(RuntimeValue::Void);
+                    if let RuntimeValue::List(list) = iter_val {
+                        if idx < list.len() {
+                            self.variables.insert(target.clone(), list[idx].clone());
+                            self.variables.insert(idx_key, RuntimeValue::Int((idx + 1) as i64));
+                            current = *body_block;
+                        } else { current = *exit_block; }
+                    } else { current = *exit_block; }
+                    continue;
+                },
+                Some(Terminator::Spawn { entry_block }) => { current = *entry_block; continue; },
+                Some(Terminator::Fork { join_block,.. }) => { current = *join_block; continue; },
+                Some(Terminator::Defer { cleanup_block }) => { current = *cleanup_block; continue; },
                 None => break,
             }
         }
         Ok(())
-    }
-
-    fn execute_block_cfg(&mut self, block: &SemanticBlock) -> Result<Option<usize>, String> {
-        for instr in &block.instructions {
-            if self.return_value.is_some() {
-                return Ok(None);
-            }
-            match instr {
-                SemanticInstruction::Branch {
-                    condition,
-                    then_block,
-                    else_block,
-                } => {
-                    let c = self.evaluate_value(condition)?;
-                    if c.as_bool() {
-                        return Ok(Some(*then_block));
-                    } else {
-                        return Ok(Some(*else_block));
-                    }
-                }
-                SemanticInstruction::Jump { block } => {
-                    return Ok(Some(*block));
-                }
-                SemanticInstruction::Switch {
-                    value,
-                    cases,
-                    default_block,
-                } => {
-                    let v = self.evaluate_value(value)?;
-                    let k = v.display();
-                    for (cv, tgt) in cases {
-                        let cs = format!("{:?}", cv);
-                        if k == cs {
-                            return Ok(Some(*tgt));
-                        }
-                    }
-                    if let Some(d) = default_block {
-                        return Ok(Some(*d));
-                    }
-                    return Ok(None);
-                }
-                SemanticInstruction::Fork { join_block, .. } => {
-                    return Ok(Some(*join_block));
-                }
-                SemanticInstruction::Return { value, .. } => {
-                    self.return_value = Some(match value {
-                        Some(v) => self.evaluate_value(v)?,
-                        None => RuntimeValue::Void,
-                    });
-                    return Ok(None);
-                }
-                _ => {
-                    self.execute_instruction(instr)?;
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    fn execute_block(&mut self, block: &SemanticBlock) -> Result<(), String> {
-        for instruction in &block.instructions {
-            self.execute_instruction(instruction)?;
-            if self.return_value.is_some() {
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    fn execute_instruction(&mut self, instr: &SemanticInstruction) -> Result<(), String> {
-        match instr {
-            SemanticInstruction::Nop => {}
-
-            SemanticInstruction::Declare {
-                name,
-                mutable: _,
-                type_: _,
-                value,
-            } => {
-                let val = self.evaluate_value(value)?;
-                self.variables.insert(name.clone(), val);
-            }
-
-            SemanticInstruction::Assign { target, value } => {
-                let val = self.evaluate_value(value)?;
-                self.variables.insert(target.clone(), val);
-            }
-
-            SemanticInstruction::Print { value } => {
-                let val = self.evaluate_value(value)?;
-                self.output.push(val.display());
-            }
-
-            SemanticInstruction::Return { value, type_: _ } => match value {
-                Some(v) => self.return_value = Some(self.evaluate_value(v)?),
-                None => self.return_value = Some(RuntimeValue::Void),
-            },
-
-            SemanticInstruction::Branch {
-                condition,
-                then_block: _,
-                else_block: _,
-            } => {
-                let _ = self.evaluate_value(condition)?;
-            }
-
-            SemanticInstruction::Jump { block: _ } => {}
-
-            SemanticInstruction::Switch {
-                value,
-                cases,
-                default_block: _,
-            } => {
-                let _ = self.evaluate_value(value)?;
-                let _ = cases;
-            }
-
-            SemanticInstruction::Call {
-                result,
-                function,
-                args,
-                return_type: _,
-            } => {
-                let arg_vals: Vec<RuntimeValue> = args
-                    .iter()
-                    .map(|a| self.evaluate_value(a))
-                    .collect::<Result<Vec<_>, String>>()?;
-
-                let call_result = self.execute_call(function, &arg_vals)?;
-
-                if let Some(result_name) = result {
-                    self.variables.insert(result_name.clone(), call_result);
-                }
-            }
-
-            SemanticInstruction::MethodCall {
-                result,
-                receiver,
-                receiver_type,
-                method_name,
-                args,
-                return_type,
-            } => {
-                let receiver_val = self.evaluate_value(receiver)?;
-                let mut all_args = vec![receiver_val];
-                for arg in args {
-                    all_args.push(self.evaluate_value(arg)?);
-                }
-
-                let function_name = format!("{}_{}", receiver_type, method_name);
-                let call_result = self.execute_call(&function_name, &all_args)?;
-
-                if let Some(result_name) = result {
-                    self.variables.insert(result_name.clone(), call_result);
-                }
-            }
-
-            SemanticInstruction::IteratorInit { iterator, iterable } => {
-                let val = self.evaluate_value(iterable)?;
-                self.variables.insert(iterator.clone(), val);
-            }
-
-            SemanticInstruction::IteratorNext {
-                iterator: _,
-                target: _,
-                body_block: _,
-                exit_block: _,
-            } => {}
-
-            SemanticInstruction::Spawn { entry_block: _ } => {}
-
-            SemanticInstruction::Fork {
-                blocks: _,
-                join_block: _,
-            } => {}
-
-            SemanticInstruction::Defer { cleanup_block: _ } => {}
-
-            SemanticInstruction::ChannelDecl { name, type_: _ } => {
-                self.variables
-                    .entry(name.clone())
-                    .or_insert(RuntimeValue::Void);
-            }
-
-            SemanticInstruction::Send { channel, value } => {
-                let val = self.evaluate_value(value)?;
-                self.variables.insert(channel.clone(), val);
-            }
-
-            SemanticInstruction::Receive { channel, target } => {
-                let val = self
-                    .variables
-                    .get(channel)
-                    .cloned()
-                    .unwrap_or(RuntimeValue::Void);
-                self.variables.insert(target.clone(), val);
-            }
-
-            SemanticInstruction::ArrayAssign {
-                array,
-                index,
-                value,
-            } => {
-                let _ = self.evaluate_value(array)?;
-                let _ = self.evaluate_value(index)?;
-                let _ = self.evaluate_value(value)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn execute_call(
-        &mut self,
-        function: &str,
-        args: &[RuntimeValue],
-    ) -> Result<RuntimeValue, String> {
-        match function {
-            // Math functions
-            "Math.sqrt" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).sqrt(),
-            )),
-            "Math.pow" => {
-                let x = args.first().map(|a| a.as_float()).unwrap_or(0.0);
-                let y = args.get(1).map(|a| a.as_float()).unwrap_or(0.0);
-                Ok(RuntimeValue::Float(x.powf(y)))
-            }
-            "Math.sin" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).sin(),
-            )),
-            "Math.cos" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).cos(),
-            )),
-            "Math.abs" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).abs(),
-            )),
-            "Math.floor" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).floor(),
-            )),
-            "Math.ceil" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).ceil(),
-            )),
-            "Math.exp" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).exp(),
-            )),
-            "Math.log" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).ln(),
-            )),
-            "Math.tan" => Ok(RuntimeValue::Float(
-                args.first().map(|a| a.as_float()).unwrap_or(0.0).tan(),
-            )),
-
-            // String functions
-            "String.length" => {
-                let s = args.first().map(|a| a.display()).unwrap_or_default();
-                Ok(RuntimeValue::Int(s.len() as i64))
-            }
-            "String.concat" => {
-                let s1 = args.first().map(|a| a.display()).unwrap_or_default();
-                let s2 = args.get(1).map(|a| a.display()).unwrap_or_default();
-                Ok(RuntimeValue::String(format!("{}{}", s1, s2)))
-            }
-            "String.to_upper" => {
-                let s = args.first().map(|a| a.display()).unwrap_or_default();
-                Ok(RuntimeValue::String(s.to_uppercase()))
-            }
-            "String.to_lower" => {
-                let s = args.first().map(|a| a.display()).unwrap_or_default();
-                Ok(RuntimeValue::String(s.to_lowercase()))
-            }
-            "String.substring" => {
-                let s = args.first().map(|a| a.display()).unwrap_or_default();
-                let start = args.get(1).map(|a| a.as_int()).unwrap_or(0) as usize;
-                let len = args.get(2).map(|a| a.as_int()).unwrap_or(0) as usize;
-                if start < s.len() {
-                    let end = (start + len).min(s.len());
-                    Ok(RuntimeValue::String(s[start..end].to_string()))
-                } else {
-                    Ok(RuntimeValue::String(String::new()))
-                }
-            }
-
-            // List functions
-            "List.length" => {
-                if let Some(RuntimeValue::List(elements)) = args.first() {
-                    Ok(RuntimeValue::Float(elements.len() as f64))
-                } else {
-                    Ok(RuntimeValue::Float(0.0))
-                }
-            }
-            "List.sum" => {
-                if let Some(RuntimeValue::List(elements)) = args.first() {
-                    Ok(RuntimeValue::Float(
-                        elements.iter().map(|e| e.as_float()).sum(),
-                    ))
-                } else {
-                    Ok(RuntimeValue::Float(0.0))
-                }
-            }
-            "List.max" => {
-                if let Some(RuntimeValue::List(elements)) = args.first() {
-                    let max = elements
-                        .iter()
-                        .map(|e| e.as_float())
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    Ok(RuntimeValue::Float(max))
-                } else {
-                    Ok(RuntimeValue::Float(0.0))
-                }
-            }
-            "List.min" => {
-                if let Some(RuntimeValue::List(elements)) = args.first() {
-                    let min = elements
-                        .iter()
-                        .map(|e| e.as_float())
-                        .fold(f64::INFINITY, f64::min);
-                    Ok(RuntimeValue::Float(min))
-                } else {
-                    Ok(RuntimeValue::Float(0.0))
-                }
-            }
-
-            // User-defined function
-            _ => {
-                if let Some(func) = self
-                    .program
-                    .functions
-                    .iter()
-                    .find(|f| f.name == function)
-                    .cloned()
-                {
-                    let saved_vars = self.variables.clone();
-
-                    for (i, (param_name, _)) in func.params.iter().enumerate() {
-                        let val = args.get(i).cloned().unwrap_or(RuntimeValue::Float(0.0));
-                        self.variables.insert(param_name.clone(), val);
-                    }
-
-                    self.execute_function(&func)?;
-
-                    let result = self.return_value.clone().unwrap_or(RuntimeValue::Void);
-                    self.variables = saved_vars;
-
-                    Ok(result)
-                } else {
-                    Err(format!("Undefined function '{}'", function))
-                }
-            }
-        }
-    }
-
-    fn evaluate_value(&mut self, value: &TypedIRValue) -> Result<RuntimeValue, String> {
-        match value {
-            TypedIRValue::Int(i) => Ok(RuntimeValue::Int(*i)),
-            TypedIRValue::Float(f) => Ok(RuntimeValue::Float(*f)),
-            TypedIRValue::String(s) => Ok(RuntimeValue::String(s.clone())),
-            TypedIRValue::Bool(b) => Ok(RuntimeValue::Bool(*b)),
-            TypedIRValue::Void => Ok(RuntimeValue::Void),
-            TypedIRValue::PtrLiteral(val) => Ok(RuntimeValue::Int(*val as i64)),
-            TypedIRValue::NullPtr => Ok(RuntimeValue::Int(0)),
-            TypedIRValue::List(values, _) => {
-                let mut list = Vec::new();
-                for v in values {
-                    list.push(self.evaluate_value(v)?);
-                }
-                Ok(RuntimeValue::List(list))
-            }
-            TypedIRValue::Some(v) => self.evaluate_value(v),
-            TypedIRValue::None { .. } => Ok(RuntimeValue::Void),
-            TypedIRValue::Ok { value: v, .. } => self.evaluate_value(v),
-            TypedIRValue::Error { value: v, .. } => self.evaluate_value(v),
-            TypedIRValue::Variable(name, _) => self
-                .variables
-                .get(name)
-                .cloned()
-                .ok_or_else(|| format!("Undefined variable '{}'", name)),
-            TypedIRValue::Cast { value, .. } => self.evaluate_value(value),
-            TypedIRValue::BinaryOp {
-                op, left, right, ..
-            } => {
-                let l = self.evaluate_value(left)?;
-                let r = self.evaluate_value(right)?;
-                self.execute_binary_op(op, &l, &r)
-            }
-            TypedIRValue::Call { function, args, .. } => {
-                let arg_vals: Vec<RuntimeValue> = args
-                    .iter()
-                    .map(|a| self.evaluate_value(a))
-                    .collect::<Result<Vec<_>, String>>()?;
-                self.execute_call(function, &arg_vals)
-            }
-            TypedIRValue::ArrayAccess { array, index, .. } => {
-                let arr = self.evaluate_value(array)?;
-                let idx = self.evaluate_value(index)?.as_int() as usize;
-                if let RuntimeValue::List(elements) = arr {
-                    if idx < elements.len() {
-                        Ok(elements[idx].clone())
-                    } else {
-                        Err(format!("Array index {} out of bounds", idx))
-                    }
-                } else {
-                    Ok(RuntimeValue::Float(0.0))
-                }
-            }
-            TypedIRValue::Borrow { expr, .. } => {
-                // Borrow creates a reference - for interpreter, just evaluate inner
-                self.evaluate_value(expr)
-            }
-            TypedIRValue::MutBorrow { expr, .. } => {
-                // Mutable borrow - same as borrow in interpreter
-                self.evaluate_value(expr)
-            }
-            TypedIRValue::Deref { expr, .. } => {
-                // Dereference - evaluate inner expression
-                self.evaluate_value(expr)
-            }
-            TypedIRValue::AddrOf { expr, .. } => {
-                // Address-of - for interpreter, just evaluate inner
-                self.evaluate_value(expr)
-            }
-            TypedIRValue::MethodCall {
-                receiver,
-                receiver_type,
-                method_name,
-                args,
-                return_type: _,
-            } => {
-                let receiver_val = self.evaluate_value(receiver)?;
-                let mut all_args = vec![receiver_val];
-                for arg in args {
-                    all_args.push(self.evaluate_value(arg)?);
-                }
-
-                let function_name = format!("{}_{}", receiver_type, method_name);
-                self.execute_call(&function_name, &all_args)
-            }
-        }
-    }
-
-    fn execute_binary_op(
-        &self,
-        op: &SemanticBinOp,
-        left: &RuntimeValue,
-        right: &RuntimeValue,
-    ) -> Result<RuntimeValue, String> {
-        match op {
-            SemanticBinOp::Add => {
-                if let (RuntimeValue::String(l), RuntimeValue::String(r)) = (left, right) {
-                    Ok(RuntimeValue::String(format!("{}{}", l, r)))
-                } else if let (RuntimeValue::Int(l), RuntimeValue::Int(r)) = (left, right) {
-                    Ok(RuntimeValue::Int(l + r))
-                } else {
-                    Ok(RuntimeValue::Float(left.as_float() + right.as_float()))
-                }
-            }
-            SemanticBinOp::Subtract => Ok(RuntimeValue::Float(left.as_float() - right.as_float())),
-            SemanticBinOp::Multiply => Ok(RuntimeValue::Float(left.as_float() * right.as_float())),
-            SemanticBinOp::Divide => Ok(RuntimeValue::Float(left.as_float() / right.as_float())),
-            SemanticBinOp::Greater => Ok(RuntimeValue::Bool(left.as_float() > right.as_float())),
-            SemanticBinOp::Less => Ok(RuntimeValue::Bool(left.as_float() < right.as_float())),
-            SemanticBinOp::GreaterEqual => {
-                Ok(RuntimeValue::Bool(left.as_float() >= right.as_float()))
-            }
-            SemanticBinOp::LessEqual => Ok(RuntimeValue::Bool(left.as_float() <= right.as_float())),
-            SemanticBinOp::Equal => Ok(RuntimeValue::Bool(left.as_float() == right.as_float())),
-            SemanticBinOp::NotEqual => Ok(RuntimeValue::Bool(left.as_float() != right.as_float())),
-            SemanticBinOp::And => Ok(RuntimeValue::Bool(left.as_bool() && right.as_bool())),
-            SemanticBinOp::Or => Ok(RuntimeValue::Bool(left.as_bool() || right.as_bool())),
-        }
     }
 }

@@ -52,3 +52,11 @@ benchmarks/programs/*.ll
 
 **/generics_test.ll
 **/trait_test.ll
+# ALGOL26 generated artifacts — review fix
+**/*.ll
+**/examples/basic/test
+**/examples/ffi/ffi_test
+**/examples/systems/**/main
+benchmarks/programs/large
+benchmarks/programs/medium
+benchmarks/programs/small

@@ -1,3 +1,4 @@
+// test/programs/valid/race_test.gol
 procedure main
     var shared := 0.0
     

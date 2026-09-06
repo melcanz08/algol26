@@ -1,8 +1,8 @@
 #![allow(dead_code)]
-// algol26/src/race.rs
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+// algol26/src/race.rs
 // ALGOL26 Race Detection
 // Compile-time data race analysis for concurrent code
 

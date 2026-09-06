@@ -78,21 +78,37 @@ procedure main
 }
 #[test] fn test_negative_corpus_no_ice() {
     use std::{fs, path::Path};
-    let dir = Path::new("tests/integration/negative"); assert!(dir.exists());
+    let dir = Path::new("tests/integration/negative");
+    assert!(dir.exists());
+    let mut count = 0usize;
+    let mut invalid = 0usize;
     for entry in fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap(); let path = entry.path();
         if path.extension().and_then(|s| s.to_str())!= Some("al26") { continue; }
+        count += 1;
         let source = fs::read_to_string(&path).unwrap();
         let result = std::panic::catch_unwind(|| {
-            let lexer_res = Lexer::new(source.clone()); if lexer_res.is_err() { return true; }
-            let lexer = lexer_res.unwrap(); let mut parser = Parser::new(lexer.tokens);
-            if parser.parse_program().is_err() { return true; }
-            let prog = parser.parse_program().unwrap();
-            let (_ir, _diags) = SemanticIRBuilder::build(&prog.functions); true
+            let lexer_res = Lexer::new(source.clone());
+            if lexer_res.is_err() { return (true, true); }
+            let lexer = lexer_res.unwrap();
+            let mut parser = Parser::new(lexer.tokens);
+            let prog_res = parser.parse_program();
+            if prog_res.is_err() { return (true, true); }
+            let prog = prog_res.unwrap();
+            let (_ir, diags) = SemanticIRBuilder::build(&prog.functions);
+            let is_invalid =!diags.is_empty();
+            (true, is_invalid)
         });
-        assert!(result.is_ok() && result.unwrap(), "ICE on {:?}", path);
+        assert!(result.is_ok(), "ICE on {:?}", path);
+        let (no_ice, is_invalid) = result.unwrap();
+        assert!(no_ice, "ICE on {:?}", path);
+        if is_invalid { invalid += 1; }
     }
+    println!("negative corpus: total={}, invalid={}", count, invalid);
+    assert!(count >= 20, "need >=20 negative files, got {}", count);
+    assert!(invalid >= 18, "expected most corpus to be invalid, got {}/{}", invalid, count);
 }
+
 #[test] fn test_stress_10_level_nested_if_for_defer_break_return() {
     let mut src = String::from("procedure main\n var sum := 0.0\n");
     for i in 0..10 {

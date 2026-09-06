@@ -1,0 +1,4 @@
+procedure main
+    val x := 5.0
+    val y := x + "bad"
+    print(y)

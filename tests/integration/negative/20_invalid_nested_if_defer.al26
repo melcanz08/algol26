@@ -1,0 +1,5 @@
+procedure main
+    if true then
+        defer
+        if if
+    print("bad")

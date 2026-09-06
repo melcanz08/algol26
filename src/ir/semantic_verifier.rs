@@ -181,12 +181,13 @@ impl SemanticVerifier {
                             }
                         }
                         SemanticInstruction::Spawn { entry_block }
-                            if !block_ids.contains(entry_block) => {
-                                return Err(format!(
-                                    "Function '{}': Spawn to non-existent entry_block {}",
-                                    func.name, entry_block
-                                ));
-                            }
+                            if !block_ids.contains(entry_block) =>
+                        {
+                            return Err(format!(
+                                "Function '{}': Spawn to non-existent entry_block {}",
+                                func.name, entry_block
+                            ));
+                        }
                         _ => {}
                     }
                 }

@@ -1,0 +1,4 @@
+procedure main
+    if true then
+        val inner := 10.0
+    print(inner)

@@ -619,10 +619,9 @@ impl SemanticAnalyzer {
                 self.declare_variable(name, value_type.clone(), *mutable)?;
 
                 if let Expr::Var(source, _) = value {
-                    if source != name && !self.is_moved(source)
-                        && !value_type.is_copy() {
-                            self.mark_moved(source);
-                        }
+                    if source != name && !self.is_moved(source) && !value_type.is_copy() {
+                        self.mark_moved(source);
+                    }
                 }
             }
             Stmt::Assign { name, value } => {
@@ -668,7 +667,11 @@ impl SemanticAnalyzer {
                         0,
                         "",
                         ErrorCode::E0002,
-                    ));
+                    )
+                    .with_suggestion(&format!(
+                        "Change the value to {} or declare variable as {}",
+                        var_type, value_type
+                    )));
                 }
             }
             Stmt::Expression(expr) => {
@@ -1094,17 +1097,7 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 };
                 self.push_scope();
-                eprintln!(
-                    "DEBUG FOR: declaring '{}' with type {:?} in scope depth {}",
-                    var,
-                    elem_type,
-                    self.scopes.len()
-                );
                 self.declare_variable(var, elem_type, false)?;
-                eprintln!(
-                    "DEBUG FOR: body analysis with scope depth {}",
-                    self.scopes.len()
-                );
                 for s in body {
                     self.analyze_stmt(s)?;
                 }
@@ -1113,12 +1106,7 @@ impl SemanticAnalyzer {
                 } else {
                     Type::Void
                 };
-                eprintln!(
-                    "DEBUG FOR: popping scope, depth before pop {}",
-                    self.scopes.len()
-                );
                 self.pop_scope();
-                eprintln!("DEBUG FOR: after pop, depth {}", self.scopes.len());
                 Ok(result_type)
             }
             Expr::While {
@@ -1189,8 +1177,6 @@ impl SemanticAnalyzer {
                     ))
                 });
 
-                
-
                 result
             }
             Expr::ArrayAccess { array, index } => {
@@ -1260,7 +1246,11 @@ impl SemanticAnalyzer {
                         0,
                         "",
                         ErrorCode::E0002,
-                    ));
+                    )
+                    .with_suggestion(&format!(
+                        "Use an Int index or convert {} with int({})",
+                        index_type, index_type
+                    )));
                 }
                 Ok(element_type)
             }

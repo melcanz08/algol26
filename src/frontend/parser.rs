@@ -73,8 +73,7 @@ impl Parser {
     }
 
     fn peek(&self) -> &Token {
-        self
-            .tokens
+        self.tokens
             .get(self.pos)
             .map(|ti| &ti.token)
             .unwrap_or(&Token::Eof)
@@ -127,17 +126,46 @@ impl Parser {
         }
     }
 
+    fn parse_type_syntax(&mut self) -> Result<TypeSyntax> {
+        // Base type: Self or identifier
+        if matches!(self.peek(), Token::SelfType) {
+            self.advance();
+            return Ok(TypeSyntax::Named("Self".to_string()));
+        }
+        let base = self.expect_identifier("type name")?;
+        // Check for generic args: [T, U] or <T, U>
+        if matches!(self.peek(), Token::LBracket | Token::Lt) {
+            let is_bracket = matches!(self.peek(), Token::LBracket);
+            self.advance(); // consume [ or <
+            let mut args = Vec::new();
+            while !matches!(
+                self.peek(),
+                Token::RBracket | Token::Gt | Token::Eof | Token::RParen
+            ) {
+                // parse inner type recursively
+                args.push(self.parse_type_syntax()?);
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            // expect closing
+            if is_bracket {
+                self.expect_token(Token::RBracket, "']'")?;
+            } else {
+                self.expect_token(Token::Gt, "'>'")?;
+            }
+            Ok(TypeSyntax::Generic { name: base, args })
+        } else {
+            Ok(TypeSyntax::Named(base))
+        }
+    }
+
     fn parse_type_annotation(&mut self) -> Result<Option<TypeSyntax>> {
         if matches!(self.peek(), Token::Colon) {
             self.advance();
-            // Check for Self type
-            if matches!(self.peek(), Token::SelfType) {
-                self.advance();
-                Ok(Some(TypeSyntax::Named("Self".to_string())))
-            } else {
-                let type_name = self.expect_identifier("type name")?;
-                Ok(Some(TypeSyntax::from_string(&type_name)))
-            }
+            Ok(Some(self.parse_type_syntax()?))
         } else {
             Ok(None)
         }
@@ -256,8 +284,7 @@ impl Parser {
         let return_type = if is_function {
             if matches!(self.peek(), Token::Arrow | Token::Colon) {
                 self.advance();
-                let type_name = self.expect_identifier("return type")?;
-                Some(TypeSyntax::from_string(&type_name))
+                Some(self.parse_type_syntax()?)
             } else {
                 None
             }
@@ -1390,10 +1417,13 @@ impl Parser {
                 }
 
                 // Parse return type
-                let return_type = if matches!(self.peek(), Token::Arrow | Token::Colon) {
-                    self.advance();
-                    let type_name = self.expect_identifier("return type")?;
-                    Some(TypeSyntax::from_string(&type_name))
+                let return_type = if is_function {
+                    if matches!(self.peek(), Token::Arrow | Token::Colon) {
+                        self.advance();
+                        Some(self.parse_type_syntax()?)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 };
@@ -1466,7 +1496,7 @@ mod tests {
     #[test]
     fn test_parse_simple_function() {
         let source = "function main() -> Float\n    return 42.0";
-        let functions = parse_source(source).unwrap();
+        let functions = parse_source(source).expect("ICE: unwrap - should be unreachable");
 
         assert_eq!(functions.len(), 1);
         assert_eq!(functions[0].name, "main");
@@ -1480,7 +1510,7 @@ mod tests {
     #[test]
     fn test_parse_var_decl() {
         let source = "function main()\n    var x := 5\n    val y := 10";
-        let functions = parse_source(source).unwrap();
+        let functions = parse_source(source).expect("ICE: unwrap - should be unreachable");
 
         assert_eq!(functions[0].body.len(), 2);
         match &functions[0].body[0] {
@@ -1488,42 +1518,42 @@ mod tests {
                 assert_eq!(name, "x");
                 assert!(*mutable);
             }
-            _ => assert!(false, "Expected VarDecl"),
+            _ => unreachable!("Expected VarDecl"),
         }
     }
 
     #[test]
     fn test_parse_if_else() {
         let source = "function main()\n    if x > 5\n        print x\n    else\n        print 0";
-        let functions = parse_source(source).unwrap();
+        let functions = parse_source(source).expect("ICE: unwrap - should be unreachable");
 
         assert_eq!(functions[0].body.len(), 1);
         match &functions[0].body[0] {
             Stmt::Expression(Expr::If { else_branch, .. }) => {
                 assert!(else_branch.is_some());
             }
-            _ => panic!("Expected If expression statement"),
+            _ => unreachable!("Expected If expression statement"),
         }
     }
 
     #[test]
     fn test_parse_array_access() {
         let source = "function main()\n    var x := arr[0]";
-        let functions = parse_source(source).unwrap();
+        let functions = parse_source(source).expect("ICE: unwrap - should be unreachable");
 
         match &functions[0].body[0] {
             Stmt::VarDecl { value, .. } => match value {
                 Expr::ArrayAccess { .. } => {}
-                _ => panic!("Expected ArrayAccess"),
+                _ => unreachable!("Expected ArrayAccess"),
             },
-            _ => assert!(false, "Expected VarDecl"),
+            _ => unreachable!("Expected VarDecl"),
         }
     }
 
     #[test]
     fn test_parse_function_call() {
         let source = "function main()\n    print add(1, 2)";
-        let functions = parse_source(source).unwrap();
+        let functions = parse_source(source).expect("ICE: unwrap - should be unreachable");
 
         match &functions[0].body[0] {
             Stmt::Print { expr } => match expr {
@@ -1531,16 +1561,16 @@ mod tests {
                     assert_eq!(name, "add");
                     assert_eq!(args.len(), 2);
                 }
-                _ => panic!("Expected FunctionCall"),
+                _ => unreachable!("Expected FunctionCall"),
             },
-            _ => panic!("Expected Print"),
+            _ => unreachable!("Expected Print"),
         }
     }
 
     #[test]
     fn test_parse_for_as_expr() {
         let source = "function main()\n    val x := for i in [1,2,3] do i + 1";
-        let functions = parse_source(source).unwrap();
+        let functions = parse_source(source).expect("ICE: unwrap - should be unreachable");
         match &functions[0].body[0] {
             Stmt::VarDecl { value, .. } => match value {
                 Expr::For {
@@ -1549,9 +1579,9 @@ mod tests {
                     assert_eq!(var, "i");
                     assert!(trailing_expr.is_some());
                 }
-                _ => panic!("Expected For expr, got {:?}", value),
+                _ => unreachable!("Expected For expr, got {:?}", value),
             },
-            _ => assert!(false, "Expected VarDecl"),
+            _ => unreachable!("Expected VarDecl"),
         }
     }
 }

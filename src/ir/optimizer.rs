@@ -137,10 +137,10 @@ impl Optimizer {
                         SemanticInstruction::Print { value } => {
                             Self::propagate_in_value(value, &constants);
                         }
-                        SemanticInstruction::Return { value: Some(v),.. } => {
+                        SemanticInstruction::Return { value: Some(v), .. } => {
                             Self::propagate_in_value(v, &constants);
                         }
-                        SemanticInstruction::Return {.. } => {}
+                        SemanticInstruction::Return { .. } => {}
                         SemanticInstruction::Branch { condition, .. } => {
                             Self::propagate_in_value(condition, &constants);
                         }
@@ -443,6 +443,28 @@ impl Optimizer {
                                 if !reachable[idx] {
                                     reachable[idx] = true;
                                     changed = true;
+                                }
+                            }
+                        }
+                        SemanticInstruction::Switch {
+                            cases,
+                            default_block,
+                            ..
+                        } => {
+                            for (_, tgt) in cases {
+                                if let Some(idx) = func.blocks.iter().position(|b| b.id == *tgt) {
+                                    if !reachable[idx] {
+                                        reachable[idx] = true;
+                                        changed = true;
+                                    }
+                                }
+                            }
+                            if let Some(def) = default_block {
+                                if let Some(idx) = func.blocks.iter().position(|b| b.id == *def) {
+                                    if !reachable[idx] {
+                                        reachable[idx] = true;
+                                        changed = true;
+                                    }
                                 }
                             }
                         }

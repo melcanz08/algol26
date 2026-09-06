@@ -51,7 +51,7 @@ procedure main
     let main = main_func.unwrap();
     assert!(!main.blocks.is_empty(), "Expected blocks in main function");
     assert!(
-        main.entry_block < main.blocks.len() as usize
+        main.entry_block < main.blocks.len()
             || main.blocks.iter().any(|b| b.id == main.entry_block),
         "Entry block should exist"
     );
@@ -75,8 +75,8 @@ procedure main
         for instr in &block.instructions {
             // Each instruction should be well-formed
             // (this is a basic sanity check)
-            match instr {
-                _ => {} // No panic = valid
+            {
+                let _ = instr;
             }
         }
     }

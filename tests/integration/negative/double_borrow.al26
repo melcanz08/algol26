@@ -1,0 +1,5 @@
+function main()
+    var arr := [1, 2, 3]
+    var a := &arr
+    var b := &mut arr
+    print a

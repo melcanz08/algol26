@@ -233,13 +233,22 @@ mod tests {
         assert!(filename.is_some());
 
         #[cfg(target_os = "linux")]
-        assert_eq!(filename.unwrap(), "libm.so");
+        assert_eq!(
+            filename.expect("ICE: unwrap - should be unreachable"),
+            "libm.so"
+        );
 
         #[cfg(target_os = "macos")]
-        assert_eq!(filename.unwrap(), "libm.dylib");
+        assert_eq!(
+            filename.expect("ICE: unwrap - should be unreachable"),
+            "libm.dylib"
+        );
 
         #[cfg(target_os = "windows")]
-        assert_eq!(filename.unwrap(), "m.dll");
+        assert_eq!(
+            filename.expect("ICE: unwrap - should be unreachable"),
+            "m.dll"
+        );
     }
 
     #[test]

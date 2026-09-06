@@ -48,9 +48,10 @@ fn generate_fuzz_source(seed: u64, iteration: usize) -> String {
         let choice = (state >> (i * 3)) % 10;
         match choice {
             0 => source.push_str(&format!(
-                "{} {} := {}\n",
+                "{} x{} := {}
+",
                 if state % 2 == 0 { "val" } else { "var" },
-                format!("x{}", i),
+                i,
                 state % 100
             )),
             1 => source.push_str(&format!(

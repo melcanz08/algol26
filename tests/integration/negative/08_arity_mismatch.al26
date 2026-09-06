@@ -1,0 +1,4 @@
+function add(a: float, b: float) -> float
+    return a + b
+procedure main
+    print(add(1.0))

@@ -1,0 +1,4 @@
+procedure main
+    val x := 5.0
+    val x := 10.0
+    print(x)

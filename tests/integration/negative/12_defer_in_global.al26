@@ -1,0 +1,3 @@
+defer print("oops")
+procedure main
+    print("hi")

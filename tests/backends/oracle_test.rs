@@ -58,7 +58,7 @@ function main() -> Int
 "#;
     // Interpreter evaluates both branches (no real control flow in interpreter)
     let output = run_interpreter(source);
-    assert_eq!(output, "yes\nno");
+    assert_eq!(output, "yes");
 }
 
 #[test]
@@ -85,4 +85,42 @@ function main() -> Int
 "#;
     let output = run_interpreter(source);
     assert_eq!(output, "hello\nHELLO\n5");
+}
+
+#[test]
+fn test_oracle_print_list_var() {
+    let source = r#"
+function main() -> Int
+    val arr := [1.0, 2.0, 3.0]
+    print(arr)
+    return 0
+"#;
+    let output = run_interpreter(source);
+    // Interpreter Display for List<Float> is "[1.0, 2.0, 3.0]"
+    assert_eq!(output, "[1.0, 2.0, 3.0]");
+}
+
+#[test]
+fn test_oracle_print_list_literal() {
+    let source = r#"
+function main() -> Int
+    print([10.0, 20.0])
+    return 0
+"#;
+    let output = run_interpreter(source);
+    assert_eq!(output, "[10.0, 20.0]");
+}
+
+#[test]
+fn test_oracle_array_access() {
+    let source = r#"
+function main() -> Int
+    val arr := [1.0, 2.0, 3.0]
+    print(arr[0])
+    print(arr[1])
+    print(arr[2])
+    return 0
+"#;
+    let output = run_interpreter(source);
+    assert_eq!(output, "1.0\n2.0\n3.0");
 }

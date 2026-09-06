@@ -1,0 +1,4 @@
+function bad() -> float
+    return "not a float"
+procedure main
+    print(bad())

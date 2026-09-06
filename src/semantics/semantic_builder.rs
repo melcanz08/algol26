@@ -41,9 +41,9 @@ pub struct SemanticIRBuilder {
 }
 
 #[derive(Debug, Clone)]
-struct FunctionSignature {
-    params: Vec<(String, Type)>,
-    return_type: Type,
+pub struct FunctionSignature {
+    pub params: Vec<(String, Type)>,
+    pub return_type: Type,
 }
 
 impl SemanticIRBuilder {
@@ -2013,7 +2013,7 @@ impl SemanticIRBuilder {
                 };
 
                 self.declare_var(name, type_.clone(), *mutable);
-                
+
                 SemanticInstruction::Declare {
                     name: name.clone(),
                     mutable: *mutable,
@@ -2712,8 +2712,21 @@ impl SemanticIRBuilder {
                     ));
                 }
 
-                let arr_type = array_value.type_of();
-                let element_type = match arr_type {
+                let mut peeled = array_value.type_of();
+                loop {
+                    let next = match peeled.clone() {
+                        Type::Borrow(inner) | Type::MutBorrow(inner) | Type::Pointer(inner) => {
+                            Some(*inner)
+                        }
+                        _ => None,
+                    };
+                    if let Some(n) = next {
+                        peeled = n;
+                    } else {
+                        break;
+                    }
+                }
+                let element_type = match peeled {
                     Type::List(elem) => *elem,
                     Type::Unknown => Type::Unknown,
                     other => {

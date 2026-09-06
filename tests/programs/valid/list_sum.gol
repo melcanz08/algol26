@@ -1,0 +1,8 @@
+procedure main
+    val arr := [1.0, 2.0, 3.0]
+    print(List.length(arr))
+    print(List.sum(arr))
+    print(List.max(arr))
+    print(List.min(arr))
+    print(List.sum([10.0, 20.0]))
+    print(List.length([10.0, 20.0]))

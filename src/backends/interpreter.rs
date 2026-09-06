@@ -92,15 +92,79 @@ impl Interpreter {
 
     fn execute_function(&mut self, func: &SemanticFunction) -> Result<(), String> {
         self.return_value = None;
-
-        for block in &func.blocks {
-            self.execute_block(block)?;
+        let mut current = func.entry_block;
+        for _ in 0..10000 {
+            let blk = func.blocks.iter().find(|b| b.id == current).cloned();
+            if blk.is_none() {
+                break;
+            }
+            let next = self.execute_block_cfg(&blk.expect("CFG block should exist"))?;
             if self.return_value.is_some() {
                 break;
             }
+            match next {
+                Some(n) => current = n,
+                None => break,
+            }
         }
-
         Ok(())
+    }
+
+    fn execute_block_cfg(&mut self, block: &SemanticBlock) -> Result<Option<usize>, String> {
+        for instr in &block.instructions {
+            if self.return_value.is_some() {
+                return Ok(None);
+            }
+            match instr {
+                SemanticInstruction::Branch {
+                    condition,
+                    then_block,
+                    else_block,
+                } => {
+                    let c = self.evaluate_value(condition)?;
+                    if c.as_bool() {
+                        return Ok(Some(*then_block));
+                    } else {
+                        return Ok(Some(*else_block));
+                    }
+                }
+                SemanticInstruction::Jump { block } => {
+                    return Ok(Some(*block));
+                }
+                SemanticInstruction::Switch {
+                    value,
+                    cases,
+                    default_block,
+                } => {
+                    let v = self.evaluate_value(value)?;
+                    let k = v.display();
+                    for (cv, tgt) in cases {
+                        let cs = format!("{:?}", cv);
+                        if k == cs {
+                            return Ok(Some(*tgt));
+                        }
+                    }
+                    if let Some(d) = default_block {
+                        return Ok(Some(*d));
+                    }
+                    return Ok(None);
+                }
+                SemanticInstruction::Fork { join_block, .. } => {
+                    return Ok(Some(*join_block));
+                }
+                SemanticInstruction::Return { value, .. } => {
+                    self.return_value = Some(match value {
+                        Some(v) => self.evaluate_value(v)?,
+                        None => RuntimeValue::Void,
+                    });
+                    return Ok(None);
+                }
+                _ => {
+                    self.execute_instruction(instr)?;
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn execute_block(&mut self, block: &SemanticBlock) -> Result<(), String> {

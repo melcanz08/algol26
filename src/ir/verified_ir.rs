@@ -110,7 +110,7 @@ mod tests {
         };
         program.functions.push(func);
 
-        let verified = VerifiedIR::new(program).unwrap();
+        let verified = VerifiedIR::new(program).expect("ICE: unwrap - should be unreachable");
         let extracted = verified.program();
         assert_eq!(extracted.functions.len(), 1);
     }

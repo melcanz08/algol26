@@ -1,3 +1,6 @@
-function main() -> Int
-    print "hello"
-    return 0
+procedure main
+    val arr := [1, 2, 3, 4, 5]
+    var sum := 0
+    for x in arr do
+        sum := sum + x
+    print(sum)

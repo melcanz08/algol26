@@ -5,6 +5,7 @@
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
+use crate::ffi::lowering::{register_stdlib_functions, FFIRegistry};
 use crate::ir::semantic_ir::{
     SemanticBinOp, SemanticFunction, SemanticInstruction, SemanticProgram, TypedIRValue,
 };
@@ -16,6 +17,17 @@ use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, Point
 use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
 use std::collections::HashMap;
+fn ice_opt<T>(opt: Option<T>, msg: &str) -> Result<T> {
+    opt.ok_or_else(|| CompileError::new(msg, 0, 0, "", ErrorCode::E0009))
+}
+fn ice_res<T, E: std::fmt::Debug>(res: std::result::Result<T, E>, ctx: &str) -> Result<T> {
+    res.map_err(|e| CompileError::new(&format!("{}: {:?}", ctx, e), 0, 0, "", ErrorCode::E0009))
+}
+fn ice_entry<'ctx>(c: &IRCodeGen<'ctx>) -> Result<inkwell::basic_block::BasicBlock<'ctx>> {
+    let bb = ice_opt(c.builder.get_insert_block(), "no insert block")?;
+    let parent = ice_opt(bb.get_parent(), "no parent")?;
+    ice_opt(parent.get_first_basic_block(), "no first bb")
+}
 
 pub struct IRCodeGen<'ctx> {
     pub context: &'ctx Context,
@@ -29,6 +41,7 @@ pub struct IRCodeGen<'ctx> {
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
     )>,
+    ffi_registry: FFIRegistry,
     // NEW: track list arrays and lengths
     list_arrays: HashMap<String, PointerValue<'ctx>>,
     list_lengths: HashMap<String, usize>,
@@ -50,6 +63,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             current_function: None,
             blocks: HashMap::new(),
             loop_stack: Vec::new(),
+            ffi_registry: FFIRegistry::new(),
             list_arrays: HashMap::new(),
             list_lengths: HashMap::new(),
             iterator_arrays: HashMap::new(),
@@ -133,9 +147,11 @@ impl<'ctx> IRCodeGen<'ctx> {
             self.builder.position_at_end(*entry_bb);
         }
         for (i, (param_name, param_type)) in func.params.iter().enumerate() {
-            let param = function.get_nth_param(i as u32).expect("LLVM IR build failed - ICE");
-            let alloca = self.create_entry_alloca(param_name, param_type);
-            self.builder.build_store(alloca, param).expect("LLVM IR build failed - ICE");
+            let param = ice_opt(function.get_nth_param(i as u32), "missing")?;
+            let alloca = self.create_entry_alloca(param_name, param_type)?;
+            self.builder.build_store(alloca, param).map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
             self.variables.insert(param_name.clone(), alloca);
         }
         for block in &func.blocks {
@@ -147,21 +163,41 @@ impl<'ctx> IRCodeGen<'ctx> {
                 }
                 if bb.get_terminator().is_none() {
                     if func.return_type == Type::Void {
-                        self.builder.build_return(None).expect("LLVM IR build failed - ICE");
+                        self.builder.build_return(None).map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     } else {
                         let default_val = self.default_value_for_type(&func.return_type);
-                        self.builder.build_return(Some(&default_val)).expect("LLVM IR build failed - ICE");
+                        self.builder.build_return(Some(&default_val)).map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     }
                 }
             }
         }
-        let current_bb = self.builder.get_insert_block().expect("LLVM IR build failed - ICE");
+        let current_bb = ice_opt(self.builder.get_insert_block(), "missing")?;
         if current_bb.get_terminator().is_none() {
             if func.return_type == Type::Void {
-                self.builder.build_return(None).expect("LLVM IR build failed - ICE");
+                self.builder.build_return(None).map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
             } else {
                 let default_val = self.default_value_for_type(&func.return_type);
-                self.builder.build_return(Some(&default_val)).expect("LLVM IR build failed - ICE");
+                self.builder.build_return(Some(&default_val)).map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
             }
         }
         if let Some(entry_bb) = self.blocks.get(&func.entry_block) {
@@ -169,10 +205,14 @@ impl<'ctx> IRCodeGen<'ctx> {
             let has_terminator = entry_bb.get_terminator().is_some();
             if !has_terminator {
                 if func.return_type == Type::Void {
-                    self.builder.build_return(None).expect("LLVM IR build failed - ICE");
+                    self.builder.build_return(None).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 } else {
                     let default_val = self.default_value_for_type(&func.return_type);
-                    self.builder.build_return(Some(&default_val)).expect("LLVM IR build failed - ICE");
+                    self.builder.build_return(Some(&default_val)).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 }
             }
         }
@@ -203,16 +243,36 @@ impl<'ctx> IRCodeGen<'ctx> {
                     let entry = self
                         .builder
                         .get_insert_block()
-                        .expect("LLVM IR build failed - ICE")
+                        .ok_or_else(|| {
+                            CompileError::new(
+                                "LLVM ICE: no insert block",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?
                         .get_parent()
-                        .expect("LLVM IR build failed - ICE")
+                        .ok_or_else(|| {
+                            CompileError::new("LLVM ICE: no parent", 0, 0, "", ErrorCode::E0009)
+                        })?
                         .get_first_basic_block()
-                        .expect("LLVM IR build failed - ICE");
+                        .ok_or_else(|| {
+                            CompileError::new(
+                                "LLVM ICE: get_first_basic_block None",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     match entry.get_first_instruction() {
                         Some(first) => builder.position_before(&first),
                         None => builder.position_at_end(entry),
                     }
-                    let alloca = builder.build_alloca(array_type, name).expect("LLVM IR build failed - ICE");
+                    let alloca = builder.build_alloca(array_type, name).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                     // Store each element
                     for (i, elem) in elements.iter().enumerate() {
                         let val = self.compile_value(elem)?;
@@ -225,10 +285,26 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     &[self.context.i64_type().const_int(0, false), idx],
                                     &format!("{}_ptr_{}", name, i),
                                 )
-                                .expect("LLVM IR build failed - ICE")
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?
                         };
                         // Use main builder to store (or entry builder)
-                        self.builder.build_store(ptr, val).expect("LLVM IR build failed - ICE");
+                        self.builder.build_store(ptr, val).map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     }
                     self.variables.insert(name.clone(), alloca);
                     self.list_arrays.insert(name.clone(), alloca);
@@ -236,15 +312,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                     return Ok(());
                 }
                 let val = self.compile_value(value)?;
-                let alloca = self.create_entry_alloca(name, type_);
-                self.builder.build_store(alloca, val).expect("LLVM IR build failed - ICE");
+                let alloca = self.create_entry_alloca(name, type_)?;
+                self.builder.build_store(alloca, val).map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
                 self.variables.insert(name.clone(), alloca);
             }
 
             SemanticInstruction::Assign { target, value } => {
                 let val = self.compile_value(value)?;
                 if let Some(ptr) = self.variables.get(target) {
-                    self.builder.build_store(*ptr, val).expect("LLVM IR build failed - ICE");
+                    self.builder.build_store(*ptr, val).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 }
             }
 
@@ -259,18 +339,34 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
 
             SemanticInstruction::Print { value } => {
-                let val = self.compile_value(value)?;
-                self.emit_print(&val);
+                // Check if printing a list literal directly
+                if let TypedIRValue::List(elements, _) = value {
+                    self.emit_print_list_literal(elements)?;
+                } else if let TypedIRValue::Variable(var_name, _) = value {
+                    if self.list_arrays.contains_key(var_name) {
+                        self.emit_print_list_var(var_name)?;
+                    } else {
+                        let val = self.compile_value(value)?;
+                        self.emit_print(&val)?;
+                    }
+                } else {
+                    let val = self.compile_value(value)?;
+                    self.emit_print(&val)?;
+                }
             }
 
             SemanticInstruction::Return { value, type_ } => match value {
                 Some(v) => {
                     let val = self.compile_value(v)?;
                     let coerced = self.coerce_to_type(val, type_)?;
-                    self.builder.build_return(Some(&coerced)).expect("LLVM IR build failed - ICE");
+                    self.builder.build_return(Some(&coerced)).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 }
                 None => {
-                    self.builder.build_return(None).expect("LLVM IR build failed - ICE");
+                    self.builder.build_return(None).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 }
             },
 
@@ -280,23 +376,45 @@ impl<'ctx> IRCodeGen<'ctx> {
                 else_block,
             } => {
                 let cond = self.compile_value(condition)?;
-                let cond_bool = self.to_bool(cond);
-                let then_bb = *self
-                    .blocks
-                    .get(then_block)
-                    .unwrap_or_else(|| self.blocks.get(&0).expect("LLVM IR build failed - ICE"));
-                let else_bb = *self
-                    .blocks
-                    .get(else_block)
-                    .unwrap_or_else(|| self.blocks.get(&0).expect("LLVM IR build failed - ICE"));
+                let cond_bool = self.to_bool(cond)?;
+                let then_bb = *self.blocks.get(then_block).ok_or_else(|| {
+                    CompileError::new(
+                        "LLVM ICE: missing entry block 0",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let else_bb = *self.blocks.get(else_block).ok_or_else(|| {
+                    CompileError::new(
+                        "LLVM ICE: missing entry block 0",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
                 self.builder
                     .build_conditional_branch(cond_bool, then_bb, else_bb)
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
             }
 
             SemanticInstruction::Jump { block } => {
                 if let Some(target) = self.blocks.get(block) {
-                    self.builder.build_unconditional_branch(*target).expect("LLVM IR build failed - ICE");
+                    self.builder
+                        .build_unconditional_branch(*target)
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 }
             }
 
@@ -307,11 +425,31 @@ impl<'ctx> IRCodeGen<'ctx> {
             } => {
                 let _ = self.compile_value(value)?;
                 if let Some((_, first_target)) = cases.first() {
-                    let target = *self.blocks.get(first_target).expect("LLVM IR build failed - ICE");
-                    self.builder.build_unconditional_branch(target).expect("LLVM IR build failed - ICE");
+                    let target = ice_opt(self.blocks.get(first_target).copied(), "missing")?;
+                    self.builder
+                        .build_unconditional_branch(target)
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 } else if let Some(default) = default_block {
-                    let target = *self.blocks.get(default).expect("LLVM IR build failed - ICE");
-                    self.builder.build_unconditional_branch(target).expect("LLVM IR build failed - ICE");
+                    let target = ice_opt(self.blocks.get(default).copied(), "missing")?;
+                    self.builder
+                        .build_unconditional_branch(target)
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 }
             }
 
@@ -328,8 +466,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .collect::<Result<Vec<_>>>()?;
                     let val = self.call_file_function(function, &compiled_args)?;
                     if let Some(result_name) = result {
-                        let alloca = self.create_entry_alloca(result_name, return_type);
-                        self.builder.build_store(alloca, val).expect("LLVM IR build failed - ICE");
+                        let alloca = self.create_entry_alloca(result_name, return_type)?;
+                        self.builder.build_store(alloca, val).map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                         self.variables.insert(result_name.clone(), alloca);
                     }
                     return Ok(());
@@ -351,8 +497,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                     if let Some(elements) = list_elements {
                         let val = self.evaluate_list_operation(function, elements)?;
                         if let Some(result_name) = result {
-                            let alloca = self.create_entry_alloca(result_name, return_type);
-                            self.builder.build_store(alloca, val).expect("LLVM IR build failed - ICE");
+                            let alloca = self.create_entry_alloca(result_name, return_type)?;
+                            self.builder.build_store(alloca, val).map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                             self.variables.insert(result_name.clone(), alloca);
                         }
                     }
@@ -365,8 +519,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .collect::<Result<Vec<_>>>()?;
                     let val = self.call_string_function(function, &compiled_args)?;
                     if let Some(result_name) = result {
-                        let alloca = self.create_entry_alloca(result_name, return_type);
-                        self.builder.build_store(alloca, val).expect("LLVM IR build failed - ICE");
+                        let alloca = self.create_entry_alloca(result_name, return_type)?;
+                        self.builder.build_store(alloca, val).map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                         self.variables.insert(result_name.clone(), alloca);
                     }
                     return Ok(());
@@ -389,11 +551,21 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let call = self
                     .builder
                     .build_direct_call(func, &arg_metadata, "calltmp")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 if let Some(result_name) = result {
                     if let Some(val) = call.try_as_basic_value().basic() {
-                        let alloca = self.create_entry_alloca(result_name, return_type);
-                        self.builder.build_store(alloca, val).expect("LLVM IR build failed - ICE");
+                        let alloca = self.create_entry_alloca(result_name, return_type)?;
+                        self.builder.build_store(alloca, val).map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                         self.variables.insert(result_name.clone(), alloca);
                     }
                 }
@@ -411,18 +583,44 @@ impl<'ctx> IRCodeGen<'ctx> {
                         let entry = self
                             .builder
                             .get_insert_block()
-                            .expect("LLVM IR build failed - ICE")
+                            .ok_or_else(|| {
+                                CompileError::new(
+                                    "LLVM ICE: no insert block",
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?
                             .get_parent()
-                            .expect("LLVM IR build failed - ICE")
+                            .ok_or_else(|| {
+                                CompileError::new("LLVM ICE: no parent", 0, 0, "", ErrorCode::E0009)
+                            })?
                             .get_first_basic_block()
-                            .expect("LLVM IR build failed - ICE");
+                            .ok_or_else(|| {
+                                CompileError::new(
+                                    "LLVM ICE: get_first_basic_block None",
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                         match entry.get_first_instruction() {
                             Some(first) => builder.position_before(&first),
                             None => builder.position_at_end(entry),
                         }
                         let alloca = builder
                             .build_alloca(array_type, &format!("{}_arr", iterator))
-                            .expect("LLVM IR build failed - ICE");
+                            .map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                         for (i, elem) in elements.iter().enumerate() {
                             let val = self.compile_value(elem)?;
                             let idx = self.context.i64_type().const_int(i as u64, false);
@@ -434,9 +632,25 @@ impl<'ctx> IRCodeGen<'ctx> {
                                         &[self.context.i64_type().const_int(0, false), idx],
                                         &format!("iter_ptr_{}", i),
                                     )
-                                    .expect("LLVM IR build failed - ICE")
+                                    .map_err(|e| {
+                                        CompileError::new(
+                                            &format!("LLVM ICE: {:?}", e),
+                                            0,
+                                            0,
+                                            "",
+                                            ErrorCode::E0009,
+                                        )
+                                    })?
                             };
-                            self.builder.build_store(ptr, val).expect("LLVM IR build failed - ICE");
+                            self.builder.build_store(ptr, val).map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                         }
                         (alloca, len)
                     }
@@ -454,18 +668,50 @@ impl<'ctx> IRCodeGen<'ctx> {
                             let entry = self
                                 .builder
                                 .get_insert_block()
-                                .expect("LLVM IR build failed - ICE")
+                                .ok_or_else(|| {
+                                    CompileError::new(
+                                        "LLVM ICE: no insert block",
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?
                                 .get_parent()
-                                .expect("LLVM IR build failed - ICE")
+                                .ok_or_else(|| {
+                                    CompileError::new(
+                                        "LLVM ICE: no parent",
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?
                                 .get_first_basic_block()
-                                .expect("LLVM IR build failed - ICE");
+                                .ok_or_else(|| {
+                                    CompileError::new(
+                                        "LLVM ICE: get_first_basic_block None",
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
                             match entry.get_first_instruction() {
                                 Some(first) => builder.position_before(&first),
                                 None => builder.position_at_end(entry),
                             }
                             let alloca = builder
                                 .build_alloca(array_type, &format!("{}_empty", iterator))
-                                .expect("LLVM IR build failed - ICE");
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
                             (alloca, 0)
                         }
                     }
@@ -476,18 +722,44 @@ impl<'ctx> IRCodeGen<'ctx> {
                         let entry = self
                             .builder
                             .get_insert_block()
-                            .expect("LLVM IR build failed - ICE")
+                            .ok_or_else(|| {
+                                CompileError::new(
+                                    "LLVM ICE: no insert block",
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?
                             .get_parent()
-                            .expect("LLVM IR build failed - ICE")
+                            .ok_or_else(|| {
+                                CompileError::new("LLVM ICE: no parent", 0, 0, "", ErrorCode::E0009)
+                            })?
                             .get_first_basic_block()
-                            .expect("LLVM IR build failed - ICE");
+                            .ok_or_else(|| {
+                                CompileError::new(
+                                    "LLVM ICE: get_first_basic_block None",
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                         match entry.get_first_instruction() {
                             Some(first) => builder.position_before(&first),
                             None => builder.position_at_end(entry),
                         }
                         let alloca = builder
                             .build_alloca(array_type, &format!("{}_empty", iterator))
-                            .expect("LLVM IR build failed - ICE");
+                            .map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                         (alloca, 0)
                     }
                 };
@@ -498,21 +770,37 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let entry = self
                     .builder
                     .get_insert_block()
-                    .expect("LLVM IR build failed - ICE")
+                    .ok_or_else(|| {
+                        CompileError::new("LLVM ICE: no insert block", 0, 0, "", ErrorCode::E0009)
+                    })?
                     .get_parent()
-                    .expect("LLVM IR build failed - ICE")
+                    .ok_or_else(|| {
+                        CompileError::new("LLVM ICE: no parent", 0, 0, "", ErrorCode::E0009)
+                    })?
                     .get_first_basic_block()
-                    .expect("LLVM IR build failed - ICE");
+                    .ok_or_else(|| {
+                        CompileError::new(
+                            "LLVM ICE: get_first_basic_block None",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
                 match entry.get_first_instruction() {
                     Some(first) => builder.position_before(&first),
                     None => builder.position_at_end(entry),
                 }
                 let idx_alloca = builder
                     .build_alloca(i64_type, &format!("{}_idx", iterator))
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder
                     .build_store(idx_alloca, i64_type.const_int(0, false))
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
 
                 self.iterator_arrays.insert(iterator.clone(), array_ptr);
                 self.iterator_indices.insert(iterator.clone(), idx_alloca);
@@ -525,8 +813,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                 body_block,
                 exit_block,
             } => {
-                let idx_ptr = self.iterator_indices.get(iterator).copied().expect("LLVM IR build failed - ICE");
-                let arr_ptr = self.iterator_arrays.get(iterator).copied().expect("LLVM IR build failed - ICE");
+                let idx_ptr = ice_opt(self.iterator_indices.get(iterator).copied(), "missing")?;
+                let arr_ptr = ice_opt(self.iterator_arrays.get(iterator).copied(), "missing")?;
                 let len = self.iterator_lengths.get(iterator).copied().unwrap_or(0);
 
                 let i64_type = self.context.i64_type();
@@ -536,24 +824,30 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let idx_val = self
                     .builder
                     .build_load(i64_type, idx_ptr, "iter_idx")
-                    .expect("LLVM IR build failed - ICE")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?
                     .into_int_value();
                 let len_val = i64_type.const_int(len as u64, false);
                 let cond = self
                     .builder
                     .build_int_compare(inkwell::IntPredicate::SLT, idx_val, len_val, "iter_cond")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
 
-                let body_bb = *self.blocks.get(body_block).expect("LLVM IR build failed - ICE");
-                let exit_bb = *self.blocks.get(exit_block).expect("LLVM IR build failed - ICE");
+                let body_bb = ice_opt(self.blocks.get(body_block).copied(), "missing")?;
+                let exit_bb = ice_opt(self.blocks.get(exit_block).copied(), "missing")?;
 
                 // Create blocks for then/else of iterator
-                let current_fn = self.current_function.expect("LLVM IR build failed - ICE");
+                let current_fn = ice_opt(self.current_function, "missing")?;
                 let load_bb = self.context.append_basic_block(current_fn, "iter_load");
 
                 self.builder
                     .build_conditional_branch(cond, load_bb, exit_bb)
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
 
                 // Load block: load element and store to target, increment index, jump to body
                 self.builder.position_at_end(load_bb);
@@ -567,17 +861,42 @@ impl<'ctx> IRCodeGen<'ctx> {
                             &[i64_type.const_int(0, false), idx_val],
                             "elem_ptr",
                         )
-                        .expect("LLVM IR build failed - ICE")
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?
                 };
-                let elem_val = self.builder.build_load(f64_type, elem_ptr, "elem").expect("LLVM IR build failed - ICE");
+                let elem_val = self
+                    .builder
+                    .build_load(f64_type, elem_ptr, "elem")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
 
                 // Store to target variable
                 if let Some(target_ptr) = self.variables.get(target) {
-                    self.builder.build_store(*target_ptr, elem_val).expect("LLVM IR build failed - ICE");
+                    self.builder
+                        .build_store(*target_ptr, elem_val)
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 } else {
                     // Create alloca for target if not exists
-                    let alloca = self.create_entry_alloca(target, &Type::Float);
-                    self.builder.build_store(alloca, elem_val).expect("LLVM IR build failed - ICE");
+                    let alloca = self.create_entry_alloca(target, &Type::Float)?;
+                    self.builder.build_store(alloca, elem_val).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                     self.variables.insert(target.clone(), alloca);
                 }
 
@@ -586,43 +905,93 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let next_idx = self
                     .builder
                     .build_int_add(idx_val, one, "next_idx")
-                    .expect("LLVM IR build failed - ICE");
-                self.builder.build_store(idx_ptr, next_idx).expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
+                self.builder.build_store(idx_ptr, next_idx).map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
 
-                self.builder.build_unconditional_branch(body_bb).expect("LLVM IR build failed - ICE");
+                self.builder
+                    .build_unconditional_branch(body_bb)
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
             }
 
             SemanticInstruction::Spawn { entry_block } => {
                 if let Some(target) = self.blocks.get(entry_block) {
-                    self.builder.build_unconditional_branch(*target).expect("LLVM IR build failed - ICE");
+                    self.builder
+                        .build_unconditional_branch(*target)
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 }
             }
 
             SemanticInstruction::Fork { blocks, join_block } => {
                 if let Some(first) = blocks.first() {
                     if let Some(target) = self.blocks.get(first) {
-                        self.builder.build_unconditional_branch(*target).expect("LLVM IR build failed - ICE");
+                        self.builder
+                            .build_unconditional_branch(*target)
+                            .map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                     }
                 } else if let Some(join) = self.blocks.get(join_block) {
-                    self.builder.build_unconditional_branch(*join).expect("LLVM IR build failed - ICE");
+                    self.builder
+                        .build_unconditional_branch(*join)
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 }
             }
 
             SemanticInstruction::Defer { cleanup_block } => {
                 if let Some(target) = self.blocks.get(cleanup_block) {
-                    self.builder.build_unconditional_branch(*target).expect("LLVM IR build failed - ICE");
+                    self.builder
+                        .build_unconditional_branch(*target)
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 }
             }
 
             SemanticInstruction::ChannelDecl { name, type_ } => {
-                let alloca = self.create_entry_alloca(name, type_);
+                let alloca = self.create_entry_alloca(name, type_)?;
                 self.variables.insert(name.clone(), alloca);
             }
 
             SemanticInstruction::Send { channel, value } => {
                 let val = self.compile_value(value)?;
                 if let Some(ptr) = self.variables.get(channel) {
-                    self.builder.build_store(*ptr, val).expect("LLVM IR build failed - ICE");
+                    self.builder.build_store(*ptr, val).map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 }
             }
 
@@ -631,10 +1000,26 @@ impl<'ctx> IRCodeGen<'ctx> {
                     let loaded = self
                         .builder
                         .build_load(self.context.f64_type(), *ptr, channel)
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     if !target.is_empty() {
                         if let Some(target_ptr) = self.variables.get(target) {
-                            self.builder.build_store(*target_ptr, loaded).expect("LLVM IR build failed - ICE");
+                            self.builder.build_store(*target_ptr, loaded).map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                         }
                     }
                 }
@@ -660,11 +1045,27 @@ impl<'ctx> IRCodeGen<'ctx> {
                     let call = self
                         .builder
                         .build_direct_call(func, &arg_metadata, "method_call")
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     if let Some(result_name) = result {
                         if let Some(val) = call.try_as_basic_value().basic() {
-                            let alloca = self.create_entry_alloca(result_name, return_type);
-                            self.builder.build_store(alloca, val).expect("LLVM IR build failed - ICE");
+                            let alloca = self.create_entry_alloca(result_name, return_type)?;
+                            self.builder.build_store(alloca, val).map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                             self.variables.insert(result_name.clone(), alloca);
                         }
                     }
@@ -687,7 +1088,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                 .const_float(*f)
                 .as_basic_value_enum()),
             TypedIRValue::String(s) => {
-                let global = self.builder.build_global_string_ptr(s, "str").expect("LLVM IR build failed - ICE");
+                let global = self
+                    .builder
+                    .build_global_string_ptr(s, "str")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(global.as_pointer_value().as_basic_value_enum())
             }
             TypedIRValue::Bool(b) => Ok(self
@@ -738,14 +1144,30 @@ impl<'ctx> IRCodeGen<'ctx> {
                             let loaded = self
                                 .builder
                                 .build_load(self.context.i64_type(), *ptr, name)
-                                .expect("LLVM IR build failed - ICE");
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
                             Ok(loaded.as_basic_value_enum())
                         }
                         Type::Bool => {
                             let loaded = self
                                 .builder
                                 .build_load(self.context.bool_type(), *ptr, name)
-                                .expect("LLVM IR build failed - ICE");
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
                             Ok(loaded.as_basic_value_enum())
                         }
                         Type::String => {
@@ -756,14 +1178,30 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     *ptr,
                                     name,
                                 )
-                                .expect("LLVM IR build failed - ICE");
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
                             Ok(loaded.as_basic_value_enum())
                         }
                         _ => {
                             let loaded = self
                                 .builder
                                 .build_load(self.context.f64_type(), *ptr, name)
-                                .expect("LLVM IR build failed - ICE");
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
                             Ok(loaded.as_basic_value_enum())
                         }
                     }
@@ -850,7 +1288,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let call = self
                     .builder
                     .build_direct_call(func, &arg_metadata, "calltmp")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 if let Some(val) = call.try_as_basic_value().basic() {
                     self.coerce_to_type(val, return_type)
                 } else {
@@ -864,16 +1304,108 @@ impl<'ctx> IRCodeGen<'ctx> {
             TypedIRValue::ArrayAccess {
                 array,
                 index,
-                element_type,
+                element_type: _,
             } => {
-                let _ = element_type;
-                let _ = array;
-                let _ = index;
-                Ok(self
-                    .context
-                    .f64_type()
-                    .const_float(0.0)
-                    .as_basic_value_enum())
+                // array can be Variable or List literal
+                let idx_val = self.compile_value(index)?;
+                let idx_int = match idx_val {
+                    BasicValueEnum::IntValue(iv) => iv,
+                    BasicValueEnum::FloatValue(fv) => {
+                        // convert float index to int
+                        self.builder
+                            .build_float_to_signed_int(fv, self.context.i64_type(), "idx_f2i")
+                            .map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?
+                    }
+                    _ => self.context.i64_type().const_int(0, false),
+                };
+                // If array is a variable that is a list
+                if let TypedIRValue::Variable(var_name, _) = array.as_ref() {
+                    if let Some(arr_ptr) = self.list_arrays.get(var_name).cloned() {
+                        let f64_type = self.context.f64_type();
+                        let ptr = unsafe {
+                            self.builder
+                                .build_gep(
+                                    f64_type.array_type(
+                                        self.list_lengths.get(var_name).copied().unwrap_or(0)
+                                            as u32,
+                                    ),
+                                    arr_ptr,
+                                    &[self.context.i64_type().const_int(0, false), idx_int],
+                                    "arr_idx_ptr",
+                                )
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?
+                        };
+                        let loaded =
+                            self.builder
+                                .build_load(f64_type, ptr, "arr_elem")
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
+                        Ok(loaded.as_basic_value_enum())
+                    } else if let Some(var_ptr) = self.variables.get(var_name).cloned() {
+                        // Fallback: if variable holds f64 (single element case)
+                        let loaded = self
+                            .builder
+                            .build_load(self.context.f64_type(), var_ptr, "var_load")
+                            .map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
+                        Ok(loaded.as_basic_value_enum())
+                    } else {
+                        Ok(self
+                            .context
+                            .f64_type()
+                            .const_float(0.0)
+                            .as_basic_value_enum())
+                    }
+                } else if let TypedIRValue::List(elements, _) = array.as_ref() {
+                    // Direct list literal access with constant index
+                    if let Some(elem) =
+                        elements.get(idx_int.get_sign_extended_constant().unwrap_or(0) as usize)
+                    {
+                        self.compile_value(elem)
+                    } else {
+                        Ok(self
+                            .context
+                            .f64_type()
+                            .const_float(0.0)
+                            .as_basic_value_enum())
+                    }
+                } else {
+                    Ok(self
+                        .context
+                        .f64_type()
+                        .const_float(0.0)
+                        .as_basic_value_enum())
+                }
             }
             TypedIRValue::Borrow { expr, .. } => {
                 // Borrow creates a reference - for now, just compile the inner value
@@ -921,7 +1453,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                     let call = self
                         .builder
                         .build_direct_call(func, &arg_metadata, "method_call")
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     if let Some(val) = call.try_as_basic_value().basic() {
                         self.coerce_to_type(val, return_type)
                     } else {
@@ -982,18 +1522,36 @@ impl<'ctx> IRCodeGen<'ctx> {
                             right.into_float_value(),
                             "addtmp",
                         )
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     Ok(r.as_basic_value_enum())
                 } else if left.is_int_value() && right.is_int_value() {
                     let r = self
                         .builder
                         .build_int_add(left.into_int_value(), right.into_int_value(), "addtmp")
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     Ok(r.as_basic_value_enum())
                 } else {
                     let l = self.promote_to_float(*left)?;
                     let r = self.promote_to_float(*right)?;
-                    let res = self.builder.build_float_add(l, r, "addtmp").expect("LLVM IR build failed - ICE");
+                    let res = self.builder.build_float_add(l, r, "addtmp").map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                     Ok(res.as_basic_value_enum())
                 }
             }
@@ -1006,18 +1564,36 @@ impl<'ctx> IRCodeGen<'ctx> {
                             right.into_float_value(),
                             "subtmp",
                         )
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     Ok(r.as_basic_value_enum())
                 } else if left.is_int_value() && right.is_int_value() {
                     let r = self
                         .builder
                         .build_int_sub(left.into_int_value(), right.into_int_value(), "subtmp")
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     Ok(r.as_basic_value_enum())
                 } else {
                     let l = self.promote_to_float(*left)?;
                     let r = self.promote_to_float(*right)?;
-                    let res = self.builder.build_float_sub(l, r, "subtmp").expect("LLVM IR build failed - ICE");
+                    let res = self.builder.build_float_sub(l, r, "subtmp").map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                     Ok(res.as_basic_value_enum())
                 }
             }
@@ -1030,25 +1606,45 @@ impl<'ctx> IRCodeGen<'ctx> {
                             right.into_float_value(),
                             "multmp",
                         )
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     Ok(r.as_basic_value_enum())
                 } else if left.is_int_value() && right.is_int_value() {
                     let r = self
                         .builder
                         .build_int_mul(left.into_int_value(), right.into_int_value(), "multmp")
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     Ok(r.as_basic_value_enum())
                 } else {
                     let l = self.promote_to_float(*left)?;
                     let r = self.promote_to_float(*right)?;
-                    let res = self.builder.build_float_mul(l, r, "multmp").expect("LLVM IR build failed - ICE");
+                    let res = self.builder.build_float_mul(l, r, "multmp").map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                     Ok(res.as_basic_value_enum())
                 }
             }
             SemanticBinOp::Divide => {
                 let l = self.promote_to_float(*left)?;
                 let r = self.promote_to_float(*right)?;
-                let res = self.builder.build_float_div(l, r, "divtmp").expect("LLVM IR build failed - ICE");
+                let res = self.builder.build_float_div(l, r, "divtmp").map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
                 Ok(res.as_basic_value_enum())
             }
             SemanticBinOp::Greater => {
@@ -1060,7 +1656,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                         self.promote_to_float(*right)?,
                         "cmptmp",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(cmp.as_basic_value_enum())
             }
             SemanticBinOp::Less => {
@@ -1072,7 +1670,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                         self.promote_to_float(*right)?,
                         "cmptmp",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(cmp.as_basic_value_enum())
             }
             SemanticBinOp::GreaterEqual => {
@@ -1084,7 +1684,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                         self.promote_to_float(*right)?,
                         "cmptmp",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(cmp.as_basic_value_enum())
             }
             SemanticBinOp::LessEqual => {
@@ -1096,7 +1698,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                         self.promote_to_float(*right)?,
                         "cmptmp",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(cmp.as_basic_value_enum())
             }
             SemanticBinOp::Equal => {
@@ -1108,7 +1712,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                         self.promote_to_float(*right)?,
                         "cmptmp",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(cmp.as_basic_value_enum())
             }
             SemanticBinOp::NotEqual => {
@@ -1120,19 +1726,25 @@ impl<'ctx> IRCodeGen<'ctx> {
                         self.promote_to_float(*right)?,
                         "cmptmp",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(cmp.as_basic_value_enum())
             }
             SemanticBinOp::And => {
-                let l = self.to_bool(*left);
-                let r = self.to_bool(*right);
-                let res = self.builder.build_and(l, r, "andtmp").expect("LLVM IR build failed - ICE");
+                let l = self.to_bool(*left)?;
+                let r = self.to_bool(*right)?;
+                let res = self.builder.build_and(l, r, "andtmp").map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
                 Ok(res.as_basic_value_enum())
             }
             SemanticBinOp::Or => {
-                let l = self.to_bool(*left);
-                let r = self.to_bool(*right);
-                let res = self.builder.build_or(l, r, "ortmp").expect("LLVM IR build failed - ICE");
+                let l = self.to_bool(*left)?;
+                let r = self.to_bool(*right)?;
+                let res = self.builder.build_or(l, r, "ortmp").map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
                 Ok(res.as_basic_value_enum())
             }
         }
@@ -1169,17 +1781,22 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
     }
 
-    fn to_bool(&self, val: BasicValueEnum<'ctx>) -> IntValue<'ctx> {
+    fn to_bool(&self, val: BasicValueEnum<'ctx>) -> Result<IntValue<'ctx>> {
         if val.is_float_value() {
             let zero = self.context.f64_type().const_float(0.0);
-            self.builder
-                .build_float_compare(FloatPredicate::ONE, val.into_float_value(), zero, "tobool")
-                .expect("LLVM IR build failed - ICE")
+            ice_res(
+                self.builder.build_float_compare(
+                    FloatPredicate::ONE,
+                    val.into_float_value(),
+                    zero,
+                    "tobool",
+                ),
+                "tobool",
+            )
         } else {
-            val.into_int_value()
+            Ok(val.into_int_value())
         }
     }
-
     fn coerce_to_type(
         &self,
         val: BasicValueEnum<'ctx>,
@@ -1206,7 +1823,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                             self.context.i64_type(),
                             "ftoi",
                         )
-                        .expect("LLVM IR build failed - ICE");
+                        .map_err(|e| {
+                            CompileError::new(
+                                &format!("LLVM ICE: {:?}", e),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     Ok(int.as_basic_value_enum())
                 } else {
                     Ok(val)
@@ -1260,91 +1885,222 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
     }
 
-    fn create_entry_alloca(&self, name: &str, type_: &Type) -> PointerValue<'ctx> {
+    fn create_entry_alloca(&self, name: &str, type_: &Type) -> Result<PointerValue<'ctx>> {
         let builder = self.context.create_builder();
-        let entry = self
-            .builder
-            .get_insert_block()
-            .expect("LLVM IR build failed - ICE")
-            .get_parent()
-            .expect("LLVM IR build failed - ICE")
-            .get_first_basic_block()
-            .expect("LLVM IR build failed - ICE");
+        let entry = ice_entry(self)?;
         match entry.get_first_instruction() {
             Some(first) => builder.position_before(&first),
             None => builder.position_at_end(entry),
         }
         let alloca_type = self.map_type(type_);
-        builder.build_alloca(alloca_type, name).expect("LLVM IR build failed - ICE")
+        ice_res(builder.build_alloca(alloca_type, name), "build_alloca")
+    }
+    fn emit_print(&self, val: &BasicValueEnum<'ctx>) -> Result<()> {
+        let printf_func = ice_opt(self.functions.get("printf").copied(), "missing printf")?;
+        if val.is_float_value() {
+            let format = ice_res(
+                self.builder.build_global_string_ptr("%.1f\n", "fmt_float"),
+                "build_global_string_ptr float",
+            )?;
+            ice_res(
+                self.builder.build_direct_call(
+                    printf_func,
+                    &[format.as_pointer_value().into(), (*val).into()],
+                    "printf_call",
+                ),
+                "build_direct_call float",
+            )?;
+        } else if val.is_int_value() {
+            let format = ice_res(
+                self.builder.build_global_string_ptr("%lld\n", "fmt_int"),
+                "build_global_string_ptr int",
+            )?;
+            ice_res(
+                self.builder.build_direct_call(
+                    printf_func,
+                    &[format.as_pointer_value().into(), (*val).into()],
+                    "printf_call",
+                ),
+                "build_direct_call int",
+            )?;
+        } else {
+            let format = ice_res(
+                self.builder.build_global_string_ptr("%s\n", "fmt_str"),
+                "build_global_string_ptr str",
+            )?;
+            ice_res(
+                self.builder.build_direct_call(
+                    printf_func,
+                    &[format.as_pointer_value().into(), (*val).into()],
+                    "printf_call",
+                ),
+                "build_direct_call str",
+            )?;
+        }
+        Ok(())
     }
 
-    fn emit_print(&self, val: &BasicValueEnum<'ctx>) {
-        let printf_func = *self.functions.get("printf").expect("LLVM IR build failed - ICE");
-        if val.is_float_value() {
-            let format = self
-                .builder
-                .build_global_string_ptr("%.1f\n", "fmt_float")
-                .expect("LLVM IR build failed - ICE");
+    fn emit_print_string_raw(&self, literal: &str) -> Result<()> {
+        let printf_func = ice_opt(self.functions.get("printf").copied(), "missing printf")?;
+        let fmt = ice_res(
+            self.builder.build_global_string_ptr(literal, "fmt_raw"),
+            "build_global_string_ptr raw",
+        )?;
+        ice_res(
+            self.builder.build_direct_call(
+                printf_func,
+                &[fmt.as_pointer_value().into()],
+                "printf_raw",
+            ),
+            "build_direct_call raw",
+        )?;
+        Ok(())
+    }
+
+    fn emit_print_float_raw(&self, val: &BasicValueEnum<'ctx>) -> Result<()> {
+        let printf_func = ice_opt(self.functions.get("printf").copied(), "missing printf")?;
+        let format = ice_res(
             self.builder
-                .build_direct_call(
-                    printf_func,
-                    &[format.as_pointer_value().into(), (*val).into()],
-                    "printf_call",
-                )
-                .expect("LLVM IR build failed - ICE");
-        } else if val.is_int_value() {
-            let format = self
-                .builder
-                .build_global_string_ptr("%lld\n", "fmt_int")
-                .expect("LLVM IR build failed - ICE");
-            self.builder
-                .build_direct_call(
-                    printf_func,
-                    &[format.as_pointer_value().into(), (*val).into()],
-                    "printf_call",
-                )
-                .expect("LLVM IR build failed - ICE");
-        } else {
-            let format = self
-                .builder
-                .build_global_string_ptr("%s\n", "fmt_str")
-                .expect("LLVM IR build failed - ICE");
-            self.builder
-                .build_direct_call(
-                    printf_func,
-                    &[format.as_pointer_value().into(), (*val).into()],
-                    "printf_call",
-                )
-                .expect("LLVM IR build failed - ICE");
+                .build_global_string_ptr("%.1f", "fmt_float_raw"),
+            "build_global_string_ptr float raw",
+        )?;
+        ice_res(
+            self.builder.build_direct_call(
+                printf_func,
+                &[format.as_pointer_value().into(), (*val).into()],
+                "printf_float_raw",
+            ),
+            "build_direct_call float raw",
+        )?;
+        Ok(())
+    }
+
+    fn emit_print_list_literal(&self, elements: &[TypedIRValue]) -> Result<()> {
+        self.emit_print_string_raw("[")?;
+        for (i, elem) in elements.iter().enumerate() {
+            if i > 0 {
+                self.emit_print_string_raw(", ")?;
+            }
+            let val = self.compile_value(elem)?;
+            if val.is_float_value() {
+                self.emit_print_float_raw(&val)?;
+            } else if val.is_int_value() {
+                // print int as float style? keep int
+                let printf_func = ice_opt(self.functions.get("printf").copied(), "missing printf")?;
+                let format = ice_res(
+                    self.builder.build_global_string_ptr("%lld", "fmt_int_raw"),
+                    "build_global_string_ptr int raw",
+                )?;
+                ice_res(
+                    self.builder.build_direct_call(
+                        printf_func,
+                        &[format.as_pointer_value().into(), val.into()],
+                        "printf_int_raw",
+                    ),
+                    "build_direct_call int raw",
+                )?;
+            } else {
+                self.emit_print(&val)?;
+            }
         }
+        self.emit_print_string_raw("]\n")?;
+        Ok(())
+    }
+
+    fn emit_print_list_var(&self, var_name: &str) -> Result<()> {
+        let printf_func = ice_opt(self.functions.get("printf").copied(), "missing printf")?;
+        let arr_ptr = self.list_arrays.get(var_name).copied().ok_or_else(|| {
+            CompileError::new(
+                &format!("Unknown list array {}", var_name),
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let len = self.list_lengths.get(var_name).copied().unwrap_or(0);
+        let f64_type = self.context.f64_type();
+
+        self.emit_print_string_raw("[")?;
+
+        for i in 0..len {
+            if i > 0 {
+                self.emit_print_string_raw(", ")?;
+            }
+            let idx = self.context.i64_type().const_int(i as u64, false);
+            let array_type = f64_type.array_type(len as u32);
+            let elem_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        array_type,
+                        arr_ptr,
+                        &[self.context.i64_type().const_int(0, false), idx],
+                        &format!("list_print_ptr_{}_{}", var_name, i),
+                    )
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?
+            };
+            let loaded = self
+                .builder
+                .build_load(
+                    f64_type,
+                    elem_ptr,
+                    &format!("list_print_val_{}_{}", var_name, i),
+                )
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
+            // print loaded float without newline
+            let format = ice_res(
+                self.builder
+                    .build_global_string_ptr("%.1f", "fmt_float_raw"),
+                "build_global_string_ptr float raw",
+            )?;
+            ice_res(
+                self.builder.build_direct_call(
+                    printf_func,
+                    &[
+                        format.as_pointer_value().into(),
+                        loaded.as_basic_value_enum().into(),
+                    ],
+                    "printf_list_elem",
+                ),
+                "build_direct_call list elem",
+            )?;
+        }
+
+        self.emit_print_string_raw("]\n")?;
+        Ok(())
     }
 
     fn register_stdlib(&mut self) {
+        let mut registry = FFIRegistry::new();
+        register_stdlib_functions(&mut registry);
+        self.ffi_registry = registry.clone();
+
         let i32_type = self.context.i32_type();
-        let i8_ptr_type = self.context.ptr_type(AddressSpace::default());
-        let printf_type = i32_type.fn_type(&[i8_ptr_type.into()], true);
+        let i8ptr_type = self.context.ptr_type(AddressSpace::default());
+        let printf_type = i32_type.fn_type(&[i8ptr_type.into()], true);
         let printf = self.module.add_function("printf", printf_type, None);
         self.functions.insert("printf".to_string(), printf);
         let f64_type = self.context.f64_type();
-        let math_fns = [
-            ("Math.sqrt", "sqrt"),
-            ("Math.pow", "pow"),
-            ("Math.sin", "sin"),
-            ("Math.cos", "cos"),
-            ("Math.abs", "fabs"),
-            ("Math.floor", "floor"),
-            ("Math.ceil", "ceil"),
-            ("Math.exp", "exp"),
-            ("Math.log", "log"),
-            ("Math.tan", "tan"),
-        ];
-        for (algol_name, c_name) in math_fns {
-            let fn_val =
-                self.module
-                    .add_function(c_name, f64_type.fn_type(&[f64_type.into()], false), None);
-            self.functions.insert(algol_name.to_string(), fn_val);
-            self.functions.insert(c_name.to_string(), fn_val); // ADD THIS
+        for (algol_name, c_name) in registry.all_functions_cloned() {
+            if algol_name.starts_with("Math.") {
+                let fn_type = if algol_name == "Math.pow" {
+                    f64_type.fn_type(&[f64_type.into(), f64_type.into()], false)
+                } else {
+                    f64_type.fn_type(&[f64_type.into()], false)
+                };
+                // avoid duplicate decl
+                if self.module.get_function(&c_name).is_none() {
+                    let fn_val = self.module.add_function(&c_name, fn_type, None);
+                    self.functions.insert(algol_name.clone(), fn_val);
+                    self.functions.insert(c_name.clone(), fn_val);
+                }
+            }
         }
+
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let strlen_fn = self.module.add_function(
             "strlen",
@@ -1414,6 +2170,10 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.module.add_function("malloc", malloc_type, None);
     }
 
+    pub fn is_ffi_call(&self, name: &str) -> bool {
+        self.ffi_registry.is_ffi(name)
+    }
+
     pub fn evaluate_list_operation(
         &self,
         name: &str,
@@ -1473,10 +2233,10 @@ impl<'ctx> IRCodeGen<'ctx> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let i32_type = self.context.i32_type();
         let i64_type = self.context.i64_type();
-        let fopen_fn = self.module.get_function("fopen").expect("LLVM IR build failed - ICE");
-        let fclose_fn = self.module.get_function("fclose").expect("LLVM IR build failed - ICE");
-        let fprintf_fn = self.module.get_function("fprintf").expect("LLVM IR build failed - ICE");
-        let fgets_fn = self.module.get_function("fgets").expect("LLVM IR build failed - ICE");
+        let fopen_fn = ice_opt(self.module.get_function("fopen"), "missing")?;
+        let fclose_fn = ice_opt(self.module.get_function("fclose"), "missing")?;
+        let fprintf_fn = ice_opt(self.module.get_function("fprintf"), "missing")?;
+        let fgets_fn = ice_opt(self.module.get_function("fgets"), "missing")?;
         match name {
             "File.write" | "File.append" => {
                 if args.len() < 2 {
@@ -1488,7 +2248,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let mode = self
                     .builder
                     .build_global_string_ptr(mode_str, "file_mode")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 let fopen_call = self
                     .builder
                     .build_call(
@@ -1496,25 +2258,36 @@ impl<'ctx> IRCodeGen<'ctx> {
                         &[path.into(), mode.as_pointer_value().into()],
                         "file_fopen",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 let file_ptr = fopen_call
                     .try_as_basic_value()
                     .basic()
                     .unwrap_or_else(|| ptr_type.const_null().as_basic_value_enum())
                     .into_pointer_value();
-                let current_fn = self.current_function.expect("LLVM IR build failed - ICE");
+                let current_fn = ice_opt(self.current_function, "missing")?;
                 let valid_bb = self.context.append_basic_block(current_fn, "file_valid");
                 let null_bb = self.context.append_basic_block(current_fn, "file_null");
                 let merge_bb = self.context.append_basic_block(current_fn, "file_merge");
-                let is_null = self.builder.build_is_null(file_ptr, "file_isnull").expect("LLVM IR build failed - ICE");
+                let is_null = self
+                    .builder
+                    .build_is_null(file_ptr, "file_isnull")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder
                     .build_conditional_branch(is_null, null_bb, valid_bb)
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder.position_at_end(valid_bb);
                 let format = self
                     .builder
                     .build_global_string_ptr("%s", "file_fmt")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder
                     .build_call(
                         fprintf_fn,
@@ -1525,19 +2298,36 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ],
                         "file_fprintf",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder
                     .build_call(fclose_fn, &[file_ptr.into()], "file_fclose")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 let one = i32_type.const_int(1, false);
-                self.builder.build_unconditional_branch(merge_bb).expect("LLVM IR build failed - ICE");
-                let valid_incoming = self.builder.get_insert_block().expect("LLVM IR build failed - ICE");
+                self.builder
+                    .build_unconditional_branch(merge_bb)
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
+                let valid_incoming = ice_opt(self.builder.get_insert_block(), "missing")?;
                 self.builder.position_at_end(null_bb);
                 let zero = i32_type.const_int(0, false);
-                self.builder.build_unconditional_branch(merge_bb).expect("LLVM IR build failed - ICE");
-                let null_incoming = self.builder.get_insert_block().expect("LLVM IR build failed - ICE");
+                self.builder
+                    .build_unconditional_branch(merge_bb)
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
+                let null_incoming = ice_opt(self.builder.get_insert_block(), "missing")?;
                 self.builder.position_at_end(merge_bb);
-                let phi = self.builder.build_phi(i32_type, "file_result").expect("LLVM IR build failed - ICE");
+                let phi = self
+                    .builder
+                    .build_phi(i32_type, "file_result")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 phi.add_incoming(&[(&one, valid_incoming), (&zero, null_incoming)]);
                 Ok(phi.as_basic_value().as_basic_value_enum())
             }
@@ -1549,7 +2339,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let mode_r = self
                     .builder
                     .build_global_string_ptr("r", "file_mode_r")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 let fopen_call = self
                     .builder
                     .build_call(
@@ -1557,24 +2349,28 @@ impl<'ctx> IRCodeGen<'ctx> {
                         &[path.into(), mode_r.as_pointer_value().into()],
                         "file_fopen_r",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 let file_ptr = fopen_call
                     .try_as_basic_value()
                     .basic()
                     .unwrap_or_else(|| ptr_type.const_null().as_basic_value_enum())
                     .into_pointer_value();
-                let malloc_fn = self.module.get_function("malloc").expect("LLVM IR build failed - ICE");
+                let malloc_fn = ice_opt(self.module.get_function("malloc"), "missing")?;
                 let buf_size = i64_type.const_int(256, false);
                 let malloc_call = self
                     .builder
                     .build_call(malloc_fn, &[buf_size.into()], "file_malloc")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 let buf = malloc_call
                     .try_as_basic_value()
                     .basic()
                     .unwrap_or_else(|| ptr_type.const_null().as_basic_value_enum())
                     .into_pointer_value();
-                let current_fn = self.current_function.expect("LLVM IR build failed - ICE");
+                let current_fn = ice_opt(self.current_function, "missing")?;
                 let valid_bb = self
                     .context
                     .append_basic_block(current_fn, "file_read_valid");
@@ -1587,10 +2383,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let is_null = self
                     .builder
                     .build_is_null(file_ptr, "file_isnull_r")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder
                     .build_conditional_branch(is_null, null_bb, valid_bb)
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder.position_at_end(valid_bb);
                 let size_val = i32_type.const_int(256, false);
                 self.builder
@@ -1599,24 +2399,40 @@ impl<'ctx> IRCodeGen<'ctx> {
                         &[buf.into(), size_val.into(), file_ptr.into()],
                         "file_fgets",
                     )
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 self.builder
                     .build_call(fclose_fn, &[file_ptr.into()], "file_fclose_r")
-                    .expect("LLVM IR build failed - ICE");
-                self.builder.build_unconditional_branch(merge_bb).expect("LLVM IR build failed - ICE");
-                let valid_incoming = self.builder.get_insert_block().expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
+                self.builder
+                    .build_unconditional_branch(merge_bb)
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
+                let valid_incoming = ice_opt(self.builder.get_insert_block(), "missing")?;
                 self.builder.position_at_end(null_bb);
                 let empty = self
                     .builder
                     .build_global_string_ptr("", "file_empty")
-                    .expect("LLVM IR build failed - ICE");
-                self.builder.build_unconditional_branch(merge_bb).expect("LLVM IR build failed - ICE");
-                let null_incoming = self.builder.get_insert_block().expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
+                self.builder
+                    .build_unconditional_branch(merge_bb)
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
+                let null_incoming = ice_opt(self.builder.get_insert_block(), "missing")?;
                 self.builder.position_at_end(merge_bb);
                 let phi = self
                     .builder
                     .build_phi(ptr_type, "file_read_result")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 phi.add_incoming(&[
                     (&buf, valid_incoming),
                     (&empty.as_pointer_value(), null_incoming),
@@ -1634,13 +2450,15 @@ impl<'ctx> IRCodeGen<'ctx> {
     ) -> Result<BasicValueEnum<'ctx>> {
         match name {
             "String.length" => {
-                let func = self.module.get_function("strlen").expect("LLVM IR build failed - ICE");
+                let func = ice_opt(self.module.get_function("strlen"), "missing")?;
                 let metadata: Vec<inkwell::values::BasicMetadataValueEnum> =
                     args.iter().map(|a| (*a).into()).collect();
                 let call = self
                     .builder
                     .build_call(func, &metadata, "strlen_call")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(call.try_as_basic_value().basic().unwrap_or_else(|| {
                     self.context
                         .i64_type()
@@ -1660,14 +2478,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let s2 = args[1];
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
                 let i64_type = self.context.i64_type();
-                let strlen_fn = self.module.get_function("strlen").expect("LLVM IR build failed - ICE");
-                let strcpy_fn = self.module.get_function("strcpy").expect("LLVM IR build failed - ICE");
-                let strcat_fn = self.module.get_function("strcat").expect("LLVM IR build failed - ICE");
-                let malloc_fn = self.module.get_function("malloc").expect("LLVM IR build failed - ICE");
+                let strlen_fn = ice_opt(self.module.get_function("strlen"), "missing")?;
+                let strcpy_fn = ice_opt(self.module.get_function("strcpy"), "missing")?;
+                let strcat_fn = ice_opt(self.module.get_function("strcat"), "missing")?;
+                let malloc_fn = ice_opt(self.module.get_function("malloc"), "missing")?;
                 let len1 = self
                     .builder
                     .build_call(strlen_fn, &[s1.into()], "len1")
-                    .expect("LLVM IR build failed - ICE")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?
                     .try_as_basic_value()
                     .basic()
                     .unwrap_or_else(|| i64_type.const_int(0, false).as_basic_value_enum())
@@ -1675,29 +2495,41 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let len2 = self
                     .builder
                     .build_call(strlen_fn, &[s2.into()], "len2")
-                    .expect("LLVM IR build failed - ICE")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?
                     .try_as_basic_value()
                     .basic()
                     .unwrap_or_else(|| i64_type.const_int(0, false).as_basic_value_enum())
                     .into_int_value();
                 let one = i64_type.const_int(1, false);
-                let sum = self.builder.build_int_add(len1, len2, "sum").expect("LLVM IR build failed - ICE");
-                let total = self.builder.build_int_add(sum, one, "total").expect("LLVM IR build failed - ICE");
+                let sum = self.builder.build_int_add(len1, len2, "sum").map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
+                let total = self.builder.build_int_add(sum, one, "total").map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
                 let buf = self
                     .builder
                     .build_call(malloc_fn, &[total.into()], "malloc_buf")
-                    .expect("LLVM IR build failed - ICE")
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?
                     .try_as_basic_value()
                     .basic()
                     .unwrap_or_else(|| ptr_type.const_null().as_basic_value_enum())
                     .into_pointer_value();
                 self.builder
                     .build_call(strcpy_fn, &[buf.into(), s1.into()], "strcpy_s1")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 let result = self
                     .builder
                     .build_call(strcat_fn, &[buf.into(), s2.into()], "strcat_s2")
-                    .expect("LLVM IR build failed - ICE");
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?;
                 Ok(result
                     .try_as_basic_value()
                     .basic()
@@ -1737,55 +2569,78 @@ impl<'ctx> IRCodeGen<'ctx> {
         let i32_type = self.context.i32_type();
         let i8_type = self.context.i8_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let strlen_fn = self.module.get_function("strlen").expect("LLVM IR build failed - ICE");
-        let malloc_fn = self.module.get_function("malloc").expect("LLVM IR build failed - ICE");
+        let strlen_fn = ice_opt(self.module.get_function("strlen"), "missing")?;
+        let malloc_fn = ice_opt(self.module.get_function("malloc"), "missing")?;
         let ctype_fn = if to_upper {
-            self.module.get_function("toupper").expect("LLVM IR build failed - ICE")
+            ice_opt(self.module.get_function("toupper"), "missing")?
         } else {
-            self.module.get_function("tolower").expect("LLVM IR build failed - ICE")
+            ice_opt(self.module.get_function("tolower"), "missing")?
         };
         let len_call = self
             .builder
             .build_call(strlen_fn, &[s.into()], "case_len")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let len = len_call
             .try_as_basic_value()
             .basic()
             .unwrap_or_else(|| i64_type.const_int(0, false).as_basic_value_enum())
             .into_int_value();
         let one = i64_type.const_int(1, false);
-        let total = self.builder.build_int_add(len, one, "case_total").expect("LLVM IR build failed - ICE");
+        let total = self
+            .builder
+            .build_int_add(len, one, "case_total")
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let malloc_call = self
             .builder
             .build_call(malloc_fn, &[total.into()], "case_malloc")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let buf = malloc_call
             .try_as_basic_value()
             .basic()
             .unwrap_or_else(|| ptr_type.const_null().as_basic_value_enum())
             .into_pointer_value();
-        let current_fn = self.current_function.expect("LLVM IR build failed - ICE");
+        let current_fn = ice_opt(self.current_function, "missing")?;
         let loop_bb = self.context.append_basic_block(current_fn, "case_loop");
         let body_bb = self.context.append_basic_block(current_fn, "case_body");
         let done_bb = self.context.append_basic_block(current_fn, "case_done");
-        let i_ptr = self.builder.build_alloca(i64_type, "case_i").expect("LLVM IR build failed - ICE");
+        let i_ptr = self.builder.build_alloca(i64_type, "case_i").map_err(|e| {
+            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+        })?;
         self.builder
             .build_store(i_ptr, i64_type.const_int(0, false))
-            .expect("LLVM IR build failed - ICE");
-        self.builder.build_unconditional_branch(loop_bb).expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
+        self.builder
+            .build_unconditional_branch(loop_bb)
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder.position_at_end(loop_bb);
         let i_val = self
             .builder
             .build_load(i64_type, i_ptr, "case_i_load")
-            .expect("LLVM IR build failed - ICE")
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?
             .into_int_value();
         let cond = self
             .builder
             .build_int_compare(inkwell::IntPredicate::SLT, i_val, len, "case_cond")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder
             .build_conditional_branch(cond, body_bb, done_bb)
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder.position_at_end(body_bb);
         let src_ptr = unsafe {
             self.builder
@@ -1795,20 +2650,28 @@ impl<'ctx> IRCodeGen<'ctx> {
                     &[i_val],
                     "case_src",
                 )
-                .expect("LLVM IR build failed - ICE")
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?
         };
         let src_byte = self
             .builder
             .build_load(i8_type, src_ptr, "case_src_byte")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let src_char = self
             .builder
             .build_int_z_extend(src_byte.into_int_value(), i32_type, "case_src_char")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let ctype_call = self
             .builder
             .build_call(ctype_fn, &[src_char.into()], "case_ctype")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let converted = ctype_call
             .try_as_basic_value()
             .basic()
@@ -1817,25 +2680,48 @@ impl<'ctx> IRCodeGen<'ctx> {
         let dst_ptr = unsafe {
             self.builder
                 .build_gep(self.context.i8_type(), buf, &[i_val], "case_dst")
-                .expect("LLVM IR build failed - ICE")
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?
         };
         let converted_byte = self
             .builder
             .build_int_truncate(converted, i8_type, "case_byte")
-            .expect("LLVM IR build failed - ICE");
-        self.builder.build_store(dst_ptr, converted_byte).expect("LLVM IR build failed - ICE");
-        let next_i = self.builder.build_int_add(i_val, one, "case_next").expect("LLVM IR build failed - ICE");
-        self.builder.build_store(i_ptr, next_i).expect("LLVM IR build failed - ICE");
-        self.builder.build_unconditional_branch(loop_bb).expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
+        self.builder
+            .build_store(dst_ptr, converted_byte)
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
+        let next_i = self
+            .builder
+            .build_int_add(i_val, one, "case_next")
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
+        self.builder.build_store(i_ptr, next_i).map_err(|e| {
+            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+        })?;
+        self.builder
+            .build_unconditional_branch(loop_bb)
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder.position_at_end(done_bb);
         let null_pos = unsafe {
             self.builder
                 .build_gep(self.context.i8_type(), buf, &[len], "case_null")
-                .expect("LLVM IR build failed - ICE")
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?
         };
         self.builder
             .build_store(null_pos, i8_type.const_int(0, false))
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         Ok(buf.as_basic_value_enum())
     }
 
@@ -1853,48 +2739,68 @@ impl<'ctx> IRCodeGen<'ctx> {
         let i64_type = self.context.i64_type();
         let i8_type = self.context.i8_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let malloc_fn = self.module.get_function("malloc").expect("LLVM IR build failed - ICE");
+        let malloc_fn = ice_opt(self.module.get_function("malloc"), "missing")?;
         let one = i64_type.const_int(1, false);
         let total = self
             .builder
             .build_int_add(length, one, "sub_total")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let malloc_call = self
             .builder
             .build_call(malloc_fn, &[total.into()], "sub_malloc")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let buf = malloc_call
             .try_as_basic_value()
             .basic()
             .unwrap_or_else(|| ptr_type.const_null().as_basic_value_enum())
             .into_pointer_value();
-        let current_fn = self.current_function.expect("LLVM IR build failed - ICE");
+        let current_fn = ice_opt(self.current_function, "missing")?;
         let loop_bb = self.context.append_basic_block(current_fn, "sub_loop");
         let body_bb = self.context.append_basic_block(current_fn, "sub_body");
         let done_bb = self.context.append_basic_block(current_fn, "sub_done");
-        let i_ptr = self.builder.build_alloca(i64_type, "sub_i").expect("LLVM IR build failed - ICE");
+        let i_ptr = self.builder.build_alloca(i64_type, "sub_i").map_err(|e| {
+            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+        })?;
         self.builder
             .build_store(i_ptr, i64_type.const_int(0, false))
-            .expect("LLVM IR build failed - ICE");
-        self.builder.build_unconditional_branch(loop_bb).expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
+        self.builder
+            .build_unconditional_branch(loop_bb)
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder.position_at_end(loop_bb);
         let i_val = self
             .builder
             .build_load(i64_type, i_ptr, "sub_i_load")
-            .expect("LLVM IR build failed - ICE")
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?
             .into_int_value();
         let cond = self
             .builder
             .build_int_compare(inkwell::IntPredicate::SLT, i_val, length, "sub_cond")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder
             .build_conditional_branch(cond, body_bb, done_bb)
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder.position_at_end(body_bb);
         let offset = self
             .builder
             .build_int_add(start, i_val, "sub_offset")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let src_ptr = unsafe {
             self.builder
                 .build_gep(
@@ -1903,30 +2809,53 @@ impl<'ctx> IRCodeGen<'ctx> {
                     &[offset],
                     "sub_src",
                 )
-                .expect("LLVM IR build failed - ICE")
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?
         };
         let src_byte = self
             .builder
             .build_load(i8_type, src_ptr, "sub_src_byte")
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         let dst_ptr = unsafe {
             self.builder
                 .build_gep(self.context.i8_type(), buf, &[i_val], "sub_dst")
-                .expect("LLVM IR build failed - ICE")
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?
         };
-        self.builder.build_store(dst_ptr, src_byte).expect("LLVM IR build failed - ICE");
-        let next_i = self.builder.build_int_add(i_val, one, "sub_next").expect("LLVM IR build failed - ICE");
-        self.builder.build_store(i_ptr, next_i).expect("LLVM IR build failed - ICE");
-        self.builder.build_unconditional_branch(loop_bb).expect("LLVM IR build failed - ICE");
+        self.builder.build_store(dst_ptr, src_byte).map_err(|e| {
+            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+        })?;
+        let next_i = self
+            .builder
+            .build_int_add(i_val, one, "sub_next")
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
+        self.builder.build_store(i_ptr, next_i).map_err(|e| {
+            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+        })?;
+        self.builder
+            .build_unconditional_branch(loop_bb)
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         self.builder.position_at_end(done_bb);
         let null_pos = unsafe {
             self.builder
                 .build_gep(self.context.i8_type(), buf, &[length], "sub_null")
-                .expect("LLVM IR build failed - ICE")
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?
         };
         self.builder
             .build_store(null_pos, i8_type.const_int(0, false))
-            .expect("LLVM IR build failed - ICE");
+            .map_err(|e| {
+                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+            })?;
         Ok(buf.as_basic_value_enum())
     }
 }

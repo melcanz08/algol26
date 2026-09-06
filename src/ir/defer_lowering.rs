@@ -86,5 +86,7 @@ impl DeferLoweringPass {
 }
 
 impl Default for DeferLoweringPass {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

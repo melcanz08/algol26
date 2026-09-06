@@ -16,7 +16,15 @@ pub struct CompileError {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
-    E0001, E0002, E0003, E0004, E0005, E0006, E0007, E0008, E0009,
+    E0001,
+    E0002,
+    E0003,
+    E0004,
+    E0005,
+    E0006,
+    E0007,
+    E0008,
+    E0009,
 }
 
 #[derive(Debug, Clone)]
@@ -37,10 +45,14 @@ impl Diagnostic {
 impl ErrorCode {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ErrorCode::E0001 => "E0001", ErrorCode::E0002 => "E0002",
-            ErrorCode::E0003 => "E0003", ErrorCode::E0004 => "E0004",
-            ErrorCode::E0005 => "E0005", ErrorCode::E0006 => "E0006",
-            ErrorCode::E0007 => "E0007", ErrorCode::E0008 => "E0008",
+            ErrorCode::E0001 => "E0001",
+            ErrorCode::E0002 => "E0002",
+            ErrorCode::E0003 => "E0003",
+            ErrorCode::E0004 => "E0004",
+            ErrorCode::E0005 => "E0005",
+            ErrorCode::E0006 => "E0006",
+            ErrorCode::E0007 => "E0007",
+            ErrorCode::E0008 => "E0008",
             ErrorCode::E0009 => "E0009",
         }
     }
@@ -51,11 +63,24 @@ impl CompileError {
         self.suggestion.as_deref().map(|s| s.as_str())
     }
     pub fn with_context(mut self, context: &str) -> Self {
-        let new_sugg = format!("{}. {}", context, self.suggestion.as_deref().map(|s| s.as_str()).unwrap_or_default());
+        let new_sugg = format!(
+            "{}. {}",
+            context,
+            self.suggestion
+                .as_deref()
+                .map(|s| s.as_str())
+                .unwrap_or_default()
+        );
         self.suggestion = Some(Box::new(new_sugg));
         self
     }
-    pub fn new(message: &str, line: usize, column: usize, source_line: &str, error_code: ErrorCode) -> Self {
+    pub fn new(
+        message: &str,
+        line: usize,
+        column: usize,
+        source_line: &str,
+        error_code: ErrorCode,
+    ) -> Self {
         CompileError {
             message: Box::new(message.to_string()),
             span: None,
@@ -76,7 +101,13 @@ impl CompileError {
     }
     pub fn display(&self) {
         if self.line > 0 {
-            eprintln!("error[{}]: {} (line {}, column {})", self.error_code.as_str(), self.message, self.line, self.column);
+            eprintln!(
+                "error[{}]: {} (line {}, column {})",
+                self.error_code.as_str(),
+                self.message,
+                self.line,
+                self.column
+            );
         } else {
             eprintln!("error[{}]: {}", self.error_code.as_str(), self.message);
         }

@@ -270,7 +270,9 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
     }
 }
 
-fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> { return stmts; }
+fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
+    return stmts;
+}
 #[allow(dead_code)]
 fn _fold_constant_ifs_orig(stmts: Vec<Stmt>) -> Vec<Stmt> {
     let mut result = Vec::new();
@@ -408,7 +410,7 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
                     .as_ref()
                     .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
             }
-        },
+        }
         Expr::FunctionCall { name, args, span } => Expr::FunctionCall {
             name: name.clone(),
             args: args

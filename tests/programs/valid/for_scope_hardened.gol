@@ -1,0 +1,11 @@
+procedure main
+    val temps := [22.5, 24.1, 19.8, 26.3]
+    var min := temps[0]
+    var max := temps[0]
+    for t in temps do
+        if t < min then
+            min := t
+        if t > max then
+            max := t
+    print(min)
+    print(max)

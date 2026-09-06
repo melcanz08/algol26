@@ -5,6 +5,7 @@
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
+use crate::ffi::lowering::{register_stdlib_functions, FFIRegistry};
 use crate::ir::semantic_ir::{
     SemanticBinOp, SemanticFunction, SemanticInstruction, SemanticProgram, TypedIRValue,
 };
@@ -16,7 +17,6 @@ use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, Point
 use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
 use std::collections::HashMap;
-use crate::ffi::lowering::{FFIRegistry, register_stdlib_functions};
 fn ice_opt<T>(opt: Option<T>, msg: &str) -> Result<T> {
     opt.ok_or_else(|| CompileError::new(msg, 0, 0, "", ErrorCode::E0009))
 }
@@ -1312,9 +1312,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                     BasicValueEnum::IntValue(iv) => iv,
                     BasicValueEnum::FloatValue(fv) => {
                         // convert float index to int
-                        self.builder.build_float_to_signed_int(fv, self.context.i64_type(), "idx_f2i").map_err(|e| {
-                            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
-                        })?
+                        self.builder
+                            .build_float_to_signed_int(fv, self.context.i64_type(), "idx_f2i")
+                            .map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?
                     }
                     _ => self.context.i64_type().const_int(0, false),
                 };
@@ -1323,37 +1331,80 @@ impl<'ctx> IRCodeGen<'ctx> {
                     if let Some(arr_ptr) = self.list_arrays.get(var_name).cloned() {
                         let f64_type = self.context.f64_type();
                         let ptr = unsafe {
-                            self.builder.build_gep(
-                                f64_type.array_type(self.list_lengths.get(var_name).copied().unwrap_or(0) as u32),
-                                arr_ptr,
-                                &[self.context.i64_type().const_int(0, false), idx_int],
-                                "arr_idx_ptr",
-                            ).map_err(|e| {
-                                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
-                            })?
+                            self.builder
+                                .build_gep(
+                                    f64_type.array_type(
+                                        self.list_lengths.get(var_name).copied().unwrap_or(0)
+                                            as u32,
+                                    ),
+                                    arr_ptr,
+                                    &[self.context.i64_type().const_int(0, false), idx_int],
+                                    "arr_idx_ptr",
+                                )
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?
                         };
-                        let loaded = self.builder.build_load(f64_type, ptr, "arr_elem").map_err(|e| {
-                            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
-                        })?;
+                        let loaded =
+                            self.builder
+                                .build_load(f64_type, ptr, "arr_elem")
+                                .map_err(|e| {
+                                    CompileError::new(
+                                        &format!("LLVM ICE: {:?}", e),
+                                        0,
+                                        0,
+                                        "",
+                                        ErrorCode::E0009,
+                                    )
+                                })?;
                         Ok(loaded.as_basic_value_enum())
                     } else if let Some(var_ptr) = self.variables.get(var_name).cloned() {
                         // Fallback: if variable holds f64 (single element case)
-                        let loaded = self.builder.build_load(self.context.f64_type(), var_ptr, "var_load").map_err(|e| {
-                            CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
-                        })?;
+                        let loaded = self
+                            .builder
+                            .build_load(self.context.f64_type(), var_ptr, "var_load")
+                            .map_err(|e| {
+                                CompileError::new(
+                                    &format!("LLVM ICE: {:?}", e),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                         Ok(loaded.as_basic_value_enum())
                     } else {
-                        Ok(self.context.f64_type().const_float(0.0).as_basic_value_enum())
+                        Ok(self
+                            .context
+                            .f64_type()
+                            .const_float(0.0)
+                            .as_basic_value_enum())
                     }
                 } else if let TypedIRValue::List(elements, _) = array.as_ref() {
                     // Direct list literal access with constant index
-                    if let Some(elem) = elements.get(idx_int.get_sign_extended_constant().unwrap_or(0) as usize) {
+                    if let Some(elem) =
+                        elements.get(idx_int.get_sign_extended_constant().unwrap_or(0) as usize)
+                    {
                         self.compile_value(elem)
                     } else {
-                        Ok(self.context.f64_type().const_float(0.0).as_basic_value_enum())
+                        Ok(self
+                            .context
+                            .f64_type()
+                            .const_float(0.0)
+                            .as_basic_value_enum())
                     }
                 } else {
-                    Ok(self.context.f64_type().const_float(0.0).as_basic_value_enum())
+                    Ok(self
+                        .context
+                        .f64_type()
+                        .const_float(0.0)
+                        .as_basic_value_enum())
                 }
             }
             TypedIRValue::Borrow { expr, .. } => {
@@ -1909,7 +1960,8 @@ impl<'ctx> IRCodeGen<'ctx> {
     fn emit_print_float_raw(&self, val: &BasicValueEnum<'ctx>) -> Result<()> {
         let printf_func = ice_opt(self.functions.get("printf").copied(), "missing printf")?;
         let format = ice_res(
-            self.builder.build_global_string_ptr("%.1f", "fmt_float_raw"),
+            self.builder
+                .build_global_string_ptr("%.1f", "fmt_float_raw"),
             "build_global_string_ptr float raw",
         )?;
         ice_res(
@@ -1958,7 +2010,13 @@ impl<'ctx> IRCodeGen<'ctx> {
     fn emit_print_list_var(&self, var_name: &str) -> Result<()> {
         let printf_func = ice_opt(self.functions.get("printf").copied(), "missing printf")?;
         let arr_ptr = self.list_arrays.get(var_name).copied().ok_or_else(|| {
-            CompileError::new(&format!("Unknown list array {}", var_name), 0, 0, "", ErrorCode::E0009)
+            CompileError::new(
+                &format!("Unknown list array {}", var_name),
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
         })?;
         let len = self.list_lengths.get(var_name).copied().unwrap_or(0);
         let f64_type = self.context.f64_type();
@@ -1972,27 +2030,40 @@ impl<'ctx> IRCodeGen<'ctx> {
             let idx = self.context.i64_type().const_int(i as u64, false);
             let array_type = f64_type.array_type(len as u32);
             let elem_ptr = unsafe {
-                self.builder.build_gep(
-                    array_type,
-                    arr_ptr,
-                    &[self.context.i64_type().const_int(0, false), idx],
-                    &format!("list_print_ptr_{}_{}", var_name, i),
-                ).map_err(|e| {
-                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
-                })?
+                self.builder
+                    .build_gep(
+                        array_type,
+                        arr_ptr,
+                        &[self.context.i64_type().const_int(0, false), idx],
+                        &format!("list_print_ptr_{}_{}", var_name, i),
+                    )
+                    .map_err(|e| {
+                        CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                    })?
             };
-            let loaded = self.builder.build_load(f64_type, elem_ptr, &format!("list_print_val_{}_{}", var_name, i)).map_err(|e| {
-                CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
-            })?;
+            let loaded = self
+                .builder
+                .build_load(
+                    f64_type,
+                    elem_ptr,
+                    &format!("list_print_val_{}_{}", var_name, i),
+                )
+                .map_err(|e| {
+                    CompileError::new(&format!("LLVM ICE: {:?}", e), 0, 0, "", ErrorCode::E0009)
+                })?;
             // print loaded float without newline
             let format = ice_res(
-                self.builder.build_global_string_ptr("%.1f", "fmt_float_raw"),
+                self.builder
+                    .build_global_string_ptr("%.1f", "fmt_float_raw"),
                 "build_global_string_ptr float raw",
             )?;
             ice_res(
                 self.builder.build_direct_call(
                     printf_func,
-                    &[format.as_pointer_value().into(), loaded.as_basic_value_enum().into()],
+                    &[
+                        format.as_pointer_value().into(),
+                        loaded.as_basic_value_enum().into(),
+                    ],
                     "printf_list_elem",
                 ),
                 "build_direct_call list elem",
@@ -2009,8 +2080,8 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.ffi_registry = registry.clone();
 
         let i32_type = self.context.i32_type();
-        let i8_ptr_type = self.context.ptr_type(AddressSpace::default());
-        let printf_type = i32_type.fn_type(&[i8_ptr_type.into()], true);
+        let i8ptr_type = self.context.ptr_type(AddressSpace::default());
+        let printf_type = i32_type.fn_type(&[i8ptr_type.into()], true);
         let printf = self.module.add_function("printf", printf_type, None);
         self.functions.insert("printf".to_string(), printf);
         let f64_type = self.context.f64_type();
@@ -2030,7 +2101,6 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
         }
 
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let strlen_fn = self.module.add_function(
             "strlen",

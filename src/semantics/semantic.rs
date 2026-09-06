@@ -667,7 +667,10 @@ impl SemanticAnalyzer {
                         0,
                         "",
                         ErrorCode::E0002,
-                    ));
+                    ).with_suggestion(&format!(
+                        "Change the value to {} or declare variable as {}",
+                        var_type, value_type
+                    )));
                 }
             }
             Stmt::Expression(expr) => {
@@ -1242,7 +1245,10 @@ impl SemanticAnalyzer {
                         0,
                         "",
                         ErrorCode::E0002,
-                    ));
+                    ).with_suggestion(&format!(
+                        "Use an Int index or convert {} with int({})",
+                        index_type, index_type
+                    )));
                 }
                 Ok(element_type)
             }

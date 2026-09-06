@@ -12,7 +12,7 @@ use crate::ir::semantic_ir::{
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
+use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
 use inkwell::FloatPredicate;

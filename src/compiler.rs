@@ -436,8 +436,8 @@ impl Compiler {
         }
 
         // Execute explicit Defer Lowering Pass on the Semantic IR
-        let mut defer_pass = DeferLoweringPass::new();
-        defer_pass.run(&mut program);
+        let defer_pass = DeferLoweringPass::new();
+        let _ = defer_pass.lower(&mut program);
 
         Ok(program)
     }

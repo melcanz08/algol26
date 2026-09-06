@@ -10,7 +10,7 @@ use std::collections::HashMap;
 #[test]
 fn test_translate_simple_exprs() {
     let mut translator = ExprTranslator::new();
-    let scopes: Vec<HashMap<String, algol26::semantics::expr_translator::VariableInfo>> =
+    let scopes: Vec<HashMap<String, algol26::semantics::semantic_builder::VariableInfo>> =
         Vec::new();
 
     // Number
@@ -37,7 +37,7 @@ fn test_translate_simple_exprs() {
 #[test]
 fn test_translate_binary_op_with_coercion() {
     let mut translator = ExprTranslator::new();
-    let scopes: Vec<HashMap<String, algol26::semantics::expr_translator::VariableInfo>> =
+    let scopes: Vec<HashMap<String, algol26::semantics::semantic_builder::VariableInfo>> =
         Vec::new();
 
     // Int + Float should produce Float with coercion
@@ -71,7 +71,8 @@ fn test_translate_var_lookup() {
     let mut scope = HashMap::new();
     scope.insert(
         "x".to_string(),
-        algol26::semantics::expr_translator::VariableInfo {
+        algol26::semantics::semantic_builder::VariableInfo {
+            capture_mode: Some(algol26::semantics::flow_result::CaptureMode::Read),
             type_: Type::Float,
             mutable: false,
         },
@@ -93,7 +94,7 @@ fn test_translate_var_lookup() {
 #[test]
 fn test_translate_function_call() {
     let mut translator = ExprTranslator::new();
-    let scopes: Vec<HashMap<String, algol26::semantics::expr_translator::VariableInfo>> =
+    let scopes: Vec<HashMap<String, algol26::semantics::semantic_builder::VariableInfo>> =
         Vec::new();
 
     let expr = Expr::FunctionCall {

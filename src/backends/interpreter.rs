@@ -98,7 +98,7 @@ impl Interpreter {
             if blk.is_none() {
                 break;
             }
-            let next = self.execute_block_cfg(&blk.unwrap())?;
+            let next = self.execute_block_cfg(&blk.expect("CFG block should exist"))?;
             if self.return_value.is_some() {
                 break;
             }

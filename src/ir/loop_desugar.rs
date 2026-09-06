@@ -240,11 +240,7 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
                     .as_ref()
                     .is_some_and(|e| expr_has_complex_cf(e))
         }
-        Expr::If {
-            then_branch: _,
-            else_branch: _,
-            ..
-        } => true,
+        Expr::If { .. } => true,
         Expr::Match { cases, .. } => cases.iter().any(|c| expr_has_complex_cf(&c.body)),
         Expr::TryCatch {
             try_branch,
@@ -271,7 +267,7 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
 }
 
 fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
-    return stmts;
+    stmts
 }
 #[allow(dead_code)]
 fn _fold_constant_ifs_orig(stmts: Vec<Stmt>) -> Vec<Stmt> {

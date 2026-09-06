@@ -18,6 +18,15 @@ impl ExprTranslator {
             function_types: HashMap::new(),
         }
     }
+}
+
+impl Default for ExprTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExprTranslator {
     pub fn with_function_types(ft: HashMap<String, FunctionSignature>) -> Self {
         Self {
             type_checker: TypeChecker::new(),

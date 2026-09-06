@@ -1093,17 +1093,7 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 };
                 self.push_scope();
-                eprintln!(
-                    "DEBUG FOR: declaring '{}' with type {:?} in scope depth {}",
-                    var,
-                    elem_type,
-                    self.scopes.len()
-                );
                 self.declare_variable(var, elem_type, false)?;
-                eprintln!(
-                    "DEBUG FOR: body analysis with scope depth {}",
-                    self.scopes.len()
-                );
                 for s in body {
                     self.analyze_stmt(s)?;
                 }
@@ -1112,12 +1102,7 @@ impl SemanticAnalyzer {
                 } else {
                     Type::Void
                 };
-                eprintln!(
-                    "DEBUG FOR: popping scope, depth before pop {}",
-                    self.scopes.len()
-                );
                 self.pop_scope();
-                eprintln!("DEBUG FOR: after pop, depth {}", self.scopes.len());
                 Ok(result_type)
             }
             Expr::While {

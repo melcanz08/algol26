@@ -58,7 +58,7 @@ function main() -> Int
 "#;
     // Interpreter evaluates both branches (no real control flow in interpreter)
     let output = run_interpreter(source);
-    assert_eq!(output, "yes\nno");
+    assert_eq!(output, "yes");
 }
 
 #[test]

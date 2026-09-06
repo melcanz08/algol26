@@ -171,20 +171,35 @@ impl Type {
             "&mut bool" => Type::mut_borrow(Type::Bool),
 
             _ => {
-                // Try to parse generic types like List<int>, Option<float>, etc.
+                // Support both List<int> and List[float] / List[int]
                 if let Some(inner) = s_lower
                     .strip_prefix("list<")
                     .and_then(|s| s.strip_suffix('>'))
+                    .or_else(|| {
+                        s_lower
+                            .strip_prefix("list[")
+                            .and_then(|s| s.strip_suffix(']'))
+                    })
                 {
                     Type::list(Type::from_str(inner))
                 } else if let Some(inner) = s_lower
                     .strip_prefix("option<")
                     .and_then(|s| s.strip_suffix('>'))
+                    .or_else(|| {
+                        s_lower
+                            .strip_prefix("option[")
+                            .and_then(|s| s.strip_suffix(']'))
+                    })
                 {
                     Type::option(Type::from_str(inner))
                 } else if let Some(inner) = s_lower
                     .strip_prefix("channel<")
                     .and_then(|s| s.strip_suffix('>'))
+                    .or_else(|| {
+                        s_lower
+                            .strip_prefix("channel[")
+                            .and_then(|s| s.strip_suffix(']'))
+                    })
                 {
                     Type::channel(Type::from_str(inner))
                 } else if s_lower.starts_with("result<") && s_lower.ends_with('>') {

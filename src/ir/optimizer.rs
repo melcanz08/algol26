@@ -446,6 +446,28 @@ impl Optimizer {
                                 }
                             }
                         }
+                        SemanticInstruction::Switch {
+                            cases,
+                            default_block,
+                            ..
+                        } => {
+                            for (_, tgt) in cases {
+                                if let Some(idx) = func.blocks.iter().position(|b| b.id == *tgt) {
+                                    if !reachable[idx] {
+                                        reachable[idx] = true;
+                                        changed = true;
+                                    }
+                                }
+                            }
+                            if let Some(def) = default_block {
+                                if let Some(idx) = func.blocks.iter().position(|b| b.id == *def) {
+                                    if !reachable[idx] {
+                                        reachable[idx] = true;
+                                        changed = true;
+                                    }
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }

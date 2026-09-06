@@ -15,28 +15,42 @@ pub struct FFIRegistry {
 }
 
 impl Default for FFIRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FFIRegistry {
     pub fn new() -> Self {
-        FFIRegistry { functions: HashMap::new(), libraries: Vec::new() }
+        FFIRegistry {
+            functions: HashMap::new(),
+            libraries: Vec::new(),
+        }
     }
     pub fn register(&mut self, algol_name: &str, c_name: &str) {
-        self.functions.insert(algol_name.to_string(), c_name.to_string());
+        self.functions
+            .insert(algol_name.to_string(), c_name.to_string());
     }
     pub fn register_library(&mut self, library: &str) {
-        if!self.libraries.contains(&library.to_string()) {
+        if !self.libraries.contains(&library.to_string()) {
             self.libraries.push(library.to_string());
         }
     }
     pub fn get_c_name(&self, algol_name: &str) -> Option<&String> {
         self.functions.get(algol_name)
     }
-    pub fn get_libraries(&self) -> &[String] { &self.libraries }
-    pub fn is_ffi(&self, name: &str) -> bool { self.functions.contains_key(name) }
-    pub fn all_functions(&self) -> &HashMap<String, String> { &self.functions }
-    pub fn all_functions_cloned(&self) -> HashMap<String, String> { self.functions.clone() }
+    pub fn get_libraries(&self) -> &[String] {
+        &self.libraries
+    }
+    pub fn is_ffi(&self, name: &str) -> bool {
+        self.functions.contains_key(name)
+    }
+    pub fn all_functions(&self) -> &HashMap<String, String> {
+        &self.functions
+    }
+    pub fn all_functions_cloned(&self) -> HashMap<String, String> {
+        self.functions.clone()
+    }
 }
 
 pub fn register_stdlib_functions(registry: &mut FFIRegistry) {

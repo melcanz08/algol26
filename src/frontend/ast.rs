@@ -303,21 +303,22 @@ impl TypeSyntax {
     pub fn from_string(s: &str) -> Self {
         if s.is_empty() {
             TypeSyntax::Unknown
-        } else if s.contains('<') {
-            // Parse generic type: List<Int>, Option<Result<Int, String>>
-            let Some(open_pos) = s.find('<') else {
+        } else if s.contains('<') || s.contains('[') {
+            let (open_char, close_char) = if s.contains('<') {
+                ('<', '>')
+            } else {
+                ('[', ']')
+            };
+            let Some(open_pos) = s.find(open_char) else {
                 return TypeSyntax::Unknown;
             };
-            let close_pos = s.rfind('>').unwrap_or(s.len());
+            let close_pos = s.rfind(close_char).unwrap_or(s.len());
             let name = &s[..open_pos];
             let args_str = &s[open_pos + 1..close_pos];
-
-            // Simple comma split (not handling nested generics for now)
             let args: Vec<TypeSyntax> = args_str
                 .split(',')
                 .map(|a| TypeSyntax::from_string(a.trim()))
                 .collect();
-
             TypeSyntax::Generic {
                 name: name.to_string(),
                 args,

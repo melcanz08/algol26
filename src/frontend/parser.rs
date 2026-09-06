@@ -126,17 +126,46 @@ impl Parser {
         }
     }
 
+    fn parse_type_syntax(&mut self) -> Result<TypeSyntax> {
+        // Base type: Self or identifier
+        if matches!(self.peek(), Token::SelfType) {
+            self.advance();
+            return Ok(TypeSyntax::Named("Self".to_string()));
+        }
+        let base = self.expect_identifier("type name")?;
+        // Check for generic args: [T, U] or <T, U>
+        if matches!(self.peek(), Token::LBracket | Token::Lt) {
+            let is_bracket = matches!(self.peek(), Token::LBracket);
+            self.advance(); // consume [ or <
+            let mut args = Vec::new();
+            while !matches!(
+                self.peek(),
+                Token::RBracket | Token::Gt | Token::Eof | Token::RParen
+            ) {
+                // parse inner type recursively
+                args.push(self.parse_type_syntax()?);
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            // expect closing
+            if is_bracket {
+                self.expect_token(Token::RBracket, "']'")?;
+            } else {
+                self.expect_token(Token::Gt, "'>'")?;
+            }
+            Ok(TypeSyntax::Generic { name: base, args })
+        } else {
+            Ok(TypeSyntax::Named(base))
+        }
+    }
+
     fn parse_type_annotation(&mut self) -> Result<Option<TypeSyntax>> {
         if matches!(self.peek(), Token::Colon) {
             self.advance();
-            // Check for Self type
-            if matches!(self.peek(), Token::SelfType) {
-                self.advance();
-                Ok(Some(TypeSyntax::Named("Self".to_string())))
-            } else {
-                let type_name = self.expect_identifier("type name")?;
-                Ok(Some(TypeSyntax::from_string(&type_name)))
-            }
+            Ok(Some(self.parse_type_syntax()?))
         } else {
             Ok(None)
         }
@@ -255,8 +284,7 @@ impl Parser {
         let return_type = if is_function {
             if matches!(self.peek(), Token::Arrow | Token::Colon) {
                 self.advance();
-                let type_name = self.expect_identifier("return type")?;
-                Some(TypeSyntax::from_string(&type_name))
+                Some(self.parse_type_syntax()?)
             } else {
                 None
             }
@@ -1389,10 +1417,13 @@ impl Parser {
                 }
 
                 // Parse return type
-                let return_type = if matches!(self.peek(), Token::Arrow | Token::Colon) {
-                    self.advance();
-                    let type_name = self.expect_identifier("return type")?;
-                    Some(TypeSyntax::from_string(&type_name))
+                let return_type = if is_function {
+                    if matches!(self.peek(), Token::Arrow | Token::Colon) {
+                        self.advance();
+                        Some(self.parse_type_syntax()?)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 };

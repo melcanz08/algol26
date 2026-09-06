@@ -1,3 +1,4 @@
-procedure main
-    val x := 5.0
-    x := 10.0
+function main()
+    var s := [1, 2, 3]
+    var t := s
+    print s

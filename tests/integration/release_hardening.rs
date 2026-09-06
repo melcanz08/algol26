@@ -96,7 +96,9 @@ procedure main
             if prog_res.is_err() { return (true, true); }
             let prog = prog_res.unwrap();
             let (_ir, diags) = SemanticIRBuilder::build(&prog.functions);
-            let is_invalid =!diags.is_empty();
+            let mut analyzer = algol26::semantics::semantic::SemanticAnalyzer::new();
+            let analyzer_invalid = analyzer.analyze(&prog.functions).is_err();
+            let is_invalid =!diags.is_empty() || analyzer_invalid;
             (true, is_invalid)
         });
         assert!(result.is_ok(), "ICE on {:?}", path);

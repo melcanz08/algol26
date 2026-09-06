@@ -45,3 +45,10 @@ tests/programs/valid/hello
 tests/programs/valid/move
 # Tools temp
 weather_report.txt
+examples/basic/test
+examples/ffi/ffi_test
+examples/ownership/safety/bounds
+benchmarks/programs/*.ll
+
+**/generics_test.ll
+**/trait_test.ll

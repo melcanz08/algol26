@@ -241,13 +241,10 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
                     .is_some_and(|e| expr_has_complex_cf(e))
         }
         Expr::If {
-            then_branch,
-            else_branch,
+            then_branch: _,
+            else_branch: _,
             ..
-        } => {
-            expr_has_complex_cf(then_branch)
-                || else_branch.as_ref().is_some_and(|e| expr_has_complex_cf(e))
-        }
+        } => true,
         Expr::Match { cases, .. } => cases.iter().any(|c| expr_has_complex_cf(&c.body)),
         Expr::TryCatch {
             try_branch,
@@ -273,7 +270,9 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
     }
 }
 
-fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
+fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> { return stmts; }
+#[allow(dead_code)]
+fn _fold_constant_ifs_orig(stmts: Vec<Stmt>) -> Vec<Stmt> {
     let mut result = Vec::new();
     for stmt in stmts {
         match stmt {
@@ -316,6 +315,7 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
     result
 }
 
+#[allow(dead_code)]
 fn eval_const_expr(expr: &Expr) -> Option<bool> {
     match expr {
         Expr::Bool(b) => Some(*b),
@@ -336,6 +336,7 @@ fn eval_const_expr(expr: &Expr) -> Option<bool> {
     }
 }
 
+#[allow(dead_code)]
 fn eval_const_num(expr: &Expr) -> Option<f64> {
     match expr {
         Expr::Number(n) => Some(*n),
@@ -399,19 +400,14 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
         Expr::Block {
             statements,
             trailing_expr,
-        } => Expr::Block {
-            statements: statements
-                .iter()
-                .map(|s| match s {
-                    Stmt::Expression(e) => {
-                        Stmt::Expression(substitute_expr_literal(e, old_name, literal))
-                    }
-                    _ => s.clone(),
-                })
-                .collect(),
-            trailing_expr: trailing_expr
-                .as_ref()
-                .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
+        } => {
+            let new_stmts = substitute_var_literal(statements, old_name, literal);
+            Expr::Block {
+                statements: new_stmts,
+                trailing_expr: trailing_expr
+                    .as_ref()
+                    .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
+            }
         },
         Expr::FunctionCall { name, args, span } => Expr::FunctionCall {
             name: name.clone(),

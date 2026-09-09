@@ -9,4 +9,5 @@ pub mod semantic_builder;
 pub mod trait_registry;
 pub mod type_checker;
 
-#[cfg(test)] mod borrow_checker_extra_test;
+#[cfg(test)]
+mod borrow_checker_extra_test;

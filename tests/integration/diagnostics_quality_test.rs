@@ -37,7 +37,7 @@ function main()
 
 #[test]
 fn test_diag_double_borrow_e0007_with_help() {
-    let src = fs::read_to_string("tests/integration/negative/double_borrow.al26").unwrap();
+    let src = fs::read_to_string("tests/integration/negative/double_borrow.gol").unwrap();
     let err = analyze_source(&src).unwrap_err();
     assert_eq!(err.error_code, ErrorCode::E0007);
     assert!(err.message.contains("arr"), "should mention variable name");
@@ -46,7 +46,7 @@ fn test_diag_double_borrow_e0007_with_help() {
 
 #[test]
 fn test_diag_use_after_move_has_line() {
-    let src = fs::read_to_string("tests/integration/negative/use_after_move.al26").unwrap();
+    let src = fs::read_to_string("tests/integration/negative/use_after_move.gol").unwrap();
     let err = analyze_source(&src).unwrap_err();
     assert_eq!(err.error_code, ErrorCode::E0007);
     assert!(err.message.contains("moved") || err.message.contains("Use of moved"));

@@ -1,4 +1,7 @@
+// tests/programs/valid/ffi_math.gol
 procedure main
     print(Math.sqrt(16.0))
     print(Math.pow(2.0, 3.0))
     print(Math.sin(0.0))
+    print(Math.cos(0.0))
+    print(Math.abs(-5.0))

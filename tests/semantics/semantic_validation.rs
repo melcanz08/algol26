@@ -13,7 +13,11 @@ procedure main
 "#;
 
     let result = compile_and_check(source);
-    assert!(!result.success, "Type mismatch should be rejected");
+    assert!(
+        !result.success,
+        "Type mismatch should be rejected: {}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -25,7 +29,11 @@ procedure main
 "#;
 
     let result = compile_and_check(source);
-    assert!(!result.success, "Mutation of val should be rejected");
+    assert!(
+        !result.success,
+        "Mutation of val should be rejected: {}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -33,24 +41,52 @@ fn test_bounds_guaranteed() {
     let source = r#"
 procedure main
     val arr := [1.0, 2.0, 3.0]
-    Terminal.print(arr[10])
+    print(arr[10])
 "#;
 
     let result = compile_and_check(source);
-    assert!(!result.success, "Out-of-bounds should be rejected");
+    assert!(
+        !result.success,
+        "Out-of-bounds should be rejected: {}",
+        result.stderr
+    );
 }
 
 #[test]
-fn test_use_after_move_guaranteed() {
+fn test_string_move_guaranteed() {
+    // Strings are Move types, so this should fail
     let source = r#"
 procedure main
-    var x := 10.0
-    var y := x
-    Terminal.print(x)
+    val s := "hello"
+    val t := s    // Move
+    print(s)      // ERROR: Use after move
 "#;
 
     let result = compile_and_check(source);
-    assert!(!result.success, "Use-after-move should be rejected");
+    assert!(
+        !result.success,
+        "Use-after-move for String should be rejected: {}",
+        result.stderr
+    );
+}
+
+#[test]
+fn test_float_copy_valid() {
+    // Floats are Copy types, so this should succeed
+    let source = r#"
+procedure main
+    var x := 10.0
+    var y := x    // Copy
+    print(x)      // Valid
+    print(y)
+"#;
+
+    let result = compile_and_check(source);
+    assert!(
+        result.success,
+        "Float copy should be valid: {}",
+        result.stderr
+    );
 }
 
 #[test]
@@ -63,15 +99,81 @@ procedure main
 "#;
 
     let result = compile_and_check(source);
-    assert!(result.success, "Valid program should compile");
+    assert!(
+        result.success,
+        "Valid program should compile: {}",
+        result.stderr
+    );
+}
+
+#[test]
+fn test_borrow_rules_enforced() {
+    // Double mutable borrow should fail
+    let source = r#"
+procedure main
+    var x := 10.0
+    var y := &mut x
+    var z := &mut x
+"#;
+
+    let result = compile_and_check(source);
+    assert!(
+        !result.success,
+        "Double mutable borrow should be rejected: {}",
+        result.stderr
+    );
+}
+
+#[test]
+fn test_borrow_scope_release() {
+    // Borrow should be released at scope end
+    let source = r#"
+procedure main
+    var x := 10.0
+    
+    if true then
+        val y := &mut x
+        print(y)
+    end
+    
+    var z := &mut x  // Valid - y's borrow ended
+    print(z)
+"#;
+
+    let result = compile_and_check(source);
+    assert!(
+        result.success,
+        "Borrow should be released at scope end: {}",
+        result.stderr
+    );
+}
+
+#[test]
+fn test_race_detection() {
+    // Race condition should be detected
+    let source = r#"
+procedure main
+    var shared := 0.0
+    
+    spawn
+        print(shared)  // Read in spawn
+    end
+    
+    shared := 20.0     // Write in main
+"#;
+
+    let result = compile_and_check(source);
+    assert!(
+        !result.success,
+        "Race condition should be detected: {}",
+        result.stderr
+    );
 }
 
 fn compile_and_check(source: &str) -> CompileResult {
     use std::io::Write;
 
-    // Unique ID for this test
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-
     let temp_dir = std::env::temp_dir();
     let source_path = temp_dir.join(format!("semantic_test_{}.gol", id));
     let mut file = std::fs::File::create(&source_path).unwrap();
@@ -88,7 +190,6 @@ fn compile_and_check(source: &str) -> CompileResult {
 
     CompileResult {
         success: output.status.success(),
-        #[allow(dead_code)]
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     }
 }
@@ -104,6 +205,5 @@ fn find_compiler() -> std::path::PathBuf {
 
 struct CompileResult {
     success: bool,
-    #[allow(dead_code)]
     stderr: String,
 }

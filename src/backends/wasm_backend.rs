@@ -1,7 +1,4 @@
-// ALGOL26 - WASM Backend Implementation
-// Generates WebAssembly using LLVM's WebAssembly target
-// Consumes SemanticProgram via IRCodeGen
-
+// src/backends/wasm_backend.rs - HARDENED
 use crate::backends::backend::{Backend, BackendOutput};
 use crate::backends::ir_codegen::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
@@ -23,27 +20,62 @@ impl WasmBackend {
     pub fn new() -> Self {
         WasmBackend
     }
+
+    fn validate_wasm_compatibility(ir: &VerifiedIR) -> Result<()> {
+        // Check for unsupported operations
+        for func in &ir.program().functions {
+            for block in &func.blocks {
+                for instr in &block.instructions {
+                    match instr {
+                        // Send and Receive are not supported in WASM
+                        crate::ir::semantic_ir::Instruction::Send { .. } => {
+                            return Err(CompileError::new(
+                                "Channel send is not supported in WASM backend",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        crate::ir::semantic_ir::Instruction::Receive { .. } => {
+                            return Err(CompileError::new(
+                                "Channel receive is not supported in WASM backend",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Backend for WasmBackend {
     fn compile(&self, ir: &VerifiedIR, output_name: &str) -> Result<BackendOutput> {
+        // Validate WASM compatibility
+        Self::validate_wasm_compatibility(ir)?;
+
         // Initialize WebAssembly target
         Target::initialize_webassembly(&InitializationConfig::default());
 
         let context = Context::create();
         let mut codegen = IRCodeGen::new(&context, "algol26_wasm");
 
-        // Compile using SemanticProgram (the canonical IR)
         codegen.compile(ir.program()).map_err(|e| {
+            let error_msg = format!("WASM code generation failed: {}", e);
             e.display();
-            CompileError::new("WASM code generation failed", 0, 0, "", ErrorCode::E0002)
+            CompileError::simple(&error_msg, 0, 0, "", ErrorCode::E0002)
         })?;
 
-        // Set WASM target
         let target_triple = TargetTriple::create("wasm32-unknown-unknown");
 
         let target = Target::from_triple(&target_triple).map_err(|e| {
-            CompileError::new(
+            CompileError::simple(
                 &format!("Failed to get WASM target: {}", e),
                 0,
                 0,
@@ -62,7 +94,7 @@ impl Backend for WasmBackend {
                 CodeModel::Small,
             )
             .ok_or_else(|| {
-                CompileError::new(
+                CompileError::simple(
                     "Failed to create WASM target machine",
                     0,
                     0,
@@ -71,7 +103,6 @@ impl Backend for WasmBackend {
                 )
             })?;
 
-        // Write WASM object file
         let wasm_path = format!("{}.wasm", output_name);
         machine
             .write_to_file(
@@ -80,8 +111,8 @@ impl Backend for WasmBackend {
                 std::path::Path::new(&wasm_path),
             )
             .map_err(|e| {
-                CompileError::new(
-                    &format!("Failed to write WASM: {}", e),
+                CompileError::simple(
+                    &format!("Failed to write WASM to {}: {}", wasm_path, e),
                     0,
                     0,
                     "",

@@ -1,4 +1,6 @@
+// Move semantics test - floats are Copy, so this is a copy
 procedure main
     var x := 42.0
-    var y := x
+    var y := x    // Copy (float is Copy type)
+    print(x)      // Valid - x was copied, not moved
     print(y)

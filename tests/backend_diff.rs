@@ -1,7 +1,7 @@
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
-use algol26::semantics::semantic_builder::SemanticIRBuilder;
 use algol26::ir::optimizer::Optimizer;
+use algol26::semantics::semantic_builder::SemanticIRBuilder;
 
 fn build_ir(src: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(src.to_string()).unwrap();
@@ -21,10 +21,38 @@ procedure main
     print(r)
 "#;
     let mut ir = build_ir(src);
-    let before: usize = ir.functions.iter().map(|f| f.blocks.iter().map(|b| b.instructions.iter().filter(|i| format!("{:?}", i).contains("Borrow")).count()).sum::<usize>()).sum();
+    let before: usize = ir
+        .functions
+        .iter()
+        .map(|f| {
+            f.blocks
+                .iter()
+                .map(|b| {
+                    b.instructions
+                        .iter()
+                        .filter(|i| format!("{:?}", i).contains("Borrow"))
+                        .count()
+                })
+                .sum::<usize>()
+        })
+        .sum();
     let mut opt = Optimizer::new();
     opt.optimize(&mut ir);
-    let after: usize = ir.functions.iter().map(|f| f.blocks.iter().map(|b| b.instructions.iter().filter(|i| format!("{:?}", i).contains("Borrow")).count()).sum::<usize>()).sum();
+    let after: usize = ir
+        .functions
+        .iter()
+        .map(|f| {
+            f.blocks
+                .iter()
+                .map(|b| {
+                    b.instructions
+                        .iter()
+                        .filter(|i| format!("{:?}", i).contains("Borrow"))
+                        .count()
+                })
+                .sum::<usize>()
+        })
+        .sum();
     assert_eq!(before, after, "optimizer must not delete Borrow");
 }
 

@@ -1,4 +1,4 @@
-// ALGOL26 Span — Unified source location representation
+// src/common/span.rs - ALGOL26 Span — Unified source location representation
 // Replaces ad-hoc (line, column) tuples throughout the compiler
 
 /// A range in source code

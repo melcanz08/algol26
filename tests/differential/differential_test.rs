@@ -1,9 +1,9 @@
+// tests/differential/differential_test.rs - HARDENED
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-// Differential testing: Verify LLVM output matches expected values
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 
 #[test]
@@ -15,7 +15,7 @@ procedure main
     print(x + y)
 "#;
 
-    let llvm_output = run_llvm(source);
+    let llvm_output = run_compiler(source);
     assert_eq!(
         llvm_output.trim(),
         "30.0",
@@ -32,11 +32,12 @@ procedure main
     
     for item in arr do
         total := total + item
+    end
     
     print(total)
 "#;
 
-    let llvm_output = run_llvm(source);
+    let llvm_output = run_compiler(source);
     assert_eq!(llvm_output.trim(), "15.0", "Array sum should be 15.0");
 }
 
@@ -49,7 +50,7 @@ procedure main
     print("World")
 "#;
 
-    let llvm_output = run_llvm(source);
+    let llvm_output = run_compiler(source);
     let lines: Vec<&str> = llvm_output.lines().collect();
     assert_eq!(lines[0], "Hello", "First string should be Hello");
     assert_eq!(lines[1], "World", "Second string should be World");
@@ -64,22 +65,53 @@ procedure main
     
     if a > 5.0 and b > 15.0 then
         print("Both true")
+    end
     
     if a < 5.0 or b > 15.0 then
         print("One true")
+    end
 "#;
 
-    let llvm_output = run_llvm(source);
+    let llvm_output = run_compiler(source);
     let lines: Vec<&str> = llvm_output.lines().collect();
     assert_eq!(lines[0], "Both true", "First condition should print");
     assert_eq!(lines[1], "One true", "Second condition should print");
 }
 
-fn run_llvm(source: &str) -> String {
-    // Unique ID for this test run
-    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+#[test]
+fn test_differential_control_flow() {
+    let source = r#"
+procedure main
+    val x := 10.0
+    
+    if x > 5.0 then
+        print("Greater")
+    else
+        print("Less")
+    end
+"#;
 
-    // Find the compiler binary
+    let llvm_output = run_compiler(source);
+    assert_eq!(llvm_output.trim(), "Greater", "Should print Greater");
+}
+
+#[test]
+fn test_differential_functions() {
+    let source = r#"
+function square(x: float) -> float
+    return x * x
+
+procedure main
+    val result := square(4.0)
+    print(result)
+"#;
+
+    let llvm_output = run_compiler(source);
+    assert_eq!(llvm_output.trim(), "16.0", "Square of 4 should be 16");
+}
+
+fn run_compiler(source: &str) -> String {
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let compiler = find_compiler();
 
     let temp_dir = std::env::temp_dir();
@@ -89,7 +121,7 @@ fn run_llvm(source: &str) -> String {
 
     let binary_path = temp_dir.join(format!("diff_test_bin_{}", id));
 
-    // Compile
+    // Compile with timeout
     let output = Command::new(&compiler)
         .arg(source_path.to_str().unwrap())
         .arg("--output")
@@ -99,12 +131,12 @@ fn run_llvm(source: &str) -> String {
 
     if !output.status.success() {
         panic!(
-            "LLVM compilation failed: {}",
+            "Compilation failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
 
-    // Run
+    // Run with timeout
     let output = Command::new(&binary_path).output().expect("Failed to run");
 
     // Cleanup

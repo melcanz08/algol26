@@ -77,11 +77,10 @@ function main() -> Int
 #[test]
 fn test_oracle_strings() {
     let source = r#"
-function main() -> Int
-    print "hello"
-    print String.to_upper("hello")
-    print String.length("hello")
-    return 0
+procedure main
+    print("hello")
+    print(String.to_upper("hello"))
+    print(String.length("hello"))
 "#;
     let output = run_interpreter(source);
     assert_eq!(output, "hello\nHELLO\n5");

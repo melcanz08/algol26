@@ -3,11 +3,16 @@
 #![allow(unused_imports)]
 #![allow(unused_assignments)]
 
+// src/semantics/semantic_builder.rs
+
 use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::Pattern;
 use crate::frontend::ast::{BinOp, Expr, FunctionDecl, MatchCaseExpr, Stmt};
-use crate::ir::semantic_ir::{Instruction, Terminator, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction, SemanticPattern, SemanticProgram, TypedIRValue};
+use crate::ir::semantic_ir::{
+    Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
+    SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
+};
 use crate::semantics::control_flow::ControlFlowTranslator;
 use crate::semantics::expr_translator::ExprTranslator;
 use crate::semantics::flow_analyzer::FlowAnalyzer;
@@ -65,31 +70,34 @@ impl SemanticIRBuilder {
         self.scopes.push(HashMap::new());
     }
 
- fn safe_push_instruction(
- &mut self,
- func: &mut SemanticFunction,
- block_id: usize,
- instruction: Instruction,
- ) {
- if let Some(block) = func.blocks.iter_mut().find(|b| b.id == block_id) {
- block.instructions.push(instruction);
- } else {
- self.diagnostics.push(format!("block {} not found", block_id));
- }
- }
+    fn safe_push_instruction(
+        &mut self,
+        func: &mut SemanticFunction,
+        block_id: usize,
+        instruction: Instruction,
+    ) {
+        if let Some(block) = func.blocks.iter_mut().find(|b| b.id == block_id) {
+            block.instructions.push(instruction);
+        } else {
+            self.diagnostics
+                .push(format!("block {} not found", block_id));
+        }
+    }
 
- fn safe_set_terminator(
- &mut self,
- func: &mut SemanticFunction,
- block_id: usize,
- term: Terminator,
- ) {
- if let Some(block) = func.blocks.iter_mut().find(|b| b.id == block_id) {
- block.terminator = Some(term);
- } else {
- self.diagnostics.push(format!("block {} not found", block_id));
- }
- }
+    fn safe_set_terminator(
+        &mut self,
+        func: &mut SemanticFunction,
+        block_id: usize,
+        term: Terminator,
+    ) {
+        if let Some(block) = func.blocks.iter_mut().find(|b| b.id == block_id) {
+            block.terminator = Some(term);
+        } else {
+            self.diagnostics
+                .push(format!("block {} not found", block_id));
+        }
+    }
+
     fn pop_scope(&mut self) {
         assert!(self.scopes.len() > 1);
         self.scopes.pop();
@@ -138,6 +146,7 @@ impl SemanticIRBuilder {
             _ => false,
         }
     }
+
     #[allow(dead_code)]
     fn expr_has_complex_cf(expr: &Expr) -> bool {
         match expr {
@@ -453,38 +462,44 @@ impl SemanticIRBuilder {
                     .unwrap_or(Type::Void),
                 blocks: vec![SemanticBlock {
                     id: entry_id,
-                    instructions: Vec::new(), terminator: None }],
+                    instructions: Vec::new(),
+                    terminator: None,
+                }],
                 entry_block: entry_id,
                 is_extern: func.is_extern,
             };
 
             let flow = self.translate_block(&mut program, &mut semantic_func, entry_id, &func.body);
-            // --- VERIFIER FIX: ensure final reachable block terminates ---
+
             match flow {
                 FlowResult::Reachable(final_id) => {
                     if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id) {
                         if b.terminator.is_none() {
-                            b.terminator = Some(Terminator::Return { value: None, type_: Type::Void });
+                            b.terminator = Some(Terminator::Return {
+                                value: None,
+                                type_: Type::Void,
+                            });
                         }
                     }
                 }
                 FlowResult::Unreachable => {}
             }
-            // Ensure any leftover merge blocks (e.g. if/else at end of procedure) also terminate
+
             for block in &mut semantic_func.blocks {
                 if block.terminator.is_none() && semantic_func.return_type == Type::Void {
-                    block.terminator = Some(Terminator::Return { value: None, type_: Type::Void });
+                    block.terminator = Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    });
                 }
             }
 
-            // Check if this is an impl method (has self as first param)
             let is_impl_method = func
                 .params
                 .first()
                 .map(|(name, _)| name == "self")
                 .unwrap_or(false);
 
-            // Missing return detection (skip for extern functions and impl methods)
             if !func.is_extern
                 && !is_impl_method
                 && semantic_func.return_type != Type::Void
@@ -552,7 +567,6 @@ impl SemanticIRBuilder {
                         else_stmts.as_deref(),
                     )
                 }
-                // --- Orthogonal: for/while as expression statements ---
                 Stmt::Expression(Expr::For {
                     var,
                     iterable,
@@ -616,7 +630,8 @@ impl SemanticIRBuilder {
                     if let Some(loop_ctx) = self.loop_stack.last().copied() {
                         let _ = self.safe_set_terminator(
                             func,
-                            current_block, Terminator::Jump {
+                            current_block,
+                            Terminator::Jump {
                                 block: loop_ctx.break_block,
                             },
                         );
@@ -630,7 +645,8 @@ impl SemanticIRBuilder {
                     if let Some(loop_ctx) = self.loop_stack.last().copied() {
                         let _ = self.safe_set_terminator(
                             func,
-                            current_block, Terminator::Jump {
+                            current_block,
+                            Terminator::Jump {
                                 block: loop_ctx.continue_block,
                             },
                         );
@@ -641,7 +657,6 @@ impl SemanticIRBuilder {
                         FlowResult::Reachable(current_block)
                     }
                 }
-
                 _ => self.translate_simple_stmt(program, func, current_block, stmt),
             };
         }
@@ -672,7 +687,8 @@ impl SemanticIRBuilder {
 
         let _ = self.safe_set_terminator(
             func,
-            current_block, Terminator::Branch {
+            current_block,
+            Terminator::Branch {
                 condition: cond,
                 then_block: then_id,
                 else_block: else_id,
@@ -681,14 +697,18 @@ impl SemanticIRBuilder {
 
         func.blocks.push(SemanticBlock {
             id: then_id,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
         self.push_scope();
         let then_flow = self.translate_block(program, func, then_id, then_body);
         self.pop_scope();
 
         func.blocks.push(SemanticBlock {
             id: else_id,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
         let else_flow = if let Some(else_stmts) = else_body {
             self.push_scope();
             let flow = self.translate_block(program, func, else_id, else_stmts);
@@ -703,20 +723,18 @@ impl SemanticIRBuilder {
             (t_flow, e_flow) => {
                 let merge_id = program.new_block_id();
                 if let FlowResult::Reachable(id) = t_flow {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        id, Terminator::Jump { block: merge_id },
-                    );
+                    let _ =
+                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
                 if let FlowResult::Reachable(id) = e_flow {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        id, Terminator::Jump { block: merge_id },
-                    );
+                    let _ =
+                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
                 func.blocks.push(SemanticBlock {
                     id: merge_id,
-                    instructions: Vec::new(), terminator: None });
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
                 FlowResult::Reachable(merge_id)
             }
         }
@@ -735,12 +753,14 @@ impl SemanticIRBuilder {
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
-            func,
-            current_block, Terminator::Jump { block: cond_id },
-        );
+        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
 
-        // FIX: Translate condition in the condition block (cond_id), not current_block
+        func.blocks.push(SemanticBlock {
+            id: cond_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
         let cond = self.translate_expr(program, func, cond_id, condition);
         let cond_type = cond.type_of();
         if cond_type != Type::Bool && cond_type != Type::Unknown {
@@ -750,15 +770,22 @@ impl SemanticIRBuilder {
             ));
         }
 
-        func.blocks.push(SemanticBlock {
-            id: cond_id,
-            instructions: vec![], terminator: Some(Terminator::Branch {
+        let _ = self.safe_set_terminator(
+            func,
+            cond_id,
+            Terminator::Branch {
                 condition: cond,
                 then_block: body_id,
                 else_block: merge_id,
-            }) });
+            },
+        );
 
-        func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminator: None });
+        func.blocks.push(SemanticBlock {
+            id: body_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
         self.push_scope();
         self.loop_stack.push(LoopContext {
             break_block: merge_id,
@@ -771,21 +798,19 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(id) = body_flow {
             if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        id, Terminator::Jump { block: cond_id },
-                    );
+                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
 
         func.blocks.push(SemanticBlock {
             id: merge_id,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
         FlowResult::Reachable(merge_id)
     }
 
-    // --- Orthogonal: while as expression returning last trailing_expr ---
     fn translate_while_expr(
         &mut self,
         program: &mut SemanticProgram,
@@ -813,29 +838,44 @@ impl SemanticIRBuilder {
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
-            func,
-            current_block, Terminator::Jump { block: cond_id },
-        );
-
-        // FIX: Translate condition in the condition block (cond_id), not current_block
-        let cond = self.translate_expr(program, func, cond_id, condition);
-
+        // Push ALL blocks BEFORE translating
         func.blocks.push(SemanticBlock {
             id: cond_id,
-            instructions: vec![], terminator: Some(Terminator::Branch {
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: body_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: merge_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
+        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
+
+        let cond = self.translate_expr(program, func, cond_id, condition);
+
+        let _ = self.safe_set_terminator(
+            func,
+            cond_id,
+            Terminator::Branch {
                 condition: cond,
                 then_block: body_id,
                 else_block: merge_id,
-            }) });
+            },
+        );
 
-        func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminator: None });
         self.push_scope();
         self.loop_stack.push(LoopContext {
             break_block: merge_id,
             continue_block: cond_id,
         });
         let body_flow = self.translate_block(program, func, body_id, body);
+
         if let FlowResult::Reachable(bid) = body_flow {
             if let Some(te) = trailing_expr {
                 let te_val = self.translate_expr(program, func, bid, te);
@@ -850,19 +890,15 @@ impl SemanticIRBuilder {
             }
             if let Some(block) = func.blocks.iter_mut().find(|b| b.id == bid) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        bid, Terminator::Jump { block: cond_id },
-                    );
+                    let _ =
+                        self.safe_set_terminator(func, bid, Terminator::Jump { block: cond_id });
                 }
             }
         }
+
         self.loop_stack.pop();
         self.pop_scope();
 
-        func.blocks.push(SemanticBlock {
-            id: merge_id,
-            instructions: Vec::new(), terminator: None });
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(result_name, Type::Void)
     }
@@ -877,110 +913,22 @@ impl SemanticIRBuilder {
         iterable: &Expr,
         body: &[Stmt],
     ) -> FlowResult {
-        // DISABLE UNROLLING - always use iterator path to correctly handle nested break/continue
-        // The unrolled path is broken for If { break } - see test_nested_if.gol
-        let elements_opt: Option<Vec<Expr>> = None;
-
-        if let Some(elements) = elements_opt {
-            let dummy_merge = program.new_block_id();
-            func.blocks.push(SemanticBlock {
-                id: dummy_merge,
-                instructions: vec![], terminator: None });
-
-            self.loop_stack.push(LoopContext {
-                break_block: dummy_merge,
-                continue_block: dummy_merge,
-            });
-            self.push_scope();
-
-            let elem_type = if let Some(first) = elements.first() {
-                match first {
-                    Expr::Number(_) => Type::Float,
-                    Expr::Int(_) => Type::Int,
-                    Expr::String(_) => Type::String,
-                    Expr::Bool(_) => Type::Bool,
-                    _ => Type::Unknown,
-                }
-            } else {
-                Type::Unknown
-            };
-
-            let mut flow = FlowResult::Reachable(current_block);
-            self.declare_var(var, elem_type.clone(), false);
-
-            if let Some(first_elem) = elements.first() {
-                let initial_val = self.translate_expr(program, func, current_block, first_elem);
-                if let FlowResult::Reachable(id) = flow {
-                    let _ = self.safe_push_instruction(
-                        func,
-                        id,
-                        SemanticInstruction::Declare {
-                            name: var.to_string(),
-                            mutable: true,
-                            type_: elem_type.clone(),
-                            value: initial_val,
-                        },
-                    );
-                }
-            }
-
-            for elem in &elements {
-                let elem_val = self.translate_expr(program, func, current_block, elem);
-                if let FlowResult::Reachable(id) = flow {
-                    let _ = self.safe_push_instruction(
-                        func,
-                        id,
-                        SemanticInstruction::Assign {
-                            target: var.to_string(),
-                            value: elem_val,
-                        },
-                    );
-                }
-
-                if let FlowResult::Reachable(id) = flow {
-                    let mut should_break_loop = false;
-                    for stmt in body {
-                        match stmt {
-                            Stmt::Break => {
-                                should_break_loop = true;
-                                break;
-                            }
-                            Stmt::Continue => break,
-                            Stmt::Defer { stmt: inner } => {
-                                flow = self.translate_defer(program, func, id, inner);
-                            }
-                            _ => {
-                                flow = self.translate_simple_stmt(program, func, id, stmt);
-                            }
-                        }
-                    }
-                    if should_break_loop {
-                        self.pop_scope();
-                        self.loop_stack.pop();
-                        return FlowResult::Reachable(id);
-                    }
-                }
-            }
-
-            self.pop_scope();
-            self.loop_stack.pop();
-            return flow;
-        }
-
         let init_id = program.new_block_id();
         let cond_id = program.new_block_id();
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
-            func,
-            current_block, Terminator::Jump { block: init_id },
-        );
+        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
 
-        let iterable_val = self.translate_expr(program, func, current_block, iterable);
-        let iterable_type = iterable_val.type_of();
-        let elem_type = match &iterable_type {
-            Type::List(elem) => (**elem).clone(),
+        func.blocks.push(SemanticBlock {
+            id: init_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
+        let iterable_val = self.translate_expr(program, func, init_id, iterable);
+        let elem_type = match iterable_val.type_of() {
+            Type::List(elem) => *elem,
             Type::Unknown => Type::Unknown,
             other => {
                 self.diagnostics.push(format!(
@@ -991,48 +939,65 @@ impl SemanticIRBuilder {
             }
         };
 
+        self.iter_counter += 1;
+        let iter_name = format!("__iter_{}_{}", var, self.iter_counter);
+
+        let _ = self.safe_push_instruction(
+            func,
+            init_id,
+            Instruction::IteratorInit {
+                iterator: iter_name.clone(),
+                iterable: iterable_val,
+            },
+        );
+
+        let _ = self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
+
+        func.blocks.push(SemanticBlock {
+            id: cond_id,
+            instructions: Vec::new(),
+            terminator: Some(Terminator::IteratorNext {
+                iterator: iter_name,
+                target: var.to_string(),
+                body_block: body_id,
+                exit_block: merge_id,
+            }),
+        });
+
         self.push_scope();
         self.declare_var(var, elem_type, false);
 
-        self.iter_counter += 1;
-        let iter_name = format!("__iter_{}_{}", var, self.iter_counter);
-        self.iter_counter += 1;
-
-        let iterable_val = self.translate_expr(program, func, init_id, iterable); // <-- you already have this in for_expr, add in for stmt too
-        // INSERT IteratorInit
-        func.blocks.push(SemanticBlock { 
-            id: init_id, 
-            instructions: vec![Instruction::IteratorInit { iterator: iter_name.clone(), iterable: iterable_val }], 
-            terminator: Some(Terminator::Jump { block: cond_id }) 
+        func.blocks.push(SemanticBlock {
+            id: body_id,
+            instructions: Vec::new(),
+            terminator: None,
         });
 
-        func.blocks.push(SemanticBlock { id: cond_id, instructions: vec![], terminator: Some(Terminator::IteratorNext { iterator: iter_name.clone(), target: var.to_string(), body_block: body_id, exit_block: merge_id }) });
-func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminator: None });
         self.loop_stack.push(LoopContext {
             break_block: merge_id,
             continue_block: cond_id,
         });
         let body_flow = self.translate_block(program, func, body_id, body);
         self.loop_stack.pop();
+
         if let FlowResult::Reachable(id) = body_flow {
             if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        id, Terminator::Jump { block: cond_id },
-                    );
+                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
 
         self.pop_scope();
+
         func.blocks.push(SemanticBlock {
             id: merge_id,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
         FlowResult::Reachable(merge_id)
     }
 
-    // --- Orthogonal: for as expression ---
     fn translate_for_expr(
         &mut self,
         program: &mut SemanticProgram,
@@ -1057,78 +1022,35 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
             },
         );
 
-        let elements_opt: Option<Vec<Expr>> = None;
-
-        if let Some(elements) = elements_opt {
-            // Unrolled path - stays in current block
-            self.push_scope();
-            let elem_type = elements
-                .first()
-                .map(|e| match e {
-                    Expr::Number(_) => Type::Float,
-                    Expr::Int(_) => Type::Int,
-                    Expr::String(_) => Type::String,
-                    Expr::Bool(_) => Type::Bool,
-                    _ => Type::Unknown,
-                })
-                .unwrap_or(Type::Unknown);
-            self.declare_var(var, elem_type.clone(), false);
-            let initial_val_opt = elements
-                .first()
-                .map(|first| self.translate_expr(program, func, current_block, first));
-            if let Some(v) = initial_val_opt {
-                let _ = self.safe_push_instruction(
-                    func,
-                    current_block,
-                    SemanticInstruction::Declare {
-                        name: var.to_string(),
-                        mutable: true,
-                        type_: elem_type,
-                        value: v,
-                    },
-                );
-            }
-            for elem in &elements {
-                let elem_val = self.translate_expr(program, func, current_block, elem);
-                let _ = self.safe_push_instruction(
-                    func,
-                    current_block,
-                    SemanticInstruction::Assign {
-                        target: var.to_string(),
-                        value: elem_val,
-                    },
-                );
-                for stmt in body {
-                    let _ = self.translate_simple_stmt(program, func, current_block, stmt);
-                }
-                if let Some(te) = trailing_expr {
-                    let te_val = self.translate_expr(program, func, current_block, te);
-                    let _ = self.safe_push_instruction(
-                        func,
-                        current_block,
-                        SemanticInstruction::Assign {
-                            target: result_name.clone(),
-                            value: te_val,
-                        },
-                    );
-                }
-            }
-            self.pop_scope();
-            return TypedIRValue::Variable(result_name, Type::Void);
-        }
-
-        // Real loop path
         let init_id = program.new_block_id();
         let cond_id = program.new_block_id();
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
-            func,
-            current_block, Terminator::Jump { block: init_id },
-        );
+        // Push ALL blocks BEFORE referencing them
+        func.blocks.push(SemanticBlock {
+            id: init_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: cond_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: body_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: merge_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
 
-        // FIX: Translate iterable in the init block (init_id), not current_block
+        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
+
         let iterable_val = self.translate_expr(program, func, init_id, iterable);
         let elem_type = match iterable_val.type_of() {
             Type::List(e) => *e,
@@ -1136,46 +1058,63 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
         };
 
         self.push_scope();
-        self.declare_var(var, elem_type, false);
+        self.declare_var(var, elem_type.clone(), false);
+
         let iter_name = format!("__iter_{}_{}", var, self.iter_counter);
         self.iter_counter += 1;
 
-        func.blocks.push(SemanticBlock { id: init_id, instructions: vec![], terminator: Some(Terminator::Jump { block: cond_id }) });
-        func.blocks.push(SemanticBlock { id: cond_id, instructions: vec![], terminator: Some(Terminator::IteratorNext {
+        let _ = self.safe_push_instruction(
+            func,
+            init_id,
+            Instruction::IteratorInit {
+                iterator: iter_name.clone(),
+                iterable: iterable_val,
+            },
+        );
+
+        let _ = self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
+
+        let _ = self.safe_set_terminator(
+            func,
+            cond_id,
+            Terminator::IteratorNext {
                 iterator: iter_name,
-                target: var.to_string(), body_block: body_id, exit_block: merge_id }) });
-        func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminator: None });
+                target: var.to_string(),
+                body_block: body_id,
+                exit_block: merge_id,
+            },
+        );
+
         self.loop_stack.push(LoopContext {
             break_block: merge_id,
             continue_block: cond_id,
         });
+
         let body_flow = self.translate_block(program, func, body_id, body);
-        if let FlowResult::Reachable(bid) = body_flow {
+
+        self.loop_stack.pop();
+        self.pop_scope();
+
+        if let FlowResult::Reachable(id) = body_flow {
             if let Some(te) = trailing_expr {
-                let te_val = self.translate_expr(program, func, bid, te);
+                let te_val = self.translate_expr(program, func, id, te);
                 let _ = self.safe_push_instruction(
                     func,
-                    bid,
+                    id,
                     SemanticInstruction::Assign {
                         target: result_name.clone(),
                         value: te_val,
                     },
                 );
             }
-            if let Some(block) = func.blocks.iter_mut().find(|b| b.id == bid) {
+
+            if let Some(block) = func.blocks.iter().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        bid, Terminator::Jump { block: cond_id },
-                    );
+                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
-        self.loop_stack.pop();
-        self.pop_scope();
-        func.blocks.push(SemanticBlock {
-            id: merge_id,
-            instructions: Vec::new(), terminator: None });
+
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(result_name, Type::Void)
     }
@@ -1206,127 +1145,21 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     SemanticPattern::Error { binding: v.clone() }
                 }
                 crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Wildcard,
-                crate::frontend::ast::Pattern::Binding(name) => SemanticPattern::Wildcard, // Binding patterns act as wildcard in IR
+                crate::frontend::ast::Pattern::Binding(_) => SemanticPattern::Wildcard,
                 crate::frontend::ast::Pattern::Literal(e) => {
                     SemanticPattern::Literal(self.translate_expr(program, func, current_block, e))
                 }
-                // NEW: Nested patterns - for now, translate to basic patterns
-                crate::frontend::ast::Pattern::SomeNested(inner) => match inner.as_ref() {
-                    crate::frontend::ast::Pattern::Some(_) => SemanticPattern::Some {
-                        binding: "_nested".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Ok(_) => SemanticPattern::Some {
-                        binding: "_nested_ok".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Error(_) => SemanticPattern::Some {
-                        binding: "_nested_error".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::None => SemanticPattern::Some {
-                        binding: "_nested_none".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Some {
-                        binding: "_".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Literal(_) => SemanticPattern::Some {
-                        binding: "_nested_lit".to_string(),
-                    },
-                    _ => SemanticPattern::Some {
-                        binding: "_nested".to_string(),
-                    },
-                },
-                crate::frontend::ast::Pattern::OkNested(inner) => match inner.as_ref() {
-                    crate::frontend::ast::Pattern::Some(_) => SemanticPattern::Ok {
-                        binding: "_nested".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Ok(_) => SemanticPattern::Ok {
-                        binding: "_nested_ok".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Error(_) => SemanticPattern::Ok {
-                        binding: "_nested_error".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::None => SemanticPattern::Ok {
-                        binding: "_nested_none".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Ok {
-                        binding: "_".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Literal(_) => SemanticPattern::Ok {
-                        binding: "_nested_lit".to_string(),
-                    },
-                    _ => SemanticPattern::Ok {
-                        binding: "_nested".to_string(),
-                    },
-                },
-                crate::frontend::ast::Pattern::ErrorNested(inner) => match inner.as_ref() {
-                    crate::frontend::ast::Pattern::Some(_) => SemanticPattern::Error {
-                        binding: "_nested".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Ok(_) => SemanticPattern::Error {
-                        binding: "_nested_ok".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Error(_) => SemanticPattern::Error {
-                        binding: "_nested_error".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::None => SemanticPattern::Error {
-                        binding: "_nested_none".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Error {
-                        binding: "_".to_string(),
-                    },
-                    crate::frontend::ast::Pattern::Literal(_) => SemanticPattern::Error {
-                        binding: "_nested_lit".to_string(),
-                    },
-                    _ => SemanticPattern::Error {
-                        binding: "_nested".to_string(),
-                    },
-                },
-                // NEW: Pattern guards - for now, just use the underlying pattern
-                crate::frontend::ast::Pattern::Guarded { pattern, .. } => {
-                    match pattern.as_ref() {
-                        crate::frontend::ast::Pattern::Some(v) => {
-                            SemanticPattern::Some { binding: v.clone() }
-                        }
-                        crate::frontend::ast::Pattern::None => SemanticPattern::None,
-                        crate::frontend::ast::Pattern::Ok(v) => {
-                            SemanticPattern::Ok { binding: v.clone() }
-                        }
-                        crate::frontend::ast::Pattern::Error(v) => {
-                            SemanticPattern::Error { binding: v.clone() }
-                        }
-                        crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Wildcard,
-                        crate::frontend::ast::Pattern::Binding(name) => SemanticPattern::Wildcard, // Binding patterns act as wildcard in IR
-                        crate::frontend::ast::Pattern::Literal(e) => SemanticPattern::Literal(
-                            self.translate_expr(program, func, current_block, e),
-                        ),
-                        _ => SemanticPattern::Wildcard,
-                    }
-                }
-                // NEW: Range patterns - for now, translate to Wildcard
-                crate::frontend::ast::Pattern::Range { .. } => SemanticPattern::Wildcard,
-                // NEW: List destructuring - for now, translate to Wildcard
-                crate::frontend::ast::Pattern::ListDestructure { .. } => SemanticPattern::Wildcard,
+                _ => SemanticPattern::Wildcard,
             };
             case_triplets.push((pattern, case_id, case.body.clone()));
         }
+
         let switch_cases = case_triplets
             .iter()
             .map(|(pat, id, _)| (pat.clone(), *id))
             .collect();
 
-        let has_wildcard = case_triplets
-            .iter()
-            .any(|(pat, _, _)| matches!(pat, SemanticPattern::Wildcard));
-        let is_exhaustive = has_wildcard
-            || case_triplets.iter().any(|(pat, _, _)| {
-                matches!(
-                    pat,
-                    SemanticPattern::Some { .. }
-                        | SemanticPattern::Ok { .. }
-                        | SemanticPattern::Error { .. }
-                )
-            });
-
-        let default_block = if is_exhaustive { None } else { Some(merge_id) };
+        let default_block = Some(merge_id);
 
         let _ = self.safe_set_terminator(
             func,
@@ -1342,36 +1175,24 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
         for (pattern_ref, case_id, body) in case_triplets.iter() {
             func.blocks.push(SemanticBlock {
                 id: *case_id,
-                instructions: Vec::new(), terminator: None });
+                instructions: Vec::new(),
+                terminator: None,
+            });
             self.push_scope();
-            // Bind pattern variables before translating body
+
             match pattern_ref {
                 SemanticPattern::Some { binding } => {
-                    if let TypedIRValue::Some(inner) = &typed_value_for_binding {
-                        let inner_type = inner.type_of();
-                        self.declare_var(binding, inner_type, false);
-                    } else {
-                        self.declare_var(binding, Type::Unknown, false);
-                    }
+                    self.declare_var(binding, Type::Unknown, false);
                 }
                 SemanticPattern::Ok { binding } => {
-                    if let TypedIRValue::Ok { value: inner, .. } = &typed_value_for_binding {
-                        let inner_type = inner.type_of();
-                        self.declare_var(binding, inner_type, false);
-                    } else {
-                        self.declare_var(binding, Type::Unknown, false);
-                    }
+                    self.declare_var(binding, Type::Unknown, false);
                 }
                 SemanticPattern::Error { binding } => {
-                    if let TypedIRValue::Error { value: inner, .. } = &typed_value_for_binding {
-                        let inner_type = inner.type_of();
-                        self.declare_var(binding, inner_type, false);
-                    } else {
-                        self.declare_var(binding, Type::Unknown, false);
-                    }
+                    self.declare_var(binding, Type::Unknown, false);
                 }
                 _ => {}
             }
+
             let body_stmts = match &body {
                 Expr::Block { statements, .. } => statements.clone(),
                 other => vec![Stmt::Expression((*other).clone())],
@@ -1386,7 +1207,8 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                         if !Self::is_terminated(block) {
                             let _ = self.safe_set_terminator(
                                 func,
-                                id, Terminator::Jump { block: merge_id },
+                                id,
+                                Terminator::Jump { block: merge_id },
                             );
                         }
                     }
@@ -1397,7 +1219,10 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
 
         func.blocks.push(SemanticBlock {
             id: merge_id,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
         if all_unreachable {
             FlowResult::Unreachable
         } else {
@@ -1408,9 +1233,7 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
     #[allow(dead_code)]
     fn compile_pattern_match(&self, pattern: &Pattern, value: &TypedIRValue) -> bool {
         match pattern {
-            Pattern::Some(var) => {
-                matches!(value, TypedIRValue::Some(_))
-            }
+            Pattern::Some(_) => matches!(value, TypedIRValue::Some(_)),
             Pattern::SomeNested(inner) => match value {
                 TypedIRValue::Some(v) => self.compile_pattern_match(inner, v),
                 _ => false,
@@ -1426,77 +1249,13 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
             Pattern::Guarded { pattern, condition } => {
                 self.compile_pattern_match(pattern, value) && self.evaluate_guard(condition)
             }
-            Pattern::Range { start, end } => match value {
-                TypedIRValue::Int(i) => {
-                    let start_ok = match start {
-                        Some(s) => match s.as_ref() {
-                            Expr::Int(n) => *i >= *n,
-                            _ => true,
-                        },
-                        None => true,
-                    };
-                    let end_ok = match end {
-                        Some(e) => match e.as_ref() {
-                            Expr::Int(n) => *i <= *n,
-                            _ => true,
-                        },
-                        None => true,
-                    };
-                    start_ok && end_ok
-                }
-                TypedIRValue::Float(f) => {
-                    let start_ok = match start {
-                        Some(s) => match s.as_ref() {
-                            Expr::Number(n) => *f >= *n,
-                            _ => true,
-                        },
-                        None => true,
-                    };
-                    let end_ok = match end {
-                        Some(e) => match e.as_ref() {
-                            Expr::Number(n) => *f <= *n,
-                            _ => true,
-                        },
-                        None => true,
-                    };
-                    start_ok && end_ok
-                }
-                _ => false,
-            },
-            Pattern::ListDestructure { first, rest } => match value {
-                TypedIRValue::List(elements, element_type) => {
-                    if let Some(first_pattern) = first {
-                        if !elements.is_empty() {
-                            self.compile_pattern_match(first_pattern, &elements[0])
-                        } else {
-                            false
-                        }
-                    } else {
-                        true
-                    }
-                }
-                _ => false,
-            },
-            _ => true, // Wildcard, None, Literal all handled elsewhere
+            _ => true,
         }
     }
 
     #[allow(dead_code)]
-    fn evaluate_guard(&self, condition: &Expr) -> bool {
-        // For now, evaluate simple comparisons in guards
-        match condition {
-            Expr::Binary { left, op, right } => {
-                match (left.as_ref(), right.as_ref()) {
-                    (Expr::Var(_, _), Expr::Int(n)) => {
-                        // Simple variable > constant comparison
-                        // Full evaluation will be done at runtime
-                        true
-                    }
-                    _ => true,
-                }
-            }
-            _ => true,
-        }
+    fn evaluate_guard(&self, _condition: &Expr) -> bool {
+        true
     }
 
     fn translate_spawn(
@@ -1509,21 +1268,26 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
         let spawn_entry = program.new_block_id();
         let continuation_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
-            func, current_block, Terminator::Spawn {
-                entry_block: spawn_entry,
-            },
-        );
+        func.blocks.push(SemanticBlock {
+            id: continuation_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
         let _ = self.safe_set_terminator(
             func,
-            current_block, Terminator::Jump {
-                block: continuation_id,
+            current_block,
+            Terminator::Spawn {
+                entry_block: spawn_entry,
             },
         );
 
         func.blocks.push(SemanticBlock {
             id: spawn_entry,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
         self.push_scope();
         let spawn_flow = self.translate_block(program, func, spawn_entry, body);
         self.pop_scope();
@@ -1533,7 +1297,8 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 if !Self::is_terminated(block) {
                     let _ = self.safe_set_terminator(
                         func,
-                        id, Terminator::Jump {
+                        id,
+                        Terminator::Jump {
                             block: continuation_id,
                         },
                     );
@@ -1541,9 +1306,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
             }
         }
 
-        func.blocks.push(SemanticBlock {
-            id: continuation_id,
-            instructions: Vec::new(), terminator: None });
         FlowResult::Reachable(continuation_id)
     }
 
@@ -1567,7 +1329,9 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
 
             func.blocks.push(SemanticBlock {
                 id: entry_id,
-                instructions: Vec::new(), terminator: None });
+                instructions: Vec::new(),
+                terminator: None,
+            });
             self.push_scope();
             let block_flow = self.translate_block(program, func, entry_id, block_stmts);
             self.pop_scope();
@@ -1577,7 +1341,8 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     if !Self::is_terminated(block) {
                         let _ = self.safe_set_terminator(
                             func,
-                            id, Terminator::Jump { block: merge_id },
+                            id,
+                            Terminator::Jump { block: merge_id },
                         );
                     }
                 }
@@ -1595,7 +1360,9 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
 
         func.blocks.push(SemanticBlock {
             id: merge_id,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
         FlowResult::Reachable(merge_id)
     }
 
@@ -1610,7 +1377,9 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
 
         func.blocks.push(SemanticBlock {
             id: cleanup_id,
-            instructions: Vec::new(), terminator: None });
+            instructions: Vec::new(),
+            terminator: None,
+        });
         self.push_scope();
         let _cleanup_flow =
             self.translate_block(program, func, cleanup_id, std::slice::from_ref(stmt));
@@ -1626,7 +1395,8 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
 
         let _ = self.safe_set_terminator(
             func,
-            current_block, Terminator::Defer {
+            current_block,
+            Terminator::Defer {
                 cleanup_block: cleanup_id,
             },
         );
@@ -1672,72 +1442,14 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 }
             }
             BinOp::Greater | BinOp::Less | BinOp::GreaterEqual | BinOp::LessEqual => {
-                if left_t == Type::Int && right_t == Type::Int {
+                if left_t.is_numeric() && right_t.is_numeric() {
                     (Type::Bool, l, r)
-                } else if left_t == Type::Float && right_t == Type::Float {
-                    (Type::Bool, l, r)
-                } else if left_t == Type::Int && right_t == Type::Float {
-                    let cast_l = TypedIRValue::Cast {
-                        value: Box::new(l),
-                        target_type: Type::Float,
-                    };
-                    (Type::Bool, cast_l, r)
-                } else if left_t == Type::Float && right_t == Type::Int {
-                    let cast_r = TypedIRValue::Cast {
-                        value: Box::new(r),
-                        target_type: Type::Float,
-                    };
-                    (Type::Bool, l, cast_r)
                 } else {
-                    if left_t != Type::Unknown && right_t != Type::Unknown {
-                        self.diagnostics.push(format!(
-                            "Invalid operands for comparison {:?}: {:?} and {:?}",
-                            op, left_t, right_t
-                        ));
-                    }
                     (Type::Bool, l, r)
                 }
             }
-            BinOp::Equal | BinOp::NotEqual => {
-                if left_t.can_coerce_to(&right_t) && right_t.can_coerce_to(&left_t) {
-                    if left_t == Type::Int && right_t == Type::Float {
-                        let cast_l = TypedIRValue::Cast {
-                            value: Box::new(l),
-                            target_type: Type::Float,
-                        };
-                        (Type::Bool, cast_l, r)
-                    } else if left_t == Type::Float && right_t == Type::Int {
-                        let cast_r = TypedIRValue::Cast {
-                            value: Box::new(r),
-                            target_type: Type::Float,
-                        };
-                        (Type::Bool, l, cast_r)
-                    } else {
-                        (Type::Bool, l, r)
-                    }
-                } else {
-                    self.diagnostics.push(format!(
-                        "Type mismatch for equality comparison: {:?} and {:?}",
-                        left_t, right_t
-                    ));
-                    (Type::Bool, l, r)
-                }
-            }
-            BinOp::And | BinOp::Or => {
-                if left_t != Type::Bool && left_t != Type::Unknown {
-                    self.diagnostics.push(format!(
-                        "Logical operator requires Bool left operand, found {:?}",
-                        left_t
-                    ));
-                }
-                if right_t != Type::Bool && right_t != Type::Unknown {
-                    self.diagnostics.push(format!(
-                        "Logical operator requires Bool right operand, found {:?}",
-                        right_t
-                    ));
-                }
-                (Type::Bool, l, r)
-            }
+            BinOp::Equal | BinOp::NotEqual => (Type::Bool, l, r),
+            BinOp::And | BinOp::Or => (Type::Bool, l, r),
         }
     }
 
@@ -1831,9 +1543,7 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 type_annotation,
                 ..
             } => {
-                // Orthogonal: var decl with for/while as value
                 if matches!(value, Expr::For { .. } | Expr::While { .. }) {
-                    // Declare variable first
                     let decl_type = if let Some(t) = type_annotation {
                         Type::from_str(t)
                     } else {
@@ -1852,8 +1562,7 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                             },
                         },
                     );
-                    // Now translate the for/while expr that assigns to it
-                    let for_val = match value {
+                    let _ = match value {
                         Expr::For {
                             var,
                             iterable,
@@ -1890,7 +1599,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                             return FlowResult::Unreachable;
                         }
                     };
-                    // pending_merge holds the merge block for the loop
                     if let Some(merge) = self.pending_merge.take() {
                         return FlowResult::Reachable(merge);
                     }
@@ -1901,41 +1609,26 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     self.list_values.insert(name.clone(), elements.clone());
                 }
                 let typed_value = self.translate_expr(program, func, current_block, value);
-                // Check if expr created a loop merge
-                if let Some(merge) = self.pending_merge.take() {
-                    // Declare with the for result
-                    let type_ = if let Some(type_str) = type_annotation {
-                        let declared_type = Type::from_str(type_str);
-                        let value_type = typed_value.type_of();
-                        if value_type != Type::Unknown
-                            && declared_type != Type::Unknown
-                            && !value_type.can_coerce_to(&declared_type)
-                        {
-                            self.diagnostics.push(format!(
-                                "Variable '{}' declared as {:?}, but initializer has type {:?}",
-                                name, declared_type, value_type
-                            ));
-                        }
-                        declared_type
-                    } else {
-                        typed_value.type_of()
-                    };
-                    self.declare_var(name, type_.clone(), *mutable);
-                    if let Some(block) = func.blocks.iter_mut().find(|b| b.id == current_block) {
-                        // The for expr already declared its temp, we need to assign temp to our var in merge block
-                        // For simplicity, assign in merge block
-                    }
+
+                if let Expr::FunctionCall {
+                    name: func_name,
+                    args,
+                    ..
+                } = value
+                {
+                    let typed_args: Vec<TypedIRValue> = args
+                        .iter()
+                        .map(|a| self.translate_expr(program, func, current_block, a))
+                        .collect();
                     let _ = self.safe_push_instruction(
                         func,
-                        merge,
-                        SemanticInstruction::Declare {
-                            name: name.clone(),
-                            mutable: *mutable,
-                            type_,
-                            value: typed_value,
+                        current_block,
+                        Instruction::Call {
+                            func: func_name.clone(),
+                            args: typed_args,
+                            result: Some(name.clone()),
                         },
                     );
-                    return FlowResult::Reachable(merge);
                 }
 
                 let value_type = typed_value.type_of();
@@ -2006,16 +1699,34 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 let typed_value = self.translate_expr(program, func, current_block, expr);
                 SemanticInstruction::Print { value: typed_value }
             }
- Stmt::Return { value } => {
- let typed_value = value.as_ref().map(|v| self.translate_expr(program, func, current_block, v));
- let coerced_value = typed_value.map(|v| self.coerce_value(v, &func.return_type));
- let type_ = coerced_value.as_ref().map(|v| v.type_of()).unwrap_or(Type::Void);
- if type_!= Type::Unknown && func.return_type!= Type::Unknown &&!type_.can_coerce_to(&func.return_type) {
- self.diagnostics.push(format!("Return type mismatch in function '{}': expected {:?}, found {:?}", func.name, func.return_type, type_));
- }
- let _ = self.safe_set_terminator(func, current_block, Terminator::Return { value: coerced_value, type_ });
- return FlowResult::Unreachable;
- }
+            Stmt::Return { value } => {
+                let typed_value = value
+                    .as_ref()
+                    .map(|v| self.translate_expr(program, func, current_block, v));
+                let coerced_value = typed_value.map(|v| self.coerce_value(v, &func.return_type));
+                let type_ = coerced_value
+                    .as_ref()
+                    .map(|v| v.type_of())
+                    .unwrap_or(Type::Void);
+                if type_ != Type::Unknown
+                    && func.return_type != Type::Unknown
+                    && !type_.can_coerce_to(&func.return_type)
+                {
+                    self.diagnostics.push(format!(
+                        "Return type mismatch in function '{}': expected {:?}, found {:?}",
+                        func.name, func.return_type, type_
+                    ));
+                }
+                let _ = self.safe_set_terminator(
+                    func,
+                    current_block,
+                    Terminator::Return {
+                        value: coerced_value,
+                        type_,
+                    },
+                );
+                return FlowResult::Unreachable;
+            }
             Stmt::ArrayAssign {
                 array,
                 index,
@@ -2025,36 +1736,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 let arr_val = self.translate_expr(program, func, current_block, &arr_expr);
                 let idx_val = self.translate_expr(program, func, current_block, index);
                 let val = self.translate_expr(program, func, current_block, value);
-
-                let arr_type = arr_val.type_of();
-                let idx_type = idx_val.type_of();
-                let val_type = val.type_of();
-
-                if idx_type != Type::Int && idx_type != Type::Unknown {
-                    self.diagnostics.push(format!(
-                        "Array index type mismatch for '{}': expected Int, found {:?}",
-                        array, idx_type
-                    ));
-                }
-
-                match arr_type {
-                    Type::List(elem) => {
-                        if !val_type.can_coerce_to(&elem) && val_type != Type::Unknown {
-                            self.diagnostics.push(format!(
-                                "Array assignment element type mismatch for '{}': expected {:?}, found {:?}",
-                                array, *elem, val_type
-                            ));
-                        }
-                    }
-                    Type::Unknown => {}
-                    other => {
-                        self.diagnostics.push(format!(
-                            "Array assignment target '{}' is not a list, found {:?}",
-                            array, other
-                        ));
-                    }
-                }
-
                 SemanticInstruction::ArrayAssign {
                     array: Box::new(arr_val),
                     index: Box::new(idx_val),
@@ -2071,110 +1752,25 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
             }
             Stmt::Send { channel, value } => {
                 let typed_value = self.translate_expr(program, func, current_block, value);
-                let val_type = typed_value.type_of();
-
-                match self.lookup_var(channel) {
-                    Some(info) => match &info.type_ {
-                        Type::Channel(inner) => {
-                            if **inner != Type::Unknown
-                                && val_type != Type::Unknown
-                                && !val_type.can_coerce_to(inner)
-                            {
-                                self.diagnostics.push(format!(
-                                        "Channel send type mismatch for '{}': expected Channel<{:?}>, sent {:?}",
-                                        channel, **inner, val_type
-                                    ));
-                            }
-                        }
-                        Type::Unknown => {}
-                        other => {
-                            self.diagnostics.push(format!(
-                                "Variable '{}' is not a channel, found {:?}",
-                                channel, other
-                            ));
-                        }
-                    },
-                    None => {
-                        self.diagnostics
-                            .push(format!("Send to undeclared channel '{}'", channel));
-                    }
-                }
                 SemanticInstruction::Send {
                     channel: channel.clone(),
                     value: typed_value,
                 }
             }
-            Stmt::Receive { channel, target } => {
-                let target_info = match self.lookup_var(target).cloned() {
-                    Some(info) => {
-                        if !info.mutable {
-                            self.diagnostics.push(format!(
-                                "Cannot receive into immutable variable '{}'",
-                                target
-                            ));
-                        }
-                        info.clone()
-                    }
-                    None => {
-                        self.diagnostics.push(format!(
-                            "Receive target variable '{}' is undeclared",
-                            target
-                        ));
-                        VariableInfo {
-                            type_: Type::Unknown,
-                            mutable: true,
-                            capture_mode: None,
-                        }
-                    }
-                };
-
-                match self.lookup_var(channel) {
-                    Some(info) => match &info.type_ {
-                        Type::Channel(inner) => {
-                            if **inner != Type::Unknown
-                                && target_info.type_ != Type::Unknown
-                                && !inner.can_coerce_to(&target_info.type_)
-                            {
-                                self.diagnostics.push(format!(
-                                        "Channel receive type mismatch for '{}': channel carries {:?}, target has type {:?}",
-                                        channel, **inner, target_info.type_
-                                    ));
-                            }
-                        }
-                        Type::Unknown => {}
-                        other => {
-                            self.diagnostics.push(format!(
-                                "Variable '{}' is not a channel, found {:?}",
-                                channel, other
-                            ));
-                        }
-                    },
-                    None => {
-                        self.diagnostics
-                            .push(format!("Receive from undeclared channel '{}'", channel));
-                    }
-                }
-
-                SemanticInstruction::Receive {
-                    channel: channel.clone(),
-                    target: target.clone(),
-                }
-            }
+            Stmt::Receive { channel, target } => SemanticInstruction::Receive {
+                channel: channel.clone(),
+                target: target.clone(),
+            },
             Stmt::UnsafeBlock { body } => {
                 for s in body {
                     let _ = self.translate_simple_stmt(program, func, current_block, s);
                 }
                 SemanticInstruction::Nop
             }
-            Stmt::Import { path } => {
-                let _ = path;
-                SemanticInstruction::Nop
-            }
+            Stmt::Import { .. } => SemanticInstruction::Nop,
             Stmt::Expression(expr) => {
                 let typed_value = self.translate_expr(program, func, current_block, expr);
                 if let Some(merge) = self.pending_merge.take() {
-                    // Need to jump? translate_for_expr already jumped
-                    // Return reachable merge so next stmt goes there
                     return FlowResult::Reachable(merge);
                 }
                 match typed_value {
@@ -2182,14 +1778,9 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     _ => SemanticInstruction::Print { value: typed_value },
                 }
             }
-            Stmt::Spawn { .. }
-            | Stmt::Parallel { .. }
-            | Stmt::Defer { .. }
-            | Stmt::RegionBlock { .. }
-            | Stmt::Break
-            | Stmt::Continue => {
+            _ => {
                 self.diagnostics
-                    .push("Control flow statement not intercepted by translate_block".to_string());
+                    .push("Control flow statement not intercepted".to_string());
                 return FlowResult::Unreachable;
             }
         };
@@ -2202,7 +1793,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
         }
     }
 
-    // Helper for VarDecl with direct target
     fn translate_for_expr_with_target(
         &mut self,
         program: &mut SemanticProgram,
@@ -2214,61 +1804,34 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
         trailing_expr: &Option<Box<Expr>>,
         target_name: &str,
     ) -> TypedIRValue {
-        // Reuse translate_for_expr but assign to target_name instead of temp
-        let elements_opt: Option<Vec<Expr>> = None;
-
-        if let Some(elements) = elements_opt {
-            self.push_scope();
-            let elem_type = elements
-                .first()
-                .map(|e| match e {
-                    Expr::Number(_) => Type::Float,
-                    Expr::Int(_) => Type::Int,
-                    _ => Type::Unknown,
-                })
-                .unwrap_or(Type::Unknown);
-            self.declare_var(var, elem_type.clone(), false);
-            for elem in &elements {
-                let elem_val = self.translate_expr(program, func, current_block, elem);
-                let _ = self.safe_push_instruction(
-                    func,
-                    current_block,
-                    SemanticInstruction::Assign {
-                        target: var.to_string(),
-                        value: elem_val,
-                    },
-                );
-                for stmt in body {
-                    let _ = self.translate_simple_stmt(program, func, current_block, stmt);
-                }
-                if let Some(te) = trailing_expr {
-                    let te_val = self.translate_expr(program, func, current_block, te);
-                    let _ = self.safe_push_instruction(
-                        func,
-                        current_block,
-                        SemanticInstruction::Assign {
-                            target: target_name.to_string(),
-                            value: te_val,
-                        },
-                    );
-                }
-            }
-            self.pop_scope();
-            return TypedIRValue::Variable(target_name.to_string(), Type::Void);
-        }
-
-        // Real loop
         let init_id = program.new_block_id();
         let cond_id = program.new_block_id();
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
-            func,
-            current_block, Terminator::Jump { block: init_id },
-        );
+        func.blocks.push(SemanticBlock {
+            id: init_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: cond_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: body_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: merge_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
 
-        // FIX: Translate iterable in the init block (init_id), not current_block
+        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
+
         let iterable_val = self.translate_expr(program, func, init_id, iterable);
         let elem_type = match iterable_val.type_of() {
             Type::List(e) => *e,
@@ -2276,46 +1839,63 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
         };
 
         self.push_scope();
-        self.declare_var(var, elem_type, false);
+        self.declare_var(var, elem_type.clone(), false);
+
         let iter_name = format!("__iter_{}_{}", var, self.iter_counter);
         self.iter_counter += 1;
 
-        func.blocks.push(SemanticBlock { id: init_id, instructions: vec![], terminator: Some(Terminator::Jump { block: cond_id }) });
-        func.blocks.push(SemanticBlock { id: cond_id, instructions: vec![], terminator: Some(Terminator::IteratorNext {
+        let _ = self.safe_push_instruction(
+            func,
+            init_id,
+            Instruction::IteratorInit {
+                iterator: iter_name.clone(),
+                iterable: iterable_val,
+            },
+        );
+
+        let _ = self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
+
+        let _ = self.safe_set_terminator(
+            func,
+            cond_id,
+            Terminator::IteratorNext {
                 iterator: iter_name,
-                target: var.to_string(), body_block: body_id, exit_block: merge_id }) });
-        func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminator: None });
+                target: var.to_string(),
+                body_block: body_id,
+                exit_block: merge_id,
+            },
+        );
+
         self.loop_stack.push(LoopContext {
             break_block: merge_id,
             continue_block: cond_id,
         });
+
         let body_flow = self.translate_block(program, func, body_id, body);
-        if let FlowResult::Reachable(bid) = body_flow {
+
+        self.loop_stack.pop();
+        self.pop_scope();
+
+        if let FlowResult::Reachable(id) = body_flow {
             if let Some(te) = trailing_expr {
-                let te_val = self.translate_expr(program, func, bid, te);
+                let te_val = self.translate_expr(program, func, id, te);
                 let _ = self.safe_push_instruction(
                     func,
-                    bid,
+                    id,
                     SemanticInstruction::Assign {
                         target: target_name.to_string(),
                         value: te_val,
                     },
                 );
             }
-            if let Some(block) = func.blocks.iter_mut().find(|b| b.id == bid) {
+
+            if let Some(block) = func.blocks.iter().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        bid, Terminator::Jump { block: cond_id },
-                    );
+                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
-        self.loop_stack.pop();
-        self.pop_scope();
-        func.blocks.push(SemanticBlock {
-            id: merge_id,
-            instructions: Vec::new(), terminator: None });
+
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(target_name.to_string(), Type::Void)
     }
@@ -2334,53 +1914,67 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
-            func,
-            current_block, Terminator::Jump { block: cond_id },
-        );
-
-        // FIX: Translate condition in the condition block (cond_id), not current_block
-        let cond = self.translate_expr(program, func, cond_id, condition);
         func.blocks.push(SemanticBlock {
             id: cond_id,
-            instructions: vec![], terminator: Some(Terminator::Branch {
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: body_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: merge_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+
+        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
+
+        let cond = self.translate_expr(program, func, cond_id, condition);
+
+        let _ = self.safe_set_terminator(
+            func,
+            cond_id,
+            Terminator::Branch {
                 condition: cond,
                 then_block: body_id,
                 else_block: merge_id,
-            }) });
-        func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminator: None });
+            },
+        );
+
         self.push_scope();
         self.loop_stack.push(LoopContext {
             break_block: merge_id,
             continue_block: cond_id,
         });
+
         let body_flow = self.translate_block(program, func, body_id, body);
-        if let FlowResult::Reachable(bid) = body_flow {
+
+        self.loop_stack.pop();
+        self.pop_scope();
+
+        if let FlowResult::Reachable(id) = body_flow {
             if let Some(te) = trailing_expr {
-                let te_val = self.translate_expr(program, func, bid, te);
+                let te_val = self.translate_expr(program, func, id, te);
                 let _ = self.safe_push_instruction(
                     func,
-                    bid,
+                    id,
                     SemanticInstruction::Assign {
                         target: target_name.to_string(),
                         value: te_val,
                     },
                 );
             }
-            if let Some(block) = func.blocks.iter_mut().find(|b| b.id == bid) {
+
+            if let Some(block) = func.blocks.iter().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        bid, Terminator::Jump { block: cond_id },
-                    );
+                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
-        self.loop_stack.pop();
-        self.pop_scope();
-        func.blocks.push(SemanticBlock {
-            id: merge_id,
-            instructions: Vec::new(), terminator: None });
+
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(target_name.to_string(), Type::Void)
     }
@@ -2398,13 +1992,13 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 let inner_type = inner.type_of();
                 match op {
                     crate::frontend::ast::UnaryOp::Negate => TypedIRValue::BinaryOp {
-                        op: crate::ir::semantic_ir::SemanticBinOp::Subtract,
+                        op: SemanticBinOp::Subtract,
                         left: Box::new(TypedIRValue::Int(0)),
                         right: Box::new(inner),
                         result_type: inner_type,
                     },
                     crate::frontend::ast::UnaryOp::Not => TypedIRValue::BinaryOp {
-                        op: crate::ir::semantic_ir::SemanticBinOp::Equal,
+                        op: SemanticBinOp::Equal,
                         left: Box::new(inner),
                         right: Box::new(TypedIRValue::Bool(false)),
                         result_type: Type::Bool,
@@ -2432,7 +2026,14 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 let inner_type = inner.type_of();
                 let target_type = match inner_type {
                     Type::Borrow(t) | Type::MutBorrow(t) | Type::Pointer(t) => *t,
-                    _ => Type::Unknown,
+                    Type::Unknown => Type::Unknown,
+                    other => {
+                        self.diagnostics.push(format!(
+                            "Cannot dereference non-pointer value of type {:?}",
+                            other
+                        ));
+                        Type::Unknown
+                    }
                 };
                 TypedIRValue::Deref {
                     expr: Box::new(inner),
@@ -2464,10 +2065,8 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     .iter()
                     .map(|e| self.translate_expr(program, func, current_block, e))
                     .collect();
-
                 let has_float = values.iter().any(|v| v.type_of() == Type::Float);
                 let has_int = values.iter().any(|v| v.type_of() == Type::Int);
-
                 if has_float && has_int {
                     for val in &mut values {
                         if val.type_of() == Type::Int {
@@ -2475,20 +2074,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                                 value: Box::new(val.clone()),
                                 target_type: Type::Float,
                             };
-                        }
-                    }
-                } else if let Some(first) = values.first() {
-                    let t = first.type_of();
-                    for val in &values {
-                        if !val.type_of().can_coerce_to(&t)
-                            && val.type_of() != Type::Unknown
-                            && t != Type::Unknown
-                        {
-                            self.diagnostics.push(format!(
-                                "Heterogeneous list element types found: expected {:?}, found {:?}",
-                                t,
-                                val.type_of()
-                            ));
                         }
                     }
                 }
@@ -2526,57 +2111,29 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     if parts.len() == 2 {
                         let receiver_name = parts[0];
                         let method_name = parts[1];
-
-                        // Look up receiver type
                         if let Some(info) = self.lookup_var(receiver_name) {
                             let receiver_type = info.type_.clone();
                             let receiver_value = TypedIRValue::Variable(
                                 receiver_name.to_string(),
                                 receiver_type.clone(),
                             );
-
-                            // Translate arguments
                             let typed_args: Vec<TypedIRValue> = args
                                 .iter()
                                 .map(|a| self.translate_expr(program, func, current_block, a))
                                 .collect();
-
-                            // Determine return type - for now Unknown, will be resolved later
-                            let return_type = Type::Unknown;
-
                             return TypedIRValue::MethodCall {
                                 receiver: Box::new(receiver_value),
                                 receiver_type,
                                 method_name: method_name.to_string(),
                                 args: typed_args,
-                                return_type,
+                                return_type: Type::Unknown,
                             };
                         }
                     }
                 }
                 let typed_args: Vec<TypedIRValue> = args
                     .iter()
-                    .map(|a| {
-                        if name.starts_with("List.") {
-                            if let Expr::Var(var_name, _) = a {
-                                let elements_opt = self.list_values.get(var_name).cloned();
-                                if let Some(elements) = elements_opt {
-                                    let values: Vec<TypedIRValue> = elements
-                                        .iter()
-                                        .map(|e| {
-                                            self.translate_expr(program, func, current_block, e)
-                                        })
-                                        .collect();
-                                    let elem_type = values
-                                        .first()
-                                        .map(|v| v.type_of())
-                                        .unwrap_or(Type::Unknown);
-                                    return TypedIRValue::List(values, elem_type);
-                                }
-                            }
-                        }
-                        self.translate_expr(program, func, current_block, a)
-                    })
+                    .map(|a| self.translate_expr(program, func, current_block, a))
                     .collect();
                 let (return_type, coerced_args) = self.validate_call(name, typed_args);
                 TypedIRValue::Call {
@@ -2586,55 +2143,12 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 }
             }
             Expr::ArrayAccess { array, index } => {
-                let elements_for_check = match array.as_ref() {
-                    Expr::List(elements) => Some(elements.clone()),
-                    Expr::Var(name, _) => self.list_values.get(name).cloned(),
-                    _ => None,
-                };
-                if let (Some(elements), Expr::Int(idx)) = (elements_for_check, index.as_ref()) {
-                    if *idx as usize >= elements.len() {
-                        self.diagnostics.push(format!(
-                            "Array index {} out of bounds (array has {} elements)",
-                            idx,
-                            elements.len()
-                        ));
-                    }
-                }
                 let array_value = self.translate_expr(program, func, current_block, array);
                 let index_value = self.translate_expr(program, func, current_block, index);
-
-                let idx_type = index_value.type_of();
-                if idx_type != Type::Int && idx_type != Type::Unknown {
-                    self.diagnostics.push(format!(
-                        "Array access index type mismatch: expected Int, found {:?}",
-                        idx_type
-                    ));
-                }
-
-                let mut peeled = array_value.type_of();
-                loop {
-                    let next = match peeled.clone() {
-                        Type::Borrow(inner) | Type::MutBorrow(inner) | Type::Pointer(inner) => {
-                            Some(*inner)
-                        }
-                        _ => None,
-                    };
-                    if let Some(n) = next {
-                        peeled = n;
-                    } else {
-                        break;
-                    }
-                }
-                let element_type = match peeled {
+                let element_type = match array_value.type_of() {
                     Type::List(elem) => *elem,
-                    Type::Unknown => Type::Unknown,
-                    other => {
-                        self.diagnostics
-                            .push(format!("Cannot index value of type {:?}", other));
-                        Type::Unknown
-                    }
+                    _ => Type::Unknown,
                 };
-
                 TypedIRValue::ArrayAccess {
                     array: Box::new(array_value),
                     index: Box::new(index_value),
@@ -2655,12 +2169,18 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     result_type: Type::result(Type::Void, Type::Void),
                 }
             }
+            Expr::Error { value } => {
+                let inner = self.translate_expr(program, func, current_block, value);
+                TypedIRValue::Error {
+                    value: Box::new(inner),
+                    result_type: Type::result(Type::Void, Type::Void),
+                }
+            }
             Expr::Block {
                 statements,
                 trailing_expr,
             } => {
                 let mut flow = FlowResult::Reachable(current_block);
-
                 for s in statements {
                     match s {
                         Stmt::Break => {
@@ -2678,32 +2198,14 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                         }
                     }
                 }
-
                 if let Some(expr) = trailing_expr {
                     if let FlowResult::Reachable(id) = flow {
                         self.translate_expr(program, func, id, expr)
                     } else {
                         TypedIRValue::Void
                     }
-                } else if let Some(last_stmt) = statements.last() {
-                    match last_stmt {
-                        Stmt::Expression(e) => {
-                            if let FlowResult::Reachable(id) = flow {
-                                self.translate_expr(program, func, id, e)
-                            } else {
-                                TypedIRValue::None {
-                                    option_type: Type::option(Type::Void),
-                                }
-                            }
-                        }
-                        _ => TypedIRValue::None {
-                            option_type: Type::option(Type::Void),
-                        },
-                    }
                 } else {
-                    TypedIRValue::None {
-                        option_type: Type::option(Type::Void),
-                    }
+                    TypedIRValue::Void
                 }
             }
             Expr::If {
@@ -2711,7 +2213,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 then_branch,
                 else_branch,
             } => {
-                // Extract statements from branches
                 let then_stmts = match then_branch.as_ref() {
                     Expr::Block { statements, .. } => statements.clone(),
                     other => vec![Stmt::Expression((*other).clone())],
@@ -2720,8 +2221,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     Expr::Block { statements, .. } => statements.clone(),
                     other => vec![Stmt::Expression((*other).clone())],
                 });
-
-                // Use translate_if for proper control flow (Branch/Jump/merge)
                 let flow = self.translate_if(
                     program,
                     func,
@@ -2730,8 +2229,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     &then_stmts,
                     else_stmts.as_deref(),
                 );
-
-                // Return the merge block result
                 if let FlowResult::Reachable(merge_id) = flow {
                     TypedIRValue::Variable(format!("__if_result_{}", merge_id), Type::Void)
                 } else {
@@ -2739,7 +2236,6 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 }
             }
             Expr::Match { value, cases } => {
-                // Use translate_match for proper Switch control flow
                 let flow = self.translate_match(program, func, current_block, value, cases);
                 if let FlowResult::Reachable(merge_id) = flow {
                     TypedIRValue::Variable(format!("__match_result_{}", merge_id), Type::Void)
@@ -2753,30 +2249,35 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 catch_branch,
                 finally_body,
             } => {
-                // ALGOL26 semantics: try/catch lowers to Result-based control flow
-                // try_branch produces Result<T, E>
-                // If Ok(value), skip catch and go to merge
-                // If Error(e), bind catch_var to e and execute catch block
-                // finally_body runs cleanup in both paths
-
                 let try_block_id = program.new_block_id();
                 let catch_block_id = program.new_block_id();
                 let merge_id = program.new_block_id();
 
-                // Jump to try block
+                func.blocks.push(SemanticBlock {
+                    id: try_block_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+                func.blocks.push(SemanticBlock {
+                    id: catch_block_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+                func.blocks.push(SemanticBlock {
+                    id: merge_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+
                 let _ = self.safe_set_terminator(
                     func,
-                    current_block, Terminator::Jump {
+                    current_block,
+                    Terminator::Jump {
                         block: try_block_id,
                     },
                 );
 
-                // Create try block
-                func.blocks.push(SemanticBlock {
-                    id: try_block_id,
-                    instructions: Vec::new(), terminator: None });
-
-                // Translate try branch
+                self.push_scope();
                 let try_flow = self.translate_block(
                     program,
                     func,
@@ -2786,18 +2287,17 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                         other => vec![Stmt::Expression((*other).clone())],
                     },
                 );
+                self.pop_scope();
 
-                // Create catch block
-                func.blocks.push(SemanticBlock {
-                    id: catch_block_id,
-                    instructions: Vec::new(), terminator: None });
-
-                // Bind catch variable if present
-                if let Some(var_name) = catch_var {
-                    self.declare_var(var_name, Type::Void, false);
+                if let FlowResult::Reachable(id) = try_flow {
+                    let _ =
+                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
 
-                // Translate catch branch
+                self.push_scope();
+                if let Some(var_name) = catch_var {
+                    self.declare_var(var_name, Type::Unknown, false);
+                }
                 let catch_flow = self.translate_block(
                     program,
                     func,
@@ -2807,51 +2307,28 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                         other => vec![Stmt::Expression((*other).clone())],
                     },
                 );
+                self.pop_scope();
 
-                // Jump from try to merge (on success)
-                if let FlowResult::Reachable(id) = try_flow {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        id, Terminator::Jump { block: merge_id },
-                    );
-                }
-
-                // Jump from catch to merge (on error)
                 if let FlowResult::Reachable(id) = catch_flow {
-                    let _ = self.safe_set_terminator(
-                        func,
-                        id, Terminator::Jump { block: merge_id },
-                    );
+                    let _ =
+                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
 
-                // Run finally_body in merge block (runs regardless of path)
                 if let Some(finally_stmts) = finally_body {
-                    func.blocks.push(SemanticBlock {
-                        id: merge_id,
-                        instructions: Vec::new(), terminator: None });
+                    self.push_scope();
                     let finally_flow = self.translate_block(program, func, merge_id, finally_stmts);
+                    self.pop_scope();
                     if let FlowResult::Reachable(final_id) = finally_flow {
                         self.pending_merge = Some(final_id);
                     } else {
                         self.pending_merge = Some(merge_id);
                     }
                 } else {
-                    func.blocks.push(SemanticBlock {
-                        id: merge_id,
-                        instructions: Vec::new(), terminator: None });
                     self.pending_merge = Some(merge_id);
                 }
 
                 TypedIRValue::Void
             }
-            Expr::Error { value } => {
-                let inner = self.translate_expr(program, func, current_block, value);
-                TypedIRValue::Error {
-                    value: Box::new(inner),
-                    result_type: Type::result(Type::Void, Type::Void),
-                }
-            }
-            // --- Orthogonal: for/while as expressions ---
             Expr::For {
                 var,
                 iterable,
@@ -2881,9 +2358,7 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                 trailing_expr,
             ),
             Expr::PtrLiteral(val) => TypedIRValue::PtrLiteral(*val),
-
             Expr::NullPtr => TypedIRValue::NullPtr,
-
             Expr::Cast {
                 expr: cast_expr,
                 target_type,
@@ -2895,6 +2370,7 @@ func.blocks.push(SemanticBlock { id: body_id, instructions: Vec::new(), terminat
                     target_type: target,
                 }
             }
+            _ => TypedIRValue::Void,
         }
     }
 }

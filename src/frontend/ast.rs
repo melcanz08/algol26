@@ -106,6 +106,41 @@ pub enum Expr {
         expr: Box<Expr>,
         target_type: String,
     },
+
+    // NEW: Method call syntax
+    MethodCall {
+        receiver: Box<Expr>,
+        method_name: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
+
+    // NEW: Range expression (for iteration)
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+    },
+
+    // NEW: Type assertion
+    TypeAssert {
+        expr: Box<Expr>,
+        type_name: String,
+        span: Span,
+    },
+
+    // NEW: Struct literal
+    StructLiteral {
+        type_name: String,
+        fields: Vec<(String, Expr)>,
+    },
+
+    // NEW: Field access
+    FieldAccess {
+        object: Box<Expr>,
+        field: String,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -278,6 +313,44 @@ pub enum TypeSyntax {
 }
 
 impl TypeSyntax {
+    /// ALGOL26: Direct conversion from TypeSyntax to semantic Type
+    /// This avoids string round-tripping which loses type information
+    pub fn to_type(&self) -> crate::common::types::Type {
+        use crate::common::types::Type;
+
+        match self {
+            TypeSyntax::Named(name) => {
+                // Handle primitive types and type variables
+                match name.as_str() {
+                    "Int" | "int" => Type::Int,
+                    "Float" | "float" => Type::Float,
+                    "String" | "string" => Type::String,
+                    "Bool" | "bool" => Type::Bool,
+                    "Void" | "void" => Type::Void,
+                    "Self" => Type::TypeVar("Self".to_string()),
+                    // Single uppercase = type variable
+                    _ if name.len() == 1 && name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
+                        Type::TypeVar(name.clone())
+                    }
+                    _ => Type::Unknown,
+                }
+            }
+            TypeSyntax::Generic { name, args } => match name.to_lowercase().as_str() {
+                "borrow" if args.len() == 1 => Type::borrow(args[0].to_type()),
+                "mutborrow" | "mut_borrow" if args.len() == 1 => {
+                    Type::mut_borrow(args[0].to_type())
+                }
+                "list" if args.len() == 1 => Type::list(args[0].to_type()),
+                "option" if args.len() == 1 => Type::option(args[0].to_type()),
+                "pointer" | "ptr" if args.len() == 1 => Type::pointer(args[0].to_type()),
+                "channel" if args.len() == 1 => Type::channel(args[0].to_type()),
+                "result" if args.len() == 2 => Type::result(args[0].to_type(), args[1].to_type()),
+                _ => Type::Unknown,
+            },
+            TypeSyntax::Unknown => Type::Unknown,
+        }
+    }
+
     /// Convert TypeSyntax to string for backward compatibility
     pub fn to_string_rep(&self) -> String {
         match self {

@@ -99,7 +99,7 @@ fn test_negative_corpus_no_ice() {
     for entry in fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("al26") {
+        if path.extension().and_then(|s| s.to_str()) != Some("gol") {
             continue;
         }
         count += 1;

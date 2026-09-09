@@ -1,8 +1,10 @@
+// Scope-based move semantics
 procedure main
     val x := 10.0
     
     if true then
-        val y := x
+        val y := x    // Copy (float is Copy type)
         print(y)
+    end
     
-    print(x)
+    print(x)    // Valid - x was copied, not moved

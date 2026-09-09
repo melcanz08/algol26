@@ -1,0 +1,11 @@
+// Race test - should DETECT and report races
+procedure main
+    var shared := 0.0
+    
+    // This SHOULD trigger race detection
+    spawn
+        print(shared)  // Read in spawn
+    end
+    
+    shared := 20.0     // Write in main
+    print(shared)

@@ -1,9 +1,0 @@
-// test/programs/valid/race_test.gol
-procedure main
-    var shared := 0.0
-    
-    spawn
-        shared := 10.0
-    
-    shared := 20.0
-    print(shared)

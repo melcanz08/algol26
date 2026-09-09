@@ -1,4 +1,4 @@
-// ALGOL26 - Backend Contract
+// src/backends/backend.rs - ALGOL26 - Backend Contract
 // Defines the interface all compilation backends must implement
 // Backends receive VerifiedIR — guaranteed to be semantically valid
 

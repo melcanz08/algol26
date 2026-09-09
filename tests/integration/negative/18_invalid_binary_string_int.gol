@@ -1,0 +1,4 @@
+// Fixed: String + Float should be caught as type error
+procedure main
+    val s := "hello" + 5.0
+    print(s)

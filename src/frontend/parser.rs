@@ -19,23 +19,11 @@ pub struct Parser {
     tokens: Vec<TokenInfo>,
     pos: usize,
     span_map: std::collections::HashMap<usize, (usize, usize)>,
-    node_counter: usize,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self::new_with_positions(tokens, Vec::new())
-    }
-
-    fn parse_block_with_trailing(&mut self) -> Result<(Vec<Stmt>, Option<Box<Expr>>)> {
-        let block_expr = self.parse_block_expr()?;
-        match block_expr {
-            Expr::Block {
-                statements,
-                trailing_expr,
-            } => Ok((statements, trailing_expr)),
-            other => Err(self.error(&format!("Expected block, found: {:?}", other))),
-        }
     }
 
     pub fn new_with_positions(tokens: Vec<Token>, positions: Vec<(usize, usize)>) -> Self {
@@ -56,20 +44,11 @@ impl Parser {
             tokens: token_infos,
             pos: 0,
             span_map: std::collections::HashMap::new(),
-            node_counter: 0,
         }
     }
 
     pub fn get_span_map(&self) -> &std::collections::HashMap<usize, (usize, usize)> {
         &self.span_map
-    }
-
-    fn record_span(&mut self) -> usize {
-        let info = self.peek_info().clone();
-        let id = self.node_counter;
-        self.node_counter += 1;
-        self.span_map.insert(id, (info.line, info.column));
-        id
     }
 
     fn peek(&self) -> &Token {
@@ -99,7 +78,7 @@ impl Parser {
 
     fn error(&self, message: &str) -> CompileError {
         let info = self.peek_info();
-        CompileError::new(message, info.line, info.column, "", ErrorCode::E0001)
+        CompileError::simple(message, info.line, info.column, "", ErrorCode::E0001)
     }
 
     fn skip_keyword(&mut self, keyword: &str) {
@@ -127,6 +106,29 @@ impl Parser {
     }
 
     fn parse_type_syntax(&mut self) -> Result<TypeSyntax> {
+        // ALGOL26: Handle & and &mut prefixes for borrow types
+        if matches!(self.peek(), Token::Ampersand) {
+            self.advance(); // consume &
+
+            // Check for &mut
+            if let Token::Identifier(ref s) = self.peek() {
+                if s == "mut" {
+                    self.advance(); // consume mut
+                    let inner = self.parse_type_syntax()?;
+                    return Ok(TypeSyntax::Generic {
+                        name: "MutBorrow".to_string(),
+                        args: vec![inner],
+                    });
+                }
+            }
+
+            let inner = self.parse_type_syntax()?;
+            return Ok(TypeSyntax::Generic {
+                name: "Borrow".to_string(),
+                args: vec![inner],
+            });
+        }
+
         // Base type: Self or identifier
         if matches!(self.peek(), Token::SelfType) {
             self.advance();
@@ -367,27 +369,98 @@ impl Parser {
         self.parse_if_expr()
     }
 
+    fn parse_loop_body(&mut self) -> Result<(Vec<Stmt>, Option<Box<Expr>>)> {
+        if matches!(self.peek(), Token::Indent) {
+            self.advance(); // consume Indent
+            let mut statements = Vec::new();
+            while !matches!(self.peek(), Token::Dedent | Token::End | Token::Eof) {
+                statements.push(self.parse_stmt()?);
+            }
+
+            // Extract final expression as trailing
+            let trailing_expr = match statements.last() {
+                Some(Stmt::Expression(expr))
+                    if !matches!(
+                        expr,
+                        Expr::Block { .. }
+                            | Expr::If { .. }
+                            | Expr::Match { .. }
+                            | Expr::For { .. }
+                            | Expr::While { .. }
+                            | Expr::TryCatch { .. }
+                    ) =>
+                {
+                    match statements.pop() {
+                        Some(Stmt::Expression(expr)) => Some(Box::new(expr)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+
+            if matches!(self.peek(), Token::Dedent) {
+                self.advance();
+            }
+            if matches!(self.peek(), Token::End) {
+                self.advance();
+            }
+
+            Ok((statements, trailing_expr))
+        } else if matches!(self.peek(), Token::End) {
+            self.advance();
+            Ok((Vec::new(), None))
+        } else {
+            // Inline loop body: parse FULL expression with all operators
+            let expr = self.parse_expr()?;
+            Ok((Vec::new(), Some(Box::new(expr))))
+        }
+    }
+
     fn parse_block_expr(&mut self) -> Result<Expr> {
         let mut statements = Vec::new();
         let mut trailing_expr = None;
 
         if let Token::Indent = self.peek() {
             self.advance();
-            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+            while !matches!(self.peek(), Token::Dedent | Token::Eof | Token::End) {
                 statements.push(self.parse_stmt()?);
             }
+            // Consume Dedent or End (whichever comes first)
             if let Token::Dedent = self.peek() {
                 self.advance();
             }
+            if let Token::End = self.peek() {
+                self.advance(); // consume end
+            }
+        } else if let Token::End = self.peek() {
+            // Empty block with explicit end
+            self.advance();
         } else {
-            if !matches!(self.peek(), Token::Eof | Token::Dedent) {
+            if !matches!(self.peek(), Token::Eof | Token::Dedent | Token::End) {
                 statements.push(self.parse_stmt()?);
             }
         }
 
-        if let Some(Stmt::Expression(_)) = statements.last() {
-            if let Some(Stmt::Expression(expr)) = statements.pop() {
-                trailing_expr = Some(Box::new(expr));
+        // Only extract trailing expression if it's the last statement
+        // AND it's not a control flow statement
+        if let Some(last) = statements.last() {
+            let can_be_trailing = match last {
+                Stmt::Expression(expr) => match expr {
+                    Expr::Block { .. } => false,
+                    Expr::If { .. } => false,
+                    Expr::Match { .. } => false,
+                    Expr::For { .. } => false,
+                    Expr::While { .. } => false,
+                    Expr::TryCatch { .. } => false,
+                    _ => true,
+                },
+                _ => false,
+            };
+
+            if can_be_trailing {
+                if let Some(Stmt::Expression(expr)) = statements.pop() {
+                    trailing_expr = Some(Box::new(expr));
+                }
             }
         }
 
@@ -489,6 +562,11 @@ impl Parser {
                 self.advance();
                 self.parse_stmt()
             }
+            Token::End => {
+                self.advance();
+                // End of block - return a no-op
+                Ok(Stmt::Expression(Expr::Bool(true)))
+            }
             _other => {
                 let expr = self.parse_expr()?;
                 Ok(Stmt::Expression(expr))
@@ -500,7 +578,10 @@ impl Parser {
         let is_mutable = matches!(self.peek(), Token::Var);
         self.advance();
         let name = self.expect_identifier("variable name")?;
-        let type_annotation = self.parse_type_annotation()?.map(|t| t.to_string_rep());
+        let type_annotation = self.parse_type_annotation()?.map(|t| {
+            let s = t.to_string_rep();
+            s
+        });
 
         match self.advance() {
             Token::Assign => {}
@@ -561,39 +642,45 @@ impl Parser {
         })
     }
 
-    fn parse_for(&mut self) -> Result<Stmt> {
-        self.advance();
+    fn parse_for_expr(&mut self) -> Result<Expr> {
+        #[allow(unused_variables)]
+        let start_info = self.peek_info().clone();
         let var = self.expect_identifier("iterator variable")?;
         self.expect_token(Token::In, "'in'")?;
-        let iterable = self.parse_expr()?;
-
+        let iterable = Box::new(self.parse_expr()?);
         self.skip_optional_do();
-
-        // FIX: Use parse_block not parse_block_with_trailing to keep If as body, not trailing_expr
-        // parse_block_with_trailing pops last Expression as trailing value, leaving body empty
-        let body = self.parse_block()?;
-        Ok(Stmt::Expression(Expr::For {
+        let (body, trailing_expr) = self.parse_loop_body()?;
+        Ok(Expr::For {
             var,
-            iterable: Box::new(iterable),
+            iterable,
             body,
-            trailing_expr: None,
-            span: Span::default(),
-        }))
+            trailing_expr,
+            span: Span::point(start_info.line, start_info.column),
+        })
+    }
+
+    fn parse_while_expr(&mut self) -> Result<Expr> {
+        #[allow(unused_variables)]
+        let start_info = self.peek_info().clone();
+        let condition = Box::new(self.parse_expr()?);
+        self.skip_optional_do();
+        let (body, trailing_expr) = self.parse_loop_body()?;
+        Ok(Expr::While {
+            condition,
+            body,
+            trailing_expr,
+            span: Span::point(start_info.line, start_info.column),
+        })
+    }
+
+    fn parse_for(&mut self) -> Result<Stmt> {
+        self.advance(); // consume 'for'
+        Ok(Stmt::Expression(self.parse_for_expr()?))
     }
 
     fn parse_while(&mut self) -> Result<Stmt> {
-        self.advance();
-        let condition = self.parse_expr()?;
-
-        self.skip_optional_do();
-
-        let body = self.parse_block()?;
-        Ok(Stmt::Expression(Expr::While {
-            condition: Box::new(condition),
-            body,
-            trailing_expr: None,
-            span: Span::default(),
-        }))
+        self.advance(); // consume 'while'
+        Ok(Stmt::Expression(self.parse_while_expr()?))
     }
 
     fn skip_optional_do(&mut self) {
@@ -842,7 +929,7 @@ impl Parser {
                 let first = self.parse_pattern()?;
 
                 // Check for rest pattern with ..
-                if matches!(self.peek(), Token::DotDot) {
+                if matches!(self.peek(), Token::Identifier(ref s) if s == ".") {
                     self.advance();
                     if matches!(self.peek(), Token::RBracket) {
                         self.advance();
@@ -869,7 +956,7 @@ impl Parser {
             Token::IntLit(n) => {
                 self.advance();
                 // Check for range pattern
-                if matches!(self.peek(), Token::DotDot) {
+                if matches!(self.peek(), Token::Identifier(ref s) if s == ".") {
                     self.advance();
                     let start = Some(Box::new(Expr::Int(n)));
                     if matches!(self.peek(), Token::IntLit(_) | Token::FloatLit(_)) {
@@ -886,7 +973,7 @@ impl Parser {
             Token::FloatLit(f) => {
                 self.advance();
                 // Check for range pattern
-                if matches!(self.peek(), Token::DotDot) {
+                if matches!(self.peek(), Token::Identifier(ref s) if s == ".") {
                     self.advance();
                     let start = Some(Box::new(Expr::Number(f)));
                     if matches!(self.peek(), Token::IntLit(_) | Token::FloatLit(_)) {
@@ -999,57 +1086,98 @@ impl Parser {
     }
 
     fn parse_identifier_stmt(&mut self, name: String) -> Result<Stmt> {
-        // We are currently at the identifier token, consume it
+        // Consume the identifier
         self.advance();
 
-        if matches!(self.peek(), Token::LParen) {
-            self.advance();
-            let mut args = Vec::new();
-            while !matches!(self.peek(), Token::RParen | Token::Eof) {
-                args.push(self.parse_expr()?);
-                if matches!(self.peek(), Token::Comma) {
+        match self.peek().clone() {
+            Token::LParen => {
+                // Function call
+                self.advance();
+                let mut args = Vec::new();
+                while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                    args.push(self.parse_expr()?);
+                    if matches!(self.peek(), Token::Comma) {
+                        self.advance();
+                    }
+                }
+                self.expect_token(Token::RParen, "')'")?;
+                let span = self.peek_info().clone();
+                Ok(Stmt::Expression(Expr::FunctionCall {
+                    name,
+                    args,
+                    span: Span::point(span.line, span.column),
+                }))
+            }
+            Token::LBracket => {
+                // Array access or array assignment
+                self.advance();
+                let index = self.parse_expr()?;
+                self.expect_token(Token::RBracket, "']'")?;
+
+                if matches!(self.peek(), Token::Assign) {
+                    // Array assignment
                     self.advance();
+                    let value = self.parse_expr()?;
+                    Ok(Stmt::ArrayAssign {
+                        array: name,
+                        index,
+                        value,
+                    })
+                } else {
+                    // Array access expression
+                    let span = self.peek_info().clone();
+                    Ok(Stmt::Expression(Expr::ArrayAccess {
+                        array: Box::new(Expr::Var(name, Span::point(span.line, span.column))),
+                        index: Box::new(index),
+                    }))
                 }
             }
-            self.expect_token(Token::RParen, "')'")?;
-            let span = self.peek_info().clone();
-            Ok(Stmt::Expression(Expr::FunctionCall {
-                name,
-                args,
-                span: Span::point(span.line, span.column),
-            }))
-        } else if matches!(self.peek(), Token::LBracket) {
-            self.advance();
-            let index = self.parse_expr()?;
-            self.expect_token(Token::RBracket, "']'")?;
-
-            if matches!(self.peek(), Token::Assign) {
+            Token::Assign => {
+                // Variable assignment
                 self.advance();
                 let value = self.parse_expr()?;
-                Ok(Stmt::ArrayAssign {
-                    array: name,
-                    index,
-                    value,
-                })
-            } else {
-                // Not an assignment, it's an array access as expression
-                // Backtrack to re-parse as full expression
-                self.pos -= 1; // back to identifier
-                let expr = self.parse_expr()?;
-                Ok(Stmt::Expression(expr))
+                Ok(Stmt::Assign { name, value })
             }
-        } else if matches!(self.peek(), Token::Assign) {
-            self.advance();
-            let value = self.parse_expr()?;
-            Ok(Stmt::Assign { name, value })
-        } else {
-            // Backtrack and parse as a full expression
-            // This handles: bare variables, binary ops, comparisons, etc.
-            if self.pos > 0 {
-                self.pos -= 1;
+            Token::Identifier(ref s) if s == "." => {
+                // Method call or field access
+                self.advance();
+                let method_name = self.expect_identifier("method name")?;
+
+                if matches!(self.peek(), Token::LParen) {
+                    self.advance();
+                    let mut args = Vec::new();
+                    while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                        args.push(self.parse_expr()?);
+                        if matches!(self.peek(), Token::Comma) {
+                            self.advance();
+                        }
+                    }
+                    self.expect_token(Token::RParen, "')'")?;
+
+                    // Build method call expression
+                    let span = self.peek_info().clone();
+                    let _receiver =
+                        Box::new(Expr::Var(name.clone(), Span::point(span.line, span.column)));
+
+                    // For now, represent as FunctionCall with dotted name
+                    Ok(Stmt::Expression(Expr::FunctionCall {
+                        name: format!("{}.{}", name.clone(), method_name),
+                        args,
+                        span: Span::point(span.line, span.column),
+                    }))
+                } else {
+                    // Field access
+                    Err(self.error("Field access not yet supported"))
+                }
             }
-            let expr = self.parse_expr()?;
-            Ok(Stmt::Expression(expr))
+            _ => {
+                // Simple variable reference
+                let span = self.peek_info().clone();
+                Ok(Stmt::Expression(Expr::Var(
+                    name,
+                    Span::point(span.line, span.column),
+                )))
+            }
         }
     }
 
@@ -1193,7 +1321,8 @@ impl Parser {
                 })
             }
             Token::Not => {
-                let start_info = self.peek_info().clone();
+                #[allow(unused_variables)]
+        let start_info = self.peek_info().clone();
                 self.advance();
                 let operand = self.parse_unary()?;
                 Ok(Expr::Unary {
@@ -1231,37 +1360,35 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Result<Expr> {
         // Capture span before consuming token
+        #[allow(unused_variables)]
         let start_info = self.peek_info().clone();
         match self.advance() {
             Token::If => self.parse_if_expr(),
             Token::For => {
-                // for x in iterable do ... [trailing_expr]
-                let var = self.expect_identifier("iterator variable")?;
-                self.expect_token(Token::In, "'in'")?;
-                let iterable = Box::new(self.parse_expr()?);
-                self.skip_optional_do();
-                let (body, trailing_expr) = self.parse_block_with_trailing()?;
-                Ok(Expr::For {
-                    var,
-                    iterable,
-                    body,
-                    trailing_expr,
-                    span: Span::point(start_info.line, start_info.column),
-                })
+                // 'for' token already consumed by self.advance() in parse_primary
+                self.parse_for_expr()
             }
             Token::While => {
-                let condition = Box::new(self.parse_expr()?);
-                self.skip_optional_do();
-                let (body, trailing_expr) = self.parse_block_with_trailing()?;
-                Ok(Expr::While {
-                    condition,
-                    body,
-                    trailing_expr,
-                    span: Span::point(start_info.line, start_info.column),
-                })
+                // 'while' token already consumed
+                self.parse_while_expr()
+            }
+            Token::IntLit(start) => {
+                // ALGOL26: Range expression 1..5 becomes List [1,2,3,4]
+                if matches!(self.peek(), Token::DotDot) {
+                    self.advance(); // consume ..
+
+                    if let Token::IntLit(end) = self.peek().clone() {
+                        self.advance(); // consume end
+                        let elements: Vec<Expr> = (start..end).map(Expr::Int).collect();
+                        Ok(Expr::List(elements))
+                    } else {
+                        Ok(Expr::Int(start))
+                    }
+                } else {
+                    Ok(Expr::Int(start))
+                }
             }
             Token::FloatLit(v) => Ok(Expr::Number(v)),
-            Token::IntLit(v) => Ok(Expr::Int(v)),
             Token::StringLit(s) => Ok(Expr::String(s)),
             Token::True => Ok(Expr::Bool(true)),
             Token::False => Ok(Expr::Bool(false)),
@@ -1348,9 +1475,9 @@ impl Parser {
             other => Err(self.error(&format!("Unexpected expression: {:?}", other))),
         }
     }
-
     fn parse_identifier_expr(&mut self, name: String) -> Result<Expr> {
         if matches!(self.peek(), Token::LParen) {
+            // Function call
             self.advance();
             let mut args = Vec::new();
             while !matches!(self.peek(), Token::RParen | Token::Eof) {
@@ -1367,6 +1494,7 @@ impl Parser {
                 span: Span::point(span.line, span.column),
             })
         } else if matches!(self.peek(), Token::LBracket) {
+            // Array access
             self.advance();
             let index = self.parse_expr()?;
             self.expect_token(Token::RBracket, "']'")?;
@@ -1374,8 +1502,41 @@ impl Parser {
                 array: Box::new(Expr::Var(name.clone(), Span::default())),
                 index: Box::new(index),
             })
+        } else if matches!(self.peek(), Token::Identifier(ref s) if s == ".") {
+            // NEW: Method call or field access
+            self.advance();
+            let method_name = self.expect_identifier("method name")?;
+
+            if matches!(self.peek(), Token::LParen) {
+                self.advance();
+                let mut args = Vec::new();
+                while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                    args.push(self.parse_expr()?);
+                    if matches!(self.peek(), Token::Comma) {
+                        self.advance();
+                    }
+                }
+                self.expect_token(Token::RParen, "')'")?;
+
+                let span = self.peek_info().clone();
+
+                // Build MethodCall expression
+                Ok(Expr::MethodCall {
+                    receiver: Box::new(Expr::Var(name, Span::default())),
+                    method_name,
+                    args,
+                    span: Span::point(span.line, span.column),
+                })
+            } else {
+                // Field access
+                let span = self.peek_info().clone();
+                Ok(Expr::FieldAccess {
+                    object: Box::new(Expr::Var(name, Span::default())),
+                    field: method_name,
+                    span: Span::point(span.line, span.column),
+                })
+            }
         } else {
-            let _span_id = self.record_span();
             let span = self.peek_info().clone();
             Ok(Expr::Var(name, Span::point(span.line, span.column)))
         }

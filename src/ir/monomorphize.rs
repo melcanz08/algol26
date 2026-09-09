@@ -1,4 +1,5 @@
-// src/monomorphize.rs - Monomorphization for generic functions
+use crate::frontend::ast::BinOp;
+// src/ir/monomorphize.rs - Monomorphization for generic functions
 
 use crate::common::types::Type;
 use crate::frontend::ast::{Expr, FunctionDecl, Stmt, TypeSyntax};
@@ -143,17 +144,77 @@ impl Monomorphizer {
             Expr::String(_) => Type::String,
             Expr::Bool(_) => Type::Bool,
             Expr::List(elements) => {
-                if let Some(first) = elements.first() {
-                    Type::list(self.infer_expr_type(first))
-                } else {
-                    Type::list(Type::Unknown)
+                if elements.is_empty() {
+                    return Type::list(Type::Unknown);
+                }
+                let first_type = self.infer_expr_type(&elements[0]);
+                let mut common = first_type.clone();
+                for elem in &elements[1..] {
+                    common = common.common_supertype(&self.infer_expr_type(elem));
+                }
+                Type::list(common)
+            }
+            Expr::Binary { left, op, right } => {
+                let lt = self.infer_expr_type(left);
+                let rt = self.infer_expr_type(right);
+                match op {
+                    BinOp::Add | BinOp::Subtract | BinOp::Multiply | BinOp::Divide => {
+                        if lt.is_numeric() && rt.is_numeric() {
+                            lt.common_supertype(&rt)
+                        } else if lt == Type::String && rt == Type::String {
+                            Type::String
+                        } else {
+                            Type::Unknown
+                        }
+                    }
+                    BinOp::Greater
+                    | BinOp::Less
+                    | BinOp::GreaterEqual
+                    | BinOp::LessEqual
+                    | BinOp::Equal
+                    | BinOp::NotEqual => Type::Bool,
+                    BinOp::And | BinOp::Or => Type::Bool,
                 }
             }
-            Expr::Var(_name, _) => Type::Unknown,
+            Expr::FunctionCall { name, args, .. } => {
+                // Check if function has known return type
+                if let Some(instantiations) = self.instantiations.get(name) {
+                    let arg_types: Vec<Type> =
+                        args.iter().map(|a| self.infer_expr_type(a)).collect();
+                    if let Some(_specialized) = instantiations.get(&arg_types) {
+                        // Return type would need to be looked up
+                        // For now, return Unknown
+                        return Type::Unknown;
+                    }
+                }
+
+                // Check built-in functions
+                match name.as_str() {
+                    "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp"
+                    | "Math.log" | "Math.floor" | "Math.ceil" | "Math.abs" => Type::Float,
+                    "Math.pow" => Type::Float,
+                    "String.length" | "List.length" => Type::Int,
+                    "String.concat" => Type::String,
+                    _ => Type::Unknown,
+                }
+            }
             Expr::Some { value } => Type::option(self.infer_expr_type(value)),
             Expr::None => Type::option(Type::Unknown),
             Expr::Ok { value } => Type::result(self.infer_expr_type(value), Type::Unknown),
             Expr::Error { value } => Type::result(Type::Unknown, self.infer_expr_type(value)),
+            Expr::ArrayAccess { array, .. } => match self.infer_expr_type(array) {
+                Type::List(inner) => *inner,
+                Type::Array(inner, _) => *inner,
+                _ => Type::Unknown,
+            },
+            Expr::Borrow { expr } => Type::borrow(self.infer_expr_type(expr)),
+            Expr::MutBorrow { expr } => Type::mut_borrow(self.infer_expr_type(expr)),
+            Expr::Deref { expr } => match self.infer_expr_type(expr) {
+                Type::Borrow(inner) | Type::MutBorrow(inner) | Type::Pointer(inner) => *inner,
+                _ => Type::Unknown,
+            },
+            Expr::AddrOf { expr } => Type::pointer(self.infer_expr_type(expr)),
+            Expr::Cast { target_type, .. } => Type::from_str(target_type),
             _ => Type::Unknown,
         }
     }

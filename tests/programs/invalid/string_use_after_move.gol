@@ -1,0 +1,6 @@
+// Invalid: use after move
+procedure main
+    val s := "hello"
+    val t := s    // Move s
+    print(s)      // ERROR: Using moved value
+    print(t)

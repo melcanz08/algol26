@@ -1,9 +1,21 @@
+// Concurrency test - valid concurrent patterns
 procedure main
+    // Safe: no shared mutable state
     print("Before")
+    
     spawn
         print("Inside spawn")
+    end
+    
     print("After")
     
+    // Safe: parallel blocks with no shared state
     parallel do
-        print("P1")
-        print("P2")
+        val local1 := 10.0
+        print(local1)
+    end
+    
+    parallel do
+        val local2 := 20.0
+        print(local2)
+    end

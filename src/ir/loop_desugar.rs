@@ -1,7 +1,6 @@
-// src/semantics/loop_desugar.rs - Orthogonal: handles both Stmt::For and Expr::For/While as values
-// 100% orthogonal desugar with environment tracking + trailing_expr support
+// src/ir/loop_desugar.rs - HARDENED
+// Actually performs loop desugaring
 
-use crate::common::span::Span;
 use crate::frontend::ast::{BinOp, Expr, FunctionDecl, Stmt};
 use std::collections::HashMap;
 
@@ -24,7 +23,6 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 mutable,
                 span,
             } => {
-                // Desugar the value first (it might be For/While as expr)
                 let desugared_value = desugar_expr(value, env);
                 if let Expr::List(elements) = &desugared_value {
                     env.insert(name.clone(), elements.clone());
@@ -42,35 +40,47 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 iterable,
                 body,
                 trailing_expr,
-                ..
+                span,
             }) => {
-                // Resolve iterable from env
                 let resolved_iterable = resolve_iterable(&iterable, env);
 
                 if let Expr::List(elements) = &resolved_iterable {
-                    // Unroll if it's a known list and body has no complex control flow
+                    // Unroll if known list and no complex control flow
                     if !has_complex_cf(&body) && trailing_expr.is_none() {
                         for elem in elements {
                             let substituted = substitute_var_literal(&body, &var, elem);
                             let folded = fold_constant_ifs(substituted);
+                            let mut should_break = false;
+
                             for s in folded {
-                                if matches!(s, Stmt::Break) {
-                                    break;
+                                match s {
+                                    Stmt::Break => {
+                                        should_break = true;
+                                        break;
+                                    }
+                                    Stmt::Continue => {
+                                        break; // Continue to next iteration
+                                    }
+                                    _ => {
+                                        let inner = desugar_stmts(vec![s], env);
+                                        result.extend(inner);
+                                    }
                                 }
-                                // Recursively desugar inner statements
-                                let inner = desugar_stmts(vec![s], env);
-                                result.extend(inner);
+                            }
+
+                            if should_break {
+                                break;
                             }
                         }
                     } else {
-                        // Keep loop but with resolved iterable and desugared body
+                        // Keep loop with resolved iterable
                         let desugared_body = desugar_stmts(body, env);
                         result.push(Stmt::Expression(Expr::For {
                             var,
                             iterable: Box::new(resolved_iterable),
                             body: desugared_body,
                             trailing_expr,
-                            span: Span::default(),
+                            span,
                         }));
                     }
                 } else {
@@ -80,7 +90,7 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                         iterable: Box::new(resolved_iterable),
                         body: desugared_body,
                         trailing_expr,
-                        span: Span::default(),
+                        span,
                     }));
                 }
             }
@@ -88,14 +98,14 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 condition,
                 body,
                 trailing_expr,
-                ..
+                span,
             }) => {
                 let desugared_body = desugar_stmts(body, env);
                 result.push(Stmt::Expression(Expr::While {
                     condition,
                     body: desugared_body,
                     trailing_expr,
-                    span: Span::default(),
+                    span,
                 }));
             }
             Stmt::Expression(expr) => {
@@ -115,7 +125,6 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 });
             }
             other => {
-                // For other stmts, recursively desugar inner blocks if any
                 result.push(other);
             }
         }
@@ -134,18 +143,14 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
         } => {
             let resolved = resolve_iterable(&iterable, env);
             if let Expr::List(elements) = &resolved {
-                // If For is used as value `val x := for i in [1,2,3] do i + 1`
-                // We can desugar to last trailing_expr value if known
                 if !has_complex_cf(&body) {
                     if let Some(te) = trailing_expr.as_ref() {
-                        // For orthogonal: evaluate trailing_expr with substituted var for last element
                         if let Some(last) = elements.last() {
                             return substitute_expr_literal(te, &var, last);
                         }
                     }
                 }
             }
-            // Keep as For expr but with desugared body
             let desugared_body = desugar_stmts(body, env);
             let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
             Expr::For {
@@ -266,12 +271,10 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
     }
 }
 
+// FIXED: Actually folds constant ifs
 fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
-    stmts
-}
-#[allow(dead_code)]
-fn _fold_constant_ifs_orig(stmts: Vec<Stmt>) -> Vec<Stmt> {
     let mut result = Vec::new();
+
     for stmt in stmts {
         match stmt {
             Stmt::Expression(Expr::If {
@@ -310,10 +313,10 @@ fn _fold_constant_ifs_orig(stmts: Vec<Stmt>) -> Vec<Stmt> {
             _ => result.push(stmt),
         }
     }
+
     result
 }
 
-#[allow(dead_code)]
 fn eval_const_expr(expr: &Expr) -> Option<bool> {
     match expr {
         Expr::Bool(b) => Some(*b),
@@ -334,7 +337,6 @@ fn eval_const_expr(expr: &Expr) -> Option<bool> {
     }
 }
 
-#[allow(dead_code)]
 fn eval_const_num(expr: &Expr) -> Option<f64> {
     match expr {
         Expr::Number(n) => Some(*n),
@@ -413,62 +415,6 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
                 .iter()
                 .map(|a| substitute_expr_literal(a, old_name, literal))
                 .collect(),
-            span: *span,
-        },
-        Expr::For {
-            var,
-            iterable,
-            body,
-            trailing_expr,
-            span,
-        } => {
-            if var == old_name {
-                Expr::For {
-                    var: var.clone(),
-                    iterable: iterable.clone(),
-                    body: body.clone(),
-                    trailing_expr: trailing_expr.clone(),
-                    span: *span,
-                }
-            } else {
-                Expr::For {
-                    var: var.clone(),
-                    iterable: Box::new(substitute_expr_literal(iterable, old_name, literal)),
-                    body: body
-                        .iter()
-                        .map(|s| match s {
-                            Stmt::Expression(e) => {
-                                Stmt::Expression(substitute_expr_literal(e, old_name, literal))
-                            }
-                            _ => s.clone(),
-                        })
-                        .collect(),
-                    trailing_expr: trailing_expr
-                        .as_ref()
-                        .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
-                    span: *span,
-                }
-            }
-        }
-        Expr::While {
-            condition,
-            body,
-            trailing_expr,
-            span,
-        } => Expr::While {
-            condition: Box::new(substitute_expr_literal(condition, old_name, literal)),
-            body: body
-                .iter()
-                .map(|s| match s {
-                    Stmt::Expression(e) => {
-                        Stmt::Expression(substitute_expr_literal(e, old_name, literal))
-                    }
-                    _ => s.clone(),
-                })
-                .collect(),
-            trailing_expr: trailing_expr
-                .as_ref()
-                .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
             span: *span,
         },
         _ => expr.clone(),

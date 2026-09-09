@@ -1,0 +1,7 @@
+// Fixed syntax: borrow conflict test
+procedure main
+    var arr := [1.0, 2.0, 3.0]
+    val a := &arr      // Immutable borrow
+    var b := &mut arr  // ERROR: Can't mutably borrow while immutably borrowed
+    print(a)
+    print(b)

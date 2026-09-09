@@ -64,7 +64,7 @@ fn main() {
     let source = match fs::read_to_string(&filename) {
         Ok(content) => content,
         Err(e) => {
-            let err = CompileError::new(
+            let err = CompileError::simple(
                 &format!("Failed to read file '{}': {}", filename, e),
                 0,
                 0,
@@ -138,7 +138,7 @@ fn main() {
 }
 
 fn print_usage() {
-    println!("ALGOL26 Compiler v0.1.0");
+    println!("ALGOL26 Compiler v{}", env!("CARGO_PKG_VERSION"));
     println!("=========================");
     println!();
     println!("Usage: algol26 <command> [options]");

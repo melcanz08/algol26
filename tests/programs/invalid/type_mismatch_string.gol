@@ -1,3 +1,5 @@
+// Fixed syntax: type mismatch test
 procedure main
-    val x := "hello" + 5.0
-    print(x)
+    val x := 5.0
+    val y := x + "bad"  // ERROR: Cannot add float and string
+    print(y)

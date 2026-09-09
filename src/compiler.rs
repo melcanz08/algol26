@@ -1,7 +1,7 @@
-// src/compiler.rs updates for Semantic IR & Defer Lowering Integration
-
 #![allow(dead_code)]
 #![allow(unused_variables)]
+
+// src/compiler.rs updates for Semantic IR & Defer Lowering Integration
 
 use crate::backends::ir_codegen::IRCodeGen;
 use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode, Result};
@@ -102,7 +102,7 @@ impl Compiler {
 
         // Phase 10: Verify IR
         semantic_ir.verify().map_err(|e| {
-            CompileError::new(
+            CompileError::simple(
                 &format!("IR verification failed: {}", e),
                 0,
                 0,
@@ -182,7 +182,7 @@ impl Compiler {
         // Phase 10: VERIFY IR (pre-optimization)
         let phase_start = Instant::now();
         semantic_ir.verify().map_err(|e| {
-            CompileError::new(
+            CompileError::simple(
                 &format!("IR verification failed after construction: {}", e),
                 0,
                 0,
@@ -194,14 +194,41 @@ impl Compiler {
 
         // Phase 11: OPTIMIZE
         let phase_start = Instant::now();
+        for func in &semantic_ir.functions {
+            eprintln!(
+                "FUNCTION {} blocks={:?}",
+                func.name,
+                func.blocks.iter().map(|b| b.id).collect::<Vec<_>>()
+            );
+            for block in &func.blocks {
+                eprintln!("  BLOCK {} TERM {:?}", block.id, block.terminator);
+            }
+        }
+
         let mut optimizer = Optimizer::new();
         optimizer.optimize(&mut semantic_ir);
+
+        for func in &semantic_ir.functions {
+            for block in &func.blocks {
+                eprintln!("BLOCK {} TERM: {:?}", block.id, block.terminator);
+                for instr in &block.instructions {
+                    eprintln!("  {:?}", instr);
+                }
+            }
+        }
+        for func in &semantic_ir.functions {
+            for block in &func.blocks {
+                for instr in &block.instructions {
+                    eprintln!("  {:?}", instr);
+                }
+            }
+        }
         let optimize_time = phase_start.elapsed();
 
         // Phase 12: VERIFY IR (post-optimization)
         let phase_start = Instant::now();
         semantic_ir.verify().map_err(|e| {
-            CompileError::new(
+            CompileError::simple(
                 &format!("IR verification failed after optimization: {}", e),
                 0,
                 0,
@@ -335,12 +362,18 @@ impl Compiler {
                         // Parse the imported file
                         let lexer = Lexer::new(source.clone()).map_err(|e| {
                             e.display();
-                            CompileError::new("Lexing failed in import", 0, 0, "", ErrorCode::E0001)
+                            CompileError::simple(
+                                "Lexing failed in import",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0001,
+                            )
                         })?;
                         let mut parser = Parser::new_with_positions(lexer.tokens, lexer.positions);
                         let imported_program = parser.parse_program().map_err(|e| {
                             e.display();
-                            CompileError::new(
+                            CompileError::simple(
                                 "Parsing failed in import",
                                 0,
                                 0,
@@ -359,7 +392,7 @@ impl Compiler {
                         // TODO: merge span maps from imports
                     }
 
-                    loader.pop_import();
+                    loader.end_import();
                 }
             }
         }
@@ -383,14 +416,22 @@ impl Compiler {
             )
             .map_err(|e| {
                 e.display();
-                CompileError::new("Type checking failed", 0, 0, "", ErrorCode::E0002)
+                CompileError::simple("Type checking failed", 0, 0, "", ErrorCode::E0002)
             })?;
 
         let mut race_detector = RaceDetector::new();
         let races = race_detector.analyze(&parsed.functions);
         if !races.is_empty() {
             for race in races {
-                Diagnostic::Warning(race).display();
+                // Data races are safety violations, not warnings
+                let error = CompileError::simple(
+                    &race,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0007,
+                );
+                return Err(error);
             }
         }
 
@@ -422,11 +463,12 @@ impl Compiler {
 
     fn build_semantic_ir(&self, safe: &SafeProgram) -> Result<SemanticProgram> {
         let (mut program, diagnostics) = SemanticIRBuilder::build(&safe.functions);
+
         if !diagnostics.is_empty() {
             for diag in &diagnostics {
                 Diagnostic::Warning(diag.to_string()).display();
             }
-            return Err(CompileError::new(
+            return Err(CompileError::simple(
                 "Semantic IR construction failed",
                 0,
                 0,
@@ -435,9 +477,17 @@ impl Compiler {
             ));
         }
 
-        // Execute explicit Defer Lowering Pass on the Semantic IR
+        // Execute Defer Lowering with error checking
         let defer_pass = DeferLoweringPass::new();
-        let _ = defer_pass.lower(&mut program);
+        defer_pass.lower(&mut program).map_err(|e| {
+            CompileError::simple(
+                &format!("Defer lowering failed: {}", e),
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            )
+        })?;
 
         Ok(program)
     }
@@ -466,12 +516,12 @@ impl Compiler {
 
         codegen.compile(&optimized.program).map_err(|e| {
             e.display();
-            CompileError::new("Code generation failed", 0, 0, "", ErrorCode::E0002)
+            CompileError::simple("Code generation failed", 0, 0, "", ErrorCode::E0002)
         })?;
 
         let ir_path = PathBuf::from(output_name).with_extension("ll");
         codegen.module.print_to_file(&ir_path).map_err(|e| {
-            let err = CompileError::new(
+            let err = CompileError::simple(
                 &format!("Failed to emit LLVM IR: {}", e),
                 0,
                 0,
@@ -505,7 +555,7 @@ impl Compiler {
             .arg("-lpthread")
             .output()
             .map_err(|e| {
-                let err = CompileError::new(
+                let err = CompileError::simple(
                     &format!("Failed to run clang: {}", e),
                     0,
                     0,
@@ -518,7 +568,7 @@ impl Compiler {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let err = CompileError::new(
+            let err = CompileError::simple(
                 &format!("Linking failed: {}", stderr),
                 0,
                 0,
@@ -533,8 +583,13 @@ impl Compiler {
 
         if run_after_compile {
             let status = Command::new(&output_path).status().map_err(|e| {
-                let err =
-                    CompileError::new(&format!("Failed to run: {}", e), 0, 0, "", ErrorCode::E0001);
+                let err = CompileError::simple(
+                    &format!("Failed to run: {}", e),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0001,
+                );
                 err.display();
                 err
             })?;

@@ -1,6 +1,7 @@
-// src/common/types.rs - Unified Type System for ALGOL26
-
 #![allow(dead_code)]
+
+// src/common/types.rs - Unified Type System for ALGOL26
+// HARDENED: Complete with all required methods
 
 use std::fmt;
 
@@ -23,6 +24,8 @@ pub enum Type {
 
     // Composite types
     List(Box<Type>),
+    Array(Box<Type>, usize), // Array of type with size
+    Tuple(Vec<Type>),
     Option(Box<Type>),
     Result {
         ok: Box<Type>,
@@ -93,6 +96,14 @@ impl Type {
         Type::List(Box::new(element_type))
     }
 
+    pub fn array(element_type: Type, size: usize) -> Self {
+        Type::Array(Box::new(element_type), size)
+    }
+
+    pub fn tuple(elements: Vec<Type>) -> Self {
+        Type::Tuple(elements)
+    }
+
     pub fn option(inner_type: Type) -> Self {
         Type::Option(Box::new(inner_type))
     }
@@ -125,7 +136,7 @@ impl Type {
         let s_trimmed = s.trim();
         let s_lower = s_trimmed.to_lowercase();
 
-        // Check if it's a type variable (single uppercase letter) - Level 3: no unwrap
+        // Check if it's a type variable (single uppercase letter)
         if s_trimmed.len() == 1 {
             if let Some(c) = s_trimmed.chars().next() {
                 if c.is_uppercase() {
@@ -135,8 +146,8 @@ impl Type {
         }
 
         match s_lower.as_str() {
-            "int" | "integer" | "i64" => Type::Int,
-            "float" | "double" | "f64" => Type::Float,
+            "int" | "integer" | "i64" | "i32" => Type::Int,
+            "float" | "double" | "f64" | "f32" => Type::Float,
             "string" | "str" => Type::String,
             "bool" | "boolean" => Type::Bool,
             "void" | "unit" | "()" => Type::Void,
@@ -149,6 +160,7 @@ impl Type {
             "option" => Type::option(Type::Unknown),
             "result" => Type::result(Type::Unknown, Type::Unknown),
             "channel" => Type::channel(Type::Unknown),
+            "array" => Type::array(Type::Unknown, 0),
 
             // Pointer types
             "*int" | "*i64" => Type::pointer(Type::Int),
@@ -171,7 +183,7 @@ impl Type {
             "&mut bool" => Type::mut_borrow(Type::Bool),
 
             _ => {
-                // Support both List<int> and List[float] / List[int]
+                // Support List<int>, List[float], etc.
                 if let Some(inner) = s_lower
                     .strip_prefix("list<")
                     .and_then(|s| s.strip_suffix('>'))
@@ -202,6 +214,20 @@ impl Type {
                     })
                 {
                     Type::channel(Type::from_str(inner))
+                } else if s_lower.starts_with("array<") && s_lower.ends_with('>') {
+                    // Parse Array<Type, Size>
+                    let inner = &s_trimmed[6..s_trimmed.len() - 1];
+                    let parts: Vec<&str> = inner.splitn(2, ',').collect();
+                    if parts.len() == 2 {
+                        let elem_type = Type::from_str(parts[0].trim());
+                        if let Ok(size) = parts[1].trim().parse::<usize>() {
+                            Type::array(elem_type, size)
+                        } else {
+                            Type::array(elem_type, 0)
+                        }
+                    } else {
+                        Type::array(Type::Unknown, 0)
+                    }
                 } else if s_lower.starts_with("result<") && s_lower.ends_with('>') {
                     // Parse Result<OkType, ErrorType>
                     let inner = &s_trimmed[7..s_trimmed.len() - 1];
@@ -220,6 +246,41 @@ impl Type {
                     Type::borrow(Type::from_str(inner))
                 } else if let Some(inner) = s_lower.strip_prefix('*') {
                     Type::pointer(Type::from_str(inner))
+                } else if let Some(inner) = s_lower
+                    .strip_prefix("pointer<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    Type::pointer(Type::from_str(inner))
+                } else if let Some(inner) = s_lower
+                    .strip_prefix("ptr<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    Type::pointer(Type::from_str(inner))
+                } else if let Some(inner) = s_lower
+                    .strip_prefix("pointer<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    Type::pointer(Type::from_str(inner))
+                } else if let Some(inner) = s_lower
+                    .strip_prefix("ptr<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    Type::pointer(Type::from_str(inner))
+                } else if let Some(inner) = s_lower
+                    .strip_prefix("borrow<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    Type::borrow(Type::from_str(inner))
+                } else if let Some(inner) = s_lower
+                    .strip_prefix("mutborrow<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    Type::mut_borrow(Type::from_str(inner))
+                } else if let Some(inner) = s_lower
+                    .strip_prefix("mut_borrow<")
+                    .and_then(|s| s.strip_suffix('>'))
+                {
+                    Type::mut_borrow(Type::from_str(inner))
                 } else {
                     Type::Unknown
                 }
@@ -240,7 +301,14 @@ impl Type {
     }
 
     pub fn is_composite(&self) -> bool {
-        matches!(self, Type::List(_) | Type::Option(_) | Type::Result { .. })
+        matches!(
+            self,
+            Type::List(_)
+                | Type::Array(_, _)
+                | Type::Tuple(_)
+                | Type::Option(_)
+                | Type::Result { .. }
+        )
     }
 
     pub fn is_pointer_like(&self) -> bool {
@@ -255,11 +323,53 @@ impl Type {
     }
 
     pub fn is_copy(&self) -> bool {
-        matches!(self, Type::Int | Type::Float | Type::Bool)
+        matches!(self, Type::Int | Type::Float | Type::Bool | Type::Ptr)
     }
 
     pub fn is_type_var(&self) -> bool {
         matches!(self, Type::TypeVar(_))
+    }
+
+    // NEW: Cast validation
+    pub fn can_cast_to(&self, target: &Type) -> bool {
+        if self == target {
+            return true;
+        }
+
+        // TypeVar can cast to/from anything
+        if matches!(self, Type::TypeVar(_)) || matches!(target, Type::TypeVar(_)) {
+            return true;
+        }
+
+        match (self, target) {
+            // Numeric casts (always allowed, may be lossy)
+            (Type::Int, Type::Float) => true,
+            (Type::Float, Type::Int) => true, // Explicit cast allows lossy conversion
+            (Type::Int, Type::Int) => true,
+            (Type::Float, Type::Float) => true,
+
+            // String casts
+            (Type::Int, Type::String) => true,
+            (Type::Float, Type::String) => true,
+            (Type::Bool, Type::String) => true,
+            (Type::String, Type::String) => true,
+
+            // Pointer casts
+            (Type::Ptr, Type::Ptr) => true,
+            (Type::Ptr, Type::Pointer(_)) => true,
+            (Type::Pointer(_), Type::Ptr) => true,
+            (Type::Pointer(_), Type::Pointer(_)) => true,
+
+            // Borrow casts
+            (Type::Borrow(_), Type::Borrow(_)) => true,
+            (Type::MutBorrow(_), Type::MutBorrow(_)) => true,
+
+            // Generic casts
+            (Type::Generic { .. }, Type::Generic { .. }) => true,
+
+            // Default: no cast
+            _ => false,
+        }
     }
 
     // Type compatibility and coercion
@@ -274,10 +384,6 @@ impl Type {
         }
 
         match (self, target) {
-            // Unknown must be RESOLVED before coercion can be checked.
-            // It does NOT mean 'any type' — it means 'not yet inferred'.
-            // If Unknown appears here, the program hasn't been fully type-checked.
-
             // Numeric coercion
             (Type::Int, Type::Float) => true,
             (Type::Float, Type::Int) => false, // Lossy, require explicit cast
@@ -290,6 +396,14 @@ impl Type {
             // List covariance
             (Type::List(a), Type::List(b)) => a.can_coerce_to(b),
 
+            // Array covariance
+            (Type::Array(a, size1), Type::Array(b, size2)) => size1 == size2 && a.can_coerce_to(b),
+
+            // Tuple covariance
+            (Type::Tuple(a), Type::Tuple(b)) => {
+                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.can_coerce_to(y))
+            }
+
             // Option covariance
             (Type::Option(a), Type::Option(b)) => a.can_coerce_to(b),
 
@@ -297,6 +411,15 @@ impl Type {
             (Type::Result { ok: ok1, error: e1 }, Type::Result { ok: ok2, error: e2 }) => {
                 ok1.can_coerce_to(ok2) && e1.can_coerce_to(e2)
             }
+
+            // Pointer covariance
+            (Type::Pointer(a), Type::Pointer(b)) => a.can_coerce_to(b),
+
+            // Borrow covariance
+            (Type::Borrow(a), Type::Borrow(b)) => a.can_coerce_to(b),
+
+            // MutBorrow covariance
+            (Type::MutBorrow(a), Type::MutBorrow(b)) => a.can_coerce_to(b),
 
             // Generic covariance
             (Type::Generic { name: n1, args: a1 }, Type::Generic { name: n2, args: a2 }) => {
@@ -331,6 +454,29 @@ impl Type {
             // List common element type
             (Type::List(a), Type::List(b)) => Type::list(a.common_supertype(b)),
 
+            // Array common element type
+            (Type::Array(a, size1), Type::Array(b, size2)) => {
+                if size1 == size2 {
+                    Type::array(a.common_supertype(b), *size1)
+                } else {
+                    Type::Unknown
+                }
+            }
+
+            // Tuple common types
+            (Type::Tuple(a), Type::Tuple(b)) => {
+                if a.len() == b.len() {
+                    let common: Vec<Type> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(x, y)| x.common_supertype(y))
+                        .collect();
+                    Type::tuple(common)
+                } else {
+                    Type::Unknown
+                }
+            }
+
             // Option common inner type
             (Type::Option(a), Type::Option(b)) => Type::option(a.common_supertype(b)),
 
@@ -339,11 +485,95 @@ impl Type {
                 Type::result(ok1.common_supertype(ok2), e1.common_supertype(e2))
             }
 
+            // Borrow common types
+            (Type::Borrow(a), Type::Borrow(b)) => Type::borrow(a.common_supertype(b)),
+            (Type::MutBorrow(a), Type::MutBorrow(b)) => Type::mut_borrow(a.common_supertype(b)),
+
             // Unknown handling
             (Type::Unknown, t) | (t, Type::Unknown) => t.clone(),
 
             // Default to Unknown
             _ => Type::Unknown,
+        }
+    }
+
+    // NEW: Check if type is a subtype of another
+    pub fn is_subtype_of(&self, other: &Type) -> bool {
+        self.can_coerce_to(other)
+    }
+
+    // NEW: Get the inner type of a container
+    pub fn inner_type(&self) -> Option<&Type> {
+        match self {
+            Type::List(inner) => Some(inner),
+            Type::Array(inner, _) => Some(inner),
+            Type::Option(inner) => Some(inner),
+            Type::Pointer(inner) => Some(inner),
+            Type::Borrow(inner) => Some(inner),
+            Type::MutBorrow(inner) => Some(inner),
+            Type::Channel(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
+    // NEW: Check if type contains type variables
+    pub fn contains_type_var(&self) -> bool {
+        match self {
+            Type::TypeVar(_) => true,
+            Type::List(inner) => inner.contains_type_var(),
+            Type::Array(inner, _) => inner.contains_type_var(),
+            Type::Tuple(elements) => elements.iter().any(|e| e.contains_type_var()),
+            Type::Option(inner) => inner.contains_type_var(),
+            Type::Result { ok, error } => ok.contains_type_var() || error.contains_type_var(),
+            Type::Pointer(inner) => inner.contains_type_var(),
+            Type::Borrow(inner) => inner.contains_type_var(),
+            Type::MutBorrow(inner) => inner.contains_type_var(),
+            Type::Channel(inner) => inner.contains_type_var(),
+            Type::Generic { args, .. } => args.iter().any(|a| a.contains_type_var()),
+            Type::Function {
+                params,
+                return_type,
+            } => params.iter().any(|p| p.contains_type_var()) || return_type.contains_type_var(),
+            _ => false,
+        }
+    }
+
+    // NEW: Substitute type variables
+    pub fn substitute(&self, substitutions: &std::collections::HashMap<String, Type>) -> Type {
+        match self {
+            Type::TypeVar(name) => substitutions
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| self.clone()),
+            Type::List(inner) => Type::list(inner.substitute(substitutions)),
+            Type::Array(inner, size) => Type::array(inner.substitute(substitutions), *size),
+            Type::Tuple(elements) => Type::tuple(
+                elements
+                    .iter()
+                    .map(|e| e.substitute(substitutions))
+                    .collect(),
+            ),
+            Type::Option(inner) => Type::option(inner.substitute(substitutions)),
+            Type::Result { ok, error } => Type::result(
+                ok.substitute(substitutions),
+                error.substitute(substitutions),
+            ),
+            Type::Pointer(inner) => Type::pointer(inner.substitute(substitutions)),
+            Type::Borrow(inner) => Type::borrow(inner.substitute(substitutions)),
+            Type::MutBorrow(inner) => Type::mut_borrow(inner.substitute(substitutions)),
+            Type::Channel(inner) => Type::channel(inner.substitute(substitutions)),
+            Type::Generic { name, args } => Type::generic(
+                name,
+                args.iter().map(|a| a.substitute(substitutions)).collect(),
+            ),
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params.iter().map(|p| p.substitute(substitutions)).collect(),
+                return_type: Box::new(return_type.substitute(substitutions)),
+            },
+            _ => self.clone(),
         }
     }
 }
@@ -365,11 +595,16 @@ impl fmt::Display for Type {
                 format!("{}<{}>", name, args_str.join(", "))
             }
             Type::List(t) => format!("List<{}>", t),
+            Type::Array(t, size) => format!("Array<{}, {}>", t, size),
+            Type::Tuple(elements) => {
+                let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                format!("({})", elems.join(", "))
+            }
             Type::Option(t) => format!("Option<{}>", t),
             Type::Result { ok, error } => format!("Result<{}, {}>", ok, error),
             Type::Pointer(t) => format!("*{}", t),
-            Type::Borrow(t) => format!("&{}", t),
-            Type::MutBorrow(t) => format!("&mut {}", t),
+            Type::Borrow(t) => format!("Borrow<{}>", t),
+            Type::MutBorrow(t) => format!("MutBorrow<{}>", t),
             Type::Channel(t) => format!("Channel<{}>", t),
             Type::Function {
                 params,
@@ -402,18 +637,39 @@ mod tests {
         assert_eq!(Type::from_str("&int"), Type::borrow(Type::Int));
         assert_eq!(Type::from_str("&mut int"), Type::mut_borrow(Type::Int));
         assert_eq!(Type::from_str("T"), Type::TypeVar("T".to_string()));
+        assert_eq!(Type::from_str("array<int, 10>"), Type::array(Type::Int, 10));
     }
 
     #[test]
     fn test_type_coercion() {
         assert!(Type::Int.can_coerce_to(&Type::Float));
         assert!(!Type::Float.can_coerce_to(&Type::Int));
-        // REMOVED: Unknown can no longer coerce (must be resolved first)
         assert!(Type::list(Type::Int).can_coerce_to(&Type::list(Type::Float)));
         assert!(Type::Ptr.can_coerce_to(&Type::Ptr));
         assert!(Type::Ptr.can_coerce_to(&Type::Pointer(Box::new(Type::Int))));
         assert!(Type::TypeVar("T".to_string()).can_coerce_to(&Type::Int));
         assert!(Type::Int.can_coerce_to(&Type::TypeVar("T".to_string())));
+        assert!(Type::array(Type::Int, 10).can_coerce_to(&Type::array(Type::Float, 10)));
+    }
+
+    #[test]
+    fn test_can_cast_to() {
+        // Numeric casts
+        assert!(Type::Int.can_cast_to(&Type::Float));
+        assert!(Type::Float.can_cast_to(&Type::Int));
+
+        // String casts
+        assert!(Type::Int.can_cast_to(&Type::String));
+        assert!(Type::Float.can_cast_to(&Type::String));
+        assert!(Type::Bool.can_cast_to(&Type::String));
+
+        // Pointer casts
+        assert!(Type::Ptr.can_cast_to(&Type::Ptr));
+        assert!(Type::Ptr.can_cast_to(&Type::Pointer(Box::new(Type::Int))));
+
+        // Invalid casts
+        assert!(!Type::String.can_cast_to(&Type::Int));
+        assert!(!Type::list(Type::Int).can_cast_to(&Type::Float));
     }
 
     #[test]
@@ -432,6 +688,10 @@ mod tests {
             Type::Int.common_supertype(&Type::TypeVar("T".to_string())),
             Type::Int
         );
+        assert_eq!(
+            Type::array(Type::Int, 10).common_supertype(&Type::array(Type::Float, 10)),
+            Type::array(Type::Float, 10)
+        );
     }
 
     #[test]
@@ -448,5 +708,33 @@ mod tests {
             .to_string(),
             "Result<Int, String>"
         );
+        assert_eq!(Type::array(Type::Int, 10).to_string(), "Array<Int, 10>");
+    }
+
+    #[test]
+    fn test_inner_type() {
+        assert_eq!(Type::list(Type::Int).inner_type(), Some(&Type::Int));
+        assert_eq!(Type::option(Type::Float).inner_type(), Some(&Type::Float));
+        assert_eq!(Type::pointer(Type::Int).inner_type(), Some(&Type::Int));
+        assert_eq!(Type::Int.inner_type(), None);
+    }
+
+    #[test]
+    fn test_contains_type_var() {
+        assert!(Type::TypeVar("T".to_string()).contains_type_var());
+        assert!(Type::list(Type::TypeVar("T".to_string())).contains_type_var());
+        assert!(!Type::list(Type::Int).contains_type_var());
+    }
+
+    #[test]
+    fn test_substitute() {
+        let mut substitutions = std::collections::HashMap::new();
+        substitutions.insert("T".to_string(), Type::Int);
+
+        let ty = Type::TypeVar("T".to_string());
+        assert_eq!(ty.substitute(&substitutions), Type::Int);
+
+        let ty = Type::list(Type::TypeVar("T".to_string()));
+        assert_eq!(ty.substitute(&substitutions), Type::list(Type::Int));
     }
 }

@@ -1,0 +1,6 @@
+// Fixed: Type mismatch with proper syntax
+procedure main
+    var x := 5
+    var y := "string"
+    x := y
+    print(x)

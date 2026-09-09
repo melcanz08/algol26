@@ -1,19 +1,18 @@
-// algol26/src/common/diagnostics.rs
+// src/common/diagnostics.rs - WORKING VERSION
 use crate::common::span::Span;
 use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct CompileError {
-    pub message: Box<String>,
+    pub message: String,
     pub span: Option<Span>,
     pub line: usize,
     pub column: usize,
-    pub source_line: Box<String>,
+    pub source_line: String,
     pub error_code: ErrorCode,
-    pub suggestion: Option<Box<String>>,
+    pub suggestion: Option<String>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     E0001,
@@ -59,21 +58,7 @@ impl ErrorCode {
 }
 
 impl CompileError {
-    pub fn suggest_fix(&self) -> Option<&str> {
-        self.suggestion.as_deref().map(|s| s.as_str())
-    }
-    pub fn with_context(mut self, context: &str) -> Self {
-        let new_sugg = format!(
-            "{}. {}",
-            context,
-            self.suggestion
-                .as_deref()
-                .map(|s| s.as_str())
-                .unwrap_or_default()
-        );
-        self.suggestion = Some(Box::new(new_sugg));
-        self
-    }
+    // KEEP the 5-arg constructor (most code uses this)
     pub fn new(
         message: &str,
         line: usize,
@@ -82,23 +67,51 @@ impl CompileError {
         error_code: ErrorCode,
     ) -> Self {
         CompileError {
-            message: Box::new(message.to_string()),
-            span: None,
+            message: message.to_string(),
+            span: Some(Span::point(line, column)),
             line,
             column,
-            source_line: Box::new(source_line.to_string()),
+            source_line: source_line.to_string(),
             error_code,
             suggestion: None,
         }
     }
+
+    // ADD simple constructor (for new code)
+    pub fn simple(
+        message: &str,
+        line: usize,
+        column: usize,
+        source_line: &str,
+        error_code: ErrorCode,
+    ) -> Self {
+        CompileError::new(message, line, column, source_line, error_code)
+    }
+
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
+        self.line = span.start_line;
+        self.column = span.start_column;
         self
     }
+
     pub fn with_suggestion(mut self, suggestion: &str) -> Self {
-        self.suggestion = Some(Box::new(suggestion.to_string()));
+        self.suggestion = Some(suggestion.to_string());
         self
     }
+
+    pub fn with_context(mut self, context: &str) -> Self {
+        // Add context as suggestion if no suggestion exists
+        if self.suggestion.is_none() {
+            self.suggestion = Some(context.to_string());
+        }
+        self
+    }
+
+    pub fn suggest_fix(&self) -> Option<&str> {
+        self.suggestion.as_deref()
+    }
+
     pub fn display(&self) {
         if self.line > 0 {
             eprintln!(
@@ -111,14 +124,13 @@ impl CompileError {
         } else {
             eprintln!("error[{}]: {}", self.error_code.as_str(), self.message);
         }
-        if self.line > 0 {
+        if self.line > 0 && !self.source_line.is_empty() {
             eprintln!("  --> Line {}:{}", self.line, self.column);
             eprintln!("  |");
             eprintln!("{} | {}", self.line, self.source_line);
             eprintln!("  | {}^", " ".repeat(self.column));
         }
         if let Some(suggestion) = &self.suggestion {
-            eprintln!("  |");
             eprintln!("  = help: {}", suggestion);
         }
     }
@@ -129,6 +141,7 @@ impl fmt::Display for CompileError {
         write!(f, "{}", self.message)
     }
 }
+
 impl std::error::Error for CompileError {}
 
 pub type Result<T> = std::result::Result<T, CompileError>;
@@ -138,6 +151,7 @@ impl From<String> for CompileError {
         CompileError::new(&msg, 0, 0, "", ErrorCode::E0001)
     }
 }
+
 impl From<&str> for CompileError {
     fn from(msg: &str) -> Self {
         CompileError::new(msg, 0, 0, "", ErrorCode::E0001)

@@ -1,3 +1,4 @@
+// invalid_nested_if_defer.al26
 procedure main
     if true then
         defer

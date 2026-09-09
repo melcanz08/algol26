@@ -1,0 +1,4 @@
+procedure main
+    var arr := [1.0, 2.0, 3.0]
+    var a := &arr
+    var b := &mut arr

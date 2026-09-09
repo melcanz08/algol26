@@ -5,7 +5,10 @@ procedure main
     for t in temps do
         if t < min then
             min := t
+        end
         if t > max then
             max := t
+        end
+    end
     print(min)
     print(max)

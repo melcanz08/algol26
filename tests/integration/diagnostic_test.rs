@@ -22,10 +22,7 @@ fn test_compile_error_creation() {
     assert_eq!(err.line, 5);
     assert_eq!(err.column, 10);
     assert_eq!(err.error_code, ErrorCode::E0002);
-    assert_eq!(
-        err.suggestion.as_deref().map(|s| s.as_str()),
-        Some("Convert the value to Int")
-    );
+    assert_eq!(err.suggestion.as_deref(), Some("Convert the value to Int"));
 }
 
 #[test]

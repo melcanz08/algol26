@@ -1,4 +1,0 @@
-function main()
-    var s := [1, 2, 3]
-    var t := s
-    print s

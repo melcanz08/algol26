@@ -1,0 +1,4 @@
+procedure main
+    val x := "hello"
+    val y := x
+    val z := &x

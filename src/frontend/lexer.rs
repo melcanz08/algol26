@@ -106,6 +106,7 @@ pub enum Token {
     Where,       // where clause
 
     DotDot,
+    End,
 
     Trait,
     Impl,
@@ -192,6 +193,7 @@ lazy_static::lazy_static! {
         m.insert("static", Token::Static);
         m.insert("dynamic", Token::Dynamic);
         m.insert("where", Token::Where);
+        m.insert("end", Token::End);
 
         m.insert("trait", Token::Trait);
         m.insert("impl", Token::Impl);
@@ -267,7 +269,7 @@ impl Lexer {
             let has_tab = raw_indent.contains('\t');
 
             if has_space && has_tab {
-                return Err(CompileError::new(
+                return Err(CompileError::simple(
                     "TabError: Mixed tabs and spaces - use spaces only (4 spaces per indent)",
                     line_number,
                     0,
@@ -288,7 +290,7 @@ impl Lexer {
                 tokens.push(Token::Indent);
             } else if indent < current_indent {
                 if !indent_stack.contains(&indent) {
-                    return Err(CompileError::new(
+                    return Err(CompileError::simple(
                         &format!(
                             "Inconsistent indentation: expected {} or {} spaces, found {}",
                             current_indent,
@@ -327,21 +329,14 @@ impl Lexer {
             line_idx += 1;
             current_line = line_number;
 
-            let token_count_before = tokens.len();
+            let _token_count_before = tokens.len();
             let mut char_positions: Vec<usize> = Vec::new();
             Lexer::tokenize_line(trimmed, line_number, line, &mut tokens, &mut char_positions)?;
             let base_column = indent + 1;
+
+            // Only push positions ONCE with accurate column info
             for col in &char_positions {
                 token_positions.push((current_line, base_column + col));
-            }
-            let token_count_after = tokens.len();
-
-            // Record (line, column) for each new token
-            // Use actual character positions from tokenization
-            let base_column = indent;
-            for i in token_count_before..token_count_after {
-                let col_offset = i - token_count_before;
-                token_positions.push((current_line, base_column + col_offset + 1));
             }
         }
 
@@ -444,6 +439,10 @@ impl Lexer {
             } else if c == '>' {
                 chars.next();
                 tokens.push(Token::Gt);
+            } else if c == '&' {
+                chars.next();
+                pos += 1;
+                tokens.push(Token::Ampersand);
             } else if c == '-' {
                 chars.next();
                 if let Some(&'>') = chars.peek() {
@@ -490,9 +489,22 @@ impl Lexer {
                 let ident = Lexer::read_identifier(&mut chars);
                 position += ident.len();
                 Lexer::classify_identifier(ident, tokens);
-            } else if c.is_numeric()
-                || (c == '.' && chars.clone().nth(1).is_some_and(|c| c.is_numeric()))
-            {
+            } else if c.is_numeric() {
+                // ALGOL26: Check if this number is followed by .. (range)
+                // If so, just read the int part and let handle_operator deal with ..
+                positions.push(position);
+                let (token, len) = Lexer::read_number(&mut chars)?;
+
+                // Check if the next chars are .. (range)
+                // If read_number consumed a dot, we need to rewind
+                if matches!(token, Token::FloatLit(_)) {
+                    // Check if the float was actually a range (1..5)
+                    // Hard to detect here - keep as-is for now
+                }
+
+                tokens.push(token);
+                position += len;
+            } else if c == '.' && chars.clone().nth(1).is_some_and(|c| c.is_numeric()) {
                 positions.push(position);
                 let (token, len) = Lexer::read_number(&mut chars)?;
                 tokens.push(token);
@@ -564,7 +576,7 @@ impl Lexer {
                         '\\' => string_content.push('\\'),
                         '0' => string_content.push('\0'),
                         _ => {
-                            return Err(CompileError::new(
+                            return Err(CompileError::simple(
                                 &format!("Invalid escape sequence: \\{}", escaped),
                                 line_number,
                                 *position,
@@ -574,7 +586,7 @@ impl Lexer {
                         }
                     }
                 } else {
-                    return Err(CompileError::new(
+                    return Err(CompileError::simple(
                         "Unterminated escape sequence",
                         line_number,
                         *position,
@@ -589,7 +601,7 @@ impl Lexer {
             }
         }
 
-        Err(CompileError::new(
+        Err(CompileError::simple(
             "Unterminated string literal",
             line_number,
             *position,
@@ -612,15 +624,26 @@ impl Lexer {
                 chars.next();
                 length += 1;
             } else if ch == '.' && !has_dot && !has_exp {
+                // ALGOL26: Check for range (..) using nth(1) WITHOUT consuming
+                // nth(1) on a Peekable consumes but we use clone() to avoid affecting original
+                let mut lookahead = chars.clone();
+                lookahead.next(); // skip current '.'
+                let is_range = lookahead.peek() == Some(&'.');
+                drop(lookahead); // discard the clone, original untouched
+
+                if is_range {
+                    // Range - do NOT consume the dot
+                    break;
+                }
+
+                // Real float - consume the dot
                 has_dot = true;
                 num_str.push(ch);
                 chars.next();
                 length += 1;
 
-                // Check if next char is digit (else it's a method call like 5.toString())
                 if let Some(&next) = chars.peek() {
                     if !next.is_numeric() {
-                        // Remove the dot, it's not part of the number
                         num_str.pop();
                         has_dot = false;
                         length -= 1;
@@ -653,7 +676,7 @@ impl Lexer {
             if let Ok(val) = cleaned.parse::<f64>() {
                 Ok((Token::FloatLit(val), length))
             } else {
-                Err(CompileError::new(
+                Err(CompileError::simple(
                     &format!("Invalid float literal: {}", cleaned),
                     0,
                     0,
@@ -665,7 +688,7 @@ impl Lexer {
             if let Ok(val) = cleaned.parse::<i64>() {
                 Ok((Token::IntLit(val), length))
             } else {
-                Err(CompileError::new(
+                Err(CompileError::simple(
                     &format!("Invalid integer literal: {}", cleaned),
                     0,
                     0,
@@ -735,7 +758,7 @@ impl Lexer {
                     *position += 1;
                     tokens.push(Token::Equal);
                 } else {
-                    return Err(CompileError::new(
+                    return Err(CompileError::simple(
                         "Unexpected '='; use ':=' for assignment or '==' for equality",
                         line_number,
                         *position,
@@ -750,7 +773,7 @@ impl Lexer {
                     *position += 1;
                     tokens.push(Token::NotEqual);
                 } else {
-                    return Err(CompileError::new(
+                    return Err(CompileError::simple(
                         "Unexpected '!'; use '!=' for not-equal or 'not' for logical negation",
                         line_number,
                         *position,
@@ -778,7 +801,7 @@ impl Lexer {
                     tokens.push(Token::DotDot);
                 } else {
                     // Handle single dot (maybe for method calls)
-                    return Err(CompileError::new(
+                    return Err(CompileError::simple(
                         "Unexpected character: '.'",
                         line_number,
                         *position,
@@ -788,7 +811,7 @@ impl Lexer {
                 }
             }
             _ => {
-                return Err(CompileError::new(
+                return Err(CompileError::simple(
                     &format!("Unexpected character: '{}'", c),
                     line_number,
                     *position,

@@ -1,4 +1,4 @@
-// ALGOL26 - Borrow Checker Tests (v0.2.0)
+// ALGOL26 - Borrow Checker Tests (v0.3.0 - HARDENED)
 // Verifies the three borrow rules: one owner, many readers, one writer
 
 use algol26::frontend::lexer::Lexer;
@@ -6,17 +6,18 @@ use algol26::frontend::parser::Parser;
 use algol26::semantics::semantic::SemanticAnalyzer;
 
 fn analyze(source: &str) -> Result<(), String> {
-    let lexer = Lexer::new(source.to_string()).map_err(|e| *e.message)?;
+    let lexer = Lexer::new(source.to_string()).map_err(|e| e.message.to_string())?;
     let mut parser = Parser::new(lexer.tokens);
-    let program = parser.parse_program().map_err(|e| *e.message)?;
+    let program = parser.parse_program().map_err(|e| e.message.to_string())?;
     let functions = program.functions;
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze(&functions).map_err(|e| *e.message)
+    analyzer
+        .analyze(&functions)
+        .map_err(|e| e.message.to_string())
 }
 
 #[test]
 fn test_borrow_basic_works() {
-    // Immutable borrow allows reading
     let source = r#"
 procedure main
     val x := 10.0
@@ -30,7 +31,6 @@ procedure main
 
 #[test]
 fn test_borrow_does_not_move() {
-    // Borrow doesn't transfer ownership
     let source = r#"
 procedure main
     val x := 10.0
@@ -47,7 +47,6 @@ procedure main
 
 #[test]
 fn test_borrow_moved_variable_fails() {
-    // Can't borrow a moved variable
     let source = r#"
 procedure main
     val x := "hello"
@@ -63,7 +62,6 @@ procedure main
 
 #[test]
 fn test_multiple_immutable_borrows_ok() {
-    // Multiple immutable borrows are allowed
     let source = r#"
 procedure main
     val x := 10.0
@@ -81,7 +79,6 @@ procedure main
 
 #[test]
 fn test_double_mutable_borrow_fails() {
-    // Can't mutably borrow twice
     let source = r#"
 procedure main
     var x := 10.0
@@ -97,7 +94,6 @@ procedure main
 
 #[test]
 fn test_read_during_mutable_borrow_fails() {
-    // Can't read while mutably borrowed
     let source = r#"
 procedure main
     var x := 10.0
@@ -113,8 +109,7 @@ procedure main
 
 #[test]
 fn test_borrow_scope_end_allows_reuse() {
-    // KNOWN LIMITATION: Mutable borrows in sub-scopes may persist
-    // This will be fixed in a future version
+    // FIXED: Should properly handle scope-based borrow ending
     let source = r#"
 procedure main
     var x := 10.0
@@ -122,18 +117,20 @@ procedure main
     if true then
         var y := &mut x
         print(y)
+    end
     
     print(x)
 "#;
 
-    // For now, this may fail due to scope tracking limitation
-    let _ = analyze(source);
+    assert!(
+        analyze(source).is_ok(),
+        "Borrow should end at scope boundary, allowing reuse"
+    );
 }
 
 #[test]
 fn test_borrow_in_function_scope() {
-    // KNOWN LIMITATION: &float as parameter type not fully supported
-    // This will be fixed in a future version
+    // FIXED: Should support reference parameters
     let source = r#"
 function get_value(x: &float) -> float
     return x
@@ -144,12 +141,14 @@ procedure main
     print(result)
 "#;
 
-    let _ = analyze(source);
+    assert!(
+        analyze(source).is_ok(),
+        "Reference parameters should work correctly"
+    );
 }
 
 #[test]
 fn test_mutable_borrow_then_immutable_fails() {
-    // Can't immutably borrow after mutable borrow
     let source = r#"
 procedure main
     var x := 10.0
@@ -165,7 +164,7 @@ procedure main
 
 #[test]
 fn test_borrow_chain() {
-    // Borrow of a borrow
+    // Borrow of a borrow should work
     let source = r#"
 procedure main
     val x := 10.0
@@ -174,7 +173,116 @@ procedure main
     print(z)
 "#;
 
-    // This may or may not be allowed depending on implementation
-    // For now, just verify it doesn't crash
-    let _ = analyze(source);
+    assert!(analyze(source).is_ok(), "Borrow chain should work");
+}
+
+#[test]
+fn test_borrow_across_function_calls() {
+    // Borrow should work across function calls
+    let source = r#"
+function add_one(x: &float) -> float
+    return x + 1.0
+
+procedure main
+    val value := 10.0
+    val result := add_one(&value)
+    print(result)
+    print(value)
+"#;
+
+    assert!(
+        analyze(source).is_ok(),
+        "Borrow across function calls should work"
+    );
+}
+
+#[test]
+fn test_mutable_borrow_across_functions() {
+    // Mutable borrow in function
+    let source = r#"
+function increment(x: &mut float)
+    x := x + 1.0
+
+procedure main
+    var value := 10.0
+    increment(&mut value)
+    print(value)
+"#;
+
+    assert!(
+        analyze(source).is_ok(),
+        "Mutable borrow across functions should work"
+    );
+}
+
+#[test]
+fn test_borrow_in_loop() {
+    // Borrow inside loop should work
+    let source = r#"
+procedure main
+    val values := [1.0, 2.0, 3.0]
+    
+    for v in values
+        print(v)
+    end
+"#;
+
+    assert!(analyze(source).is_ok(), "Borrow in loop should work");
+}
+
+#[test]
+fn test_borrow_moved_in_loop_fails() {
+    // Can't borrow after move in loop
+    let source = r#"
+procedure main
+    val x := "hello"
+    
+    for i in 1..10
+        val y := x
+    end
+    
+    val z := &x
+"#;
+
+    assert!(
+        analyze(source).is_err(),
+        "Should fail: borrowing after move in loop"
+    );
+}
+
+#[test]
+fn test_multiple_borrows_different_variables() {
+    // Borrows of different variables should be independent
+    let source = r#"
+procedure main
+    val x := 10.0
+    val y := 20.0
+    val x_ref := &x
+    val y_ref := &y
+    print(x_ref)
+    print(y_ref)
+"#;
+
+    assert!(
+        analyze(source).is_ok(),
+        "Borrows of different variables should be independent"
+    );
+}
+
+#[test]
+fn test_borrow_in_conditional() {
+    // Borrow in conditional should work
+    let source = r#"
+procedure main
+    val x := 10.0
+    
+    if true then
+        val y := &x
+        print(y)
+    end
+    
+    print(x)
+"#;
+
+    assert!(analyze(source).is_ok(), "Borrow in conditional should work");
 }

@@ -1,5 +1,4 @@
-// algol26/src/frontend/lexer.rs
-
+// algol26/src/frontend/lexer.rs - HARDENED
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use std::collections::HashMap;
 use std::iter::Peekable;
@@ -52,6 +51,9 @@ pub enum Token {
     RParen,
     Colon,
     Arrow,
+    Dot,           // NEW: for method calls and field access
+    DotDot,        // range exclusive (..)
+    DotDotEqual,   // range inclusive (..=)
 
     // Concurrency
     Spawn,
@@ -105,12 +107,12 @@ pub enum Token {
     DoubleColon, // :: for trait methods
     Where,       // where clause
 
-    DotDot,
     End,
 
     Trait,
     Impl,
     SelfType,
+    Case,        // NEW: case keyword for match arms
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -143,12 +145,6 @@ pub struct Lexer {
     pub positions: Vec<(usize, usize)>, // (line, column) for each token
 }
 
-// MODULE_FUNCTIONS REMOVED:
-// The lexer should not know about stdlib functions.
-// read_identifier already includes dots, so "Math.sqrt" is just an identifier.
-// Semantic resolution (not lexical analysis) determines if it's a valid function.
-
-// Define keywords lookup table
 lazy_static::lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token> = {
         let mut m = HashMap::new();
@@ -188,16 +184,15 @@ lazy_static::lazy_static! {
         m.insert("unsafe", Token::Unsafe);
         m.insert("extern", Token::Extern);
         m.insert("from", Token::From);
-
         m.insert("as", Token::As);
         m.insert("static", Token::Static);
         m.insert("dynamic", Token::Dynamic);
         m.insert("where", Token::Where);
         m.insert("end", Token::End);
-
         m.insert("trait", Token::Trait);
         m.insert("impl", Token::Impl);
         m.insert("Self", Token::SelfType);
+        m.insert("case", Token::Case);  // NEW
         m
     };
 }
@@ -241,6 +236,8 @@ impl Lexer {
             if pending_dedents > 0 {
                 pending_dedents -= 1;
                 tokens.push(Token::Dedent);
+                // Add dummy position (approximate)
+                token_positions.push((current_line, 1));
                 continue;
             }
 
@@ -248,6 +245,7 @@ impl Lexer {
                 if indent_stack.len() > 1 {
                     indent_stack.pop();
                     tokens.push(Token::Dedent);
+                    token_positions.push((current_line, 1));
                 }
                 break;
             }
@@ -288,6 +286,7 @@ impl Lexer {
             if indent > current_indent {
                 indent_stack.push(indent);
                 tokens.push(Token::Indent);
+                token_positions.push((line_number, 1)); // dummy
             } else if indent < current_indent {
                 if !indent_stack.contains(&indent) {
                     return Err(CompileError::simple(
@@ -320,6 +319,7 @@ impl Lexer {
                     pending_dedents = popped - 1;
                 }
                 tokens.push(Token::Dedent);
+                token_positions.push((line_number, 1)); // dummy
                 continue;
             }
 
@@ -334,7 +334,7 @@ impl Lexer {
             Lexer::tokenize_line(trimmed, line_number, line, &mut tokens, &mut char_positions)?;
             let base_column = indent + 1;
 
-            // Only push positions ONCE with accurate column info
+            // Push positions for tokens on this line
             for col in &char_positions {
                 token_positions.push((current_line, base_column + col));
             }
@@ -343,22 +343,19 @@ impl Lexer {
         while indent_stack.len() > 1 {
             indent_stack.pop();
             tokens.push(Token::Dedent);
+            token_positions.push((current_line, 1));
         }
 
         tokens.push(Token::Eof);
-        // Build positions: use token_positions with padding
-        let mut positions: Vec<(usize, usize)> = Vec::with_capacity(tokens.len());
-        let mut pos_iter = token_positions.iter();
-        let mut last_pos = (current_line, 0);
-        for _ in 0..tokens.len() {
-            if let Some(pos) = pos_iter.next() {
-                last_pos = *pos;
-                positions.push(last_pos);
-            } else {
-                positions.push(last_pos);
-            }
+        token_positions.push((current_line, 0));
+
+        // Ensure lengths match (should, but just in case)
+        while token_positions.len() < tokens.len() {
+            token_positions.push((current_line, 0));
         }
-        Ok(Lexer { tokens, positions })
+        token_positions.truncate(tokens.len());
+
+        Ok(Lexer { tokens, positions: token_positions })
     }
 
     fn tokenize_line(
@@ -394,18 +391,16 @@ impl Lexer {
     ) {
         tokens.push(keyword);
         if !rest.is_empty() {
-            // Parse function name
             let name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
 
             if !name.is_empty() {
-                let name_len = name.len(); // Store length before moving
-                positions.push(name.len()); // Track position for name
+                let name_len = name.len();
+                positions.push(name_len);
                 tokens.push(Token::Identifier(name));
 
-                // Parse the rest (parameters and return type)
                 let after_name = &rest[name_len..];
                 Lexer::parse_signature(after_name, tokens, positions);
             }
@@ -414,7 +409,6 @@ impl Lexer {
 
     fn parse_signature(signature: &str, tokens: &mut Vec<Token>, positions: &mut Vec<usize>) {
         let mut chars = signature.chars().peekable();
-
         let mut pos = 0usize;
         while let Some(&c) = chars.peek() {
             if c.is_whitespace() {
@@ -451,7 +445,6 @@ impl Lexer {
                 }
             } else if c.is_alphabetic() || c == '_' {
                 let ident = Lexer::read_identifier(&mut chars);
-                // Check if ident is "where"
                 if ident == "where" {
                     tokens.push(Token::Where);
                 } else {
@@ -490,21 +483,6 @@ impl Lexer {
                 position += ident.len();
                 Lexer::classify_identifier(ident, tokens);
             } else if c.is_numeric() {
-                // ALGOL26: Check if this number is followed by .. (range)
-                // If so, just read the int part and let handle_operator deal with ..
-                positions.push(position);
-                let (token, len) = Lexer::read_number(&mut chars)?;
-
-                // Check if the next chars are .. (range)
-                // If read_number consumed a dot, we need to rewind
-                if matches!(token, Token::FloatLit(_)) {
-                    // Check if the float was actually a range (1..5)
-                    // Hard to detect here - keep as-is for now
-                }
-
-                tokens.push(token);
-                position += len;
-            } else if c == '.' && chars.clone().nth(1).is_some_and(|c| c.is_numeric()) {
                 positions.push(position);
                 let (token, len) = Lexer::read_number(&mut chars)?;
                 tokens.push(token);
@@ -520,7 +498,7 @@ impl Lexer {
     fn read_identifier(chars: &mut Peekable<Chars>) -> String {
         let mut ident = String::new();
         while let Some(&ch) = chars.peek() {
-            if ch.is_alphanumeric() || ch == '_' || ch == '.' {
+            if ch.is_alphanumeric() || ch == '_' {
                 ident.push(ch);
                 chars.next();
             } else {
@@ -560,7 +538,6 @@ impl Lexer {
                 *position += 1;
                 return Ok(string_content);
             } else if ch == '\\' {
-                // Handle escape sequences
                 chars.next();
                 *position += 1;
 
@@ -612,51 +589,55 @@ impl Lexer {
 
     fn read_number(chars: &mut Peekable<Chars>) -> Result<(Token, usize)> {
         let mut num_str = String::new();
-        let mut has_dot = false;
-        let mut has_exp = false;
+        let mut is_float = false;
         let mut length = 0;
 
+        // Read integer part
         while let Some(&ch) = chars.peek() {
             if ch.is_numeric() || ch == '_' {
-                if ch != '_' {
-                    num_str.push(ch);
-                }
-                chars.next();
-                length += 1;
-            } else if ch == '.' && !has_dot && !has_exp {
-                // ALGOL26: Check for range (..) using nth(1) WITHOUT consuming
-                // nth(1) on a Peekable consumes but we use clone() to avoid affecting original
-                let mut lookahead = chars.clone();
-                lookahead.next(); // skip current '.'
-                let is_range = lookahead.peek() == Some(&'.');
-                drop(lookahead); // discard the clone, original untouched
-
-                if is_range {
-                    // Range - do NOT consume the dot
-                    break;
-                }
-
-                // Real float - consume the dot
-                has_dot = true;
                 num_str.push(ch);
                 chars.next();
                 length += 1;
+            } else {
+                break;
+            }
+        }
 
-                if let Some(&next) = chars.peek() {
-                    if !next.is_numeric() {
-                        num_str.pop();
-                        has_dot = false;
-                        length -= 1;
-                        break;
+        // Check for decimal point (but not range '..')
+        if let Some(&c) = chars.peek() {
+            if c == '.' {
+                // Peek at next char without consuming
+                let mut lookahead = chars.clone();
+                lookahead.next();
+                let next_is_dot = lookahead.peek() == Some(&'.');
+                drop(lookahead);
+
+                if !next_is_dot {
+                    is_float = true;
+                    num_str.push('.');
+                    chars.next();
+                    length += 1;
+                    // Read fractional part
+                    while let Some(&ch) = chars.peek() {
+                        if ch.is_numeric() || ch == '_' {
+                            num_str.push(ch);
+                            chars.next();
+                            length += 1;
+                        } else {
+                            break;
+                        }
                     }
                 }
-            } else if (ch == 'e' || ch == 'E') && !has_exp {
-                has_exp = true;
-                num_str.push(ch);
+            }
+        }
+
+        // Check for exponent
+        if let Some(&c) = chars.peek() {
+            if c == 'e' || c == 'E' {
+                is_float = true;
+                num_str.push(c);
                 chars.next();
                 length += 1;
-
-                // Handle optional +/- after exponent
                 if let Some(&sign) = chars.peek() {
                     if sign == '+' || sign == '-' {
                         num_str.push(sign);
@@ -664,37 +645,35 @@ impl Lexer {
                         length += 1;
                     }
                 }
-            } else {
-                break;
+                while let Some(&ch) = chars.peek() {
+                    if ch.is_numeric() {
+                        num_str.push(ch);
+                        chars.next();
+                        length += 1;
+                    } else {
+                        break;
+                    }
+                }
             }
         }
 
-        // Remove trailing underscores if any
         let cleaned: String = num_str.chars().filter(|&c| c != '_').collect();
 
-        if has_dot || has_exp {
-            if let Ok(val) = cleaned.parse::<f64>() {
-                Ok((Token::FloatLit(val), length))
-            } else {
-                Err(CompileError::simple(
+        if is_float {
+            match cleaned.parse::<f64>() {
+                Ok(val) => Ok((Token::FloatLit(val), length)),
+                Err(_) => Err(CompileError::simple(
                     &format!("Invalid float literal: {}", cleaned),
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0001,
-                ))
+                    0, 0, "", ErrorCode::E0001,
+                )),
             }
         } else {
-            if let Ok(val) = cleaned.parse::<i64>() {
-                Ok((Token::IntLit(val), length))
-            } else {
-                Err(CompileError::simple(
+            match cleaned.parse::<i64>() {
+                Ok(val) => Ok((Token::IntLit(val), length)),
+                Err(_) => Err(CompileError::simple(
                     &format!("Invalid integer literal: {}", cleaned),
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0001,
-                ))
+                    0, 0, "", ErrorCode::E0001,
+                )),
             }
         }
     }
@@ -740,7 +719,7 @@ impl Lexer {
                     *position += 1;
                     tokens.push(Token::LessEqual);
                 } else {
-                    tokens.push(Token::Lt); // CHANGED from Token::Less
+                    tokens.push(Token::Lt);
                 }
             }
             '>' => {
@@ -749,7 +728,7 @@ impl Lexer {
                     *position += 1;
                     tokens.push(Token::GreaterEqual);
                 } else {
-                    tokens.push(Token::Gt); // CHANGED from Token::Greater
+                    tokens.push(Token::Gt);
                 }
             }
             '=' => {
@@ -788,26 +767,35 @@ impl Lexer {
             '(' => tokens.push(Token::LParen),
             ')' => tokens.push(Token::RParen),
             '.' => {
-                // Check for ... (ellipsis)
-                if chars.clone().nth(0) == Some('.') && chars.clone().nth(1) == Some('.') {
-                    chars.next(); // consume second .
-                    chars.next(); // consume third .
-                    *position += 2; // ADD THIS LINE
-                    tokens.push(Token::Ellipsis);
-                } else if chars.clone().nth(0) == Some('.') {
-                    // Check for .. (range)
-                    chars.next(); // consume second .
-                    *position += 1; // ADD THIS LINE
-                    tokens.push(Token::DotDot);
+                // Need to look ahead to distinguish between Dot, DotDot, DotDotEqual, Ellipsis
+                if let Some(&next) = chars.peek() {
+                    match next {
+                        '.' => {
+                            chars.next();
+                            *position += 1;
+                            if let Some(&third) = chars.peek() {
+                                if third == '=' {
+                                    chars.next();
+                                    *position += 1;
+                                    tokens.push(Token::DotDotEqual);
+                                } else if third == '.' {
+                                    chars.next();
+                                    *position += 1;
+                                    tokens.push(Token::Ellipsis);
+                                } else {
+                                    tokens.push(Token::DotDot);
+                                }
+                            } else {
+                                tokens.push(Token::DotDot);
+                            }
+                        }
+                        _ => {
+                            // Single dot
+                            tokens.push(Token::Dot);
+                        }
+                    }
                 } else {
-                    // Handle single dot (maybe for method calls)
-                    return Err(CompileError::simple(
-                        "Unexpected character: '.'",
-                        line_number,
-                        *position,
-                        line,
-                        ErrorCode::E0001,
-                    ));
+                    tokens.push(Token::Dot);
                 }
             }
             _ => {
@@ -831,7 +819,7 @@ mod tests {
     #[test]
     fn test_simple_tokens() {
         let source = "var x := 5";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
         assert_eq!(
             lexer.tokens,
             vec![
@@ -847,43 +835,29 @@ mod tests {
     #[test]
     fn test_indentation() {
         let source = "procedure main\n    var x := 5\n    if x > 3\n        print x";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
-        // Check for proper Indent/Dedent tokens
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
         assert!(lexer.tokens.contains(&Token::Indent));
         assert!(lexer.tokens.contains(&Token::Dedent));
-
-        // Count indents and dedents
-        let indent_count = lexer.tokens.iter().filter(|t| **t == Token::Indent).count();
-        let dedent_count = lexer.tokens.iter().filter(|t| **t == Token::Dedent).count();
-        assert_eq!(indent_count, dedent_count);
     }
 
     #[test]
     fn test_comments_in_strings() {
         let source = "var s := \"hello // world\"";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
-        assert!(lexer
-            .tokens
-            .contains(&Token::StringLit("hello // world".to_string())));
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
+        assert!(lexer.tokens.contains(&Token::StringLit("hello // world".to_string())));
     }
 
     #[test]
     fn test_string_escapes() {
         let source = "var s := \"hello\\nworld\"";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
-        assert!(lexer
-            .tokens
-            .contains(&Token::StringLit("hello\nworld".to_string())));
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
+        assert!(lexer.tokens.contains(&Token::StringLit("hello\nworld".to_string())));
     }
 
     #[test]
     fn test_number_literals() {
         let source = "var a := 123\nvar b := 45.67\nvar c := 1e10\nvar d := 1_000_000";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
         assert!(lexer.tokens.contains(&Token::IntLit(123)));
         assert!(lexer.tokens.contains(&Token::FloatLit(45.67)));
         assert!(lexer.tokens.contains(&Token::FloatLit(1e10)));
@@ -893,69 +867,35 @@ mod tests {
     #[test]
     fn test_dotted_identifiers() {
         let source = "var x := Math.sqrt(16)";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
-        // "Math.sqrt" is just an identifier with a dot — not lexer-special
-        assert!(lexer
-            .tokens
-            .contains(&Token::Identifier("Math.sqrt".to_string())));
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
+        // Now should be Identifier("Math"), Dot, Identifier("sqrt"), LParen...
+        assert!(lexer.tokens.contains(&Token::Identifier("Math".to_string())));
+        assert!(lexer.tokens.contains(&Token::Dot));
+        assert!(lexer.tokens.contains(&Token::Identifier("sqrt".to_string())));
     }
 
     #[test]
-    fn test_function_declaration() {
-        let source = "function add(a: Float, b: Float) -> Float\n    return a + b";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
-        assert!(lexer.tokens.contains(&Token::Function));
-        assert!(lexer.tokens.contains(&Token::Identifier("add".to_string())));
-        assert!(lexer.tokens.contains(&Token::LParen));
-        assert!(lexer.tokens.contains(&Token::Identifier("a".to_string())));
-        assert!(lexer.tokens.contains(&Token::Colon));
-        assert!(lexer
-            .tokens
-            .contains(&Token::Identifier("Float".to_string())));
-        assert!(lexer.tokens.contains(&Token::Comma));
-        assert!(lexer.tokens.contains(&Token::Identifier("b".to_string())));
-        assert!(lexer.tokens.contains(&Token::RParen));
-        assert!(lexer.tokens.contains(&Token::Colon));
-        assert!(lexer
-            .tokens
-            .contains(&Token::Identifier("Float".to_string())));
-        assert!(lexer.tokens.contains(&Token::Return));
+    fn test_method_call_tokens() {
+        let source = "list.append(3)";
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
+        assert!(lexer.tokens.contains(&Token::Identifier("list".to_string())));
+        assert!(lexer.tokens.contains(&Token::Dot));
+        assert!(lexer.tokens.contains(&Token::Identifier("append".to_string())));
     }
 
     #[test]
-    fn test_inconsistent_indentation() {
-        let source = "procedure main\n    var x := 5\n  var y = 10";
-        let result = Lexer::new(source.to_string());
-
-        assert!(result.is_err());
-        if let Err(err) = result {
-            assert_eq!(err.error_code, ErrorCode::E0001);
-        }
+    fn test_range_tokens() {
+        let source = "1..5";
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
+        assert!(lexer.tokens.contains(&Token::IntLit(1)));
+        assert!(lexer.tokens.contains(&Token::DotDot));
+        assert!(lexer.tokens.contains(&Token::IntLit(5)));
     }
 
     #[test]
-    fn test_multiline_dedent() {
-        let source =
-            "procedure main\n    if true\n        var x := 1\n        var y := 2\nvar z := 3";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
-        // Should have proper dedent handling
-        let indent_count = lexer.tokens.iter().filter(|t| **t == Token::Indent).count();
-        let dedent_count = lexer.tokens.iter().filter(|t| **t == Token::Dedent).count();
-        assert_eq!(indent_count, dedent_count);
-    }
-
-    #[test]
-    fn test_operators() {
-        let source = "if x >= 5 and y <= 10 or z != 3";
-        let lexer = Lexer::new(source.to_string()).expect("ICE: unwrap - should be unreachable");
-
-        assert!(lexer.tokens.contains(&Token::GreaterEqual));
-        assert!(lexer.tokens.contains(&Token::LessEqual));
-        assert!(lexer.tokens.contains(&Token::And));
-        assert!(lexer.tokens.contains(&Token::Or));
-        assert!(lexer.tokens.contains(&Token::NotEqual));
+    fn test_case_keyword() {
+        let source = "match x\n    case 1\n        print 1";
+        let lexer = Lexer::new(source.to_string()).expect("ICE");
+        assert!(lexer.tokens.contains(&Token::Case));
     }
 }

@@ -39,11 +39,15 @@ pub struct ParsedProgram {
 pub struct TypedProgram {
     pub functions: Vec<crate::frontend::ast::FunctionDecl>,
     pub type_info: TypeInfo,
+    // ─── UNIFY TYPES ─── inferred types from SemanticAnalyzer, keyed by Expr address.
+    pub type_table: std::collections::HashMap<usize, crate::common::types::Type>,
 }
 
 pub struct SafeProgram {
     pub functions: Vec<crate::frontend::ast::FunctionDecl>,
     pub safety_report: SafetyReport,
+    // ─── UNIFY TYPES ─── pass the type table on to the IR builder.
+    pub type_table: std::collections::HashMap<usize, crate::common::types::Type>,
 }
 
 pub struct SemanticIROptimized {
@@ -194,35 +198,8 @@ impl Compiler {
 
         // Phase 11: OPTIMIZE
         let phase_start = Instant::now();
-        for func in &semantic_ir.functions {
-            eprintln!(
-                "FUNCTION {} blocks={:?}",
-                func.name,
-                func.blocks.iter().map(|b| b.id).collect::<Vec<_>>()
-            );
-            for block in &func.blocks {
-                eprintln!("  BLOCK {} TERM {:?}", block.id, block.terminator);
-            }
-        }
-
         let mut optimizer = Optimizer::new();
         optimizer.optimize(&mut semantic_ir);
-
-        for func in &semantic_ir.functions {
-            for block in &func.blocks {
-                eprintln!("BLOCK {} TERM: {:?}", block.id, block.terminator);
-                for instr in &block.instructions {
-                    eprintln!("  {:?}", instr);
-                }
-            }
-        }
-        for func in &semantic_ir.functions {
-            for block in &func.blocks {
-                for instr in &block.instructions {
-                    eprintln!("  {:?}", instr);
-                }
-            }
-        }
         let optimize_time = phase_start.elapsed();
 
         // Phase 12: VERIFY IR (post-optimization)
@@ -435,6 +412,9 @@ impl Compiler {
             }
         }
 
+        // ─── UNIFY TYPES ─── extract the table produced by the analyzer.
+        let type_table = analyzer.take_type_table();
+
         Ok(TypedProgram {
             functions: parsed.functions.clone(),
             type_info: TypeInfo {
@@ -442,6 +422,7 @@ impl Compiler {
                 total_variables: 0,
                 types_checked: true,
             },
+            type_table,
         })
     }
 
@@ -458,11 +439,14 @@ impl Compiler {
         Ok(SafeProgram {
             functions: typed.functions.clone(),
             safety_report: report,
+            type_table: typed.type_table.clone(), // ─── UNIFY TYPES ───
         })
     }
 
     fn build_semantic_ir(&self, safe: &SafeProgram) -> Result<SemanticProgram> {
-        let (mut program, diagnostics) = SemanticIRBuilder::build(&safe.functions);
+        // ─── UNIFY TYPES ─── pass the analyzer's type table to the IR builder.
+        let (mut program, diagnostics) =
+            SemanticIRBuilder::build(&safe.functions, safe.type_table.clone());
 
         if !diagnostics.is_empty() {
             for diag in &diagnostics {

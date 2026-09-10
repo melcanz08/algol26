@@ -5,11 +5,22 @@ use algol26::ir::semantic_ir::SemanticProgram;
 use algol26::semantics::semantic_builder::SemanticIRBuilder;
 
 fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
+    use algol26::semantics::semantic::SemanticAnalyzer;
+
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
     let functions = program.functions;
-    SemanticIRBuilder::build(&functions)
+
+    // ─── UNIFY TYPES ─── run the analyzer so the IR builder has real types.
+    let mut analyzer = SemanticAnalyzer::new();
+    let span_map = std::collections::HashMap::new();
+    analyzer
+        .analyze_with_spans(&functions, &program.traits, &program.impls, &span_map)
+        .expect("semantic analysis failed");
+
+    let type_table = analyzer.take_type_table();
+    SemanticIRBuilder::build(&functions, type_table)
 }
 
 #[test]

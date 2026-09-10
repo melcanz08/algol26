@@ -14,12 +14,10 @@ use crate::ir::semantic_ir::{
     SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
 };
 use crate::semantics::control_flow::ControlFlowTranslator;
-use crate::semantics::expr_translator::ExprTranslator;
 use crate::semantics::flow_analyzer::FlowAnalyzer;
 use crate::semantics::flow_result::{
     CaptureMode, DeferContext, FlowResult, LoopContext, TerminatorKind,
 };
-use crate::semantics::type_checker::TypeChecker;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -37,9 +35,8 @@ pub struct SemanticIRBuilder {
     loop_stack: Vec<LoopContext>,
     defer_stack: Vec<DeferContext>,
     list_values: HashMap<String, Vec<Expr>>,
-    should_break: bool,
-    should_continue: bool,
     pending_merge: Option<usize>,
+    type_table: HashMap<usize, Type>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +46,10 @@ pub struct FunctionSignature {
 }
 
 impl SemanticIRBuilder {
-    pub fn build(functions: &[FunctionDecl]) -> (SemanticProgram, Vec<String>) {
+    pub fn build(
+        functions: &[FunctionDecl],
+        type_table: HashMap<usize, Type>,
+    ) -> (SemanticProgram, Vec<String>) {
         let mut builder = SemanticIRBuilder {
             scopes: vec![HashMap::new()],
             function_types: HashMap::new(),
@@ -58,12 +58,57 @@ impl SemanticIRBuilder {
             loop_stack: Vec::new(),
             defer_stack: Vec::new(),
             list_values: HashMap::new(),
-            should_break: false,
-            should_continue: false,
             pending_merge: None,
+            type_table, // ─── UNIFY TYPES ───
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
+    }
+
+    /// Base name of a type, ignoring generic arguments: `List<Float>` → `"List"`.
+    fn base_type_name(ty: &Type) -> Option<&'static str> {
+        match ty {
+            Type::Int => Some("Int"),
+            Type::Float => Some("Float"),
+            Type::String => Some("String"),
+            Type::Bool => Some("Bool"),
+            Type::Void => Some("Void"),
+            Type::List(_) => Some("List"),
+            Type::Option(_) => Some("Option"),
+            Type::Result { .. } => Some("Result"),
+            Type::Channel(_) => Some("Channel"),
+            Type::Pointer(_) => Some("Pointer"),
+            Type::Borrow(_) => Some("Borrow"),
+            Type::MutBorrow(_) => Some("MutBorrow"),
+            Type::Ptr => Some("Ptr"),
+            _ => None,
+        }
+    }
+
+    /// Resolve `receiver.method` to the mangled name that actually exists
+    /// in `function_types`. Tries both `Type.method` (built-ins) and
+    /// `Type_method` (impl-derived names).
+    fn resolve_method_call(&self, receiver_type: &Type, method_name: &str) -> Option<String> {
+        let base = Self::base_type_name(receiver_type)?;
+
+        // Dot form — matches Math.sqrt, String.length, List.sum, File.read, …
+        let dot_form = format!("{}.{}", base, method_name);
+        if self.function_types.contains_key(&dot_form) {
+            return Some(dot_form);
+        }
+
+        // Underscore form — matches names produced by expand_impl_methods.
+        let underscore_form = format!("{}_{}", base, method_name);
+        if self.function_types.contains_key(&underscore_form) {
+            return Some(underscore_form);
+        }
+
+        None
+    }
+
+    // ─── UNIFY TYPES ─── Lookup helper.
+    fn type_of_expr(&self, expr: &Expr) -> Option<&Type> {
+        self.type_table.get(&(expr as *const Expr as usize))
     }
 
     fn push_scope(&mut self) {
@@ -130,6 +175,24 @@ impl SemanticIRBuilder {
             }
         }
         None
+    }
+
+    fn allocate_result_var(&mut self, func: &mut SemanticFunction, current_block: usize, type_hint: Type) -> String {
+        let name = format!("__result_{}", self.iter_counter);
+        self.iter_counter += 1;
+        // Declare the variable in the current scope (and in the IR)
+        self.declare_var(&name, type_hint.clone(), true);
+        let _ = self.safe_push_instruction(
+            func,
+            current_block,
+            SemanticInstruction::Declare {
+                name: name.clone(),
+                mutable: true,
+                type_: type_hint,
+                value: TypedIRValue::Void,
+            },
+        );
+        name
     }
 
     #[allow(dead_code)]
@@ -1404,55 +1467,6 @@ impl SemanticIRBuilder {
         FlowResult::Reachable(current_block)
     }
 
-    fn validate_binary_op(
-        &mut self,
-        op: &BinOp,
-        l: TypedIRValue,
-        r: TypedIRValue,
-    ) -> (Type, TypedIRValue, TypedIRValue) {
-        let left_t = l.type_of();
-        let right_t = r.type_of();
-
-        match op {
-            BinOp::Add | BinOp::Subtract | BinOp::Multiply | BinOp::Divide => {
-                if left_t == Type::Int && right_t == Type::Int {
-                    (Type::Int, l, r)
-                } else if left_t == Type::Float && right_t == Type::Float {
-                    (Type::Float, l, r)
-                } else if left_t == Type::Int && right_t == Type::Float {
-                    let cast_l = TypedIRValue::Cast {
-                        value: Box::new(l),
-                        target_type: Type::Float,
-                    };
-                    (Type::Float, cast_l, r)
-                } else if left_t == Type::Float && right_t == Type::Int {
-                    let cast_r = TypedIRValue::Cast {
-                        value: Box::new(r),
-                        target_type: Type::Float,
-                    };
-                    (Type::Float, l, cast_r)
-                } else {
-                    if left_t != Type::Unknown && right_t != Type::Unknown {
-                        self.diagnostics.push(format!(
-                            "Invalid operands for binary operator {:?}: {:?} and {:?}",
-                            op, left_t, right_t
-                        ));
-                    }
-                    (Type::Unknown, l, r)
-                }
-            }
-            BinOp::Greater | BinOp::Less | BinOp::GreaterEqual | BinOp::LessEqual => {
-                if left_t.is_numeric() && right_t.is_numeric() {
-                    (Type::Bool, l, r)
-                } else {
-                    (Type::Bool, l, r)
-                }
-            }
-            BinOp::Equal | BinOp::NotEqual => (Type::Bool, l, r),
-            BinOp::And | BinOp::Or => (Type::Bool, l, r),
-        }
-    }
-
     fn coerce_value(&self, value: TypedIRValue, target: &Type) -> TypedIRValue {
         let value_type = value.type_of();
         if value_type != Type::Unknown
@@ -1466,41 +1480,6 @@ impl SemanticIRBuilder {
             }
         } else {
             value
-        }
-    }
-
-    fn validate_call(&mut self, name: &str, args: Vec<TypedIRValue>) -> (Type, Vec<TypedIRValue>) {
-        if let Some(sig) = self.function_types.get(name).cloned() {
-            let mut coerced_args = Vec::new();
-
-            if args.len() != sig.params.len() {
-                self.diagnostics.push(format!(
-                    "Function '{}' called with {} arguments, but expects {}",
-                    name,
-                    args.len(),
-                    sig.params.len()
-                ));
-                coerced_args = args;
-            } else {
-                for (i, (arg, (_, expected_type))) in args.iter().zip(&sig.params).enumerate() {
-                    let actual_type = arg.type_of();
-                    if !actual_type.can_coerce_to(expected_type)
-                        && actual_type != Type::Unknown
-                        && *expected_type != Type::Unknown
-                    {
-                        self.diagnostics.push(format!(
-                            "Argument type mismatch at index {} in call to '{}': expected {:?}, found {:?}",
-                            i, name, expected_type, actual_type
-                        ));
-                    }
-                    coerced_args.push(self.coerce_value(arg.clone(), expected_type));
-                }
-            }
-            (sig.return_type.clone(), coerced_args)
-        } else {
-            self.diagnostics
-                .push(format!("Call to unknown function '{}'", name));
-            (Type::Unknown, args)
         }
     }
 
@@ -1769,14 +1748,11 @@ impl SemanticIRBuilder {
             }
             Stmt::Import { .. } => SemanticInstruction::Nop,
             Stmt::Expression(expr) => {
-                let typed_value = self.translate_expr(program, func, current_block, expr);
+                let _typed_value = self.translate_expr(program, func, current_block, expr);
                 if let Some(merge) = self.pending_merge.take() {
                     return FlowResult::Reachable(merge);
                 }
-                match typed_value {
-                    TypedIRValue::None { .. } => SemanticInstruction::Nop,
-                    _ => SemanticInstruction::Print { value: typed_value },
-                }
+                SemanticInstruction::Nop
             }
             _ => {
                 self.diagnostics
@@ -1979,6 +1955,149 @@ impl SemanticIRBuilder {
         TypedIRValue::Variable(target_name.to_string(), Type::Void)
     }
 
+    fn translate_block_with_result(
+        &mut self,
+        program: &mut SemanticProgram,
+        func: &mut SemanticFunction,
+        start_block: usize,
+        statements: &[Stmt],
+        trailing_expr: Option<&Expr>,
+        target: &str,
+        target_type: Type,
+    ) -> Option<usize> {
+        // Translate the statements
+        let flow = self.translate_block(program, func, start_block, statements);
+        let final_block = match flow {
+            FlowResult::Reachable(id) => id,
+            FlowResult::Unreachable => return None,
+        };
+
+        // If there is a trailing expression, translate it and assign to target
+        if let Some(expr) = trailing_expr {
+            let value = self.translate_expr(program, func, final_block, expr);
+            // Optionally coerce the value to the target type
+            let coerced = self.coerce_value(value, &target_type);
+            let _ = self.safe_push_instruction(
+                func,
+                final_block,
+                SemanticInstruction::Assign {
+                    target: target.to_string(),
+                    value: coerced,
+                },
+            );
+        } else {
+            // No trailing expression: assign a default value (Void or a default of target_type)
+            // For now, we assign Void; this may be insufficient for types that need a value.
+            let _ = self.safe_push_instruction(
+                func,
+                final_block,
+                SemanticInstruction::Assign {
+                    target: target.to_string(),
+                    value: TypedIRValue::Void,
+                },
+            );
+        }
+
+        Some(final_block)
+    }
+
+    fn block_is_terminated(&self, func: &SemanticFunction, id: usize) -> bool {
+        func.blocks
+            .iter()
+            .find(|b| b.id == id)
+            .map_or(false, |b| Self::is_terminated(b))
+    }
+
+    fn translate_if_with_target(
+        &mut self,
+        program: &mut SemanticProgram,
+        func: &mut SemanticFunction,
+        current_block: usize,
+        condition: &Expr,
+        then_branch: &Expr,
+        else_branch: Option<&Expr>,
+        target: &str,
+        target_type: Type,
+    ) -> FlowResult {
+        let cond = self.translate_expr(program, func, current_block, condition);
+        let cond_type = cond.type_of();
+        if cond_type != Type::Bool && cond_type != Type::Unknown {
+            self.diagnostics.push(format!(
+                "If condition type mismatch: expected Bool, found {:?}",
+                cond_type
+            ));
+        }
+
+        let then_id = program.new_block_id();
+        let else_id = program.new_block_id();
+        let merge_id = program.new_block_id();
+
+        // Create all blocks before setting terminators
+        func.blocks.push(SemanticBlock { id: then_id, instructions: Vec::new(), terminator: None });
+        func.blocks.push(SemanticBlock { id: else_id, instructions: Vec::new(), terminator: None });
+        func.blocks.push(SemanticBlock { id: merge_id, instructions: Vec::new(), terminator: None });
+
+        // Set the branch from current block
+        let _ = self.safe_set_terminator(
+            func,
+            current_block,
+            Terminator::Branch {
+                condition: cond,
+                then_block: then_id,
+                else_block: else_id,
+            },
+        );
+
+        // Translate then branch
+        self.push_scope();
+        let then_final = {
+            // Extract statements and trailing expression from the branch
+            let (stmts, trailing) = match then_branch {
+                Expr::Block { statements, trailing_expr } => (statements.clone(), trailing_expr.as_deref()),
+                other => (vec![Stmt::Expression(other.clone())], None),
+            };
+            self.translate_block_with_result(
+                program, func, then_id, &stmts, trailing,
+                target, target_type.clone()
+            )
+        };
+        self.pop_scope();
+
+        if let Some(id) = then_final {
+            if !self.block_is_terminated(func, id) {
+                let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
+            }
+        }
+
+        // Translate else branch (if present)
+        if let Some(else_expr) = else_branch {
+            self.push_scope();
+            let else_final = {
+                let (stmts, trailing) = match else_expr {
+                    Expr::Block { statements, trailing_expr } => (statements.clone(), trailing_expr.as_deref()),
+                    other => (vec![Stmt::Expression(other.clone())], None),
+                };
+                self.translate_block_with_result(
+                    program, func, else_id, &stmts, trailing,
+                    target, target_type.clone()
+                )
+            };
+            self.pop_scope();
+
+            if let Some(id) = else_final {
+                if !self.block_is_terminated(func, id) {
+                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
+                }
+            }
+        } else {
+            // No else branch: jump directly to merge
+            let _ = self.safe_set_terminator(func, else_id, Terminator::Jump { block: merge_id });
+        }
+
+        self.pending_merge = Some(merge_id);
+        FlowResult::Reachable(merge_id)
+    }
+
     fn translate_expr(
         &mut self,
         program: &mut SemanticProgram,
@@ -2052,14 +2171,21 @@ impl SemanticIRBuilder {
             Expr::Int(i) => TypedIRValue::Int(*i),
             Expr::String(s) => TypedIRValue::String(s.clone()),
             Expr::Bool(b) => TypedIRValue::Bool(*b),
-            Expr::Var(name, _) => match self.lookup_var(name) {
-                Some(info) => TypedIRValue::Variable(name.clone(), info.type_.clone()),
-                None => {
-                    self.diagnostics
-                        .push(format!("Use of undeclared variable '{}'", name));
-                    TypedIRValue::Variable(name.clone(), Type::Void)
+            Expr::Var(name, span) => {
+                // ─── UNIFY TYPES ─── prefer analyzer type, fall back to local scope.
+                let ty = self.type_of_expr(expr)
+                    .cloned()
+                    .or_else(|| self.lookup_var(name).map(|i| i.type_.clone()))
+                    .unwrap_or(Type::Unknown);
+
+                if ty == Type::Unknown && self.lookup_var(name).is_none() {
+                    self.diagnostics.push(format!(
+                        "Use of undeclared variable '{}' at {}:{}",
+                        name, span.start_line, span.start_column
+                    ));
                 }
-            },
+                TypedIRValue::Variable(name.clone(), ty)
+            }
             Expr::List(elements) => {
                 let mut values: Vec<TypedIRValue> = elements
                     .iter()
@@ -2077,13 +2203,35 @@ impl SemanticIRBuilder {
                         }
                     }
                 }
-                let elem_type = values.first().map(|v| v.type_of()).unwrap_or(Type::Unknown);
+                // ─── UNIFY TYPES ─── analyzer knows the list's element type.
+                let elem_type = match self.type_of_expr(expr) {
+                    Some(Type::List(inner)) => (**inner).clone(),
+                    _ => values.first().map(|v| v.type_of()).unwrap_or(Type::Unknown),
+                };
                 TypedIRValue::List(values, elem_type)
             }
             Expr::Binary { left, op, right } => {
                 let l = self.translate_expr(program, func, current_block, left);
                 let r = self.translate_expr(program, func, current_block, right);
-                let (result_type, cast_l, cast_r) = self.validate_binary_op(op, l, r);
+
+                // ─── UNIFY TYPES ─── Type comes from the analyzer.
+                let result_type = self.type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
+
+                // Keep IR self-consistent by inserting Int→Float coercions.
+                let (cast_l, cast_r) = match (l.type_of(), r.type_of()) {
+                    (Type::Int, Type::Float) => (
+                        TypedIRValue::Cast { value: Box::new(l), target_type: Type::Float },
+                        r,
+                    ),
+                    (Type::Float, Type::Int) => (
+                        l,
+                        TypedIRValue::Cast { value: Box::new(r), target_type: Type::Float },
+                    ),
+                    _ => (l, r),
+                };
+
                 let semantic_op = match op {
                     BinOp::Add => SemanticBinOp::Add,
                     BinOp::Subtract => SemanticBinOp::Subtract,
@@ -2106,38 +2254,89 @@ impl SemanticIRBuilder {
                 }
             }
             Expr::FunctionCall { name, args, .. } => {
-                if name.contains('.') {
-                    let parts: Vec<&str> = name.split('.').collect();
+                let clean_name = name.trim_end_matches("()");
+
+                // ─── METHOD CALL DISAMBIGUATION ───
+                // A dotted name is a *method call* only if:
+                //   1) the full dotted name is NOT a registered function (Math.sqrt,
+                //      String.concat, List.sum, File.read, user functions with dots…), AND
+                //   2) the first component names a variable in scope.
+                // Otherwise it's a regular function call — this is how all built-ins
+                // (Math.*, String.*, List.*, File.*) are dispatched.
+                let is_known_function = self.function_types.contains_key(clean_name);
+
+                if !is_known_function && clean_name.contains('.') {
+                    let parts: Vec<&str> = clean_name.split('.').collect();
                     if parts.len() == 2 {
                         let receiver_name = parts[0];
                         let method_name = parts[1];
+
                         if let Some(info) = self.lookup_var(receiver_name) {
                             let receiver_type = info.type_.clone();
-                            let receiver_value = TypedIRValue::Variable(
-                                receiver_name.to_string(),
-                                receiver_type.clone(),
-                            );
-                            let typed_args: Vec<TypedIRValue> = args
-                                .iter()
-                                .map(|a| self.translate_expr(program, func, current_block, a))
-                                .collect();
-                            return TypedIRValue::MethodCall {
-                                receiver: Box::new(receiver_value),
-                                receiver_type,
-                                method_name: method_name.to_string(),
-                                args: typed_args,
-                                return_type: Type::Unknown,
-                            };
+
+                            if let Some(resolved_name) =
+                                self.resolve_method_call(&receiver_type, method_name)
+                            {
+                                // Receiver is passed as the first argument — same
+                                // convention expand_impl_methods uses for `self`.
+                                let receiver_value = TypedIRValue::Variable(
+                                    receiver_name.to_string(),
+                                    receiver_type.clone(),
+                                );
+
+                                let mut call_args = vec![receiver_value];
+                                for arg in args {
+                                    call_args.push(
+                                        self.translate_expr(program, func, current_block, arg),
+                                    );
+                                }
+
+                                // ─── UNIFY TYPES ─── analyzer already inferred the return type.
+                                let return_type = self
+                                    .type_of_expr(expr)
+                                    .cloned()
+                                    .unwrap_or(Type::Unknown);
+
+                                return TypedIRValue::Call {
+                                    function: resolved_name,
+                                    args: call_args,
+                                    return_type,
+                                };
+                            } else {
+                                self.diagnostics.push(format!(
+                                    "Type {} has no method '{}'",
+                                    receiver_type, method_name
+                                ));
+                                return TypedIRValue::Void;
+                            }
                         }
                     }
                 }
+
+                // ─── Regular function call (built-ins + user functions) ───
                 let typed_args: Vec<TypedIRValue> = args
                     .iter()
                     .map(|a| self.translate_expr(program, func, current_block, a))
                     .collect();
-                let (return_type, coerced_args) = self.validate_call(name, typed_args);
+
+                // ─── UNIFY TYPES ─── return type comes from the analyzer.
+                let return_type = self
+                    .type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
+
+                let coerced_args = if let Some(sig) = self.function_types.get(clean_name).cloned() {
+                    typed_args
+                        .into_iter()
+                        .zip(sig.params.iter())
+                        .map(|(a, (_, t))| self.coerce_value(a, t))
+                        .collect()
+                } else {
+                    typed_args
+                };
+
                 TypedIRValue::Call {
-                    function: name.clone(),
+                    function: clean_name.to_string(),
                     args: coerced_args,
                     return_type,
                 }
@@ -2181,23 +2380,57 @@ impl SemanticIRBuilder {
                 trailing_expr,
             } => {
                 let mut flow = FlowResult::Reachable(current_block);
+
                 for s in statements {
+                    let current = match flow {
+                        FlowResult::Reachable(id) => id,
+                        FlowResult::Unreachable => break,
+                    };
+
+                    // Don't append instructions to a block that already has a terminator
+                    // (e.g. after a `return`, `break`, or an exhaustive if/match).
+                    if self.block_is_terminated(func, current) {
+                        flow = FlowResult::Unreachable;
+                        break;
+                    }
+
                     match s {
                         Stmt::Break => {
-                            self.should_break = true;
-                            break;
+                            if let Some(loop_ctx) = self.loop_stack.last().copied() {
+                                let _ = self.safe_set_terminator(
+                                    func,
+                                    current,
+                                    Terminator::Jump {
+                                        block: loop_ctx.break_block,
+                                    },
+                                );
+                            } else {
+                                self.diagnostics.push("Break outside of loop".to_string());
+                            }
+                            flow = FlowResult::Unreachable;
                         }
                         Stmt::Continue => {
-                            self.should_continue = true;
-                            break;
+                            if let Some(loop_ctx) = self.loop_stack.last().copied() {
+                                let _ = self.safe_set_terminator(
+                                    func,
+                                    current,
+                                    Terminator::Jump {
+                                        block: loop_ctx.continue_block,
+                                    },
+                                );
+                            } else {
+                                self.diagnostics.push("Continue outside of loop".to_string());
+                            }
+                            flow = FlowResult::Unreachable;
                         }
                         _ => {
-                            if let FlowResult::Reachable(id) = flow {
-                                flow = self.translate_simple_stmt(program, func, id, s);
-                            }
+                            flow = self.translate_simple_stmt(program, func, current, s);
                         }
                     }
                 }
+
+                // The trailing expression's value is the block's value.
+                // If the block already became unreachable, there's no value.
                 if let Some(expr) = trailing_expr {
                     if let FlowResult::Reachable(id) = flow {
                         self.translate_expr(program, func, id, expr)
@@ -2208,40 +2441,151 @@ impl SemanticIRBuilder {
                     TypedIRValue::Void
                 }
             }
-            Expr::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let then_stmts = match then_branch.as_ref() {
-                    Expr::Block { statements, .. } => statements.clone(),
-                    other => vec![Stmt::Expression((*other).clone())],
-                };
-                let else_stmts = else_branch.as_ref().map(|e| match e.as_ref() {
-                    Expr::Block { statements, .. } => statements.clone(),
-                    other => vec![Stmt::Expression((*other).clone())],
-                });
-                let flow = self.translate_if(
-                    program,
-                    func,
-                    current_block,
-                    condition,
-                    &then_stmts,
-                    else_stmts.as_deref(),
+            Expr::If { condition, then_branch, else_branch } => {
+                 // ─── UNIFY TYPES ───
+                let result_type = self.type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
+
+                let result_var = self.allocate_result_var(func, current_block, result_type.clone());
+
+                let then_flow = self.translate_if_with_target(
+                    program, func, current_block, condition, then_branch, else_branch.as_deref(),
+                    &result_var, result_type.clone(),
                 );
-                if let FlowResult::Reachable(merge_id) = flow {
-                    TypedIRValue::Variable(format!("__if_result_{}", merge_id), Type::Void)
+
+                if let FlowResult::Reachable(merge_id) = then_flow {
+                    // Return the variable that holds the result
+                    TypedIRValue::Variable(result_var, result_type)
                 } else {
+                    self.diagnostics.push("If expression has no reachable branch".to_string());
                     TypedIRValue::Void
                 }
             }
             Expr::Match { value, cases } => {
-                let flow = self.translate_match(program, func, current_block, value, cases);
-                if let FlowResult::Reachable(merge_id) = flow {
-                    TypedIRValue::Variable(format!("__match_result_{}", merge_id), Type::Void)
-                } else {
-                    TypedIRValue::Void
+                // Translate the value being matched
+                let match_value = self.translate_expr(program, func, current_block, value);
+
+                // ─── UNIFY TYPES ───
+                let result_type = self.type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
+
+                // Allocate a result variable in the current scope
+                let result_var = self.allocate_result_var(func, current_block, result_type.clone());
+
+                // Create a merge block for all arms
+                let merge_id = program.new_block_id();
+                func.blocks.push(SemanticBlock {
+                    id: merge_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+
+                // Prepare switch terminator: map patterns to block ids
+                let mut switch_cases = Vec::new();
+                let mut case_block_ids = Vec::new();
+
+                // First, create block for each case and translate it
+                for case in cases {
+                    let case_block_id = program.new_block_id();
+                    func.blocks.push(SemanticBlock {
+                        id: case_block_id,
+                        instructions: Vec::new(),
+                        terminator: None,
+                    });
+
+                    // Convert pattern to SemanticPattern (reuse existing logic from `translate_match`)
+                    let sem_pattern = match &case.pattern {
+                        crate::frontend::ast::Pattern::Some(v) => SemanticPattern::Some { binding: v.clone() },
+                        crate::frontend::ast::Pattern::None => SemanticPattern::None,
+                        crate::frontend::ast::Pattern::Ok(v) => SemanticPattern::Ok { binding: v.clone() },
+                        crate::frontend::ast::Pattern::Error(v) => SemanticPattern::Error { binding: v.clone() },
+                        crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Wildcard,
+                        crate::frontend::ast::Pattern::Binding(_) => SemanticPattern::Wildcard,
+                        crate::frontend::ast::Pattern::Literal(e) => {
+                            SemanticPattern::Literal(self.translate_expr(program, func, current_block, e))
+                        }
+                        _ => SemanticPattern::Wildcard,
+                    };
+
+                    switch_cases.push((sem_pattern, case_block_id));
+                    case_block_ids.push(case_block_id);
                 }
+
+                // Add a default block (for unmatched patterns) - for now, jump to merge
+                let default_block_id = program.new_block_id();
+                func.blocks.push(SemanticBlock {
+                    id: default_block_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+                let _ = self.safe_set_terminator(
+                    func,
+                    default_block_id,
+                    Terminator::Jump { block: merge_id },
+                );
+
+                // Set the switch terminator on the current block
+                let _ = self.safe_set_terminator(
+                    func,
+                    current_block,
+                    Terminator::Switch {
+                        value: match_value,
+                        cases: switch_cases,
+                        default_block: Some(default_block_id),
+                    },
+                );
+
+                // Translate each case body and assign result to result_var
+                for (idx, case) in cases.iter().enumerate() {
+                    let case_block_id = case_block_ids[idx];
+
+                    self.push_scope();
+
+                    // Bind pattern variables (simplified; we only handle Some, Ok, Error bindings)
+                    if let Some(binding) = match &case.pattern {
+                        crate::frontend::ast::Pattern::Some(v) => Some(v.clone()),
+                        crate::frontend::ast::Pattern::Ok(v) => Some(v.clone()),
+                        crate::frontend::ast::Pattern::Error(v) => Some(v.clone()),
+                        _ => None,
+                    } {
+                        self.declare_var(&binding, Type::Unknown, false);
+                    }
+
+                    // Extract body statements and trailing expr from case.body (which is Expr::Block)
+                    let (body_stmts, body_trailing) = match &case.body {
+                        Expr::Block { statements, trailing_expr } => (statements.clone(), trailing_expr.as_deref()),
+                        other => (vec![Stmt::Expression(other.clone())], None),
+                    };
+
+                    // Translate the body with result target
+                    if let Some(final_block) = self.translate_block_with_result(
+                        program,
+                        func,
+                        case_block_id,
+                        &body_stmts,
+                        body_trailing,
+                        &result_var,
+                        result_type.clone(),
+                    ) {
+                        // Jump to merge if not already terminated
+                        self.block_is_terminated(func, final_block);
+                        let _ = self.safe_set_terminator(
+                            func,
+                            final_block,
+                            Terminator::Jump { block: merge_id },
+                        );   
+                    }
+
+                    self.pop_scope();
+                }
+
+                // Set pending merge so that subsequent statements continue at merge block
+                self.pending_merge = Some(merge_id);
+
+                // Return the result variable as the value of the match expression
+                TypedIRValue::Variable(result_var, result_type)
             }
             Expr::TryCatch {
                 try_branch,
@@ -2249,85 +2593,109 @@ impl SemanticIRBuilder {
                 catch_branch,
                 finally_body,
             } => {
+                // ─── UNIFY TYPES ───
+                let result_type = self.type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
+
+                // Allocate result variable
+                let result_var = self.allocate_result_var(func, current_block, result_type.clone());
+
+                // Create blocks
                 let try_block_id = program.new_block_id();
                 let catch_block_id = program.new_block_id();
                 let merge_id = program.new_block_id();
 
-                func.blocks.push(SemanticBlock {
-                    id: try_block_id,
-                    instructions: Vec::new(),
-                    terminator: None,
-                });
-                func.blocks.push(SemanticBlock {
-                    id: catch_block_id,
-                    instructions: Vec::new(),
-                    terminator: None,
-                });
-                func.blocks.push(SemanticBlock {
-                    id: merge_id,
-                    instructions: Vec::new(),
-                    terminator: None,
-                });
+                func.blocks.push(SemanticBlock { id: try_block_id, instructions: Vec::new(), terminator: None });
+                func.blocks.push(SemanticBlock { id: catch_block_id, instructions: Vec::new(), terminator: None });
+                func.blocks.push(SemanticBlock { id: merge_id, instructions: Vec::new(), terminator: None });
 
+                // Set jump from current block to try
                 let _ = self.safe_set_terminator(
                     func,
                     current_block,
-                    Terminator::Jump {
-                        block: try_block_id,
-                    },
+                    Terminator::Jump { block: try_block_id },
                 );
 
+                // Translate try branch
                 self.push_scope();
-                let try_flow = self.translate_block(
+                let try_stmts = match try_branch.as_ref() {
+                    Expr::Block { statements, .. } => statements.clone(),
+                    other => vec![Stmt::Expression((*other).clone())],
+                };
+                let try_trailing = match try_branch.as_ref() {
+                    Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
+                    _ => None,
+                };
+                if let Some(final_block) = self.translate_block_with_result(
                     program,
                     func,
                     try_block_id,
-                    &match try_branch.as_ref() {
-                        Expr::Block { statements, .. } => statements.clone(),
-                        other => vec![Stmt::Expression((*other).clone())],
-                    },
-                );
+                    &try_stmts,
+                    try_trailing,
+                    &result_var,
+                    result_type.clone(),
+                ){
+                    self.block_is_terminated(func, final_block);
+                    let _ = self.safe_set_terminator(
+                        func,
+                        final_block,
+                        Terminator::Jump { block: merge_id },
+                    );
+                }
                 self.pop_scope();
 
-                if let FlowResult::Reachable(id) = try_flow {
-                    let _ =
-                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
-                }
-
+                // Translate catch branch
                 self.push_scope();
                 if let Some(var_name) = catch_var {
                     self.declare_var(var_name, Type::Unknown, false);
                 }
-                let catch_flow = self.translate_block(
+                let catch_stmts = match catch_branch.as_ref() {
+                    Expr::Block { statements, .. } => statements.clone(),
+                    other => vec![Stmt::Expression((*other).clone())],
+                };
+                let catch_trailing = match catch_branch.as_ref() {
+                    Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
+                    _ => None,
+                };
+                if let Some(final_block) = self.translate_block_with_result(
                     program,
                     func,
                     catch_block_id,
-                    &match catch_branch.as_ref() {
-                        Expr::Block { statements, .. } => statements.clone(),
-                        other => vec![Stmt::Expression((*other).clone())],
-                    },
-                );
+                    &catch_stmts,
+                    catch_trailing,
+                    &result_var,
+                    result_type.clone(),
+                ){
+                    self.block_is_terminated(func, final_block);
+                    let _ = self.safe_set_terminator(
+                        func,
+                        final_block,
+                        Terminator::Jump { block: merge_id },
+                    );
+                }
                 self.pop_scope();
 
-                if let FlowResult::Reachable(id) = catch_flow {
-                    let _ =
-                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
-                }
-
+                // Handle finally block (if present)
+                // For simplicity, we translate the finally body in the merge block,
+                // but note that finally should execute before leaving try/catch.
+                // A full implementation would insert finally before jumps to merge.
                 if let Some(finally_stmts) = finally_body {
                     self.push_scope();
                     let finally_flow = self.translate_block(program, func, merge_id, finally_stmts);
                     self.pop_scope();
-                    if let FlowResult::Reachable(final_id) = finally_flow {
-                        self.pending_merge = Some(final_id);
-                    } else {
-                        self.pending_merge = Some(merge_id);
+                    // If the finally block is reachable, it may create new blocks;
+                    // adjust pending_merge accordingly.
+                    match finally_flow {
+                        FlowResult::Reachable(id) => self.pending_merge = Some(id),
+                        FlowResult::Unreachable => self.pending_merge = Some(merge_id),
                     }
                 } else {
                     self.pending_merge = Some(merge_id);
                 }
 
-                TypedIRValue::Void
+                // Return the result variable
+                TypedIRValue::Variable(result_var, result_type)
             }
             Expr::For {
                 var,
@@ -2369,6 +2737,30 @@ impl SemanticIRBuilder {
                     value: Box::new(inner),
                     target_type: target,
                 }
+            }
+            Expr::Range { start, end, inclusive: _ } => {
+                // For now, represent a range as a list containing the start and end values.
+                // This is not a full range implementation, but avoids silent Void.
+                let start_val = start.as_ref()
+                    .map(|e| self.translate_expr(program, func, current_block, e))
+                    .unwrap_or(TypedIRValue::Void);
+                let end_val = end.as_ref()
+                    .map(|e| self.translate_expr(program, func, current_block, e))
+                    .unwrap_or(TypedIRValue::Void);
+                let elem_type = start_val.type_of().common_supertype(&end_val.type_of());
+                TypedIRValue::List(vec![start_val, end_val], elem_type)
+            }
+            Expr::FieldAccess { object, field, .. } => {
+                // Field access is not yet supported; emit an error and return Void.
+                self.diagnostics.push(format!(
+                    "Field access '{}.{}' is not supported yet",
+                    match object.as_ref() {
+                        Expr::Var(name, _) => name.clone(),
+                        _ => "<expr>".to_string(),
+                    },
+                    field
+                ));
+                TypedIRValue::Void
             }
             _ => TypedIRValue::Void,
         }

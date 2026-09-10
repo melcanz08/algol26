@@ -11,7 +11,7 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
-    SemanticIRBuilder::build(&program.functions)
+    SemanticIRBuilder::build(&program.functions, std::collections::HashMap::new())
 }
 fn run_interp(prog: SemanticProgram) -> String {
     let mut interp = Interpreter::new(prog);
@@ -44,11 +44,38 @@ fn test_negative_undefined_variable() {
 }
 #[test]
 fn test_negative_type_mismatch() {
-    let source = r#"procedure main
-    val x := "hello" + 5.0
-"#;
-    let (_ir, diags) = build_ir(source);
-    assert!(!diags.is_empty());
+    use algol26::frontend::lexer::Lexer;
+    use algol26::frontend::parser::Parser;
+    use algol26::semantics::semantic::SemanticAnalyzer;
+
+    // NOTE: no leading whitespace on any line, otherwise the lexer emits
+    // a top-level Indent token and the parser rejects it.
+    let source = "procedure main\n    var x: Int := \"hello\"\n";
+
+    let lexer = Lexer::new(source.to_string()).expect("lexer failed");
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parser failed");
+
+    let mut analyzer = SemanticAnalyzer::new();
+    let result = analyzer.analyze_with_spans(
+        &program.functions,
+        &program.traits,
+        &program.impls,
+        &std::collections::HashMap::new(),
+    );
+
+    assert!(
+        result.is_err(),
+        "Expected a type mismatch error from the analyzer, but analysis succeeded"
+    );
+
+    let err = result.unwrap_err();
+    let msg = format!("{:?}", err);
+    assert!(
+        msg.to_lowercase().contains("type mismatch") || msg.to_lowercase().contains("mismatch"),
+        "Expected a type mismatch error, got: {}",
+        msg
+    );
 }
 #[test]
 fn test_stress_nested_control_flow() {
@@ -116,7 +143,7 @@ fn test_negative_corpus_no_ice() {
                 return (true, true);
             }
             let prog = prog_res.unwrap();
-            let (_ir, diags) = SemanticIRBuilder::build(&prog.functions);
+            let (_ir, diags) = SemanticIRBuilder::build(&prog.functions, std::collections::HashMap::new());
             let mut analyzer = algol26::semantics::semantic::SemanticAnalyzer::new();
             let analyzer_invalid = analyzer.analyze(&prog.functions).is_err();
             let is_invalid = !diags.is_empty() || analyzer_invalid;

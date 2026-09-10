@@ -9,7 +9,7 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
     let functions = program.functions;
-    SemanticIRBuilder::build(&functions)
+    SemanticIRBuilder::build(&functions, std::collections::HashMap::new())
 }
 
 #[test]

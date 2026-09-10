@@ -15,7 +15,7 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>, Vec<FunctionDecl>) {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
     let functions = program.functions;
-    let (ir, diagnostics) = SemanticIRBuilder::build(&functions);
+    let (ir, diagnostics) = SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
     (ir, diagnostics, functions)
 }
 

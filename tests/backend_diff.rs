@@ -7,7 +7,7 @@ fn build_ir(src: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(src.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let prog = parser.parse_program().unwrap();
-    let (ir, diags) = SemanticIRBuilder::build(&prog.functions);
+    let (ir, diags) = SemanticIRBuilder::build(&prog.functions, std::collections::HashMap::new());
     assert!(diags.is_empty(), "diags: {:?}", diags);
     ir
 }

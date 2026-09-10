@@ -986,6 +986,7 @@ impl SemanticAnalyzer {
         expected_type: Option<&Type>,
     ) -> Result<Type> {
         let ty = self.analyze_expr_inner(expr, expected_type)?;
+
         self.type_table
             .insert(expr as *const Expr as usize, ty.clone());
         Ok(ty)
@@ -1061,28 +1062,27 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::Ok { value } => {
-                let inner = if let Some(Type::Result { ok, .. }) = expected_type {
-                    self.analyze_expr_with_context(value, Some(ok.as_ref()))?
-                } else {
-                    self.analyze_expr(value)?
+                // Compute the payload type independently. `expected_type`
+                // is used only to learn the error type of the enclosing
+                // Result, not to influence the payload's analysis.
+                let inner = self.analyze_expr(value)?;
+
+                let error_type = match expected_type {
+                    Some(Type::Result { error, .. }) => (**error).clone(),
+                    _ => Type::Unknown,
                 };
-                if let Some(Type::Result { error, .. }) = expected_type {
-                    Ok(Type::result(inner, (**error).clone()))
-                } else {
-                    Ok(Type::result(inner, Type::Unknown))
-                }
+
+                Ok(Type::result(inner, error_type))
             }
             Expr::Error { value } => {
-                let inner = if let Some(Type::Result { error, .. }) = expected_type {
-                    self.analyze_expr_with_context(value, Some(error.as_ref()))?
-                } else {
-                    self.analyze_expr(value)?
+                let inner = self.analyze_expr(value)?;
+
+                let ok_type = match expected_type {
+                    Some(Type::Result { ok, .. }) => (**ok).clone(),
+                    _ => Type::Unknown,
                 };
-                if let Some(Type::Result { ok, .. }) = expected_type {
-                    Ok(Type::result((**ok).clone(), inner))
-                } else {
-                    Ok(Type::result(Type::Unknown, inner))
-                }
+
+                Ok(Type::result(ok_type, inner))
             }
             Expr::Block { statements, trailing_expr } => {
                 for s in statements { self.analyze_stmt(s)?; }
@@ -1152,10 +1152,62 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
-            Expr::TryCatch { try_branch, catch_var: _, catch_branch, finally_body: _ } => {
+            Expr::TryCatch { try_branch, catch_var, catch_branch, finally_body } => {
                 let try_type = self.analyze_expr(try_branch)?;
-                let catch_type = self.analyze_expr(catch_branch)?;
-                Ok(try_type.common_supertype(&catch_type))
+
+                // The try body must evaluate to a Result<T, E>.
+                let (ok_type, err_type) = match &try_type {
+                    Type::Result { ok, error } => ((**ok).clone(), (**error).clone()),
+                    Type::Unknown => (Type::Unknown, Type::Unknown),
+                    other => {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "try body must produce a Result<T, E>, found {}",
+                                other
+                            ),
+                            0, 0, "", ErrorCode::E0002,
+                        ).with_suggestion(
+                            "Wrap the try body's final expression in Ok(...), \
+                             or have it call a function that returns Result",
+                        ));
+                    }
+                };
+
+                // Bind the catch variable to the Result's error type.
+                self.push_scope();
+                if let Some(var) = catch_var {
+                    self.declare_variable(var, err_type.clone(), false)?;
+                }
+                let catch_result =
+                    self.analyze_expr_with_context(catch_branch, Some(&ok_type));
+                self.pop_scope();
+                let catch_type = catch_result?;
+
+                // The catch branch must produce something coercible to T.
+                if catch_type != Type::Unknown
+                    && ok_type != Type::Unknown
+                    && !catch_type.can_coerce_to(&ok_type)
+                {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "try/catch type mismatch: try body yields {}, catch yields {}",
+                            ok_type, catch_type
+                        ),
+                        0, 0, "", ErrorCode::E0002,
+                    ).with_suggestion(
+                        "The catch branch must produce a value of the same type as Ok(...)",
+                    ));
+                }
+
+                // Finally runs after the try/catch expression; analyze it
+                // in the enclosing scope.
+                if let Some(body) = finally_body {
+                    for stmt in body {
+                        self.analyze_stmt(stmt)?;
+                    }
+                }
+
+                Ok(ok_type)
             }
             Expr::For { var, iterable, body, trailing_expr, span } => {
                 let iter_type = self.analyze_expr(iterable)?;

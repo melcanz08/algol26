@@ -11,6 +11,8 @@ pub enum RuntimeValue {
     String(String),
     Bool(bool),
     List(Vec<RuntimeValue>),
+    Option(Option<Box<RuntimeValue>>),
+    Result { is_ok: bool, value: Box<RuntimeValue> },
     Void,
 }
 
@@ -22,6 +24,9 @@ impl RuntimeValue {
             RuntimeValue::Float(f) => *f != 0.0,
             RuntimeValue::String(s) => !s.is_empty(),
             RuntimeValue::List(l) => !l.is_empty(),
+            RuntimeValue::Option(Some(_)) => true,
+            RuntimeValue::Option(None) => false,
+            RuntimeValue::Result { is_ok, .. } => *is_ok,
             RuntimeValue::Void => false,
         }
     }
@@ -30,11 +35,9 @@ impl RuntimeValue {
         match self {
             RuntimeValue::Int(i) => format!("{}", i),
             RuntimeValue::Float(f) => {
-                if f.fract() == 0.0 {
-                    format!("{:.1}", f)
-                } else {
-                    format!("{}", f)
-                }
+                // Match the LLVM backend's `%.1f` formatting so both
+                // backends produce identical output for the same input.
+                format!("{:.1}", f)
             }
             RuntimeValue::String(s) => s.clone(),
             RuntimeValue::Bool(b) => format!("{}", b),
@@ -42,6 +45,10 @@ impl RuntimeValue {
                 let items: Vec<String> = l.iter().map(|v| v.display()).collect();
                 format!("[{}]", items.join(", "))
             }
+            RuntimeValue::Option(Some(v)) => format!("Some({})", v.display()),
+            RuntimeValue::Option(None) => "None".to_string(),
+            RuntimeValue::Result { is_ok: true, value } => format!("Ok({})", value.display()),
+            RuntimeValue::Result { is_ok: false, value } => format!("Error({})", value.display()),
             RuntimeValue::Void => String::new(),
         }
     }
@@ -170,7 +177,11 @@ impl Interpreter {
                     let mut matched = false;
 
                     for (pattern, target) in cases {
-                        if self.pattern_matches(pattern, &val) {
+                        if let Some(bindings) = self.try_pattern_match(pattern, &val) {
+                            // Bind the pattern's payload(s) before jumping.
+                            for (name, bound_val) in bindings {
+                                self.variables.insert(name, bound_val);
+                            }
                             current = *target;
                             matched = true;
                             break;
@@ -205,7 +216,7 @@ impl Interpreter {
                 self.output.push(val.display());
             }
             Instruction::Call { func, args, result } => {
-                let val = self.eval_builtin_call(func, args);
+                let val = self.eval_call(func, args);
                 if let Some(res_name) = result {
                     self.variables.insert(res_name.clone(), val);
                 }
@@ -260,24 +271,56 @@ impl Interpreter {
         Ok(())
     }
 
-    fn pattern_matches(
-        &self,
+    /// Match `value` against `pattern`. On success, return the list of
+    /// variable bindings the pattern introduces.
+    fn try_pattern_match(
+        &mut self,
         pattern: &crate::ir::semantic_ir::SemanticPattern,
         value: &RuntimeValue,
-    ) -> bool {
+    ) -> Option<Vec<(String, RuntimeValue)>> {
+        use crate::ir::semantic_ir::SemanticPattern;
+
         match pattern {
-            crate::ir::semantic_ir::SemanticPattern::Some { .. } => true,
-            crate::ir::semantic_ir::SemanticPattern::None => matches!(value, RuntimeValue::Void),
-            crate::ir::semantic_ir::SemanticPattern::Ok { .. } => true,
-            crate::ir::semantic_ir::SemanticPattern::Error { .. } => true,
-            crate::ir::semantic_ir::SemanticPattern::Wildcard => true,
-            crate::ir::semantic_ir::SemanticPattern::Literal(lit) => {
-                self.eval_value(lit).display() == value.display()
+            SemanticPattern::Wildcard => Some(Vec::new()),
+
+            SemanticPattern::Some { binding } => match value {
+                RuntimeValue::Option(Some(v)) => {
+                    Some(vec![(binding.clone(), (**v).clone())])
+                }
+                _ => None,
+            },
+
+            SemanticPattern::None => match value {
+                RuntimeValue::Option(None) => Some(Vec::new()),
+                _ => None,
+            },
+
+            SemanticPattern::Ok { binding } => match value {
+                RuntimeValue::Result { is_ok: true, value: v } => {
+                    Some(vec![(binding.clone(), (**v).clone())])
+                }
+                _ => None,
+            },
+
+            SemanticPattern::Error { binding } => match value {
+                RuntimeValue::Result { is_ok: false, value: v } => {
+                    Some(vec![(binding.clone(), (**v).clone())])
+                }
+                _ => None,
+            },
+
+            SemanticPattern::Literal(lit) => {
+                let lit_val = self.eval_value(lit);
+                if lit_val.display() == value.display() {
+                    Some(Vec::new())
+                } else {
+                    None
+                }
             }
         }
     }
 
-    fn eval_value(&self, v: &TypedIRValue) -> RuntimeValue {
+    fn eval_value(&mut self, v: &TypedIRValue) -> RuntimeValue {
         match v {
             TypedIRValue::Int(i) => RuntimeValue::Int(*i),
             TypedIRValue::Float(f) => RuntimeValue::Float(*f),
@@ -319,8 +362,20 @@ impl Interpreter {
                 let r = self.eval_value(right);
                 Self::eval_binop(op, l, r)
             }
-            TypedIRValue::Call { function, args, .. } => self.eval_builtin_call(function, args),
+            TypedIRValue::Call { function, args, .. } => self.eval_call(function, args),
             TypedIRValue::Cast { value, .. } => self.eval_value(value),
+            TypedIRValue::Some(inner) => {
+                RuntimeValue::Option(Some(Box::new(self.eval_value(inner))))
+            }
+            TypedIRValue::None { .. } => RuntimeValue::Option(None),
+            TypedIRValue::Ok { value, .. } => RuntimeValue::Result {
+                is_ok: true,
+                value: Box::new(self.eval_value(value)),
+            },
+            TypedIRValue::Error { value, .. } => RuntimeValue::Result {
+                is_ok: false,
+                value: Box::new(self.eval_value(value)),
+            },
             _ => RuntimeValue::Void,
         }
     }
@@ -404,7 +459,7 @@ impl Interpreter {
         }
     }
 
-    fn eval_builtin_call(&self, func: &str, args: &[TypedIRValue]) -> RuntimeValue {
+    fn eval_builtin_call(&mut self, func: &str, args: &[TypedIRValue]) -> RuntimeValue {
         let arg_vals: Vec<RuntimeValue> = args.iter().map(|a| self.eval_value(a)).collect();
 
         match func {
@@ -473,6 +528,46 @@ impl Interpreter {
                 }
             }
             _ => RuntimeValue::Void,
+        }
+    }
+
+        /// Evaluate a call to either a user function or a built-in. User
+    /// functions are dispatched with a fresh frame; the caller's frame
+    /// is saved and restored. Returns `Void` if the callee errors
+    /// internally (block not found, infinite loop) — the error is
+    /// printed to stderr.
+    fn eval_call(&mut self, function: &str, args: &[TypedIRValue]) -> RuntimeValue {
+        if let Some(callee) = self
+            .program
+            .functions
+            .iter()
+            .find(|f| f.name == function)
+            .cloned()
+        {
+            let arg_vals: Vec<RuntimeValue> =
+                args.iter().map(|a| self.eval_value(a)).collect();
+
+            let saved_vars = std::mem::take(&mut self.variables);
+            let saved_ret = self.return_value.take();
+
+            for ((param_name, _), val) in callee.params.iter().zip(arg_vals) {
+                self.variables.insert(param_name.clone(), val);
+            }
+
+            let result = self.execute_function(&callee);
+            let ret = self.return_value.take().unwrap_or(RuntimeValue::Void);
+
+            self.variables = saved_vars;
+            self.return_value = saved_ret;
+
+            if let Err(e) = result {
+                eprintln!("[interpreter] error in {}: {}", callee.name, e);
+                return RuntimeValue::Void;
+            }
+
+            ret
+        } else {
+            self.eval_builtin_call(function, args)
         }
     }
 }

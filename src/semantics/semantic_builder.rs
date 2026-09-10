@@ -4,7 +4,7 @@
 #![allow(unused_assignments)]
 
 // src/semantics/semantic_builder.rs
-
+use std::borrow::Cow;
 use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::Pattern;
@@ -613,21 +613,27 @@ impl SemanticIRBuilder {
                     then_branch,
                     else_branch,
                 }) => {
-                    let then_stmts = match then_branch.as_ref() {
-                        Expr::Block { statements, .. } => statements.clone(),
-                        _ => vec![],
+                    // Borrow branch statements directly from the AST.
+                    // Cloning them would allocate new nodes whose
+                    // addresses don't match the analyzer's type-table
+                    // keys, silently breaking type lookups inside.
+                    let then_stmts: &[Stmt] = match then_branch.as_ref() {
+                        Expr::Block { statements, .. } => statements.as_slice(),
+                        _ => &[],
                     };
-                    let else_stmts = else_branch.as_ref().map(|e| match e.as_ref() {
-                        Expr::Block { statements, .. } => statements.clone(),
-                        _ => vec![],
+                    let else_stmts: Option<&[Stmt]> = else_branch.as_ref().map(|e| {
+                        match e.as_ref() {
+                            Expr::Block { statements, .. } => statements.as_slice(),
+                            _ => &[],
+                        }
                     });
                     self.translate_if(
                         program,
                         func,
                         current_block,
                         condition,
-                        &then_stmts,
-                        else_stmts.as_deref(),
+                        then_stmts,
+                        else_stmts,
                     )
                 }
                 Stmt::Expression(Expr::For {
@@ -1496,21 +1502,25 @@ impl SemanticIRBuilder {
             else_branch,
         }) = stmt
         {
-            let then_stmts = match then_branch.as_ref() {
-                Expr::Block { statements, .. } => statements.clone(),
-                _ => vec![Stmt::Expression((**then_branch).clone())],
+            // Borrow, don't clone — the type table is keyed by node
+            // address and clone() invalidates the keys.
+            let then_stmts: &[Stmt] = match then_branch.as_ref() {
+                Expr::Block { statements, .. } => statements.as_slice(),
+                _ => &[],
             };
-            let else_stmts = else_branch.as_ref().map(|e| match e.as_ref() {
-                Expr::Block { statements, .. } => statements.clone(),
-                _ => vec![Stmt::Expression((**e).clone())],
+            let else_stmts: Option<&[Stmt]> = else_branch.as_ref().map(|e| {
+                match e.as_ref() {
+                    Expr::Block { statements, .. } => statements.as_slice(),
+                    _ => &[],
+                }
             });
             return self.translate_if(
                 program,
                 func,
                 current_block,
                 condition,
-                &then_stmts,
-                else_stmts.as_deref(),
+                then_stmts,
+                else_stmts,
             );
         }
 
@@ -2053,12 +2063,12 @@ impl SemanticIRBuilder {
         let else_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        // Create all blocks before setting terminators
+        // Create all blocks before setting terminators.
         func.blocks.push(SemanticBlock { id: then_id, instructions: Vec::new(), terminator: None });
         func.blocks.push(SemanticBlock { id: else_id, instructions: Vec::new(), terminator: None });
         func.blocks.push(SemanticBlock { id: merge_id, instructions: Vec::new(), terminator: None });
 
-        // Set the branch from current block
+        // Set the branch from the current block.
         let _ = self.safe_set_terminator(
             func,
             current_block,
@@ -2069,17 +2079,31 @@ impl SemanticIRBuilder {
             },
         );
 
-        // Translate then branch
+        // ─── Then branch ───
+        // Borrow statements directly from the AST when possible. Cloning
+        // allocates new nodes whose addresses don't match the analyzer's
+        // type-table keys, silently breaking type lookups inside.
         self.push_scope();
         let then_final = {
-            // Extract statements and trailing expression from the branch
-            let (stmts, trailing) = match then_branch {
-                Expr::Block { statements, trailing_expr } => (statements.clone(), trailing_expr.as_deref()),
-                other => (vec![Stmt::Expression(other.clone())], None),
+            let then_stmts: Cow<'_, [Stmt]> = match then_branch {
+                Expr::Block { statements, .. } => Cow::Borrowed(statements.as_slice()),
+                // Parser guarantees Block for if-branches. This fallback
+                // is defensive only; the synthesized node's type-table
+                // entry will not exist, but the parser prevents this path.
+                other => Cow::Owned(vec![Stmt::Expression(other.clone())]),
+            };
+            let then_trailing: Option<&Expr> = match then_branch {
+                Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
+                _ => None,
             };
             self.translate_block_with_result(
-                program, func, then_id, &stmts, trailing,
-                target, target_type.clone()
+                program,
+                func,
+                then_id,
+                then_stmts.as_ref(),
+                then_trailing,
+                target,
+                target_type.clone(),
             )
         };
         self.pop_scope();
@@ -2090,17 +2114,26 @@ impl SemanticIRBuilder {
             }
         }
 
-        // Translate else branch (if present)
+        // ─── Else branch ───
         if let Some(else_expr) = else_branch {
             self.push_scope();
             let else_final = {
-                let (stmts, trailing) = match else_expr {
-                    Expr::Block { statements, trailing_expr } => (statements.clone(), trailing_expr.as_deref()),
-                    other => (vec![Stmt::Expression(other.clone())], None),
+                let else_stmts: Cow<'_, [Stmt]> = match else_expr {
+                    Expr::Block { statements, .. } => Cow::Borrowed(statements.as_slice()),
+                    other => Cow::Owned(vec![Stmt::Expression(other.clone())]),
+                };
+                let else_trailing: Option<&Expr> = match else_expr {
+                    Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
+                    _ => None,
                 };
                 self.translate_block_with_result(
-                    program, func, else_id, &stmts, trailing,
-                    target, target_type.clone()
+                    program,
+                    func,
+                    else_id,
+                    else_stmts.as_ref(),
+                    else_trailing,
+                    target,
+                    target_type.clone(),
                 )
             };
             self.pop_scope();
@@ -2111,7 +2144,7 @@ impl SemanticIRBuilder {
                 }
             }
         } else {
-            // No else branch: jump directly to merge
+            // No else branch: jump directly to merge.
             let _ = self.safe_set_terminator(func, else_id, Terminator::Jump { block: merge_id });
         }
 
@@ -2379,21 +2412,34 @@ impl SemanticIRBuilder {
                 let inner = self.translate_expr(program, func, current_block, value);
                 TypedIRValue::Some(Box::new(inner))
             }
-            Expr::None => TypedIRValue::None {
-                option_type: Type::option(Type::Void),
-            },
+            Expr::None => {
+                // ─── UNIFY TYPES ─── read the outer Option type from the table.
+                let option_type = self
+                    .type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::option(Type::Unknown));
+                TypedIRValue::None { option_type }
+            }
             Expr::Ok { value } => {
                 let inner = self.translate_expr(program, func, current_block, value);
+                let result_type = self
+                    .type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::result(Type::Unknown, Type::Unknown));
                 TypedIRValue::Ok {
                     value: Box::new(inner),
-                    result_type: Type::result(Type::Void, Type::Void),
+                    result_type,
                 }
             }
             Expr::Error { value } => {
                 let inner = self.translate_expr(program, func, current_block, value);
+                let result_type = self
+                    .type_of_expr(expr)
+                    .cloned()
+                    .unwrap_or(Type::result(Type::Unknown, Type::Unknown));
                 TypedIRValue::Error {
                     value: Box::new(inner),
-                    result_type: Type::result(Type::Void, Type::Void),
+                    result_type,
                 }
             }
             Expr::Block {
@@ -2614,108 +2660,202 @@ impl SemanticIRBuilder {
                 catch_branch,
                 finally_body,
             } => {
-                // ─── UNIFY TYPES ───
-                let result_type = self.type_of_expr(expr)
+                // ─── Result-based try/catch ───
+                //
+                // Semantics: the try body must evaluate to Result<T, E>.
+                // The whole expression has type T:
+                //   Ok(v)  →  result_var := v
+                //   Error(e) →  bind catch_var to e; result_var := catch body's value
+                //
+                // CFG:
+                //   current → evaluate try body into __try_value
+                //           → Switch on __try_value
+                //               Ok(__ok_payload)  → ok_block
+                //               Error(catch_var) → err_block
+                //   ok_block: result_var := __ok_payload; Jump merge
+                //   err_block: translate catch body; result_var := its value; Jump merge
+                //   merge: result_var holds the value
+
+                let result_type = self
+                    .type_of_expr(expr)
                     .cloned()
                     .unwrap_or(Type::Unknown);
 
-                // Allocate result variable
-                let result_var = self.allocate_result_var(func, current_block, result_type.clone());
+                let result_var =
+                    self.allocate_result_var(func, current_block, result_type.clone());
 
-                // Create blocks
-                let try_block_id = program.new_block_id();
-                let catch_block_id = program.new_block_id();
-                let merge_id = program.new_block_id();
+                // Fresh names for the try-body's value and the Ok payload.
+                let try_value_name = format!("__try_value_{}", self.iter_counter);
+                self.iter_counter += 1;
+                let ok_payload_name = format!("__ok_payload_{}", self.iter_counter);
+                self.iter_counter += 1;
 
-                func.blocks.push(SemanticBlock { id: try_block_id, instructions: Vec::new(), terminator: None });
-                func.blocks.push(SemanticBlock { id: catch_block_id, instructions: Vec::new(), terminator: None });
-                func.blocks.push(SemanticBlock { id: merge_id, instructions: Vec::new(), terminator: None });
+                // Evaluate the try body, storing its Result value in try_value.
+                let (try_stmts, try_trailing): (Vec<Stmt>, Option<Box<Expr>>) =
+                    match try_branch.as_ref() {
+                        Expr::Block { statements, trailing_expr } => {
+                            (statements.clone(), trailing_expr.clone())
+                        }
+                        other => (vec![Stmt::Expression((*other).clone())], None),
+                    };
 
-                // Set jump from current block to try
-                let _ = self.safe_set_terminator(
+                // Allocate the try_value variable before branching.
+                let _ = self.safe_push_instruction(
                     func,
                     current_block,
-                    Terminator::Jump { block: try_block_id },
+                    SemanticInstruction::Declare {
+                        name: try_value_name.clone(),
+                        mutable: true,
+                        type_: Type::result(Type::Unknown, Type::Unknown),
+                        value: TypedIRValue::Void,
+                    },
                 );
 
-                // Translate try branch
-                self.push_scope();
-                let try_stmts = match try_branch.as_ref() {
-                    Expr::Block { statements, .. } => statements.clone(),
-                    other => vec![Stmt::Expression((*other).clone())],
-                };
-                let try_trailing = match try_branch.as_ref() {
-                    Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
-                    _ => None,
-                };
-                if let Some(final_block) = self.translate_block_with_result(
+                let try_flow = self.translate_block_with_result(
                     program,
                     func,
-                    try_block_id,
+                    current_block,
                     &try_stmts,
-                    try_trailing,
-                    &result_var,
-                    result_type.clone(),
-                ){
-                    self.block_is_terminated(func, final_block);
-                    let _ = self.safe_set_terminator(
-                        func,
-                        final_block,
-                        Terminator::Jump { block: merge_id },
-                    );
-                }
-                self.pop_scope();
+                    try_trailing.as_deref(),
+                    &try_value_name,
+                    Type::result(Type::Unknown, Type::Unknown),
+                );
 
-                // Translate catch branch
-                self.push_scope();
-                if let Some(var_name) = catch_var {
-                    self.declare_var(var_name, Type::Unknown, false);
+                let after_try = match try_flow {
+                    Some(id) => id,
+                    None => {
+                        // Try body always diverges — no merge needed.
+                        return TypedIRValue::Void;
+                    }
+                };
+
+                // Create the two branches and the merge.
+                let ok_block_id = program.new_block_id();
+                let err_block_id = program.new_block_id();
+                let merge_id = program.new_block_id();
+                func.blocks.push(SemanticBlock {
+                    id: ok_block_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+                func.blocks.push(SemanticBlock {
+                    id: err_block_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+                func.blocks.push(SemanticBlock {
+                    id: merge_id,
+                    instructions: Vec::new(),
+                    terminator: None,
+                });
+
+                // Switch on the Result value's tag.
+                let catch_binding = catch_var
+                    .clone()
+                    .unwrap_or_else(|| format!("__err_unused_{}", self.iter_counter));
+                self.iter_counter += 1;
+
+                let switch_value =
+                    TypedIRValue::Variable(try_value_name.clone(), Type::result(Type::Unknown, Type::Unknown));
+
+                let _ = self.safe_set_terminator(
+                    func,
+                    after_try,
+                    Terminator::Switch {
+                        value: switch_value,
+                        cases: vec![
+                            (
+                                SemanticPattern::Ok { binding: ok_payload_name.clone() },
+                                ok_block_id,
+                            ),
+                            (
+                                SemanticPattern::Error { binding: catch_binding.clone() },
+                                err_block_id,
+                            ),
+                        ],
+                        default_block: Some(err_block_id),
+                    },
+                );
+
+                // ─── Ok block: assign payload to result_var ───
+                self.declare_var(&ok_payload_name, result_type.clone(), false);
+                let _ = self.safe_push_instruction(
+                    func,
+                    ok_block_id,
+                    SemanticInstruction::Assign {
+                        target: result_var.clone(),
+                        value: TypedIRValue::Variable(ok_payload_name.clone(), result_type.clone()),
+                    },
+                );
+                let _ = self.safe_set_terminator(
+                    func,
+                    ok_block_id,
+                    Terminator::Jump { block: merge_id },
+                );
+
+                // ─── Err block: translate catch body ───
+                // The switch's Error pattern binds catch_var at runtime;
+                // declare it in the IR builder's scope so the catch body
+                // can reference it.
+                if catch_var.is_some() {
+                    self.declare_var(&catch_binding, Type::Unknown, false);
                 }
-                let catch_stmts = match catch_branch.as_ref() {
-                    Expr::Block { statements, .. } => statements.clone(),
-                    other => vec![Stmt::Expression((*other).clone())],
-                };
-                let catch_trailing = match catch_branch.as_ref() {
-                    Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
-                    _ => None,
-                };
-                if let Some(final_block) = self.translate_block_with_result(
+
+                self.push_scope();
+                let (catch_stmts, catch_trailing): (Vec<Stmt>, Option<Box<Expr>>) =
+                    match catch_branch.as_ref() {
+                        Expr::Block { statements, trailing_expr } => {
+                            (statements.clone(), trailing_expr.clone())
+                        }
+                        other => (vec![Stmt::Expression((*other).clone())], None),
+                    };
+
+                let catch_flow = self.translate_block_with_result(
                     program,
                     func,
-                    catch_block_id,
+                    err_block_id,
                     &catch_stmts,
-                    catch_trailing,
+                    catch_trailing.as_deref(),
                     &result_var,
                     result_type.clone(),
-                ){
-                    self.block_is_terminated(func, final_block);
-                    let _ = self.safe_set_terminator(
-                        func,
-                        final_block,
-                        Terminator::Jump { block: merge_id },
-                    );
-                }
+                );
                 self.pop_scope();
 
-                // Handle finally block (if present)
-                // For simplicity, we translate the finally body in the merge block,
-                // but note that finally should execute before leaving try/catch.
-                // A full implementation would insert finally before jumps to merge.
-                if let Some(finally_stmts) = finally_body {
-                    self.push_scope();
-                    let finally_flow = self.translate_block(program, func, merge_id, finally_stmts);
-                    self.pop_scope();
-                    // If the finally block is reachable, it may create new blocks;
-                    // adjust pending_merge accordingly.
-                    match finally_flow {
-                        FlowResult::Reachable(id) => self.pending_merge = Some(id),
-                        FlowResult::Unreachable => self.pending_merge = Some(merge_id),
+                if let Some(final_block) = catch_flow {
+                    if !self.block_is_terminated(func, final_block) {
+                        let _ = self.safe_set_terminator(
+                            func,
+                            final_block,
+                            Terminator::Jump { block: merge_id },
+                        );
                     }
                 } else {
-                    self.pending_merge = Some(merge_id);
+                    // Catch body always diverges — merge is only reached
+                    // from the Ok path, but we still want it to exist as
+                    // a target. Add an unreachable jump so verification
+                    // doesn't complain.
+                    let _ = self.safe_set_terminator(
+                        func,
+                        err_block_id,
+                        Terminator::Jump { block: merge_id },
+                    );
                 }
 
-                // Return the result variable
+                // ─── Finally: runs after both branches at the merge ───
+                let final_reachable = if let Some(finally_stmts) = finally_body {
+                    self.push_scope();
+                    let finally_flow =
+                        self.translate_block(program, func, merge_id, finally_stmts);
+                    self.pop_scope();
+                    match finally_flow {
+                        FlowResult::Reachable(id) => id,
+                        FlowResult::Unreachable => merge_id,
+                    }
+                } else {
+                    merge_id
+                };
+
+                self.pending_merge = Some(final_reachable);
                 TypedIRValue::Variable(result_var, result_type)
             }
             Expr::For {

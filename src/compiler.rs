@@ -3,7 +3,6 @@
 
 // src/compiler.rs updates for Semantic IR & Defer Lowering Integration
 
-use crate::backends::ir_codegen::IRCodeGen;
 use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode, Result};
 use crate::frontend::ast::Stmt;
 use crate::frontend::ast::{ImplBlock, TraitDecl, TypeSyntax};
@@ -15,6 +14,7 @@ use crate::ir::monomorphize::Monomorphizer;
 use crate::ir::optimizer::Optimizer;
 use crate::ir::semantic_ir::SemanticProgram;
 use crate::ir::verified_ir::VerifiedIR;
+use crate::backends::ir_codegen::IRCodeGen;
 use crate::semantics::race::RaceDetector;
 use crate::semantics::semantic::SemanticAnalyzer;
 use crate::semantics::semantic_builder::SemanticIRBuilder;
@@ -252,6 +252,48 @@ impl Compiler {
 
         Ok(())
     }
+
+    /// Compile through semantic IR, verify, then execute via the interpreter.
+    /// Skips LLVM and WASM codegen — used for programs that exercise IR
+    /// features the LLVM backend doesn't yet lower (Result, try/catch).
+    pub fn run_interpreter(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<()> {
+        use crate::backends::backend::Backend;
+        use crate::backends::interpreter_backend::InterpreterBackend;
+
+        // Phases 1–8 (same as compile).
+        let lexed = self.lex(source)?;
+        let parsed = self.parse(lexed)?;
+        let parsed = self.process_imports(&parsed, filename)?;
+        let parsed = self.desugar(&parsed);
+        let parsed = self.expand_impl_methods(&parsed);
+        let typed = self.type_check(&parsed)?;
+        let safe = self.safety_check(&typed)?;
+
+        // Phase 9–10: IR + verification.
+        let semantic_ir =
+            self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
+        semantic_ir.verify().map_err(|e| {
+            CompileError::simple(
+                &format!("IR verification failed: {}", e),
+                0, 0, "", ErrorCode::E0002,
+            )
+        })?;
+
+        // Phase 13: Interpreter backend.
+        let verified = VerifiedIR::new(semantic_ir)?;
+        let backend = InterpreterBackend::new();
+        backend.compile(&verified, "")?;
+        let output = backend.get_output();
+        if !output.trim().is_empty() {
+            print!("{}", output);
+        }
+        Ok(())
+    }
+
     fn expand_impl_methods(&self, parsed: &ParsedProgram) -> ParsedProgram {
         let mut all_functions = parsed.functions.clone();
 

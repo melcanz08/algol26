@@ -152,6 +152,71 @@ fn verify_function(
     verify_block_dfs(func, func.entry_block, env, &mut visited)
 }
 
+/// Compute each successor of a terminator along with the environment
+/// that successor should be verified in.
+///
+/// Most terminators pass the current env through unchanged. `Switch`
+/// introduces pattern bindings that are only visible in the successor
+/// block the pattern targets — `Ok(v)` binds `v` in the ok branch,
+/// `Error(e)` binds `e` in the error branch. `IteratorNext` similarly
+/// binds the loop variable in the body.
+fn successors_with_envs(
+    term: &Terminator,
+    env: &VerifyEnv,
+) -> Vec<(usize, VerifyEnv)> {
+    use crate::ir::semantic_ir::SemanticPattern;
+
+    match term {
+        Terminator::Switch {
+            cases,
+            default_block,
+            ..
+        } => {
+            let mut result = Vec::new();
+            for (pattern, target) in cases {
+                let mut succ_env = env.clone();
+                let binding = match pattern {
+                    SemanticPattern::Some { binding }
+                    | SemanticPattern::Ok { binding }
+                    | SemanticPattern::Error { binding } => Some(binding),
+                    _ => None,
+                };
+                if let Some(name) = binding {
+                    // The pattern introduces `name` in the target block
+                    // only. Its type is Unknown here — the switch
+                    // runtime is responsible for supplying a value of
+                    // the correct shape.
+                    succ_env.variables.insert(name.clone(), Type::Unknown);
+                    succ_env.mutability.insert(name.clone(), false);
+                }
+                result.push((*target, succ_env));
+            }
+            if let Some(default) = default_block {
+                result.push((*default, env.clone()));
+            }
+            result
+        }
+
+        Terminator::IteratorNext {
+            target,
+            body_block,
+            exit_block,
+            ..
+        } => {
+            let mut body_env = env.clone();
+            body_env.variables.insert(target.clone(), Type::Unknown);
+            body_env.mutability.insert(target.clone(), false);
+            vec![(*body_block, body_env), (*exit_block, env.clone())]
+        }
+
+        _ => term
+            .successors()
+            .into_iter()
+            .map(|s| (s, env.clone()))
+            .collect(),
+    }
+}
+
 fn verify_block_dfs(
     func: &SemanticFunction,
     block_id: usize,
@@ -183,8 +248,8 @@ fn verify_block_dfs(
 
     // Recurse into successors. Each successor sees a clone of the env so
     // modifications in one branch don't leak into a sibling branch.
-    for succ in term.successors() {
-        verify_block_dfs(func, succ, env.clone(), visited)?;
+    for (succ, succ_env) in successors_with_envs(term, &env) {
+        verify_block_dfs(func, succ, succ_env, visited)?;
     }
 
     Ok(())
@@ -232,8 +297,15 @@ fn verify_instruction(
         } => {
             let value_ty = verify_value(value, env)?;
 
-            // Value must be assignable to the declared type.
-            if *type_ != Type::Unknown
+            // `Void` is a legitimate placeholder for variables that are
+            // declared in one block and assigned in another — the
+            // canonical example being the result variable of a
+            // value-producing if/match/try. The eventual `Assign`
+            // instruction is where the type is really checked.
+            //
+            // Every other value is checked against the declared type.
+            if !matches!(value, TypedIRValue::Void)
+                && *type_ != Type::Unknown
                 && value_ty != Type::Unknown
                 && !value_ty.can_coerce_to(type_)
                 && value_ty != *type_
@@ -276,16 +348,18 @@ fn verify_instruction(
                 _ => target_ty.clone(),
             };
 
-            if !value_ty.can_coerce_to(&expected)
-                && value_ty != Type::Unknown
-                && expected != Type::Unknown
-                && value_ty != expected
-            {
+            // Use the same recursive compatibility check as Call: treat
+            // Unknown (at the top level or nested inside a composite) as
+            // a wildcard. This is what allows `__result_N` / `__try_value_N`
+            // placeholder variables to be declared with partially-unknown
+            // types and assigned concrete ones in their branches.
+            if !types_compatible_for_call(&value_ty, &expected) {
                 return Err(format!(
                     "Function '{}': Assign to '{}' expected {:?}, found {:?}",
                     func.name, target, expected, value_ty
                 ));
             }
+
             Ok(())
         }
 

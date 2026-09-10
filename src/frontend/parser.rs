@@ -994,8 +994,17 @@ impl Parser {
     }
 
     fn parse_try_catch(&mut self) -> Result<Stmt> {
+        // Called from parse_stmt, which peeks — consume 'try' here.
         self.advance();
+        Ok(Stmt::Expression(self.parse_try_catch_expr()?))
+    }
+
+    fn parse_try_catch_expr(&mut self) -> Result<Expr> {
+        // Called from parse_primary (which already advanced past 'try')
+        // and from parse_try_catch (which advanced just above).
+        // No advance here — the caller has consumed the keyword.
         let try_branch = Box::new(self.parse_block_expr()?);
+
         let mut catch_var = None;
         let catch_branch = if matches!(self.peek(), Token::Catch) {
             self.advance();
@@ -1010,18 +1019,20 @@ impl Parser {
                 trailing_expr: None,
             })
         };
+
         let finally_body = if matches!(self.peek(), Token::Finally) {
             self.advance();
             Some(self.parse_block()?)
         } else {
             None
         };
-        Ok(Stmt::Expression(Expr::TryCatch {
+
+        Ok(Expr::TryCatch {
             try_branch,
             catch_var,
             catch_branch,
             finally_body,
-        }))
+        })
     }
 
     fn parse_import(&mut self) -> Result<Stmt> {
@@ -1291,6 +1302,7 @@ impl Parser {
             Token::If => self.parse_if_expr(),
             Token::For => self.parse_for_expr(),
             Token::While => self.parse_while_expr(),
+            Token::Try => self.parse_try_catch_expr(),
             Token::IntLit(start) => {
                 if matches!(self.peek(), Token::DotDot) {
                     self.advance();

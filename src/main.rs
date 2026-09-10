@@ -13,96 +13,111 @@ fn main() {
         std::process::exit(1);
     }
 
-    let first_arg = &args[1];
+    // Extract known flags first, so they don't get mistaken for
+    // positional arguments (filename, output, etc.).
+    let use_interpreter = args.iter().any(|a| a == "--interpreter");
+    let emit_llvm = args.iter().any(|a| a == "--emit-llvm");
+    let run_flag = args.iter().any(|a| a == "--run");
 
-    if first_arg == "--help" || first_arg == "-h" {
+    // Positional args: everything that isn't a recognized flag or
+    // the value of a flag that takes one.
+    let mut positional: Vec<String> = Vec::new();
+    let mut i = 1;
+    let mut output_from_cli: Option<String> = None;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "--interpreter"
+            || a == "--emit-llvm"
+            || a == "--run"
+            || a == "--help"
+            || a == "-h"
+            || a == "--version"
+            || a == "-v"
+        {
+            i += 1;
+            continue;
+        }
+        if a == "--output" || a == "-o" {
+            if i + 1 < args.len() {
+                output_from_cli = Some(args[i + 1].clone());
+            }
+            i += 2;
+            continue;
+        }
+        positional.push(a.clone());
+        i += 1;
+    }
+
+    // Handle --help / --version now that we know they appeared.
+    if args.iter().any(|a| a == "--help" || a == "-h") {
         print_usage();
         std::process::exit(0);
     }
-
-    if first_arg == "--version" || first_arg == "-v" {
+    if args.iter().any(|a| a == "--version" || a == "-v") {
         println!("ALGOL26 Compiler v{}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
 
-    let (command, filename) = match first_arg.as_str() {
-        "check" => {
-            if args.len() < 3 {
-                eprintln!("Error: 'check' requires a filename");
-                std::process::exit(1);
-            }
-            ("check", args[2].clone())
+    // Determine command + filename from the positional args.
+    let (command, filename) = match positional.first().map(|s| s.as_str()) {
+        Some("check") => {
+            let file = positional.get(1)
+                .cloned()
+                .unwrap_or_else(|| { eprintln!("Error: 'check' requires a filename"); std::process::exit(1); });
+            ("check", file)
         }
-        "build" => {
-            if args.len() < 3 {
-                eprintln!("Error: 'build' requires a filename");
-                std::process::exit(1);
-            }
-            ("build", args[2].clone())
+        Some("build") => {
+            let file = positional.get(1)
+                .cloned()
+                .unwrap_or_else(|| { eprintln!("Error: 'build' requires a filename"); std::process::exit(1); });
+            ("build", file)
         }
-        "run" => {
-            if args.len() < 3 {
-                eprintln!("Error: 'run' requires a filename");
-                std::process::exit(1);
-            }
-            ("run", args[2].clone())
+        Some("run") => {
+            let file = positional.get(1)
+                .cloned()
+                .unwrap_or_else(|| { eprintln!("Error: 'run' requires a filename"); std::process::exit(1); });
+            ("run", file)
         }
-        "wasm" => {
-            if args.len() < 3 {
-                eprintln!("Error: 'wasm' requires a filename");
-                std::process::exit(1);
-            }
-            ("wasm", args[2].clone())
+        Some("wasm") => {
+            let file = positional.get(1)
+                .cloned()
+                .unwrap_or_else(|| { eprintln!("Error: 'wasm' requires a filename"); std::process::exit(1); });
+            ("wasm", file)
         }
-        _ => ("build", first_arg.clone()),
+        Some(other) => ("build", other.to_string()),
+        None => {
+            print_usage();
+            std::process::exit(1);
+        }
     };
+
+    let run = command == "run" || run_flag;
+
+    let output_name = output_from_cli.unwrap_or_else(|| {
+        let input_path = Path::new(&filename);
+        let parent = input_path.parent().unwrap_or(Path::new("."));
+        let stem = input_path.file_stem().unwrap_or_default();
+        parent.join(stem).to_string_lossy().to_string()
+    });
 
     if !filename.ends_with(".gol") {
         eprintln!("Warning: Expected .gol file extension");
     }
 
+    // Load the source file. All command variants — check, build, run,
+    // wasm, interpreter — need it.
     let source = match fs::read_to_string(&filename) {
         Ok(content) => content,
         Err(e) => {
             let err = CompileError::simple(
                 &format!("Failed to read file '{}': {}", filename, e),
-                0,
-                0,
-                "",
-                ErrorCode::E0001,
+                0, 0, "", ErrorCode::E0001,
             );
             err.display();
             std::process::exit(1);
         }
     };
 
-    let remaining_args: Vec<&String> = args
-        .iter()
-        .skip(
-            if args.len() > 2
-                && (first_arg == "check" || first_arg == "build" || first_arg == "run")
-            {
-                3
-            } else {
-                2
-            },
-        )
-        .collect();
-
-    let emit_llvm = remaining_args.iter().any(|a| a.as_str() == "--emit-llvm");
-    let run = command == "run" || remaining_args.iter().any(|a| a.as_str() == "--run");
-
-    let output_name = remaining_args
-        .iter()
-        .position(|a| a.as_str() == "--output" || a.as_str() == "-o")
-        .and_then(|i| remaining_args.get(i + 1))
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            let input_path = Path::new(&filename);
-            let parent = input_path.parent().unwrap_or(Path::new("."));
-            let stem = input_path.file_stem().unwrap_or_default();
-            parent.join(stem).to_string_lossy().to_string()
-        });
 
     match command {
         "check" => println!("[Checking {}]", filename),
@@ -118,17 +133,20 @@ fn main() {
     }
 
     if command == "wasm" {
-        // Use WASM backend
         println!("[Compiling to WASM: {}]", filename);
-
-        // Parse the source and compile through WASM backend
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile_to_wasm(&source, &filename, &output_name) {
             e.display();
             std::process::exit(1);
         }
+    } else if use_interpreter {
+        println!("[Interpreting {}]", filename);
+        let mut compiler = Compiler::new();
+        if let Err(e) = compiler.run_interpreter(&source, &filename) {
+            e.display();
+            std::process::exit(1);
+        }
     } else {
-        // Use default LLVM backend
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile(&source, &filename, &output_name, emit_llvm, run) {
             e.display();
@@ -153,6 +171,7 @@ fn print_usage() {
     println!("Options:");
     println!("  --emit-llvm            Only generate LLVM IR");
     println!("  --run                  Run after compilation");
+    println!("  --interpreter          Run through the interpreter (skips LLVM)");
     println!("  --output, -o NAME      Specify output name");
     println!("  --version, -v          Show version");
     println!("  --help, -h             Show this help");

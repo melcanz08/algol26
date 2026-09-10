@@ -165,3 +165,47 @@ procedure main
     }
     assert!(found, "Expected method call to desugar into Call(List.length)");
 }
+
+#[test]
+fn test_if_expr_in_vardecl_keeps_following_statements() {
+    use algol26::frontend::lexer::Lexer;
+    use algol26::frontend::parser::Parser;
+    use algol26::semantics::semantic::SemanticAnalyzer;
+    use algol26::semantics::semantic_builder::SemanticIRBuilder;
+    use algol26::ir::semantic_ir::Instruction;
+
+    let source = "\
+procedure main
+    val x := if true
+        42
+    else
+        0
+    print(x)
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer
+        .analyze_with_spans(
+            &program.functions,
+            &program.traits,
+            &program.impls,
+            &std::collections::HashMap::new(),
+        )
+        .unwrap();
+    let type_table = analyzer.take_type_table();
+
+    let (ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
+
+    // The print must be present somewhere in the IR, not dropped.
+    let has_print = ir.functions.iter().any(|f| {
+        f.blocks.iter().any(|b| {
+            b.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::Print { .. }))
+        })
+    });
+    assert!(has_print, "print statement after if-expr VarDecl was dropped");
+}

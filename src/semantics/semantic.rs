@@ -267,6 +267,23 @@ impl SemanticAnalyzer {
     }
 
     fn register_mutable_borrow(&mut self, reference: &str, source: &str) -> Result<()> {
+        // The source must be declared `var` — you cannot take a mutable
+        // borrow of an immutable (`val`) binding.
+        match self.lookup_variable(source) {
+            Some((_, false)) => {
+                return Err(CompileError::simple(
+                    &format!("Cannot mutably borrow immutable variable '{}'", source),
+                    0, 0, "", ErrorCode::E0007,
+                ).with_suggestion(&format!(
+                    "Declare '{}' with 'var' instead of 'val'", source
+                )));
+            }
+            Some((_, true)) => {} // mutable, ok
+            None => {
+                // Source not in scope — let the analyzer report the
+                // "undefined variable" error elsewhere.
+            }
+        }
         if self.is_moved(source) {
             return Err(CompileError::simple(
                 &format!("Cannot mutably borrow moved variable '{}'", source),

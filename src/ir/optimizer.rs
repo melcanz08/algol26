@@ -355,6 +355,23 @@ impl Optimizer {
         for block in &func.blocks {
             for instr in &block.instructions {
                 match instr {
+                    Instruction::Declare { name, value, .. } => {
+                        // Variables referenced in an initializer are used.
+                        // (Don't count the declared name itself.)
+                        let mut deps = HashSet::new();
+                        collect_variables_from_value(value, &mut deps);
+                        deps.remove(name);
+                        for d in deps { used_variables.insert(d); }
+                    }
+                    Instruction::Assign { target, value } => {
+                        let mut deps = HashSet::new();
+                        collect_variables_from_value(value, &mut deps);
+                        deps.remove(target);
+                        for d in deps { used_variables.insert(d); }
+                    }
+                    Instruction::IteratorInit { iterable, .. } => {
+                        collect_variables_from_value(iterable, &mut used_variables);
+                    }
                     Instruction::Print { value } => {
                         collect_variables_from_value(value, &mut used_variables);
                     }

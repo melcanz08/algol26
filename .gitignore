@@ -44,6 +44,7 @@ examples/**/trait_test
 examples/systems/comprehensive_test/full_test
 examples/systems/*/main
 examples/systems/*/weather
+examples/systems/temperature_analyzer
 examples/systems/*/temperature_analyzer
 examples/ownership/safety/bounds
 examples/basic/test

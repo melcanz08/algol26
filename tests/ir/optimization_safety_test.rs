@@ -78,3 +78,52 @@ function main() -> Int
 "#;
     assert_optimization_preserves(source);
 }
+
+#[test]
+fn test_dce_preserves_list_declare_used_by_indexing() {
+    use algol26::frontend::lexer::Lexer;
+    use algol26::frontend::parser::Parser;
+    use algol26::ir::optimizer::Optimizer;
+    use algol26::semantics::semantic::SemanticAnalyzer;
+    use algol26::semantics::semantic_builder::SemanticIRBuilder;
+
+    let source = "\
+procedure main
+    val arr := [10.0, 20.0, 30.0]
+    var first := arr[0]
+    print(first)
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer
+        .analyze_with_spans(
+            &program.functions,
+            &program.traits,
+            &program.impls,
+            &std::collections::HashMap::new(),
+        )
+        .unwrap();
+    let type_table = analyzer.take_type_table();
+
+    let (mut ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
+
+    let mut opt = Optimizer::new();
+    opt.optimize(&mut ir);
+
+    // After DCE, the declare for `arr` must still exist.
+    let arr_still_declared = ir.functions.iter().any(|f| {
+        f.blocks.iter().any(|b| {
+            b.instructions.iter().any(|i| {
+                if let algol26::ir::semantic_ir::Instruction::Declare { name, .. } = i {
+                    name == "arr"
+                } else {
+                    false
+                }
+            })
+        })
+    });
+    assert!(arr_still_declared, "DCE removed 'arr' despite it being indexed");
+}

@@ -286,3 +286,16 @@ procedure main
 
     assert!(analyze(source).is_ok(), "Borrow in conditional should work");
 }
+
+#[test]
+fn test_mut_borrow_of_immutable_fails() {
+    let source = "\
+procedure main
+    val x := 5.0
+    var y := &mut x
+";
+    let result = analyze(source);
+    assert!(result.is_err(), "mut-borrow of val should fail");
+    let msg = format!("{:?}", result.unwrap_err());
+    assert!(msg.contains("immutable"), "expected 'immutable' in error, got: {}", msg);
+}

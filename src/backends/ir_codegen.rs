@@ -263,95 +263,44 @@ impl<'ctx> IRCodeGen<'ctx> {
     fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
         match instr {
             Instruction::Nop => Ok(()),
-            Instruction::Declare {
-                name,
-                type_,
-                value,
-                mutable: _,
-            } => {
-                let alloca = self.create_entry_alloca(name, type_);
-
+            Instruction::Declare { name, type_, value, mutable: _ } => {
                 if let TypedIRValue::List(elems, elem_ty) = value {
-                    // Create a proper list struct with length
                     let len = elems.len();
                     let elem_llvm_ty = self.map_type(elem_ty);
-                    let len_llvm_ty = self.context.i64_type();
-                    let list_struct_ty = self
-                        .context
-                        .struct_type(&[elem_llvm_ty.into(), len_llvm_ty.into()], false);
-
-                    // Allocate array
                     let array_ty = elem_llvm_ty.array_type(len as u32);
+
                     let arr_alloca = self.create_entry_alloca(
                         &format!("{}_data", name),
                         &Type::Array(Box::new(elem_ty.clone()), len),
                     );
 
-                    // Store elements with bounds checking
                     for (i, elem) in elems.iter().enumerate() {
                         let ev = self.compile_value(elem)?;
                         let idx = self.context.i32_type().const_int(i as u64, false);
-
-                        // Bounds check
-                        if i >= len {
-                            return Err(CompileError::simple(
-                                &format!(
-                                    "List index {} out of bounds for list of length {}",
-                                    i, len
-                                ),
-                                0,
-                                0,
-                                "",
-                                ErrorCode::E0004,
-                            ));
-                        }
-
                         let ptr = unsafe {
-                            self.builder
-                                .build_gep(
-                                    array_ty,
-                                    arr_alloca,
-                                    &[self.context.i32_type().const_zero(), idx],
-                                    &format!("{}_gep_{}", name, i),
-                                )
-                                .unwrap()
+                            self.builder.build_gep(
+                                array_ty,
+                                arr_alloca,
+                                &[self.context.i32_type().const_zero(), idx],
+                                &format!("{}_gep_{}", name, i),
+                            ).unwrap()
                         };
                         self.builder.build_store(ptr, ev).unwrap();
                     }
 
-                    // Store list struct
-                    let len_val = self.context.i64_type().const_int(len as u64, false);
-                    let list_struct = self
-                        .context
-                        .struct_type(&[array_ty.into(), len_llvm_ty.into()], false);
-                    let struct_alloca = self.create_entry_alloca(name, type_);
-
-                    // Store array pointer and length
-                    let arr_ptr = self
-                        .builder
-                        .build_bit_cast(
-                            arr_alloca,
-                            self.context.ptr_type(AddressSpace::default()),
-                            "arr_ptr",
-                        )
-                        .unwrap();
-                    self.builder.build_store(struct_alloca, arr_ptr).unwrap();
-
-                    // Store length
-                    let len_ptr = {
-                        self.builder
-                            .build_struct_gep(list_struct, struct_alloca, 1, "len_ptr")
-                            .unwrap()
-                    };
-                    self.builder.build_store(len_ptr, len_val).unwrap();
-
+                    // For lists, the variable's "value" is the array pointer itself.
+                    // Register both the array bookkeeping and the variable name.
                     self.list_arrays.insert(name.clone(), arr_alloca);
                     self.list_lengths.insert(name.clone(), len);
-                } else {
-                    let val = self.compile_value(value)?;
-                    self.builder.build_store(alloca, val).unwrap();
+                    self.variables.insert(name.clone(), arr_alloca);
+                    self.var_types.insert(name.clone(), type_.clone());
+                    return Ok(());
                 }
 
+                // Non-list: single alloca, straightforward store.
+                let alloca = self.create_entry_alloca(name, type_);
+                let val = self.compile_value(value)?;
+                self.builder.build_store(alloca, val).unwrap();
                 self.variables.insert(name.clone(), alloca);
                 self.var_types.insert(name.clone(), type_.clone());
                 Ok(())
@@ -1156,9 +1105,21 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     "print_error",
                                 )
                                 .unwrap();
-                            self.builder
-                                .build_return(Some(&self.context.i32_type().const_int(1, false)))
-                                .unwrap();
+                            // The error block terminates the function. Use the
+                            // function's actual return type — otherwise LLVM
+                            // rejects `ret i32 1` inside a void function.
+                            let current_fn = self.current_function.unwrap();
+                            let ret_type = current_fn.get_type().get_return_type();
+                            match ret_type {
+                                Some(_) => {
+                                    self.builder
+                                        .build_return(Some(&self.context.i32_type().const_int(1, false)))
+                                        .unwrap();
+                                }
+                                None => {
+                                    self.builder.build_return(None).unwrap();
+                                }
+                            }
 
                             // Continue block
                             self.builder.position_at_end(continue_bb);
@@ -1193,10 +1154,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                             .build_load(elem_llvm_ty, elem_ptr, "elem_load")
                             .unwrap()
                     } else {
-                        self.context.f64_type().const_float(0.0).into()
+                        return Err(CompileError::simple(
+                            &format!(
+                                "codegen: ArrayAccess on unknown list '{}' (known lists: {:?})",
+                                arr_name,
+                                self.list_arrays.keys().collect::<Vec<_>>()
+                            ),
+                            0, 0, "", ErrorCode::E0004,
+                        ));
                     }
                 } else {
-                    self.context.f64_type().const_float(0.0).into()
+                    return Err(CompileError::simple(
+                        "codegen: ArrayAccess with non-variable array expression",
+                        0, 0, "", ErrorCode::E0004,
+                    ));
                 }
             }
             TypedIRValue::Cast { value, target_type } => {

@@ -99,10 +99,11 @@ impl Compiler {
         let parsed = self.desugar(&parsed);
         let parsed = self.expand_impl_methods(&parsed);
         let typed = self.type_check(&parsed)?;
-        let safe = self.safety_check(&typed)?;
+        let _safe = self.safety_check(&typed)?;
 
-        // Phase 9: Build Semantic IR
-        let semantic_ir = self.build_semantic_ir(&safe)?;
+        // Use the *original* `parsed.functions` slice — the analyzer recorded
+        // type info keyed by these exact nodes, so addresses line up.
+        let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
 
         // Phase 10: Verify IR
         semantic_ir.verify().map_err(|e| {
@@ -180,7 +181,7 @@ impl Compiler {
 
         // Phase 9: BUILD SEMANTIC IR
         let phase_start = Instant::now();
-        let mut semantic_ir = self.build_semantic_ir(&safe)?;
+        let mut semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
         let ir_build_time = phase_start.elapsed();
 
         // Phase 10: VERIFY IR (pre-optimization)
@@ -443,10 +444,13 @@ impl Compiler {
         })
     }
 
-    fn build_semantic_ir(&self, safe: &SafeProgram) -> Result<SemanticProgram> {
-        // ─── UNIFY TYPES ─── pass the analyzer's type table to the IR builder.
+    fn build_semantic_ir(
+        &self,
+        functions: &[crate::frontend::ast::FunctionDecl],
+        type_table: std::collections::HashMap<usize, crate::common::types::Type>,
+    ) -> Result<SemanticProgram> {
         let (mut program, diagnostics) =
-            SemanticIRBuilder::build(&safe.functions, safe.type_table.clone());
+            SemanticIRBuilder::build(functions, type_table);
 
         if !diagnostics.is_empty() {
             for diag in &diagnostics {

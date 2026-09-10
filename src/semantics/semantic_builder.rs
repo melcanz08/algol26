@@ -1629,6 +1629,27 @@ impl SemanticIRBuilder {
 
                 self.declare_var(name, type_.clone(), *mutable);
 
+                // If the initializer's translation branched (because it
+                // contained an `if` / `match` / `try` expression), the
+                // `Declare` instruction must go into the *merge* block
+                // that the value-producing expression created. Pushing
+                // it into `current_block` would land it after the
+                // Branch terminator, effectively deleting the rest of
+                // the enclosing block.
+                if let Some(merge) = self.pending_merge.take() {
+                    let _ = self.safe_push_instruction(
+                        func,
+                        merge,
+                        SemanticInstruction::Declare {
+                            name: name.clone(),
+                            mutable: *mutable,
+                            type_,
+                            value: typed_value,
+                        },
+                    );
+                    return FlowResult::Reachable(merge);
+                }
+
                 SemanticInstruction::Declare {
                     name: name.clone(),
                     mutable: *mutable,

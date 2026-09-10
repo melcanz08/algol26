@@ -541,6 +541,19 @@ impl Compiler {
         emit_llvm: bool,
         run_after_compile: bool,
     ) -> Result<()> {
+        if program_uses_result_features(&optimized.program) {
+            return Err(CompileError::simple(
+                "The LLVM backend does not yet support Result values or try/catch.\n\
+                 Run through the interpreter instead:\n\
+                 \n\
+                     algol26 run --interpreter <file.gol>\n\
+                 \n\
+                 The interpreter exercises the same semantic layer and\n\
+                 correctly handles Result and try/catch.",
+                0, 0, "", ErrorCode::E0002,
+            ));
+        }
+
         let context = Context::create();
         let mut codegen = IRCodeGen::new(&context, "algol26_module");
 
@@ -628,4 +641,77 @@ impl Compiler {
 
         Ok(())
     }
+}
+
+/// Returns true if the program contains any IR construct the LLVM
+/// backend does not yet lower — specifically, `Ok`/`Error` constructors
+/// or switches that bind `Ok`/`Error` payloads.
+///
+/// Used to refuse LLVM codegen for programs that need the interpreter.
+fn program_uses_result_features(program: &SemanticProgram) -> bool {
+    use crate::ir::semantic_ir::{Instruction, SemanticPattern, Terminator, TypedIRValue};
+
+    fn value_has_result(v: &TypedIRValue) -> bool {
+        match v {
+            TypedIRValue::Ok { .. } | TypedIRValue::Error { .. } => true,
+            TypedIRValue::BinaryOp { left, right, .. } => {
+                value_has_result(left) || value_has_result(right)
+            }
+            TypedIRValue::List(elems, _) => elems.iter().any(value_has_result),
+            TypedIRValue::ArrayAccess { array, index, .. } => {
+                value_has_result(array) || value_has_result(index)
+            }
+            TypedIRValue::Call { args, .. } => args.iter().any(value_has_result),
+            TypedIRValue::Cast { value, .. } => value_has_result(value),
+            TypedIRValue::Some(inner) => value_has_result(inner),
+            TypedIRValue::Deref { expr, .. }
+            | TypedIRValue::AddrOf { expr, .. }
+            | TypedIRValue::Borrow { expr, .. }
+            | TypedIRValue::MutBorrow { expr, .. } => value_has_result(expr),
+            _ => false,
+        }
+    }
+
+    for func in &program.functions {
+        for block in &func.blocks {
+            for instr in &block.instructions {
+                let uses = match instr {
+                    Instruction::Declare { value, .. } => value_has_result(value),
+                    Instruction::Assign { value, .. } => value_has_result(value),
+                    Instruction::Print { value } => value_has_result(value),
+                    Instruction::Call { args, .. } => args.iter().any(value_has_result),
+                    Instruction::ArrayAssign { array, index, value } => {
+                        value_has_result(array)
+                            || value_has_result(index)
+                            || value_has_result(value)
+                    }
+                    _ => false,
+                };
+                if uses {
+                    return true;
+                }
+            }
+            if let Some(term) = &block.terminator {
+                match term {
+                    Terminator::Switch { cases, .. } => {
+                        for (pat, _) in cases {
+                            if matches!(
+                                pat,
+                                SemanticPattern::Ok { .. } | SemanticPattern::Error { .. }
+                            ) {
+                                return true;
+                            }
+                        }
+                    }
+                    Terminator::Return { value: Some(v), .. } => {
+                        if value_has_result(v) {
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    false
 }

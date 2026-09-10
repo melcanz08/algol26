@@ -88,15 +88,22 @@ impl EscapeAnalyzer {
 
     pub fn reference(&mut self, name: &str, outlives_scope: bool) {
         if let Some(info) = self.variables.get_mut(name) {
-            // Mark as escaped if referenced beyond its declaration scope
-            if outlives_scope || info.decl_depth < self.scope_depth {
+            // Reading a variable from a nested scope does NOT constitute
+            // escape — the reference dies when the inner scope ends.
+            //
+            // Escape means the reference may outlive the variable it
+            // points to, which the caller signals via `outlives_scope`
+            // (e.g. `return &x`, storing `&x` in a longer-lived
+            // location, spawning a task that captures `&x`).
+            if outlives_scope {
                 info.escaped = true;
                 self.escaped.push(EscapeInfo {
                     variable: name.to_string(),
                     escapes_scope: true,
                     reason: Some(format!(
-                        "Variable '{}' declared at scope {} referenced at scope {}",
-                        name, info.decl_depth, self.scope_depth
+                        "Variable '{}' (declared at scope {}) has a reference \
+                         that may outlive its declaring scope",
+                        name, info.decl_depth
                     )),
                 });
             }
@@ -104,7 +111,8 @@ impl EscapeAnalyzer {
     }
 
     pub fn take_reference(&mut self, name: &str) {
-        // Taking a reference to a variable may cause it to escape
+        // Taking a reference does not itself cause escape — the escape
+        // occurs only if that reference may outlive the variable.
         if let Some(info) = self.variables.get_mut(name) {
             info.is_reference = true;
         }
@@ -151,31 +159,57 @@ mod tests {
         let mut analyzer = EscapeAnalyzer::new();
         analyzer.declare("x", false);
         analyzer.reference("x", false);
-        assert!(!analyzer.has_escapes(), "Variable should not escape");
+        assert!(!analyzer.has_escapes(), "Simple read should not escape");
     }
 
     #[test]
-    fn test_variable_escapes_scope() {
+    fn test_inner_scope_read_is_not_escape() {
+        // Reading an outer variable from an inner scope does NOT escape:
+        // the reference dies with the inner scope.
         let mut analyzer = EscapeAnalyzer::new();
         analyzer.declare("x", false);
         analyzer.enter_scope();
-        analyzer.reference("x", false); // Referenced in inner scope
+        analyzer.reference("x", false);
         analyzer.exit_scope();
         assert!(
-            analyzer.has_escapes(),
-            "Variable should be marked as escaping"
+            !analyzer.has_escapes(),
+            "Inner-scope read of outer variable must not count as escape"
         );
     }
 
     #[test]
-    fn test_reference_causes_escape() {
+    fn test_reference_outliving_scope_is_escape() {
+        // A reference explicitly marked as outliving its scope IS an escape.
         let mut analyzer = EscapeAnalyzer::new();
         analyzer.declare("x", false);
-        analyzer.take_reference("x");
         analyzer.enter_scope();
-        analyzer.reference("x", true); // Referenced beyond scope
+        analyzer.reference("x", true);
         analyzer.exit_scope();
-        assert!(analyzer.has_escapes(), "Reference should cause escape");
+        assert!(
+            analyzer.has_escapes(),
+            "Reference outliving its scope should be an escape"
+        );
+    }
+
+    #[test]
+    fn test_nested_inner_reads_are_not_escapes() {
+        let mut analyzer = EscapeAnalyzer::new();
+        analyzer.declare("outer", false);
+
+        analyzer.enter_scope();
+        analyzer.declare("inner", false);
+
+        analyzer.enter_scope();
+        analyzer.reference("outer", false);
+        analyzer.reference("inner", false);
+        analyzer.exit_scope();
+
+        analyzer.exit_scope();
+
+        assert!(
+            !analyzer.has_escapes(),
+            "Nested inner reads of outer variables must not escape"
+        );
     }
 
     #[test]
@@ -185,29 +219,7 @@ mod tests {
         analyzer.enter_scope();
         analyzer.declare("y", false);
         analyzer.exit_scope();
-        // y should be cleaned up, x should remain
         assert!(analyzer.get_variable_info("x").is_some());
         assert!(analyzer.get_variable_info("y").is_none());
-    }
-
-    #[test]
-    fn test_nested_scopes() {
-        let mut analyzer = EscapeAnalyzer::new();
-        analyzer.declare("outer", false);
-
-        analyzer.enter_scope();
-        analyzer.declare("inner", false);
-
-        analyzer.enter_scope();
-        analyzer.reference("outer", false); // Should mark as escaped
-        analyzer.reference("inner", false); // Should mark as escaped
-        analyzer.exit_scope();
-
-        analyzer.exit_scope();
-
-        assert!(
-            analyzer.has_escapes(),
-            "Variables should escape nested scopes"
-        );
     }
 }

@@ -9,10 +9,8 @@ use std::collections::HashMap;
 pub struct TraitRegistry {
     pub traits: HashMap<String, TraitDecl>,
     pub impls: HashMap<(String, String), ImplBlock>,
-    // NEW: Trait inheritance graph
-    supertraits: HashMap<String, Vec<String>>,
     // NEW: Default methods
-    default_methods: HashMap<String, HashMap<String, FunctionDecl>>,
+    pub default_methods: HashMap<String, HashMap<String, FunctionDecl>>,
     // NEW: Generic impls
     generic_impls: Vec<GenericImpl>,
 }
@@ -36,25 +34,12 @@ impl TraitRegistry {
         TraitRegistry {
             traits: HashMap::new(),
             impls: HashMap::new(),
-            supertraits: HashMap::new(),
             default_methods: HashMap::new(),
             generic_impls: Vec::new(),
         }
     }
 
     pub fn register_trait(&mut self, trait_decl: TraitDecl) {
-        // Extract supertraits from where clauses
-        let supertraits: Vec<String> = trait_decl
-            .methods
-            .iter()
-            .filter_map(|_m| {
-                // Check for supertrait syntax in return type or params
-                None // For now, no supertrait syntax
-            })
-            .collect();
-
-        self.supertraits
-            .insert(trait_decl.name.clone(), supertraits);
         self.traits.insert(trait_decl.name.clone(), trait_decl);
     }
 
@@ -111,16 +96,6 @@ impl TraitRegistry {
                 return true;
             }
         }
-
-        // Check supertrait chain
-        if let Some(supertraits) = self.supertraits.get(trait_name) {
-            for supertrait in supertraits {
-                if self.type_implements_trait(type_, supertrait) {
-                    return true;
-                }
-            }
-        }
-
         false
     }
 
@@ -209,31 +184,35 @@ impl TraitRegistry {
     pub fn validate_impl(&self, impl_block: &ImplBlock) -> Result<(), String> {
         let trait_name = &impl_block.trait_name;
 
-        if let Some(trait_decl) = self.traits.get(trait_name) {
-            let required_methods = &trait_decl.methods;
-            let provided_methods: HashMap<&String, &FunctionDecl> =
-                impl_block.methods.iter().map(|m| (&m.name, m)).collect();
+        // Reject impls of traits that were never declared. Without this,
+        // `impl MadeUpTrait for Int { ... }` would silently be accepted.
+        let trait_decl = self.traits.get(trait_name).ok_or_else(|| {
+            format!(
+                "Impl references undefined trait '{}'",
+                trait_name
+            )
+        })?;
 
-            // Check for missing methods
-            for required in required_methods {
-                if let Some(provided) = provided_methods.get(&required.name) {
-                    // Verify signature
-                    self.validate_method_signature(required, provided)?;
-                } else {
-                    // Check if there's a default method
-                    if let Some(defaults) = self.default_methods.get(trait_name) {
-                        if !defaults.contains_key(&required.name) {
-                            return Err(format!(
-                                "Impl for trait '{}' is missing method '{}'",
-                                trait_name, required.name
-                            ));
-                        }
-                    } else {
-                        return Err(format!(
-                            "Impl for trait '{}' is missing method '{}'",
-                            trait_name, required.name
-                        ));
-                    }
+        let required_methods = &trait_decl.methods;
+        let provided_methods: HashMap<&String, &FunctionDecl> =
+            impl_block.methods.iter().map(|m| (&m.name, m)).collect();
+
+        for required in required_methods {
+            if let Some(provided) = provided_methods.get(&required.name) {
+                self.validate_method_signature(required, provided)?;
+            } else {
+                // A missing method is permitted only if there's a default
+                // implementation registered for it.
+                let has_default = self
+                    .default_methods
+                    .get(trait_name)
+                    .map_or(false, |defaults| defaults.contains_key(&required.name));
+
+                if !has_default {
+                    return Err(format!(
+                        "Impl for trait '{}' is missing method '{}'",
+                        trait_name, required.name
+                    ));
                 }
             }
         }

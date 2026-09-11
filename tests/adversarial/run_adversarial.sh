@@ -26,6 +26,28 @@ for test in "$TEST_DIR"/*.gol; do
     ACCEPT)
       if [[ $status -eq 0 ]]; then echo "PASS-CORRECT $name"; ((pass++))
       else echo "FAIL-WRONG $name"; ((fail++)); fi ;;
+    RUNTIME-TRAP)
+      # Compilation must succeed; the compiled binary must then trap.
+      if [[ $status -ne 0 ]]; then
+        echo "FAIL-COMPILE $name (expected runtime trap, compilation failed)"
+        ((fail++))
+      else
+        bin="${test%.gol}"
+        if [[ -x "$bin" ]]; then
+          run_status=0
+          "$bin" >/dev/null 2>&1 || run_status=$?
+          if [[ $run_status -ne 0 ]]; then
+            echo "PASS-CORRECT $name (trapped, exit $run_status)"
+            ((pass++))
+          else
+            echo "FAIL-NO-TRAP $name (compiled, ran cleanly, expected trap)"
+            ((fail++))
+          fi
+        else
+          echo "FAIL-NO-BINARY $name"
+          ((fail++))
+        fi
+      fi ;;
     "REJECT OR RUNTIME-TRAP"|"REJECT OR REQUIRE UNSAFE"|"ACCEPT-DEFER")
       echo "REVIEW $name (expected: $expected)"
       ((review++)) ;;

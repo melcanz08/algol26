@@ -24,7 +24,6 @@ ALGOL26 compiler and language.
 | `decisions/` | Architecture Decision Records (ADRs) | Historical, immutable |
 | `releases/` | Release notes | Historical, immutable |
 | `memory/` | Memory model | Current |
-| `formal-specification/` | Formal semantics (aspirational) | Reference |
 | `archive/` | Superseded status, roadmap, and backlog documents | Historical |
 
 ## What is not in this directory

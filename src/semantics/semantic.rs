@@ -1263,6 +1263,23 @@ impl SemanticAnalyzer {
                     self.push_scope();
                     let else_type = self.analyze_expr(else_expr)?;
                     self.pop_scope();
+
+                    // A value-producing `if` must have both branches agree
+                    // on whether they produce a value. If one is Void and
+                    // the other isn't, the program is ill-formed — the
+                    // result type is neither a well-defined value nor a
+                    // deliberate void.
+                    let then_is_void = then_type == Type::Void;
+                    let else_is_void = else_type == Type::Void;
+                    if then_is_void != else_is_void {
+                        return Err(CompileError::simple(
+                            "if branches produce inconsistent results: one branch yields a value, the other does not",
+                            0, 0, "", ErrorCode::E0002,
+                        ).with_suggestion(
+                            "Ensure both branches end with an expression, or neither does",
+                        ));
+                    }
+
                     Ok(then_type.common_supertype(&else_type))
                 } else {
                     Ok(Type::Void)
@@ -1284,7 +1301,9 @@ impl SemanticAnalyzer {
                     }
                     let first_type = self.analyze_expr(&first_case.body)?;
                     self.pop_scope();
+                    let first_is_void = first_type == Type::Void;
                     let mut result_type = first_type.clone();
+
                     for case in &cases[1..] {
                         self.check_pattern_type(&case.pattern, &value_type)?;
                         self.push_scope();
@@ -1299,6 +1318,20 @@ impl SemanticAnalyzer {
                         }
                         let case_type = self.analyze_expr(&case.body)?;
                         self.pop_scope();
+
+                        // All match arms must agree on whether they
+                        // produce a value. A mix of Void and non-Void
+                        // is a semantic error, not an Unknown type.
+                        let case_is_void = case_type == Type::Void;
+                        if case_is_void != first_is_void {
+                            return Err(CompileError::simple(
+                                "match arms produce inconsistent results: some arms yield a value, others do not",
+                                0, 0, "", ErrorCode::E0002,
+                            ).with_suggestion(
+                                "Ensure all arms end with an expression, or none do",
+                            ));
+                        }
+
                         result_type = result_type.common_supertype(&case_type);
                     }
                     Ok(result_type)
@@ -2108,4 +2141,65 @@ procedure main
 ";
     assert!(analyze(source).is_ok());
 }
+    #[test]
+    fn test_if_branch_void_mismatch_rejected() {
+        let source = "\
+procedure main
+    val x := if true
+        print(\"done\")
+    else
+        42.0
+";
+        assert!(
+            analyze(source).is_err(),
+            "if with one Void and one value branch should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_if_both_branches_void_accepted() {
+        let source = "\
+procedure main
+    if true
+        print(\"a\")
+    else
+        print(\"b\")
+";
+        assert!(
+            analyze(source).is_ok(),
+            "if with both branches Void should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_if_both_branches_produce_value_accepted() {
+        let source = "\
+procedure main
+    val x := if true
+        1.0
+    else
+        2.0
+    print(x)
+";
+        assert!(
+            analyze(source).is_ok(),
+            "if with both branches producing values should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_match_arm_void_mismatch_rejected() {
+        let source = "\
+procedure main
+    val x := match 1
+        case 1
+            42.0
+        case 2
+            print(\"done\")
+";
+        assert!(
+            analyze(source).is_err(),
+            "match with mixed Void and value arms should be rejected"
+        );
+    }
 }

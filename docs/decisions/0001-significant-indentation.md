@@ -1,5 +1,9 @@
 # D001: Significant Indentation
 
+
+> **Note**: code examples in this ADR have been updated to use the
+> current `print(x)` builtin. The decision documented here -- significant
+> indentation -- is unchanged.
 ## Status
 ✅ Accepted
 
@@ -46,7 +50,7 @@ if x > 5 then
 ### ALGOL26
 ```gol
 if x > 5 then
-    Terminal.print(x)
+    print(x)
 ```
 
 ## Implementation Notes

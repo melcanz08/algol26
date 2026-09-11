@@ -232,11 +232,11 @@ var z: float := 5.0  // Explicit type
 ### Control Flow
 ```gol
 if temperature > 30.0 then
-    Terminal.print("Hot")
+    print("Hot")
 elif temperature > 20.0 then
-    Terminal.print("Warm")
+    print("Warm")
 else
-    Terminal.print("Cool")
+    print("Cool")
 ```
 
 ### Loops
@@ -260,7 +260,7 @@ procedure calculate_stats(data)
 ## Standard Library Modules
 
 ### Terminal
-- `Terminal.print(value)` - Print a value
+- `print(value)` - Print a value
 - `Terminal.input()` - Read user input
 
 ### Math

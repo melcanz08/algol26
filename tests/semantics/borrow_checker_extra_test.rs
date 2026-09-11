@@ -1,8 +1,8 @@
-// borrow_checker_extra.rs - HARDENED with meaningful tests
+// borrow_checker_extra.rs
 
-use crate::frontend::lexer::Lexer;
-use crate::frontend::parser::Parser;
-use crate::semantics::semantic::SemanticAnalyzer;
+use algol26::frontend::lexer::Lexer;
+use algol26::frontend::parser::Parser;
+use algol26::semantics::semantic::SemanticAnalyzer;
 
 fn analyze(source: &str) -> Result<(), String> {
     let lexer = Lexer::new(source.to_string()).map_err(|e| e.message.to_string())?;

@@ -1,0 +1,7 @@
+// POSITIVE CONTROL: concurrency
+// EXPECT: ACCEPT
+procedure main
+    val x := 42
+    spawn
+        print(x)
+    print(x)

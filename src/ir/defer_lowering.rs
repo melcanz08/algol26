@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
-// src/ir/defer_lowering.rs - HARDENED
-// Correct defer lowering that preserves control flow
+// src/ir/defer_lowering.rs
 
 use crate::ir::semantic_ir::{SemanticProgram, Terminator};
 

@@ -1,4 +1,7 @@
-// src/backends/interpreter_backend.rs - HARDENED
+// src/backends/interpreter_backend.rs
+//
+// `Backend` implementation that runs a VerifiedIR program through the
+// tree-walking interpreter and captures its output.
 use crate::backends::backend::{Backend, BackendOutput};
 use crate::backends::interpreter::Interpreter;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};

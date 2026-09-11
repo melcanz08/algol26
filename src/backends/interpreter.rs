@@ -1,4 +1,18 @@
-// src/backends/interpreter.rs - COMPLETE WORKING VERSION
+// src/backends/interpreter.rs
+//
+// Tree-walking interpreter over SemanticProgram.
+//
+// Supported:
+//   - the full instruction set except FFI and channel operations
+//   - Option, Result, and pattern matching with payload bindings
+//   - user-defined function calls (via eval_call) with frame
+//     save/restore, including nested calls in expressions
+//
+// Not supported:
+//   - parallel execution. Spawn and Fork run sequentially; the
+//     interpreter does not create OS threads.
+//   - foreign function calls.
+//   - channel send/receive (no-op instructions).
 use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
 };

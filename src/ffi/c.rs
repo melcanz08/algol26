@@ -1,4 +1,4 @@
-// src/ffi/c.rs - HARDENED
+// src/ffi/c.rs 
 // Complete C ABI types with full type checking
 
 use std::fmt;

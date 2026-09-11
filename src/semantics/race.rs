@@ -1,6 +1,4 @@
 // algol26/src/race.rs
-// ALGOL26 Race Detection - HARDENED VERSION
-// Compile-time data race analysis for concurrent code
 
 use crate::frontend::ast::{Expr, FunctionDecl, Stmt};
 use std::collections::HashMap;

@@ -1,5 +1,24 @@
-// src/semantics/trait_registry.rs - HARDENED
-// Complete trait system with inheritance, associated types, and default methods
+// src/semantics/trait_registry.rs
+//
+// Trait and impl registration, method lookup, and generic pattern
+// matching.
+//
+// Implemented:
+//   - trait declaration and registration
+//   - concrete impls
+//   - generic impls with single-uppercase-letter type variables as
+//     wildcards (e.g. `impl Display for List<T>`)
+//   - default method registration and validation
+//   - validate_impl rejects unknown trait names
+//
+// Not implemented:
+//   - supertrait syntax and inheritance (the always-empty field was
+//     removed; supertrait support returns with the feature)
+//   - associated types
+//   - coherence checking beyond the current validate_impl
+//   - formal generic constraint checking. Single-uppercase-letter
+//     patterns act as wildcards; they do not enforce that the bound
+//     type variable is instantiated consistently across a program.
 
 use crate::common::types::Type;
 use crate::frontend::ast::{FunctionDecl, ImplBlock, TraitDecl, TraitMethod};

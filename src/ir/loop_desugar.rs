@@ -1,5 +1,4 @@
-// src/ir/loop_desugar.rs - HARDENED
-// Actually performs loop desugaring
+// src/ir/loop_desugar.rs
 
 use crate::frontend::ast::{BinOp, Expr, FunctionDecl, Stmt};
 use std::collections::HashMap;

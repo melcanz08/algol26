@@ -1,4 +1,5 @@
-// src/common/diagnostics.rs - WORKING VERSION
+// src/common/diagnostics.rs
+
 use crate::common::span::Span;
 use std::fmt;
 

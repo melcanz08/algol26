@@ -1,0 +1,6 @@
+// ADVERSARIAL: ownership + borrowing
+// EXPECT: REJECT
+procedure main
+    val x := "hello"
+    val y := x
+    val r := &x

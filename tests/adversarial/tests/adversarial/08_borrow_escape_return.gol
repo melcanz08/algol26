@@ -1,0 +1,9 @@
+// ADVERSARIAL: lifetime
+// EXPECT: REJECT
+function leak() -> Borrow<Int>
+    val x := 42
+    return &x
+
+procedure main
+    val r := leak()
+    print(r)

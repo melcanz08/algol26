@@ -1,6 +1,51 @@
-#![allow(dead_code)]
-
-// src/ir/semantic_verifier.rs - Stage 1: instruction-level checks
+// src/ir/semantic_verifier.rs
+//
+// Instruction-level semantic verification of a SemanticProgram. Runs
+// after the structural CFG check (cfg_verifier.rs) and rejects IR that
+// would be well-formed but semantically invalid.
+//
+// Coverage:
+//   - `Declare` — value type must coerce to the declared type.
+//     `Void` is accepted as an uninitialized placeholder; the later
+//     `Assign` (or branch assignment) is where the real type is
+//     checked. This is what allows `__result_N`-style variables to be
+//     declared in a parent block and assigned in a branch.
+//   - `Assign` — target must be declared and mutable; assigned value
+//     must be compatible with the target's declared type. Uses the
+//     same wildcard-aware compatibility check as `Call`, so partial
+//     types (e.g. `Result<Unknown, Unknown>`) match concrete ones.
+//   - `Print` — value must verify.
+//   - `Return` — value must coerce to the function's return type.
+//   - `Branch` — condition must be Bool.
+//   - `Switch` — switch value must not be Void; `Ok`/`Error`/`Some`
+//     pattern bindings are introduced into the environment of the
+//     target block only.
+//   - `IteratorNext` — loop variable is bound in the body block only.
+//   - `Call` — function must be known (user-defined or built-in), arg
+//     count must match, arg types must be compatible with parameters,
+//     claimed return type must match the signature.
+//
+// Recursive value verification:
+//   `Variable`, `List`, `BinaryOp`, `Cast`, `ArrayAccess`, `Borrow`,
+//   `MutBorrow`, `Deref`, `AddrOf`, `Call`. Each verifies its operands
+//   and cross-checks its self-described type against the computed type.
+//
+// Not yet verified:
+//   - `ArrayAssign`, `IteratorInit`, `Send`/`Receive`, `ChannelDecl`,
+//     `Allocate`, `Free`.
+//   - `Cast` legality (only structural recursion; a String→Int cast
+//     is not rejected here).
+//   - `Spawn`/`Fork` capture semantics.
+//   - Data-flow joins at CFG merges — the current DFS uses a
+//     first-visited-wins environment, not a proper fixed-point join.
+//     This is sufficient to catch the common bugs but not complete.
+//   - Absolute bounds proofs for `ArrayAccess`. Only type-level checks
+//     are performed; the runtime (LLVM and interpreter) is responsible
+//     for bounds enforcement.
+//
+// Built-in signatures (Math.*, String.*, File.*, List.*, alloc, free)
+// are registered here rather than appearing as SemanticFunction
+// entries, matching how the IR builder dispatches built-in calls.
 
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{

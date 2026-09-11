@@ -1,0 +1,7 @@
+// ADVERSARIAL: concurrency
+// EXPECT: REJECT
+procedure main
+    var x := 0
+    parallel
+        x := 1
+        x := 2

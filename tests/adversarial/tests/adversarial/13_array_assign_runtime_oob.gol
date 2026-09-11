@@ -1,0 +1,6 @@
+// BACKEND PROBE
+// EXPECT: REJECT OR RUNTIME-TRAP
+procedure main
+    var xs := [10, 20, 30]
+    val i := 100
+    xs[i] := 99

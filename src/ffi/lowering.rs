@@ -1,5 +1,4 @@
-// src/ffi/lowering.rs - HARDENED
-// Complete FFI lowering with type checking
+// src/ffi/lowering.rs 
 
 use crate::common::types::Type;
 use crate::ffi::c::CType;

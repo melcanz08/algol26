@@ -1,4 +1,5 @@
-// algol26/src/frontend/parser.rs - HARDENED
+// algol26/src/frontend/parser.rs
+
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
 use crate::frontend::ast::{

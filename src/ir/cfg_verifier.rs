@@ -1,7 +1,20 @@
-#![allow(dead_code)]
-
-// src/ir/cfg_verifier.rs - HARDENED
-// Complete CFG verification with all safety checks
+// src/ir/cfg_verifier.rs
+//
+// Structural verification of a SemanticProgram's control flow graph.
+// Checks performed:
+//   - the function has an entry block
+//   - block IDs are unique within a function
+//   - every block has a terminator
+//   - every jump/branch/switch target resolves to an existing block
+//   - no unreachable blocks from the entry
+//   - function names are unique across the program
+//
+// Checks NOT performed here (see semantic_verifier.rs and future
+// data-flow work):
+//   - type consistency across block boundaries
+//   - ownership/borrow state at joins
+//   - domination and use-before-definition
+//   - instruction-level semantics
 
 use crate::ir::semantic_ir::{SemanticProgram, Terminator};
 use std::collections::HashSet;

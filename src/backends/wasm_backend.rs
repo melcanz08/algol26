@@ -1,4 +1,5 @@
-// src/backends/wasm_backend.rs - HARDENED
+// src/backends/wasm_backend.rs
+
 use crate::backends::backend::{Backend, BackendOutput};
 use crate::backends::ir_codegen::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};

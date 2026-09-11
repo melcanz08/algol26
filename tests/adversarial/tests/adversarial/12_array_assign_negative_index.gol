@@ -1,0 +1,5 @@
+// ADVERSARIAL: bounds
+// EXPECT: REJECT
+procedure main
+    var xs := [10, 20, 30]
+    xs[-1] := 99

@@ -1,0 +1,9 @@
+// ADVERSARIAL: lifetime
+// EXPECT: REJECT
+function leak() -> Pointer<Int>
+    val x := 42
+    return &x
+
+procedure main
+    val p := leak()
+    print(p)

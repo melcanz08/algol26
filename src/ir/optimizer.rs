@@ -1,7 +1,17 @@
-#![allow(dead_code)]
-
-// src/ir/optimizer.rs - HARDENED
-// Complete optimizer with all passes properly integrated
+// src/ir/optimizer.rs
+//
+// Optimization passes run in this order, per function:
+//   1. remove_unreachable_blocks
+//   2. constant_folding
+//   3. constant_propagation — skipped when the function's CFG has a
+//      cycle, because the pass is not loop-aware and would propagate
+//      a value that changes across iterations
+//   4. dead_code_elimination — keeps every mutable declaration and
+//      seeds liveness from Declare/Assign/IteratorInit initializers
+//      so nested uses (e.g. inside ArrayAccess) are counted
+//   5. simplify_branches — folds `Branch(true/false, ...)` into a
+//      plain Jump
+//   6. remove_unreachable_blocks again, to clean up after the above
 
 use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticProgram, Terminator, TypedIRValue,

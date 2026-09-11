@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
-// src/semantics/control_flow.rs - HARDENED
-// Actually translates control flow
+// src/semantics/control_flow.rs
 
 use crate::ir::semantic_ir::{
     Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,

@@ -1,4 +1,5 @@
-// algol26/src/frontend/lexer.rs - HARDENED
+// algol26/src/frontend/lexer.rs 
+
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use std::collections::HashMap;
 use std::iter::Peekable;

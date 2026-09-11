@@ -1,0 +1,6 @@
+// ADVERSARIAL: memory safety
+// EXPECT: REJECT OR REQUIRE UNSAFE
+procedure main
+    val p := null
+    val x := *p
+    print(x)

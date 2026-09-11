@@ -1,0 +1,9 @@
+// SEMANTIC PROBE
+// EXPECT: ACCEPT-DEFER
+function f() -> Int
+    defer
+        print("cleanup")
+    return 42
+
+procedure main
+    print(f())

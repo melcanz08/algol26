@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-// src/semantics/flow_result.rs - SIMPLE VERSION
+// src/semantics/flow_result.rs
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FlowResult {

@@ -1,0 +1,6 @@
+// ADVERSARIAL: borrowing
+// EXPECT: REJECT
+procedure main
+    var x := 5.0
+    var a := &mut x
+    var b := &mut x

@@ -1,6 +1,13 @@
-#![allow(dead_code)]
-
 // src/ir/semantic_ir.rs
+//
+// The IR data types: SemanticProgram, SemanticFunction, SemanticBlock,
+// Instruction, Terminator, SemanticPattern, SemanticBinOp, and
+// TypedIRValue.
+//
+// `TypedIRValue::type_of()` returns the type *claimed* by the value
+// node itself. It does not prove that the claim is true — that is the
+// job of semantic_verifier. Downstream consumers should treat the
+// claimed type as authoritative only after verification passes.
 use crate::common::types::Type;
 
 #[derive(Debug, Clone, PartialEq)]

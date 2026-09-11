@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 // algol26/src/runtime/region.rs
-// HARDENED: Region-based memory management with proper stack discipline
 
 use std::collections::HashMap;
 

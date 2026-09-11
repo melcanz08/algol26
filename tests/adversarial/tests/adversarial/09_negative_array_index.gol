@@ -1,0 +1,5 @@
+// ADVERSARIAL: bounds
+// EXPECT: REJECT
+procedure main
+    val xs := [10, 20, 30]
+    print(xs[-1])

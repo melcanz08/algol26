@@ -1,0 +1,7 @@
+// ADVERSARIAL: defer + ownership
+// EXPECT: REJECT
+procedure main
+    val x := "hello"
+    defer
+        print(x)
+    val y := x

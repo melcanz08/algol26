@@ -1,0 +1,7 @@
+// ADVERSARIAL: memory safety
+// EXPECT: REJECT
+procedure main
+    val p := alloc(8)
+    free(p)
+    val x := *p
+    print(x)

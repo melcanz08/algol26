@@ -1,0 +1,7 @@
+// POSITIVE CONTROL: borrow lifetime
+// EXPECT: ACCEPT
+procedure main
+    var x := 5.0
+    region r
+        var a := &mut x
+    var b := &mut x

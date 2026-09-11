@@ -1,6 +1,6 @@
-use crate::frontend::ast::BinOp;
-// src/ir/monomorphize.rs - Monomorphization for generic functions
+// src/ir/monomorphize.rs
 
+use crate::frontend::ast::BinOp;
 use crate::common::types::Type;
 use crate::frontend::ast::{Expr, FunctionDecl, Stmt, TypeSyntax};
 use crate::semantics::trait_registry::TraitRegistry;

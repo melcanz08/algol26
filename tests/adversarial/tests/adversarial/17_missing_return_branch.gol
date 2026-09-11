@@ -1,0 +1,7 @@
+// ADVERSARIAL: control flow
+// EXPECT: REJECT
+function choose(flag: Bool) -> Int
+    if flag
+        return 1
+    else
+        print("missing return")

@@ -1,6 +1,16 @@
-#![allow(dead_code)]
-
-// Updated Escape Analyzer - HARDENED with proper escape tracking
+// src/semantics/escape.rs
+//
+// Tracks whether a reference to a variable may outlive the variable
+// itself.
+//
+// Reading an outer variable from a nested scope is NOT an escape —
+// the reference dies with the inner scope. Escape requires the
+// caller to signal it explicitly (e.g. `return &x`, storing `&x` in
+// a longer-lived location).
+//
+// This is a scope-level analysis, not a lifetime proof. It cannot
+// decide `lifetime(ref) <= lifetime(source)` in general; a full
+// lifetime model would need to be threaded through the AST.
 
 use std::collections::{HashMap, HashSet};
 

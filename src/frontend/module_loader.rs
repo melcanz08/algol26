@@ -1,4 +1,5 @@
-// src/frontend/module_loader.rs - HARDENED
+// src/frontend/module_loader.rs
+
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

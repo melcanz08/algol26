@@ -1,0 +1,7 @@
+// ADVERSARIAL: ownership + control flow
+// EXPECT: REJECT
+procedure main
+    val x := "hello"
+    if true
+        val y := x
+    print(x)

@@ -1,0 +1,5 @@
+// ADVERSARIAL: control flow typing
+// EXPECT: REJECT
+procedure main
+    if 1
+        print("bad")

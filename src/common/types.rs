@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
-// src/common/types.rs - Unified Type System for ALGOL26
-// HARDENED: Complete with all required methods
+// src/common/types.rs 
 
 use std::fmt;
 

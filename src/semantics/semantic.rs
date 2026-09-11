@@ -1,4 +1,51 @@
-// src/semantics/semantic.rs - Orthogonal + unified types + type table
+// src/semantics/semantic.rs
+//
+// Ownership and borrow checking, type inference, trait bounds, and
+// scope-based lifetime rules. Produces a type table keyed by AST node
+// address, which the IR builder consumes to avoid re-inferring types.
+
+//! Loop ownership analysis.
+//!
+//! Both `for` and `while` bodies are analyzed once, even though they
+//! execute repeatedly. The analyzer therefore has to reason about what
+//! invariants hold across iterations and what state is visible *after*
+//! the loop.
+//!
+//! Borrows (immutable and mutable) are always restored to the state
+//! that existed before the loop began. A borrow created inside the
+//! loop dies with the loop body's scope — the same rule that applies
+//! to any nested block.
+//!
+//! Moves are treated differently in the two loop forms because the
+//! two forms have different iteration semantics:
+//!
+//! `for x in <iterable>`:
+//!   The iterable is a list of known or unknown length. If it is
+//!   non-empty (which the compiler cannot always rule out), the body
+//!   executes at least once. If the body moves a non-Copy variable,
+//!   the next iteration would re-execute the move on an already-moved
+//!   value — a use-after-move error the compiler can prove will occur.
+//!   So the move is rejected outright: "Cannot move 'x' in loop body".
+//!
+//! `while cond`:
+//!   The condition may be false on entry, in which case the body never
+//!   runs and no move occurs. The compiler cannot decide at compile
+//!   time whether the loop runs, so it cannot prove the move is always
+//!   a problem, nor that it never is. The conservative sound choice is
+//!   to mark any variable moved in the body as "potentially moved" in
+//!   the enclosing scope: any subsequent use of that variable errors
+//!   (because it might have been moved), but the loop itself is
+//!   accepted.
+//!
+//! In short: `for` rejects unconditionally (if the move happens on
+//! iteration 1, it happens again on iteration 2); `while` propagates
+//! the uncertainty to the caller's scope.
+//!
+//! Both choices are conservative — they reject some programs that a
+//! more precise analysis would accept (e.g. a `for` loop over a list
+//! of statically known length 1 that moves its element). Neither
+//! choice is unsound: no program that would cause a runtime
+//! use-after-move is accepted.
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
@@ -1209,6 +1256,9 @@ impl SemanticAnalyzer {
 
                 Ok(ok_type)
             }
+            // See the module doc comment "Loop ownership analysis".
+            // Borrows are restored to the pre-loop state; moves
+            // inside the body are rejected (see below).
             Expr::For { var, iterable, body, trailing_expr, span } => {
                 let iter_type = self.analyze_expr(iterable)?;
                 let elem_type = if let Type::List(t) = iter_type.clone() {
@@ -1245,6 +1295,9 @@ impl SemanticAnalyzer {
                 if let Some(scope) = self.mutably_borrowed.last_mut() {
                     *scope = outer_mutably_borrowed;
                 }
+                // `for` bodies execute at least once on any non-empty
+                // iterable, so a move here would fire again on the next
+                // iteration. Reject rather than propagate.
                 if !new_moves.is_empty() {
                     let moved_var = new_moves[0].clone();
                     return Err(CompileError::simple(
@@ -1254,6 +1307,9 @@ impl SemanticAnalyzer {
                 }
                 Ok(result_type)
             }
+            // See the module doc comment "Loop ownership analysis".
+            // Borrows are restored; moves are propagated outward
+            // because the loop may run zero times.
             Expr::While { condition, body, trailing_expr, span } => {
                 let cond_type = self.analyze_expr(condition)?;
                 if cond_type != Type::Bool && cond_type != Type::Unknown {
@@ -1280,6 +1336,9 @@ impl SemanticAnalyzer {
                 if let Some(scope) = self.mutably_borrowed.last_mut() {
                     *scope = outer_mutably_borrowed;
                 }
+                // `while` may run zero times, so we cannot prove the move
+                // happened. Mark the variable as potentially moved in the
+                // enclosing scope; subsequent uses will error.
                 if let Some(parent_scope) = self.moved_vars.last_mut() {
                     for var in &moved_in_loop {
                         if !parent_scope.contains(var) {

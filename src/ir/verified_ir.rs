@@ -1,5 +1,13 @@
-// src/ir/verified_ir.rs - HARDENED
-// Verified IR with proper module name
+// src/ir/verified_ir.rs
+//
+// `VerifiedIR::new` runs semantic_verifier::verify before returning.
+// The type is a compile-time promise: a `VerifiedIR` value can only
+// exist if verification succeeded. `BackendInput` is an alias for
+// this type, so backend entry points that take `&VerifiedIR` are
+// statically guaranteed to receive verified input.
+//
+// Note that "verified" here means "passed semantic_verifier", whose
+// coverage is documented in that module.
 
 use crate::ir::semantic_ir::SemanticProgram;
 use std::fmt;

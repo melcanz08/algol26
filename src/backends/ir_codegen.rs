@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-// src/backends/ir_codegen.rs - LLVM Backend for NEW compact IR (Instruction + Terminator)
-// Fixed for inkwell 0.7.1
+// src/backends/ir_codegen.rs
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;

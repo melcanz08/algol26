@@ -7,6 +7,3 @@ pub mod semantic;
 pub mod semantic_builder;
 pub mod trait_registry;
 
-
-#[cfg(test)]
-mod borrow_checker_extra_test;

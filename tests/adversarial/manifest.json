@@ -1,0 +1,58 @@
+{
+  "suite": "ALGOL26 adversarial safety tests",
+  "test_count": 30,
+  "categories": {
+    "ownership": [
+      "01_use_after_move.gol",
+      "05_borrow_moved_value.gol",
+      "18_use_after_conditional_move.gol",
+      "29_while_move_then_use.gol"
+    ],
+    "borrowing": [
+      "02_double_mut_borrow.gol",
+      "03_mut_borrow_while_shared_borrowed.gol",
+      "04_read_while_mut_borrowed.gol",
+      "06_reborrow_after_inner_scope.gol"
+    ],
+    "lifetime": [
+      "07_pointer_escape_return.gol",
+      "08_borrow_escape_return.gol"
+    ],
+    "immutability": [
+      "00_assign_to_val.gol"
+    ],
+    "bounds": [
+      "09_negative_array_index.gol",
+      "10_array_index_too_large.gol",
+      "11_array_assign_bad_index_type.gol",
+      "12_array_assign_negative_index.gol",
+      "13_array_assign_runtime_oob.gol",
+      "28_array_runtime_read_oob.gol"
+    ],
+    "types": [
+      "14_invalid_cast_string_to_int.gol",
+      "15_invalid_cast_string_to_pointer.gol",
+      "16_nonbool_if.gol"
+    ],
+    "control_flow": [
+      "17_missing_return_branch.gol"
+    ],
+    "defer": [
+      "19_defer_captured_then_move.gol",
+      "26_defer_return_value.gol"
+    ],
+    "concurrency": [
+      "20_spawn_mutable_alias.gol",
+      "21_two_spawn_writers.gol",
+      "22_safe_read_sharing.gol"
+    ],
+    "memory": [
+      "23_null_pointer_deref.gol",
+      "24_free_then_deref.gol",
+      "25_double_free.gol"
+    ],
+    "generics": [
+      "27_generic_bound_violation.gol"
+    ]
+  }
+}

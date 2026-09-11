@@ -13,6 +13,25 @@ pub struct Monomorphizer {
     type_bindings: HashMap<String, Vec<Vec<Type>>>,
 }
 
+/// True if the type contains `Unknown` or `TypeVar` anywhere in its
+/// structure. Used by the monomorphizer to refuse specializations
+/// whose concrete type arguments could not be determined.
+fn has_unresolved(t: &Type) -> bool {
+    match t {
+        Type::Unknown | Type::TypeVar(_) => true,
+        Type::List(inner)
+        | Type::Option(inner)
+        | Type::Pointer(inner)
+        | Type::Borrow(inner)
+        | Type::MutBorrow(inner)
+        | Type::Channel(inner)
+        | Type::Array(inner, _) => has_unresolved(inner),
+        Type::Result { ok, error } => has_unresolved(ok) || has_unresolved(error),
+        Type::Tuple(elems) => elems.iter().any(has_unresolved),
+        _ => false,
+    }
+}
+
 impl Monomorphizer {
     pub fn new() -> Self {
         Monomorphizer {
@@ -447,8 +466,26 @@ impl Monomorphizer {
             if func.type_params.is_empty() {
                 result.push(func.clone());
             } else {
+                // Always keep the generic function in the output. If
+                // a call site is not specialized (because its type args
+                // could not be resolved at monomorphize time), the
+                // analyzer will look the generic up by name and bind
+                // the type variables from the real argument types.
+                // Dropping the generic here would leave such calls
+                // pointing at a name that no longer exists.
+                result.push(func.clone());
+
                 if let Some(all_type_args) = self.type_bindings.get(&func.name).cloned() {
                     for type_args in &all_type_args {
+                        // If any type argument is Unknown or contains a
+                        // TypeVar, the AST-only inference could not
+                        // determine a concrete type for the call. Skip
+                        // this specialization — the analyzer will
+                        // resolve the generic call instead.
+                        if type_args.iter().any(has_unresolved) {
+                            continue;
+                        }
+
                         let mut bindings = HashMap::new();
                         for (i, param) in func.type_params.iter().enumerate() {
                             if let Some(concrete) = type_args.get(i) {

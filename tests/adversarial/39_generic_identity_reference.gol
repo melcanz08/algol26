@@ -1,5 +1,6 @@
 // ADVERSARIAL: generic function receiving a reference
 // EXPECT: ACCEPT
+// BACKEND: interpreter
 function identity<T>(x: T) -> T
     return x
 

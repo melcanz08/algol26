@@ -75,6 +75,26 @@ use std::collections::{HashMap, HashSet};
 // Public entry point
 // ─────────────────────────────────────────────────────────────────────
 
+/// True if the type mentions a type variable anywhere in its
+/// structure. Used to skip return-type comparison when the
+/// signature is generic — the analyzer has already performed the
+/// substitution, and the verifier has no scope to re-derive it.
+fn contains_type_var(t: &Type) -> bool {
+    match t {
+        Type::TypeVar(_) => true,
+        Type::List(inner)
+        | Type::Option(inner)
+        | Type::Pointer(inner)
+        | Type::Borrow(inner)
+        | Type::MutBorrow(inner)
+        | Type::Channel(inner)
+        | Type::Array(inner, _) => contains_type_var(inner),
+        Type::Result { ok, error } => contains_type_var(ok) || contains_type_var(error),
+        Type::Tuple(elems) => elems.iter().any(contains_type_var),
+        _ => false,
+    }
+}
+
 /// Signatures for built-in functions that the IR builder registers
 /// but that do not appear as `SemanticFunction` entries in the program.
 /// Keep this in sync with `SemanticIRBuilder::build_impl`.
@@ -367,7 +387,6 @@ fn verify_instruction(
 ) -> Result<(), String> {
     match instr {
         Instruction::Nop => Ok(()),
-
         Instruction::Declare {
             name,
             type_,
@@ -394,7 +413,6 @@ fn verify_instruction(
             env.mutability.insert(name.clone(), *mutable);
             Ok(())
         }
-
         Instruction::Assign { target, value } => {
             let target_ty = env
                 .variables
@@ -430,14 +448,11 @@ fn verify_instruction(
 
             Ok(())
         }
-
         Instruction::Print { value } => {
             verify_value(value, env)?;
             Ok(())
         }
-
         // ─── Stage 2 additions ───
-
         Instruction::ArrayAssign {
             array,
             index,
@@ -478,7 +493,6 @@ fn verify_instruction(
             }
             Ok(())
         }
-
         Instruction::Call {
             func: callee,
             args,
@@ -518,12 +532,16 @@ fn verify_instruction(
             }
 
             if let Some(name) = result {
-                env.variables.insert(name.clone(), sig.return_type.clone());
+                let result_ty = if contains_type_var(&sig.return_type) {
+                    Type::Unknown
+                } else {
+                    sig.return_type.clone()
+                };
+                env.variables.insert(name.clone(), result_ty);
                 env.mutability.insert(name.clone(), false);
             }
             Ok(())
         }
-
         Instruction::MethodCall {
             object,
             method: _,
@@ -550,7 +568,6 @@ fn verify_instruction(
             }
             Ok(())
         }
-
         Instruction::IteratorInit { iterator, iterable } => {
             let iter_ty = verify_value(iterable, env)?;
 
@@ -571,7 +588,6 @@ fn verify_instruction(
             env.iterator_elem_types.insert(iterator.clone(), elem_ty);
             Ok(())
         }
-
         Instruction::ChannelDecl { name, type_ } => {
             match type_ {
                 Type::Channel(_) | Type::Unknown => {}
@@ -586,7 +602,6 @@ fn verify_instruction(
             env.mutability.insert(name.clone(), false);
             Ok(())
         }
-
         Instruction::Send { channel, value }
         | Instruction::ChannelSend { channel, value } => {
             let chan_ty = env.variables.get(channel).ok_or_else(|| {
@@ -604,7 +619,6 @@ fn verify_instruction(
             verify_value(value, env)?;
             Ok(())
         }
-
         Instruction::Receive { channel, target }
         | Instruction::ChannelReceive { channel, target } => {
             let chan_ty = env.variables.get(channel).ok_or_else(|| {
@@ -627,7 +641,6 @@ fn verify_instruction(
             env.mutability.insert(target.clone(), true);
             Ok(())
         }
-
         Instruction::Allocate {
             target,
             size,
@@ -644,7 +657,6 @@ fn verify_instruction(
             env.mutability.insert(target.clone(), true);
             Ok(())
         }
-
         Instruction::Free { ptr } => {
             let ptr_ty = verify_value(ptr, env)?;
             match ptr_ty {
@@ -855,6 +867,12 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
                 if arg_ty.is_unknown() || param_ty.is_unknown() {
                     continue;
                 }
+                // A parameter whose type mentions a type variable is
+                // generic; the analyzer has already bound the variable
+                // against the actual argument. Skip the check.
+                if contains_type_var(param_ty) {
+                    continue;
+                }
                 // `List<Unknown>` (and similar) act as wildcards for built-ins
                 // such as List.length. Treat a parameter type that is a
                 // composite containing Unknown as matching any instantiation.
@@ -867,7 +885,16 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
                 ));
             }
 
-            if !return_type.is_unknown()
+                        // A generic function's signature return type is a type
+            // variable (possibly nested). The analyzer has already
+            // bound it against the actual argument types and rewritten
+            // the call site; the verifier has no scope to re-derive
+            // that binding. Skip the comparison and trust the claimed
+            // type.
+            let sig_is_generic = contains_type_var(&sig.return_type);
+
+            if !sig_is_generic
+                && !return_type.is_unknown()
                 && !sig.return_type.is_unknown()
                 && return_type != &sig.return_type
             {
@@ -876,7 +903,15 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
                     function, return_type, sig.return_type
                 ));
             }
-            sig.return_type.clone()
+
+            // If the signature is generic, return the claimed type so
+            // downstream verification uses the concrete form the
+            // analyzer produced. Otherwise return the signature type.
+            if sig_is_generic && !return_type.is_unknown() {
+                return_type.clone()
+            } else {
+                sig.return_type.clone()
+            }
         }
         // ─── Stage 2 additions ───
         TypedIRValue::MethodCall {

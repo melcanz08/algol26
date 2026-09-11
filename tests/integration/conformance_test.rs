@@ -13,6 +13,7 @@ fn compile_valid(program: &str) -> bool {
         ])
         .output()
         .expect("Failed to run compiler");
+            // TEMP DEBUG — remove after diagnosing
 
     if output.status.success() {
         return true;

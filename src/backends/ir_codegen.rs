@@ -40,6 +40,28 @@ pub struct IRCodeGen<'ctx> {
     iterator_lengths: HashMap<String, usize>,
 }
 
+/// Map an IR-level `Math.*` function name to the corresponding name
+/// registered in the LLVM module. Returns `None` for non-Math names.
+///
+/// The IR uses `Math.sqrt`, `Math.pow`, etc. The LLVM module registers
+/// the C library names (`sqrt`, `pow`, `fabs`, ...). This bridge lets
+/// the codegen find them.
+fn resolve_math_name(ir_name: &str) -> Option<&'static str> {
+    match ir_name {
+        "Math.sqrt" => Some("sqrt"),
+        "Math.pow" => Some("pow"),
+        "Math.sin" => Some("sin"),
+        "Math.cos" => Some("cos"),
+        "Math.tan" => Some("tan"),
+        "Math.exp" => Some("exp"),
+        "Math.log" => Some("log"),
+        "Math.floor" => Some("floor"),
+        "Math.ceil" => Some("ceil"),
+        "Math.abs" => Some("fabs"),
+        _ => None,
+    }
+}
+
 impl<'ctx> IRCodeGen<'ctx> {
     pub fn new(context: &'ctx Context, module_name: &str) -> Self {
         let module = context.create_module(module_name);
@@ -424,11 +446,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .map(|a| self.compile_value(a).unwrap())
                     .collect();
                 let callee_name = func.trim_end_matches("()").to_string();
+                let llvm_name = resolve_math_name(&callee_name)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| callee_name.clone());
                 if let Some(callee) = self
                     .functions
-                    .get(&callee_name)
+                    .get(&llvm_name)
                     .cloned()
-                    .or_else(|| self.module.get_function(&callee_name))
+                    .or_else(|| self.module.get_function(&llvm_name))
                 {
                     let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
                         arg_vals.iter().map(|v| (*v).into()).collect();
@@ -1071,10 +1096,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .map(|a| self.compile_value(a).unwrap())
                     .collect();
                 let callee_name = function.trim_end_matches("()").to_string();
+                // `Math.*` names are registered in the LLVM module
+                // under their unmangled C names (sqrt, pow, fabs, ...).
+                // Translate before lookup so the call finds them.
+                let llvm_name = resolve_math_name(&callee_name)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| callee_name.clone());
+
                 if let Some(callee) = self
                     .module
-                    .get_function(&callee_name)
-                    .or_else(|| self.functions.get(&callee_name).cloned())
+                    .get_function(&llvm_name)
+                    .or_else(|| self.functions.get(&llvm_name).cloned())
                 {
                     let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
                         arg_vals.iter().map(|v| (*v).into()).collect();
@@ -1245,7 +1277,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
             TypedIRValue::Cast { value, target_type } => {
                 let v = self.compile_value(value)?;
-                // ALGOL26: Check ACTUAL LLVM type, not IR type
+                // ALGOL26: Check ACTUAL LLVM type, not IR type.
                 match (&v, target_type) {
                     (BasicValueEnum::IntValue(iv), Type::Float) => self
                         .builder
@@ -1265,7 +1297,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                         // Already an int - no cast needed
                         v
                     }
-                    _ => v,
+                    (source_llvm, target) => {
+                        // Reaching this arm means the analyzer permitted
+                        // a cast the LLVM backend cannot express. The
+                        // verifier's cast-legality check should have
+                        // rejected it before codegen.
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: cannot lower cast from LLVM value \
+                                 of kind {:?} to {:?}",
+                                source_llvm, target
+                            ),
+                            0, 0, "", ErrorCode::E0002,
+                        ));
+                    }
                 }
             }
             TypedIRValue::Borrow { expr, .. } => {
@@ -1377,7 +1422,34 @@ impl<'ctx> IRCodeGen<'ctx> {
                 .into(),
             TypedIRValue::Ok { value, .. } => self.compile_value(value)?,
             TypedIRValue::Error { value, .. } => self.compile_value(value)?,
-            _ => self.context.f64_type().const_float(0.0).into(),
+
+            // These variants have no LLVM lowering. The capability
+            // matrix refuses programs that would produce them, so
+            // reaching this point means the IR builder emitted
+            // something the backend cannot handle — a compiler bug,
+            // not a program the user should have written.
+            TypedIRValue::Array(_, _, _) => {
+                return Err(CompileError::simple(
+                    "LLVM codegen: array literal value has no LLVM lowering; \
+                     the capability matrix should have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ));
+            }
+            TypedIRValue::Range(_, _) => {
+                return Err(CompileError::simple(
+                    "LLVM codegen: range value has no LLVM lowering; \
+                     the capability matrix should have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ));
+            }
+            TypedIRValue::FieldAccess { .. } => {
+                return Err(CompileError::simple(
+                    "LLVM codegen: field access has no LLVM lowering \
+                     (no struct support); the capability matrix should \
+                     have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ));
+            }
         })
     }
 
@@ -1660,17 +1732,53 @@ impl<'ctx> IRCodeGen<'ctx> {
         args: &[TypedIRValue],
     ) -> Result<BasicValueEnum<'ctx>> {
         match name {
-            "List.length" | "len" | "length" | "String.length" | "String.len" => {
-                if let Some(first) = args.first() {
-                    if let TypedIRValue::Variable(var_name, _) = first {
-                        if let Some(len) = self.list_lengths.get(var_name) {
-                            return Ok(self.context.f64_type().const_float(*len as f64).into());
+            "List.length" | "len" | "length" => {
+                match args.first() {
+                    Some(TypedIRValue::Variable(var_name, _)) => {
+                        match self.list_lengths.get(var_name) {
+                            Some(len) => Ok(self
+                                .context
+                                .f64_type()
+                                .const_float(*len as f64)
+                                .into()),
+                            None => Err(CompileError::simple(
+                                &format!(
+                                    "LLVM codegen: List.length called on unknown list '{}' \
+                                     (known lists: {:?})",
+                                    var_name,
+                                    self.list_lengths.keys().collect::<Vec<_>>()
+                                ),
+                                0, 0, "", ErrorCode::E0004,
+                            )),
                         }
                     }
+                    _ => Err(CompileError::simple(
+                        "LLVM codegen: List.length requires a variable argument",
+                        0, 0, "", ErrorCode::E0004,
+                    )),
                 }
-                Ok(self.context.f64_type().const_float(0.0).into())
             }
-            _ => Ok(self.context.f64_type().const_float(0.0).into()),
+            "String.length" | "String.len" => {
+                // A real lowering exists (strlen), but the analyzer's
+                // IR-level signature for String.length returns Int and
+                // the value is emitted as f64 elsewhere; mixing the two
+                // would require retyping String.length at the IR level.
+                // Until that is done, refuse rather than emit a wrong
+                // value.
+                Err(CompileError::simple(
+                    "LLVM codegen: String.length has no compatible lowering yet; \
+                     the capability matrix should have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ))
+            }
+            other => Err(CompileError::simple(
+                &format!(
+                    "LLVM codegen: unhandled builtin '{}' in compile_builtin_value \
+                     (this builtin has no LLVM lowering)",
+                    other
+                ),
+                0, 0, "", ErrorCode::E0004,
+            )),
         }
     }
 
@@ -1695,6 +1803,32 @@ impl<'ctx> IRCodeGen<'ctx> {
     }
 
     fn emit_print(&self, val: BasicValueEnum<'ctx>, ty: Type) -> Result<()> {
+        // Peel reference and pointer wrappers, loading through the
+        // pointer to reach the printable value. `print(&x)` prints the
+        // value of `x`, matching the interpreter's eventual
+        // implicit-deref behavior for references.
+        let (val, ty) = match ty {
+            Type::Borrow(inner) | Type::MutBorrow(inner) | Type::Pointer(inner) => {
+                if val.is_pointer_value() {
+                    let inner_ty = (*inner).clone();
+                    let llvm_ty = self.map_type(&inner_ty);
+                    let loaded = self
+                        .builder
+                        .build_load(llvm_ty, val.into_pointer_value(), "print_deref")
+                        .unwrap();
+                    (loaded, inner_ty)
+                } else {
+                    // The value isn't a pointer even though the type
+                    // says it should be. Fall back to the inner type
+                    // without loading — the codegen contract is
+                    // violated, but producing *some* value beats
+                    // emitting a diagnostic mid-print.
+                    (val, (*inner).clone())
+                }
+            }
+            other => (val, other),
+        };
+
         let printf = self.module.get_function("printf");
         if let Some(printf_fn) = printf {
             let format_str = match ty {
@@ -1702,7 +1836,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Type::Float => "%.1f\n",
                 Type::Bool => "%d\n",
                 Type::String => "%s\n",
-                _ => "%.1f\n",
+                other => {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "LLVM codegen: cannot print value of type {:?} \
+                             (no printf format mapping)",
+                            other
+                        ),
+                        0, 0, "", ErrorCode::E0002,
+                    ));
+                }
             };
             let fmt_ptr = self
                 .builder

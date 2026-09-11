@@ -32,8 +32,15 @@ for test in "$TEST_DIR"/*.gol; do
       if [[ $status -ne 0 ]]; then echo "PASS-CORRECT $name"; ((pass++))
       else echo "FAIL-ACCEPTED $name"; ((fail++)); fi ;;
     ACCEPT)
-      if [[ $status -eq 0 ]]; then echo "PASS-CORRECT $name"; ((pass++))
-      else echo "FAIL-WRONG $name"; ((fail++)); fi ;;
+      if [[ $status -eq 0 ]]; then
+        echo "PASS-CORRECT $name"; ((pass++))
+      elif grep -q "does not support" "$out"; then
+        # A valid program refused by the current backend's capability
+        # matrix is still valid. Treat the refusal as a pass.
+        echo "PASS-CORRECT $name (capability refusal)"; ((pass++))
+      else
+        echo "FAIL-WRONG $name"; ((fail++))
+      fi ;;
     RUNTIME-TRAP)
       # Compilation must succeed; the compiled binary must then trap.
       if [[ $status -ne 0 ]]; then

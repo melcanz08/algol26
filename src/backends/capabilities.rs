@@ -12,6 +12,7 @@
 // validate_wasm_compatibility in wasm_backend.rs).
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
+use crate::common::types::Type;
 use crate::ir::semantic_ir::{
     Instruction, SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
 };
@@ -30,6 +31,18 @@ pub enum Feature {
     Channels,
     /// Calls to `extern` functions.
     Ffi,
+    /// `String.*` builtins: concat, substring, to_upper, to_lower.
+    /// `String.length` is a special case handled separately in the
+    /// LLVM codegen via strlen.
+    StringFunctions,
+    /// `File.*` builtins: read, write, append.
+    FileFunctions,
+        /// `List.*` aggregate builtins: sum, max, min.
+    ListAggregates,
+    /// `print(x)` where `x` has a list type. The interpreter formats
+    /// lists as `[a, b, c]`; the LLVM backend has no lowering for it
+    /// (it would need a per-element printf loop).
+    ListPrint,
 }
 
 impl Feature {
@@ -40,6 +53,10 @@ impl Feature {
             Feature::Fork => "parallel",
             Feature::Channels => "channels",
             Feature::Ffi => "foreign function calls (extern)",
+            Feature::StringFunctions => "String.* operations (concat, substring, to_upper, to_lower)",
+            Feature::FileFunctions => "File.* operations (read, write, append)",
+            Feature::ListAggregates => "List.* aggregates (sum, max, min)",
+            Feature::ListPrint => "printing a list value",
         }
     }
 }
@@ -79,6 +96,10 @@ impl BackendCapabilities {
         supported.insert(Feature::Spawn);
         supported.insert(Feature::Fork);
         supported.insert(Feature::Channels);
+        supported.insert(Feature::StringFunctions);
+        supported.insert(Feature::FileFunctions);
+        supported.insert(Feature::ListAggregates);
+        supported.insert(Feature::ListPrint);
         // FFI is not supported by the interpreter.
         BackendCapabilities {
             name: "interpreter",
@@ -111,6 +132,20 @@ pub fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
     used
 }
 
+/// Classify a function name into a feature, if it maps to one.
+/// `String.length` is intentionally excluded — the LLVM backend
+/// lowers it via `strlen` and it should not force an interpreter
+/// fallback on programs that only need string length.
+fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
+    if name.starts_with("String.") {
+        used.insert(Feature::StringFunctions);
+    } else if name.starts_with("File.") {
+        used.insert(Feature::FileFunctions);
+    } else if name == "List.sum" || name == "List.max" || name == "List.min" {
+        used.insert(Feature::ListAggregates);
+    }
+}
+
 fn scan_instruction(
     instr: &Instruction,
     extern_fns: &HashSet<&str>,
@@ -124,11 +159,22 @@ fn scan_instruction(
             scan_value(index, extern_fns, used);
             scan_value(value, extern_fns, used);
         }
-        Instruction::Print { value } => scan_value(value, extern_fns, used),
+        Instruction::Print { value } => {
+            // A print of a list-typed value needs a special lowering.
+            // `type_of()` returns the claimed static type, which for a
+            // list literal is `List<T>` and for a list variable is the
+            // declared `List<T>`. For `arr[i]` it returns `T`, which is
+            // not a list, so indexing stays on the normal path.
+            if matches!(value.type_of(), Type::List(_)) {
+                used.insert(Feature::ListPrint);
+            }
+            scan_value(value, extern_fns, used);
+        }
         Instruction::Call { func, args, .. } => {
             if extern_fns.contains(func.as_str()) {
                 used.insert(Feature::Ffi);
             }
+            scan_call_name(func, used);
             for a in args {
                 scan_value(a, extern_fns, used);
             }
@@ -180,6 +226,7 @@ fn scan_value(
             if extern_fns.contains(function.as_str()) {
                 used.insert(Feature::Ffi);
             }
+            scan_call_name(function, used);
             for a in args {
                 scan_value(a, extern_fns, used);
             }
@@ -274,7 +321,6 @@ pub fn check_backend(program: &SemanticProgram, caps: &BackendCapabilities) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::types::Type;
     use crate::ir::semantic_ir::{
         SemanticBlock, SemanticFunction, Terminator, TypedIRValue,
     };
@@ -420,5 +466,74 @@ mod tests {
         });
         let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
         assert!(err.message.contains("foreign"));
+    }
+        #[test]
+    fn llvm_rejects_list_print() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        program.functions.push(SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![SemanticBlock {
+                id: entry,
+                instructions: vec![
+                    Instruction::Declare {
+                        name: "xs".to_string(),
+                        mutable: false,
+                        type_: Type::list(Type::Float),
+                        value: TypedIRValue::List(
+                            vec![TypedIRValue::Float(1.0)],
+                            Type::Float,
+                        ),
+                    },
+                    Instruction::Print {
+                        value: TypedIRValue::Variable(
+                            "xs".to_string(),
+                            Type::list(Type::Float),
+                        ),
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: None,
+                    type_: Type::Void,
+                }),
+            }],
+            entry_block: entry,
+            is_extern: false,
+        });
+        let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+        assert!(
+            err.message.contains("printing a list"),
+            "expected list-print diagnostic, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn interpreter_accepts_list_print() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        program.functions.push(SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![SemanticBlock {
+                id: entry,
+                instructions: vec![Instruction::Print {
+                    value: TypedIRValue::List(
+                        vec![TypedIRValue::Float(1.0)],
+                        Type::Float,
+                    ),
+                }],
+                terminator: Some(Terminator::Return {
+                    value: None,
+                    type_: Type::Void,
+                }),
+            }],
+            entry_block: entry,
+            is_extern: false,
+        });
+        assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
     }
 }

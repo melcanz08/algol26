@@ -224,6 +224,17 @@ fn has_complex_cf(stmts: &[Stmt]) -> bool {
 fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Break | Stmt::Continue | Stmt::Return { .. } | Stmt::Defer { .. } => true,
+        // `var y := x` (with y != x) is a potential move of x. If the
+        // loop is unrolled, the move appears once per iteration in the
+        // enclosing scope — but that scope has no notion of iteration,
+        // so the analyzer's loop-aware move check never sees it.
+        //
+        // Treat such declarations as "complex enough to prevent
+        // unrolling." The check is conservative: `var y := 42.0` and
+        // `var y := x` where x is Copy both stay un-unrolled too. That
+        // costs an unrolling opportunity but preserves the analyzer's
+        // ability to reject moves-in-loops correctly.
+        Stmt::VarDecl { name, value: Expr::Var(src, _), .. } if name != src => true,
         Stmt::Expression(expr) => expr_has_complex_cf(expr),
         Stmt::Spawn { body } | Stmt::RegionBlock { body, .. } | Stmt::UnsafeBlock { body } => {
             body.iter().any(stmt_has_complex_cf)
@@ -417,5 +428,73 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
             span: *span,
         },
         _ => expr.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::frontend::lexer::Lexer;
+    use crate::frontend::parser::Parser;
+
+    fn desugar(src: &str) -> Vec<FunctionDecl> {
+        let lexer = Lexer::new(src.to_string()).unwrap();
+        let mut parser = Parser::new(lexer.tokens);
+        let program = parser.parse_program().unwrap();
+        let mut funcs = program.functions;
+        desugar_loops(&mut funcs);
+        funcs
+    }
+
+    fn still_has_for(funcs: &[FunctionDecl]) -> bool {
+        funcs[0]
+            .body
+            .iter()
+            .any(|s| matches!(s, Stmt::Expression(Expr::For { .. })))
+    }
+
+    #[test]
+    fn loop_with_var_decl_from_outer_var_is_not_unrolled() {
+        let src = "\
+procedure main
+    var x := [1.0, 2.0]
+    for a in [1.0] do
+        var y := x
+";
+        let funcs = desugar(src);
+        assert!(
+            still_has_for(&funcs),
+            "loop whose body contains `var y := x` must not be unrolled"
+        );
+    }
+
+    #[test]
+    fn loop_without_move_is_unrolled() {
+        let src = "\
+procedure main
+    for a in [1.0, 2.0] do
+        print(a)
+";
+        let funcs = desugar(src);
+        assert!(
+            !still_has_for(&funcs),
+            "loop without a move-shaped body should still be unrolled"
+        );
+    }
+
+    #[test]
+    fn nested_move_loop_is_not_unrolled() {
+        let src = "\
+procedure main
+    var x := [1.0, 2.0]
+    for a in [1.0] do
+        for b in [1.0] do
+            var y := x
+";
+        let funcs = desugar(src);
+        assert!(
+            still_has_for(&funcs),
+            "outer loop containing a nested loop with a move must not be unrolled"
+        );
     }
 }

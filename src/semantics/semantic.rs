@@ -593,6 +593,10 @@ impl SemanticAnalyzer {
         if func.is_extern {
             return Ok(());
         }
+        eprintln!("[FN] {} body has {} stmts", func.name, func.body.len());
+        for (i, s) in func.body.iter().enumerate() {
+            eprintln!("[FN]   [{}] {:?}", i, std::mem::discriminant(s));
+        }
         self.push_scope();
 
         for type_param in &func.type_params {
@@ -691,6 +695,7 @@ impl SemanticAnalyzer {
                 // read during this declaration" flag.
                 let mut_borrow_source: Option<String> = if let Expr::MutBorrow { expr } = value {
                     if let Expr::Var(source_name, _) = expr.as_ref() {
+
                         Some(source_name.clone())
                     } else {
                         None

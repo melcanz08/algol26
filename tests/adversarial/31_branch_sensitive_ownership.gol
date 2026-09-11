@@ -1,0 +1,7 @@
+// ADVERSARIAL: ownership across if-merge
+// EXPECT: REJECT
+procedure main
+    var x := [1.0, 2.0]
+    if true
+        var y := x
+    print(x)

@@ -1,0 +1,7 @@
+// ADVERSARIAL: reborrow through a mutable reference
+// EXPECT: REVIEW
+procedure main
+    var x := 1.0
+    val p := &mut x
+    val q := &mut *p
+    print(*q)

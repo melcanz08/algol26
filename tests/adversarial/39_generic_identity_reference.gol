@@ -1,0 +1,10 @@
+// ADVERSARIAL: generic function receiving a reference
+// EXPECT: ACCEPT
+function identity<T>(x: T) -> T
+    return x
+
+procedure main
+    val v := 5.0
+    val p := &v
+    val q := identity(p)
+    print(*q)

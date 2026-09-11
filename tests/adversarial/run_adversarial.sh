@@ -53,7 +53,7 @@ for test in "$TEST_DIR"/*.gol; do
       # cleanup fires before the return value is produced.
       if [[ $status -eq 0 ]]; then echo "PASS-CORRECT $name"; ((pass++))
       else echo "FAIL-WRONG $name"; ((fail++)); fi ;;
-    "REJECT OR RUNTIME-TRAP"|"REJECT OR REQUIRE UNSAFE")
+    REVIEW|"REJECT OR RUNTIME-TRAP"|"REJECT OR REQUIRE UNSAFE")
       echo "REVIEW $name (expected: $expected)"
       ((review++)) ;;
     *) echo "REVIEW $name (unknown expectation: $expected)"; ((review++)) ;;

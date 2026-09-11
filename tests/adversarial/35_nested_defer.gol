@@ -1,0 +1,8 @@
+// ADVERSARIAL: nested defer ordering
+// EXPECT: REVIEW
+procedure main
+    defer
+        print("outer")
+        defer
+            print("inner")
+    print("body")

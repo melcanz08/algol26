@@ -981,6 +981,33 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
     }
 
+    /// Compile an expression as a *reference* — i.e., produce the
+    /// address of its inner value rather than loading from it. Used by
+    /// `Borrow` and `MutBorrow` (and `AddrOf` could delegate here too).
+    fn compile_reference(&self, expr: &TypedIRValue) -> Result<BasicValueEnum<'ctx>> {
+        match expr {
+            TypedIRValue::Variable(name, _) => {
+                if let Some(ptr) = self.variables.get(name) {
+                    Ok((*ptr).into())
+                } else {
+                    Ok(self
+                        .context
+                        .ptr_type(AddressSpace::default())
+                        .const_null()
+                        .into())
+                }
+            }
+            // A reference-to-reference yields the inner reference.
+            TypedIRValue::Borrow { expr, .. } | TypedIRValue::MutBorrow { expr, .. } => {
+                self.compile_value(expr)
+            }
+            // Anything else falls back to producing a value; the caller
+            // (or verifier) is responsible for ensuring it's used as a
+            // reference only when the inner form is addressable.
+            other => self.compile_value(other),
+        }
+    }
+
     fn compile_value(&self, val: &TypedIRValue) -> Result<BasicValueEnum<'ctx>> {
         Ok(match val {
             TypedIRValue::Int(i) => self.context.i64_type().const_int(*i as u64, true).into(),
@@ -1241,9 +1268,31 @@ impl<'ctx> IRCodeGen<'ctx> {
                     _ => v,
                 }
             }
-            TypedIRValue::Borrow { expr, .. } => self.compile_value(expr)?,
-            TypedIRValue::MutBorrow { expr, .. } => self.compile_value(expr)?,
-            TypedIRValue::Deref { expr, .. } => self.compile_value(expr)?,
+            TypedIRValue::Borrow { expr, .. } => {
+                // A borrow is a reference — it represents the *address*
+                // of the inner value, not a copy of the value itself.
+                // Returning the loaded value here would pass a double
+                // where a pointer is expected, and deref of that
+                // would segfault.
+                self.compile_reference(expr)?
+            }
+            TypedIRValue::MutBorrow { expr, .. } => {
+                self.compile_reference(expr)?
+            }
+            TypedIRValue::Deref { expr, target_type } => {
+                let ptr = self.compile_value(expr)?;
+                if ptr.is_pointer_value() {
+                    let llvm_ty = self.map_type(target_type);
+                    self.builder
+                        .build_load(llvm_ty, ptr.into_pointer_value(), "deref_load")
+                        .unwrap()
+                } else {
+                    // Not a pointer — the IR is malformed but we don't
+                    // panic; returning the value as-is keeps codegen
+                    // running so the verifier can report the real issue.
+                    ptr
+                }
+            }
             TypedIRValue::AddrOf { expr, .. } => {
                 if let TypedIRValue::Variable(name, _) = expr.as_ref() {
                     if let Some(ptr) = self.variables.get(name) {

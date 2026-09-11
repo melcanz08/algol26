@@ -1,0 +1,8 @@
+// ADVERSARIAL: defer captures a variable, loop body moves it
+// EXPECT: REJECT
+procedure main
+    val x := [1.0, 2.0]
+    for item in x do
+        defer
+            print(item)
+        var y := x

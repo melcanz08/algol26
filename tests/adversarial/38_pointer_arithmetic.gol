@@ -1,0 +1,5 @@
+// ADVERSARIAL: arithmetic on a pointer value
+// EXPECT: REJECT
+procedure main
+    val p := null
+    val q := p + 1

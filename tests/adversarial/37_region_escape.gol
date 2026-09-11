@@ -1,0 +1,8 @@
+// ADVERSARIAL: reference to a region-local value escapes the region
+// EXPECT: REJECT
+procedure main
+    var p := null
+    region r
+        var x := 5.0
+        p := &x
+    print(*p)

@@ -93,3 +93,11 @@ tests/adversarial/3*
 !tests/adversarial/*.sh
 !tests/adversarial/*.json
 !tests/adversarial/*.md
+
+# Adversarial test compiled outputs, cases 30-49
+tests/adversarial/3*
+tests/adversarial/4*
+!tests/adversarial/*.gol
+!tests/adversarial/*.sh
+!tests/adversarial/*.json
+!tests/adversarial/*.md

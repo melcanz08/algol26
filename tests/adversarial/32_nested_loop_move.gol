@@ -1,0 +1,7 @@
+// ADVERSARIAL: move inside a nested loop
+// EXPECT: REJECT
+procedure main
+    var x := [1.0, 2.0]
+    for a in [1.0] do
+        for b in [1.0] do
+            var y := x

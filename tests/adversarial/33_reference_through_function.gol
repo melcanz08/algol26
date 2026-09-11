@@ -1,0 +1,9 @@
+// ADVERSARIAL: pass a reference to a function
+// EXPECT: ACCEPT
+function deref(p: &Float) -> Float
+    return *p
+
+procedure main
+    val x := 3.14
+    val y := deref(&x)
+    print(y)

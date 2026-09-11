@@ -1,0 +1,14 @@
+// ADVERSARIAL: spawn reads through a reference while main writes the source
+//
+// REVIEW: The syntactic race detector does not track aliases. It sees
+// a read of `p` (a Borrow) in the spawn and a write of `x` in main,
+// but it does not know that `p` borrows `x`. Full alias tracking is
+// future work. This case documents the current limitation.
+//
+// EXPECT: REVIEW
+procedure main
+    var x := 5.0
+    val p := &x
+    spawn
+        print(*p)
+    x := 20.0

@@ -4,6 +4,7 @@
 > **Note**: code examples in this ADR have been updated to use the
 > current `print(x)` builtin. The decision documented here -- significant
 > indentation -- is unchanged.
+
 ## Status
 ✅ Accepted
 

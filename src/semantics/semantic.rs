@@ -953,21 +953,81 @@ impl SemanticAnalyzer {
             }
             Stmt::Import { .. } => {}
             Stmt::ArrayAssign { array, index, value } => {
+                // Mirrors the checks in `Expr::ArrayAccess`, which were
+                // added during the hardening pass but never propagated to
+                // the write path. Without these, `xs[1.5] := 99` and
+                // `xs[-1] := 99` compile silently.
                 let (array_type, _) = self.lookup_variable(array).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined array '{}'", array),
                         0, 0, "", ErrorCode::E0003,
                     )
                 })?;
-                if let Type::List(_) = &array_type {
-                } else if array_type != Type::Unknown {
+
+                let element_type = match &array_type {
+                    Type::List(elem) => (**elem).clone(),
+                    Type::Unknown => Type::Unknown,
+                    other => {
+                        return Err(CompileError::simple(
+                            &format!("Array assignment requires list, found {}", other),
+                            0, 0, "", ErrorCode::E0002,
+                        ));
+                    }
+                };
+
+                // Analyze the index and check its type.
+                let index_type = self.analyze_expr(index)?;
+
+                if index_type != Type::Int && index_type != Type::Unknown {
                     return Err(CompileError::simple(
-                        &format!("Array assignment requires list, found {}", array_type),
+                        &format!("Array index must be Int, found {}", index_type),
                         0, 0, "", ErrorCode::E0002,
-                    ));
+                    ).with_suggestion(&format!(
+                        "Use an Int index or convert {} with int({})",
+                        index_type, index_type
+                    )));
                 }
-                self.analyze_expr(index)?;
-                self.analyze_expr(value)?;
+
+                // Literal index: bounds-check against known list length.
+                let literal_index: Option<i64> = match index {
+                    Expr::Int(v) => Some(*v),
+                    Expr::Number(f) => Some(*f as i64),
+                    _ => None,
+                };
+                if let Some(idx_val) = literal_index {
+                    if let Some(list_len) = self.lookup_list_length(array) {
+                        if idx_val < 0 || (idx_val as usize) >= list_len {
+                            return Err(CompileError::simple(
+                                &format!(
+                                    "Array index out of bounds: index {} is out of bounds for '{}' with length {}",
+                                    idx_val, array, list_len
+                                ),
+                                0, 0, "", ErrorCode::E0004,
+                            ).with_suggestion(&format!(
+                                "Valid indices are 0..{} for array of length {}",
+                                list_len - 1, list_len
+                            )));
+                        }
+                    }
+                }
+
+                // Value type must be assignable to the element type.
+                let value_type = self.analyze_expr(value)?;
+                if element_type != Type::Unknown
+                    && value_type != Type::Unknown
+                    && !value_type.can_coerce_to(&element_type)
+                {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Array assignment type mismatch: '{}' has element type {}, but value is {}",
+                            array, element_type, value_type
+                        ),
+                        0, 0, "", ErrorCode::E0002,
+                    ).with_suggestion(&format!(
+                        "Assign a value of type {} to elements of '{}'",
+                        element_type, array
+                    )));
+                }
             }
         }
         Ok(())

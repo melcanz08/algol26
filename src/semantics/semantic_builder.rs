@@ -751,12 +751,18 @@ impl SemanticIRBuilder {
             ));
         }
 
+        // See the comment in translate_if_with_target: the condition
+        // may have branched (short-circuit and/or, or a nested
+        // value-producing if), so the outer Branch attaches to its
+        // merge block, not the original current_block.
+        let branch_from = self.pending_merge.take().unwrap_or(current_block);
+
         let then_id = program.new_block_id();
         let else_id = program.new_block_id();
 
         let _ = self.safe_set_terminator(
             func,
-            current_block,
+            branch_from,
             Terminator::Branch {
                 condition: cond,
                 then_block: then_id,
@@ -927,10 +933,11 @@ impl SemanticIRBuilder {
         let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
 
         let cond = self.translate_expr(program, func, cond_id, condition);
+        let branch_from = self.pending_merge.take().unwrap_or(cond_id);
 
         let _ = self.safe_set_terminator(
             func,
-            cond_id,
+            branch_from,
             Terminator::Branch {
                 condition: cond,
                 then_block: body_id,
@@ -1198,6 +1205,10 @@ impl SemanticIRBuilder {
         cases: &[MatchCaseExpr],
     ) -> FlowResult {
         let typed_value = self.translate_expr(program, func, current_block, value);
+        // The match value may have branched (short-circuit and/or, or
+        // a nested value-producing expression). The Switch terminator
+        // attaches to the value's merge block.
+        let switch_from = self.pending_merge.take().unwrap_or(current_block);
         let typed_value_for_binding = typed_value.clone();
         let merge_id = program.new_block_id();
 
@@ -1232,7 +1243,7 @@ impl SemanticIRBuilder {
 
         let _ = self.safe_set_terminator(
             func,
-            current_block,
+            switch_from,
             Terminator::Switch {
                 value: typed_value,
                 cases: switch_cases,
@@ -1995,10 +2006,11 @@ impl SemanticIRBuilder {
         let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
 
         let cond = self.translate_expr(program, func, cond_id, condition);
+        let branch_from = self.pending_merge.take().unwrap_or(cond_id);
 
         let _ = self.safe_set_terminator(
             func,
-            cond_id,
+            branch_from,
             Terminator::Branch {
                 condition: cond,
                 then_block: body_id,
@@ -2114,6 +2126,14 @@ impl SemanticIRBuilder {
             ));
         }
 
+        // The condition may have introduced its own branching (e.g. a
+        // short-circuit `and`/`or` lowers to a two-branch CFG with a
+        // merge block). If so, the outer `if`'s Branch must attach to
+        // that merge block — attaching to the original current_block
+        // would land after the short-circuit's own terminator and be
+        // dropped.
+        let branch_from = self.pending_merge.take().unwrap_or(current_block);
+
         let then_id = program.new_block_id();
         let else_id = program.new_block_id();
         let merge_id = program.new_block_id();
@@ -2126,7 +2146,7 @@ impl SemanticIRBuilder {
         // Set the branch from the current block.
         let _ = self.safe_set_terminator(
             func,
-            current_block,
+            branch_from,
             Terminator::Branch {
                 condition: cond,
                 then_block: then_id,
@@ -2205,6 +2225,97 @@ impl SemanticIRBuilder {
 
         self.pending_merge = Some(merge_id);
         FlowResult::Reachable(merge_id)
+    }
+    ///```text
+    /// Lower `a and b` / `a or b` to a proper short-circuit CFG.
+    ///
+    /// Pattern (for `and`):
+    ///
+    ///     current_block:
+    ///         left_val := eval(a)
+    ///         Branch left_val → eval_right, short
+    ///     eval_right:
+    ///         right_val := eval(b)
+    ///         result_var := right_val
+    ///         Jump merge
+    ///     short:
+    ///         result_var := false
+    ///         Jump merge
+    ///     merge:
+    ///         (result_var holds `a and b`)
+    ///
+    /// `or` swaps the two branches, with the short-circuit constant
+    /// being `true`.
+    ///
+    /// The pattern handles nested short-circuits correctly by consulting
+    /// `pending_merge` after translating each operand — the same way
+    /// `Stmt::VarDecl` handles a branching initializer.
+    ///```
+    fn translate_short_circuit(
+        &mut self,
+        program: &mut SemanticProgram,
+        func: &mut SemanticFunction,
+        current_block: usize,
+        left: &Expr,
+        right: &Expr,
+        op: &BinOp,
+    ) -> TypedIRValue {
+        let result_var = self.allocate_result_var(func, current_block, Type::Bool);
+
+        // Evaluate the left operand. If it branches (because it's a
+        // nested short-circuit or a value-producing if/match), the
+        // actual continuation block is where its merge landed.
+        let left_val = self.translate_expr(program, func, current_block, left);
+        let branch_block = self.pending_merge.take().unwrap_or(current_block);
+
+        // Create the three blocks this pattern needs.
+        let eval_right_id = program.new_block_id();
+        let short_id = program.new_block_id();
+        let merge_id = program.new_block_id();
+        func.blocks.push(SemanticBlock { id: eval_right_id, instructions: Vec::new(), terminator: None });
+        func.blocks.push(SemanticBlock { id: short_id, instructions: Vec::new(), terminator: None });
+        func.blocks.push(SemanticBlock { id: merge_id, instructions: Vec::new(), terminator: None });
+
+        // `and`: left=true → evaluate right; left=false → short-circuit
+        // `or`:  left=true → short-circuit (result=true); left=false → evaluate right
+        let (then_blk, else_blk) = match op {
+            BinOp::And => (eval_right_id, short_id),
+            BinOp::Or => (short_id, eval_right_id),
+            _ => unreachable!("translate_short_circuit called with non-And/Or op"),
+        };
+
+        let _ = self.safe_set_terminator(func, branch_block, Terminator::Branch {
+            condition: left_val,
+            then_block: then_blk,
+            else_block: else_blk,
+        });
+
+        // Right branch: evaluate the right operand, then assign its
+        // result. A nested short-circuit inside `right` sets
+        // pending_merge to its own merge block, so we must use that
+        // as the block to append the Assign to.
+        let right_val = self.translate_expr(program, func, eval_right_id, right);
+        let right_end = self.pending_merge.take().unwrap_or(eval_right_id);
+        let _ = self.safe_push_instruction(func, right_end, SemanticInstruction::Assign {
+            target: result_var.clone(),
+            value: right_val,
+        });
+        let _ = self.safe_set_terminator(func, right_end, Terminator::Jump { block: merge_id });
+
+        // Short branch: assign the short-circuit constant.
+        let short_const = match op {
+            BinOp::And => TypedIRValue::Bool(false),
+            BinOp::Or => TypedIRValue::Bool(true),
+            _ => unreachable!(),
+        };
+        let _ = self.safe_push_instruction(func, short_id, SemanticInstruction::Assign {
+            target: result_var.clone(),
+            value: short_const,
+        });
+        let _ = self.safe_set_terminator(func, short_id, Terminator::Jump { block: merge_id });
+
+        self.pending_merge = Some(merge_id);
+        TypedIRValue::Variable(result_var, Type::Bool)
     }
 
     fn translate_expr(
@@ -2319,49 +2430,58 @@ impl SemanticIRBuilder {
                 };
                 TypedIRValue::List(values, elem_type)
             }
-            Expr::Binary { left, op, right } => {
-                let l = self.translate_expr(program, func, current_block, left);
-                let r = self.translate_expr(program, func, current_block, right);
-
-                // ─── UNIFY TYPES ─── Type comes from the analyzer.
-                let result_type = self.type_of_expr(expr)
-                    .cloned()
-                    .unwrap_or(Type::Unknown);
-
-                // Keep IR self-consistent by inserting Int→Float coercions.
-                let (cast_l, cast_r) = match (l.type_of(), r.type_of()) {
-                    (Type::Int, Type::Float) => (
-                        TypedIRValue::Cast { value: Box::new(l), target_type: Type::Float },
-                        r,
-                    ),
-                    (Type::Float, Type::Int) => (
-                        l,
-                        TypedIRValue::Cast { value: Box::new(r), target_type: Type::Float },
-                    ),
-                    _ => (l, r),
-                };
-
-                let semantic_op = match op {
-                    BinOp::Add => SemanticBinOp::Add,
-                    BinOp::Subtract => SemanticBinOp::Subtract,
-                    BinOp::Multiply => SemanticBinOp::Multiply,
-                    BinOp::Divide => SemanticBinOp::Divide,
-                    BinOp::Greater => SemanticBinOp::Greater,
-                    BinOp::Less => SemanticBinOp::Less,
-                    BinOp::GreaterEqual => SemanticBinOp::GreaterEqual,
-                    BinOp::LessEqual => SemanticBinOp::LessEqual,
-                    BinOp::Equal => SemanticBinOp::Equal,
-                    BinOp::NotEqual => SemanticBinOp::NotEqual,
-                    BinOp::And => SemanticBinOp::And,
-                    BinOp::Or => SemanticBinOp::Or,
-                };
-                TypedIRValue::BinaryOp {
-                    op: semantic_op,
-                    left: Box::new(cast_l),
-                    right: Box::new(cast_r),
-                    result_type,
+            Expr::Binary { left, op, right } => match op {
+                BinOp::And | BinOp::Or => {
+                    self.translate_short_circuit(
+                        program, func, current_block, left, right, op,
+                    )
                 }
-            }
+                _ => {
+                    let l = self.translate_expr(program, func, current_block, left);
+                    let r = self.translate_expr(program, func, current_block, right);
+
+                    // ─── UNIFY TYPES ─── Type comes from the analyzer.
+                    let result_type = self.type_of_expr(expr)
+                        .cloned()
+                        .unwrap_or(Type::Unknown);
+
+                    // Keep IR self-consistent by inserting Int→Float coercions.
+                    let (cast_l, cast_r) = match (l.type_of(), r.type_of()) {
+                        (Type::Int, Type::Float) => (
+                            TypedIRValue::Cast { value: Box::new(l), target_type: Type::Float },
+                            r,
+                        ),
+                        (Type::Float, Type::Int) => (
+                            l,
+                            TypedIRValue::Cast { value: Box::new(r), target_type: Type::Float },
+                        ),
+                        _ => (l, r),
+                    };
+
+                    let semantic_op = match op {
+                        BinOp::Add => SemanticBinOp::Add,
+                        BinOp::Subtract => SemanticBinOp::Subtract,
+                        BinOp::Multiply => SemanticBinOp::Multiply,
+                        BinOp::Divide => SemanticBinOp::Divide,
+                        BinOp::Greater => SemanticBinOp::Greater,
+                        BinOp::Less => SemanticBinOp::Less,
+                        BinOp::GreaterEqual => SemanticBinOp::GreaterEqual,
+                        BinOp::LessEqual => SemanticBinOp::LessEqual,
+                        BinOp::Equal => SemanticBinOp::Equal,
+                        BinOp::NotEqual => SemanticBinOp::NotEqual,
+                        // And/Or are handled by the arm above; these
+                        // arms keep the inner match exhaustive.
+                        BinOp::And => SemanticBinOp::And,
+                        BinOp::Or => SemanticBinOp::Or,
+                    };
+                    TypedIRValue::BinaryOp {
+                        op: semantic_op,
+                        left: Box::new(cast_l),
+                        right: Box::new(cast_r),
+                        result_type,
+                    }
+                }
+            },
             Expr::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
 

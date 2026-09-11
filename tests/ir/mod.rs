@@ -4,3 +4,4 @@ pub mod optimization_safety_test;
 pub mod optimizer_test;
 pub mod try_catch_test;
 pub mod borrow_deref_addrof_test;
+pub mod short_circuit_test;

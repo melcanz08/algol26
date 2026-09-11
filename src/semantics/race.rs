@@ -117,9 +117,8 @@ impl RaceDetector {
 
     fn collect_declarations_from_stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::VarDecl { name, .. } => {
-                // No is_mutable field - just track the variable
-                self.variable_mutability.insert(name.clone(), true);
+            Stmt::VarDecl { name, mutable, .. } => {
+                self.variable_mutability.insert(name.clone(), *mutable);
             }
             Stmt::Expression(Expr::If {
                 then_branch,
@@ -192,13 +191,21 @@ impl RaceDetector {
                 }
                 self.analyze_expr(value, in_spawn);
             }
-            Stmt::VarDecl { name, value, .. } => {
-                if in_spawn {
-                    if let Some(accesses) = self.spawned_accesses.last_mut() {
-                        Self::merge_access_map(accesses, name, AccessType::Write);
+            Stmt::VarDecl { name, value, mutable, .. } => {
+                // Only `var` bindings participate in race analysis. A
+                // `val` is written exactly once, before any concurrent
+                // observer could exist, and never reassigned — so it
+                // cannot race with anything. Recording it as a write
+                // produces false positives on read-only sharing (e.g.
+                // `val x := 42; spawn { print(x) }`).
+                if *mutable {
+                    if in_spawn {
+                        if let Some(accesses) = self.spawned_accesses.last_mut() {
+                            Self::merge_access_map(accesses, name, AccessType::Write);
+                        }
+                    } else {
+                        Self::merge_access_map(&mut self.main_accesses, name, AccessType::Write);
                     }
-                } else {
-                    Self::merge_access_map(&mut self.main_accesses, name, AccessType::Write);
                 }
                 self.analyze_expr(value, in_spawn);
             }
@@ -278,8 +285,10 @@ impl RaceDetector {
                 Self::merge_access_map(accesses, name, AccessType::Write);
                 self.collect_expr_accesses(value, accesses);
             }
-            Stmt::VarDecl { name, value, .. } => {
-                Self::merge_access_map(accesses, name, AccessType::Write);
+            Stmt::VarDecl { name, value, mutable, .. } => {
+                if *mutable {
+                    Self::merge_access_map(accesses, name, AccessType::Write);
+                }
                 self.collect_expr_accesses(value, accesses);
             }
             Stmt::Print { expr } => {
@@ -538,5 +547,53 @@ mod tests {
         let mut access = AccessType::ReadWrite;
         RaceDetector::merge_access(&mut access, AccessType::Read);
         assert_eq!(access, AccessType::ReadWrite);
+    }
+    #[test]
+    fn test_val_sharing_is_not_a_race() {
+        use crate::frontend::lexer::Lexer;
+        use crate::frontend::parser::Parser;
+
+        let src = "\
+    procedure main
+        val x := 42
+        spawn
+            print(x)
+        print(x)
+    ";
+        let lexer = Lexer::new(src.to_string()).unwrap();
+        let mut parser = Parser::new(lexer.tokens);
+        let program = parser.parse_program().unwrap();
+
+        let mut detector = RaceDetector::new();
+        let races = detector.analyze(&program.functions);
+        assert!(
+            races.is_empty(),
+            "read-only sharing of a val must not be a race, got: {:?}",
+            races
+        );
+    }
+
+    #[test]
+    fn test_var_read_during_spawn_is_conservatively_flagged() {
+        use crate::frontend::lexer::Lexer;
+        use crate::frontend::parser::Parser;
+
+        let src = "\
+    procedure main
+        var x := 42
+        spawn
+            print(x)
+        print(x)
+    ";
+        let lexer = Lexer::new(src.to_string()).unwrap();
+        let mut parser = Parser::new(lexer.tokens);
+        let program = parser.parse_program().unwrap();
+
+        let mut detector = RaceDetector::new();
+        let races = detector.analyze(&program.functions);
+        assert!(
+            !races.is_empty(),
+            "mutable variable shared across spawn must be flagged"
+        );
     }
 }

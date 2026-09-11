@@ -1,5 +1,15 @@
 # ALGOL26 Language Specification v0.1.0
 
+> **ARCHIVED — 2026-09-11**
+>
+> This document was accurate at the time it was written. It
+> describes an earlier state of the codebase and may reference
+> modules or behaviors that no longer exist. Do not rely on it
+> for current behavior.
+>
+> Current documentation: see `docs/README.md`.
+
+
 ## 1. Introduction
 
 ALGOL26 is a historically inspired reconstruction and hypothetical continuation of ALGOL 58, preserving ALGOL's emphasis on clear algorithms, mathematical notation, structured control flow, and procedural abstraction while replacing explicit block delimiters with significant indentation and incorporating lessons learned from nearly seven decades of programming-language research.

@@ -1,5 +1,15 @@
 # ALGOL26 Testing Report
 
+> **ARCHIVED — 2026-09-11**
+>
+> This document was accurate at the time it was written. It
+> describes an earlier state of the codebase and may reference
+> modules or behaviors that no longer exist. Do not rely on it
+> for current behavior.
+>
+> Current documentation: see `docs/README.md`.
+
+
 ## Current Test Results
 
 ### Unit Tests

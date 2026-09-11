@@ -1,5 +1,15 @@
 # ALGOL26 v0.5 Language Freeze
 
+> **ARCHIVED — 2026-09-11**
+>
+> This document was accurate at the time it was written. It
+> describes an earlier state of the codebase and may reference
+> modules or behaviors that no longer exist. Do not rely on it
+> for current behavior.
+>
+> Current documentation: see `docs/README.md`.
+
+
 **Declared**: 2026-09-03
 **Effective**: Immediately
 

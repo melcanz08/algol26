@@ -1,5 +1,15 @@
 # Contextual Typing — Implementation Status
 
+> **ARCHIVED — 2026-09-11**
+>
+> This document was accurate at the time it was written. It
+> describes an earlier state of the codebase and may reference
+> modules or behaviors that no longer exist. Do not rely on it
+> for current behavior.
+>
+> Current documentation: see `docs/README.md`.
+
+
 **Date**: 2026-09-04
 **Status**: CODE COMPLETE but UNTESTABLE (language syntax gap)
 

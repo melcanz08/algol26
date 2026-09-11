@@ -1,5 +1,15 @@
 # List Ops — Fixed
 
+> **ARCHIVED — 2026-09-11**
+>
+> This document was accurate at the time it was written. It
+> describes an earlier state of the codebase and may reference
+> modules or behaviors that no longer exist. Do not rely on it
+> for current behavior.
+>
+> Current documentation: see `docs/README.md`.
+
+
 ## Before: 80% TEMPORARY
 evaluate_list_operation only handled TypedIRValue::List literal, ignored Variable.
 List.sum(arr) returned 0.0, List.length(arr) returned 0.

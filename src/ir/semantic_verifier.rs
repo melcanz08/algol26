@@ -30,18 +30,36 @@
 //   `MutBorrow`, `Deref`, `AddrOf`, `Call`. Each verifies its operands
 //   and cross-checks its self-described type against the computed type.
 //
-// Not yet verified:
-//   - `ArrayAssign`, `IteratorInit`, `Send`/`Receive`, `ChannelDecl`,
-//     `Allocate`, `Free`.
-//   - `Cast` legality (only structural recursion; a String→Int cast
-//     is not rejected here).
-//   - `Spawn`/`Fork` capture semantics.
+// Stage 2 additionally verifies:
+//   - `ArrayAssign` — array is a list, index is Int, value coerces
+//     to the element type.
+//   - `Call` (instruction form) — resolves to a known signature,
+//     args match, result variable is bound to the return type.
+//   - `MethodCall` (instruction form) — receiver is declared, args
+//     verify, result is bound. Full method resolution is the
+//     analyzer's responsibility.
+//   - `IteratorInit` — iterable is a list; the element type is
+//     recorded so `IteratorNext` can bind the loop variable with its
+//     real type.
+//   - `ChannelDecl`, `Send`, `Receive`, `ChannelSend`,
+//     `ChannelReceive` — channel variables must have `Channel<T>`
+//     type; receive targets are bound to the element type.
+//   - `Allocate` — size is Int; the target is registered with the
+//     declared type.
+//   - `Free` — operand is `Ptr`-compatible.
+//   - `Cast` — source type must `can_cast_to` the target type when
+//     both are known.
+//   - `MethodCall` (value form), `Array`, `Range`, `FieldAccess`
+//     receive structural checks and return their claimed type.
+//
+// Still not verified:
+//   - `Spawn`/`Fork` capture semantics (ownership transfer into a
+//     spawned block).
 //   - Data-flow joins at CFG merges — the current DFS uses a
 //     first-visited-wins environment, not a proper fixed-point join.
-//     This is sufficient to catch the common bugs but not complete.
-//   - Absolute bounds proofs for `ArrayAccess`. Only type-level checks
-//     are performed; the runtime (LLVM and interpreter) is responsible
-//     for bounds enforcement.
+//   - Absolute bounds proofs for `ArrayAccess`. Only type-level
+//     checks are performed; the runtime is responsible for
+//     enforcement.
 //
 // Built-in signatures (Math.*, String.*, File.*, List.*, alloc, free)
 // are registered here rather than appearing as SemanticFunction
@@ -149,6 +167,10 @@ struct VerifyEnv {
     variables: HashMap<String, Type>,
     mutability: HashMap<String, bool>,
     function_sigs: HashMap<String, FunctionSignature>,
+    /// Element type of each active iterator, recorded by `IteratorInit`
+    /// and consumed by `IteratorNext` to bind the loop variable with
+    /// its real type instead of `Unknown`.
+    iterator_elem_types: HashMap<String, Type>,
 }
 
 impl VerifyEnv {
@@ -166,6 +188,7 @@ impl VerifyEnv {
             variables,
             mutability,
             function_sigs: sigs.clone(),
+            iterator_elem_types: HashMap::new(),
         }
     }
 }
@@ -243,13 +266,24 @@ fn successors_with_envs(
         }
 
         Terminator::IteratorNext {
+            iterator,
             target,
             body_block,
             exit_block,
             ..
         } => {
             let mut body_env = env.clone();
-            body_env.variables.insert(target.clone(), Type::Unknown);
+            // The element type was recorded by `IteratorInit` in the
+            // block that precedes the loop's condition block. If it is
+            // missing, fall back to `Unknown` — the analyzer will have
+            // already rejected programs where the type was truly
+            // unknowable.
+            let elem_ty = env
+                .iterator_elem_types
+                .get(iterator)
+                .cloned()
+                .unwrap_or(Type::Unknown);
+            body_env.variables.insert(target.clone(), elem_ty);
             body_env.mutability.insert(target.clone(), false);
             vec![(*body_block, body_env), (*exit_block, env.clone())]
         }
@@ -343,12 +377,7 @@ fn verify_instruction(
             let value_ty = verify_value(value, env)?;
 
             // `Void` is a legitimate placeholder for variables that are
-            // declared in one block and assigned in another — the
-            // canonical example being the result variable of a
-            // value-producing if/match/try. The eventual `Assign`
-            // instruction is where the type is really checked.
-            //
-            // Every other value is checked against the declared type.
+            // declared in one block and assigned in another.
             if !matches!(value, TypedIRValue::Void)
                 && *type_ != Type::Unknown
                 && value_ty != Type::Unknown
@@ -387,17 +416,11 @@ fn verify_instruction(
 
             let value_ty = verify_value(value, env)?;
 
-            // Assigning through a mut-borrow writes the inner type.
             let expected = match &target_ty {
                 Type::MutBorrow(inner) => (**inner).clone(),
                 _ => target_ty.clone(),
             };
 
-            // Use the same recursive compatibility check as Call: treat
-            // Unknown (at the top level or nested inside a composite) as
-            // a wildcard. This is what allows `__result_N` / `__try_value_N`
-            // placeholder variables to be declared with partially-unknown
-            // types and assigned concrete ones in their branches.
             if !types_compatible_for_call(&value_ty, &expected) {
                 return Err(format!(
                     "Function '{}': Assign to '{}' expected {:?}, found {:?}",
@@ -413,8 +436,225 @@ fn verify_instruction(
             Ok(())
         }
 
-        // Other instructions are verified in later stages.
-        _ => Ok(()),
+        // ─── Stage 2 additions ───
+
+        Instruction::ArrayAssign {
+            array,
+            index,
+            value,
+        } => {
+            let arr_ty = verify_value(array, env)?;
+            let idx_ty = verify_value(index, env)?;
+
+            if !idx_ty.is_unknown() && idx_ty != Type::Int {
+                return Err(format!(
+                    "Function '{}': ArrayAssign index must be Int, found {:?}",
+                    func.name, idx_ty
+                ));
+            }
+
+            let elem = match arr_ty {
+                Type::List(t) => *t,
+                Type::Array(t, _) => *t,
+                Type::Unknown => Type::Unknown,
+                other => {
+                    return Err(format!(
+                        "Function '{}': ArrayAssign on non-list type {:?}",
+                        func.name, other
+                    ));
+                }
+            };
+
+            let val_ty = verify_value(value, env)?;
+            if !elem.is_unknown()
+                && !val_ty.is_unknown()
+                && !val_ty.can_coerce_to(&elem)
+                && val_ty != elem
+            {
+                return Err(format!(
+                    "Function '{}': ArrayAssign value type {:?} does not coerce to element type {:?}",
+                    func.name, val_ty, elem
+                ));
+            }
+            Ok(())
+        }
+
+        Instruction::Call {
+            func: callee,
+            args,
+            result,
+        } => {
+            let arg_types: Result<Vec<_>, _> =
+                args.iter().map(|a| verify_value(a, env)).collect();
+            let arg_types = arg_types?;
+
+            let sig = env.function_sigs.get(callee).ok_or_else(|| {
+                format!(
+                    "Function '{}': Call to undefined function '{}'",
+                    func.name, callee
+                )
+            })?;
+
+            if arg_types.len() != sig.params.len() {
+                return Err(format!(
+                    "Function '{}': Call to '{}' expects {} args, found {}",
+                    func.name, callee, sig.params.len(), arg_types.len()
+                ));
+            }
+
+            for (i, ((_, param_ty), arg_ty)) in
+                sig.params.iter().zip(&arg_types).enumerate()
+            {
+                if arg_ty.is_unknown() || param_ty.is_unknown() {
+                    continue;
+                }
+                if types_compatible_for_call(arg_ty, param_ty) {
+                    continue;
+                }
+                return Err(format!(
+                    "Function '{}': Call to '{}' arg {} type mismatch: expected {:?}, found {:?}",
+                    func.name, callee, i, param_ty, arg_ty
+                ));
+            }
+
+            if let Some(name) = result {
+                env.variables.insert(name.clone(), sig.return_type.clone());
+                env.mutability.insert(name.clone(), false);
+            }
+            Ok(())
+        }
+
+        Instruction::MethodCall {
+            object,
+            method: _,
+            args,
+            result,
+        } => {
+            // The verifier has no trait registry, so it cannot resolve
+            // the method to a signature. It checks structural soundness
+            // — the receiver exists, the arguments verify — and
+            // registers the result with `Unknown`. Real method-type
+            // checking is the analyzer's responsibility.
+            if !env.variables.contains_key(object) {
+                return Err(format!(
+                    "Function '{}': MethodCall receiver '{}' not declared",
+                    func.name, object
+                ));
+            }
+            for a in args {
+                verify_value(a, env)?;
+            }
+            if let Some(name) = result {
+                env.variables.insert(name.clone(), Type::Unknown);
+                env.mutability.insert(name.clone(), false);
+            }
+            Ok(())
+        }
+
+        Instruction::IteratorInit { iterator, iterable } => {
+            let iter_ty = verify_value(iterable, env)?;
+
+            let elem_ty = match &iter_ty {
+                Type::List(t) => (**t).clone(),
+                Type::Array(t, _) => (**t).clone(),
+                Type::Unknown => Type::Unknown,
+                other => {
+                    return Err(format!(
+                        "Function '{}': IteratorInit on non-list type {:?}",
+                        func.name, other
+                    ));
+                }
+            };
+
+            // Record the element type. `IteratorNext` reads it back to
+            // bind the loop variable with the actual element type.
+            env.iterator_elem_types.insert(iterator.clone(), elem_ty);
+            Ok(())
+        }
+
+        Instruction::ChannelDecl { name, type_ } => {
+            match type_ {
+                Type::Channel(_) | Type::Unknown => {}
+                other => {
+                    return Err(format!(
+                        "Function '{}': ChannelDecl '{}' declared with non-channel type {:?}",
+                        func.name, name, other
+                    ));
+                }
+            }
+            env.variables.insert(name.clone(), type_.clone());
+            env.mutability.insert(name.clone(), false);
+            Ok(())
+        }
+
+        Instruction::Send { channel, value }
+        | Instruction::ChannelSend { channel, value } => {
+            let chan_ty = env.variables.get(channel).ok_or_else(|| {
+                format!(
+                    "Function '{}': Send on undeclared channel '{}'",
+                    func.name, channel
+                )
+            })?;
+            if !matches!(chan_ty, Type::Channel(_) | Type::Unknown) {
+                return Err(format!(
+                    "Function '{}': Send on non-channel variable '{}' of type {:?}",
+                    func.name, channel, chan_ty
+                ));
+            }
+            verify_value(value, env)?;
+            Ok(())
+        }
+
+        Instruction::Receive { channel, target }
+        | Instruction::ChannelReceive { channel, target } => {
+            let chan_ty = env.variables.get(channel).ok_or_else(|| {
+                format!(
+                    "Function '{}': Receive on undeclared channel '{}'",
+                    func.name, channel
+                )
+            })?;
+            let elem_ty = match chan_ty {
+                Type::Channel(t) => (**t).clone(),
+                Type::Unknown => Type::Unknown,
+                other => {
+                    return Err(format!(
+                        "Function '{}': Receive on non-channel variable '{}' of type {:?}",
+                        func.name, channel, other
+                    ));
+                }
+            };
+            env.variables.insert(target.clone(), elem_ty);
+            env.mutability.insert(target.clone(), true);
+            Ok(())
+        }
+
+        Instruction::Allocate {
+            target,
+            size,
+            type_,
+        } => {
+            let size_ty = verify_value(size, env)?;
+            if !size_ty.is_unknown() && size_ty != Type::Int {
+                return Err(format!(
+                    "Function '{}': Allocate size must be Int, found {:?}",
+                    func.name, size_ty
+                ));
+            }
+            env.variables.insert(target.clone(), type_.clone());
+            env.mutability.insert(target.clone(), true);
+            Ok(())
+        }
+
+        Instruction::Free { ptr } => {
+            let ptr_ty = verify_value(ptr, env)?;
+            match ptr_ty {
+                Type::Pointer(_) | Type::Ptr | Type::Unknown => Ok(()),
+                other => Err(format!(
+                    "Function '{}': Free on non-pointer type {:?}",
+                    func.name, other
+                )),
+            }
+        }
     }
 }
 
@@ -431,7 +671,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
         TypedIRValue::Void => Type::Void,
         TypedIRValue::NullPtr => Type::Ptr,
         TypedIRValue::PtrLiteral(_) => Type::Ptr,
-
         TypedIRValue::Variable(name, claimed) => {
             let actual = env
                 .variables
@@ -447,7 +686,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             actual
         }
-
         TypedIRValue::List(elements, claimed_elem) => {
             let mut common: Option<Type> = None;
             for elem in elements {
@@ -469,7 +707,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             Type::list(elem_ty)
         }
-
         TypedIRValue::BinaryOp {
             op,
             left,
@@ -491,14 +728,26 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             expected
         }
-
         TypedIRValue::Cast { value, target_type } => {
-            // Stage 1: recurse for structural soundness, but don't enforce
-            // cast legality yet. That's Stage 3 work.
-            let _ = verify_value(value, env)?;
+            let source_ty = verify_value(value, env)?;
+
+            // Reject casts the language does not consider legal, but
+            // only when both types are known. `Unknown` on either side
+            // is permissive: the analyzer has already made the decision,
+            // and the verifier is a second check that should not invent
+            // errors the analyzer accepted.
+            if !source_ty.is_unknown()
+                && !target_type.is_unknown()
+                && source_ty != *target_type
+                && !source_ty.can_cast_to(target_type)
+            {
+                return Err(format!(
+                    "Cast from {:?} to {:?} is not permitted",
+                    source_ty, target_type
+                ));
+            }
             target_type.clone()
         }
-
         TypedIRValue::ArrayAccess {
             array,
             index,
@@ -528,7 +777,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             elem
         }
-
         TypedIRValue::Borrow { expr, target_type } => {
             let inner = verify_value(expr, env)?;
             let expected = Type::borrow(inner);
@@ -540,7 +788,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             expected
         }
-
         TypedIRValue::MutBorrow { expr, target_type } => {
             let inner = verify_value(expr, env)?;
             let expected = Type::mut_borrow(inner);
@@ -552,7 +799,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             expected
         }
-
         TypedIRValue::Deref { expr, target_type } => {
             let inner = verify_value(expr, env)?;
             let expected = match inner {
@@ -570,7 +816,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             expected
         }
-
         TypedIRValue::AddrOf { expr, target_type } => {
             let inner = verify_value(expr, env)?;
             let expected = Type::pointer(inner);
@@ -582,7 +827,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             expected
         }
-
         TypedIRValue::Call {
             function,
             args,
@@ -634,10 +878,85 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
             }
             sig.return_type.clone()
         }
+        // ─── Stage 2 additions ───
+        TypedIRValue::MethodCall {
+            receiver,
+            receiver_type: _,
+            method_name: _,
+            args,
+            return_type,
+        } => {
+            // Structural soundness only. The verifier has no trait
+            // registry, so method resolution and signature matching
+            // are the analyzer's job.
+            let _recv = verify_value(receiver, env)?;
+            for a in args {
+                verify_value(a, env)?;
+            }
+            return_type.clone()
+        }
+        TypedIRValue::Array(elements, elem_type, len) => {
+            if elements.len() != *len {
+                return Err(format!(
+                    "Array literal claims length {} but contains {} elements",
+                    len,
+                    elements.len()
+                ));
+            }
 
-        // Variants verified in later stages fall through with their
-        // self-described type. This preserves the current behavior for
-        // those nodes while the verifier is grown incrementally.
+            let mut common: Option<Type> = None;
+            for e in elements {
+                let t = verify_value(e, env)?;
+                common = Some(match common {
+                    None => t,
+                    Some(prev) => prev.common_supertype(&t),
+                });
+            }
+            let actual = common.unwrap_or(Type::Unknown);
+
+            if !elem_type.is_unknown()
+                && !actual.is_unknown()
+                && elem_type != &actual
+            {
+                return Err(format!(
+                    "Array literal claims element type {:?} but elements imply {:?}",
+                    elem_type, actual
+                ));
+            }
+            Type::array(actual, *len)
+        }
+        TypedIRValue::Range(start, end) => {
+            let st = verify_value(start, env)?;
+            let et = verify_value(end, env)?;
+
+            if !st.is_numeric() && !st.is_unknown() {
+                return Err(format!(
+                    "Range start must be numeric, found {:?}",
+                    st
+                ));
+            }
+            if !et.is_numeric() && !et.is_unknown() {
+                return Err(format!(
+                    "Range end must be numeric, found {:?}",
+                    et
+                ));
+            }
+            Type::list(st.common_supertype(&et))
+        }
+        TypedIRValue::FieldAccess {
+            object,
+            field: _,
+            field_type,
+        } => {
+            // The analyzer has already validated that the field exists
+            // on the object's type. Verify the object is sound and
+            // return the claimed field type.
+            let _obj = verify_value(object, env)?;
+            field_type.clone()
+        }
+        // Any remaining variant falls through with its self-described
+        // type. This is a safety valve; every variant should eventually
+        // be handled explicitly.
         _ => value.type_of(),
     })
 }
@@ -760,7 +1079,6 @@ fn verify_terminator(
             }
             Ok(())
         }
-
         Terminator::Branch { condition, .. } => {
             let cond_ty = verify_value(condition, env)?;
             if !cond_ty.is_unknown() && cond_ty != Type::Bool {
@@ -771,7 +1089,6 @@ fn verify_terminator(
             }
             Ok(())
         }
-
         Terminator::Switch { value, .. } => {
             let value_type = verify_value(value, env)?;
             if value_type == Type::Void {
@@ -782,16 +1099,18 @@ fn verify_terminator(
             }
             Ok(())
         }
-
-        Terminator::IteratorNext { target, .. } => {
-            // The iterator target is declared by this terminator. Insert
-            // it with Unknown type; later stages can recover the element
-            // type from IteratorInit.
-            env.variables.insert(target.clone(), Type::Unknown);
+        Terminator::IteratorNext {
+            iterator, target, ..
+        } => {
+            let elem_ty = env
+                .iterator_elem_types
+                .get(iterator)
+                .cloned()
+                .unwrap_or(Type::Unknown);
+            env.variables.insert(target.clone(), elem_ty);
             env.mutability.insert(target.clone(), false);
             Ok(())
         }
-
         _ => Ok(()),
     }
 }
@@ -804,7 +1123,6 @@ fn verify_terminator(
 mod tests {
     use super::*;
     use crate::ir::semantic_ir::{SemanticBlock, SemanticFunction, SemanticProgram, Terminator};
-
     fn single_block_program(
         instructions: Vec<Instruction>,
         terminator: Option<Terminator>,
@@ -828,7 +1146,6 @@ mod tests {
         });
         program
     }
-
     #[test]
     fn test_missing_return_detected() {
         let mut program = SemanticProgram::new();
@@ -847,7 +1164,6 @@ mod tests {
         });
         assert!(verify(&program).is_err());
     }
-
     #[test]
     fn test_return_type_mismatch() {
         let mut program = SemanticProgram::new();
@@ -871,7 +1187,6 @@ mod tests {
     }
 
     // ─── Stage 1: instruction-level checks ───
-
     #[test]
     fn verifier_rejects_declare_type_mismatch() {
         let program = single_block_program(
@@ -886,7 +1201,6 @@ mod tests {
         let result = verify(&program);
         assert!(result.is_err(), "expected type mismatch, got: {:?}", result);
     }
-
     #[test]
     fn verifier_rejects_assign_to_immutable() {
         let program = single_block_program(
@@ -906,7 +1220,6 @@ mod tests {
         );
         assert!(verify(&program).is_err());
     }
-
     #[test]
     fn verifier_rejects_undefined_variable_read() {
         let program = single_block_program(
@@ -917,7 +1230,6 @@ mod tests {
         );
         assert!(verify(&program).is_err());
     }
-
     #[test]
     fn verifier_rejects_binary_op_type_mismatch() {
         let program = single_block_program(
@@ -944,7 +1256,6 @@ mod tests {
         );
         assert!(verify(&program).is_err());
     }
-
     #[test]
     fn verifier_accepts_valid_declare() {
         let program = single_block_program(
@@ -958,7 +1269,6 @@ mod tests {
         );
         assert!(verify(&program).is_ok());
     }
-
     #[test]
     fn verifier_accepts_int_to_float_coercion() {
         let program = single_block_program(
@@ -968,6 +1278,174 @@ mod tests {
                 type_: Type::Float,
                 value: TypedIRValue::Int(5),
             }],
+            None,
+        );
+        assert!(verify(&program).is_ok());
+    }
+        // ─── Stage 2: instruction-level checks ───
+    #[test]
+    fn verifier_rejects_array_assign_float_index() {
+        let program = single_block_program(
+            vec![
+                Instruction::Declare {
+                    name: "xs".to_string(),
+                    mutable: true,
+                    type_: Type::list(Type::Int),
+                    value: TypedIRValue::List(
+                        vec![TypedIRValue::Int(1), TypedIRValue::Int(2)],
+                        Type::Int,
+                    ),
+                },
+                Instruction::ArrayAssign {
+                    array: Box::new(TypedIRValue::Variable("xs".into(), Type::list(Type::Int))),
+                    index: Box::new(TypedIRValue::Float(1.5)),
+                    value: TypedIRValue::Int(99),
+                },
+            ],
+            None,
+        );
+        assert!(verify(&program).is_err(), "float index must be rejected");
+    }
+    #[test]
+    fn verifier_rejects_array_assign_value_type_mismatch() {
+        let program = single_block_program(
+            vec![
+                Instruction::Declare {
+                    name: "xs".to_string(),
+                    mutable: true,
+                    type_: Type::list(Type::Int),
+                    value: TypedIRValue::List(
+                        vec![TypedIRValue::Int(1)],
+                        Type::Int,
+                    ),
+                },
+                Instruction::ArrayAssign {
+                    array: Box::new(TypedIRValue::Variable("xs".into(), Type::list(Type::Int))),
+                    index: Box::new(TypedIRValue::Int(0)),
+                    value: TypedIRValue::String("oops".into()),
+                },
+            ],
+            None,
+        );
+        assert!(
+            verify(&program).is_err(),
+            "value whose type does not match the element type must be rejected"
+        );
+    }
+    #[test]
+    fn verifier_rejects_iterator_init_on_non_list() {
+        let program = single_block_program(
+            vec![
+                Instruction::Declare {
+                    name: "n".to_string(),
+                    mutable: true,
+                    type_: Type::Int,
+                    value: TypedIRValue::Int(0),
+                },
+                Instruction::IteratorInit {
+                    iterator: "__it".to_string(),
+                    iterable: TypedIRValue::Variable("n".into(), Type::Int),
+                },
+            ],
+            None,
+        );
+        assert!(verify(&program).is_err(), "iterator over Int must be rejected");
+    }
+    #[test]
+    fn verifier_rejects_receive_on_non_channel() {
+        let program = single_block_program(
+            vec![
+                Instruction::Declare {
+                    name: "n".to_string(),
+                    mutable: true,
+                    type_: Type::Int,
+                    value: TypedIRValue::Int(0),
+                },
+                Instruction::Receive {
+                    channel: "n".to_string(),
+                    target: "y".to_string(),
+                },
+            ],
+            None,
+        );
+        assert!(verify(&program).is_err(), "receive on Int must be rejected");
+    }
+    #[test]
+    fn verifier_rejects_free_on_non_pointer() {
+        let program = single_block_program(
+            vec![
+                Instruction::Declare {
+                    name: "n".to_string(),
+                    mutable: true,
+                    type_: Type::Int,
+                    value: TypedIRValue::Int(0),
+                },
+                Instruction::Free {
+                    ptr: TypedIRValue::Variable("n".into(), Type::Int),
+                },
+            ],
+            None,
+        );
+        assert!(verify(&program).is_err(), "free on Int must be rejected");
+    }
+    #[test]
+    fn verifier_rejects_illegal_cast() {
+        let program = single_block_program(
+            vec![Instruction::Declare {
+                name: "x".to_string(),
+                mutable: true,
+                type_: Type::Int,
+                value: TypedIRValue::Cast {
+                    value: Box::new(TypedIRValue::String("hello".into())),
+                    target_type: Type::Int,
+                },
+            }],
+            None,
+        );
+        assert!(
+            verify(&program).is_err(),
+            "String -> Int cast must be rejected"
+        );
+    }
+    #[test]
+    fn verifier_accepts_channel_send_receive() {
+        let program = single_block_program(
+            vec![
+                Instruction::ChannelDecl {
+                    name: "ch".to_string(),
+                    type_: Type::channel(Type::Int),
+                },
+                Instruction::Send {
+                    channel: "ch".to_string(),
+                    value: TypedIRValue::Int(42),
+                },
+                Instruction::Receive {
+                    channel: "ch".to_string(),
+                    target: "got".to_string(),
+                },
+            ],
+            None,
+        );
+        assert!(verify(&program).is_ok());
+    }
+    #[test]
+    fn verifier_accepts_iterator_over_list() {
+        let program = single_block_program(
+            vec![
+                Instruction::Declare {
+                    name: "xs".to_string(),
+                    mutable: true,
+                    type_: Type::list(Type::Int),
+                    value: TypedIRValue::List(
+                        vec![TypedIRValue::Int(1), TypedIRValue::Int(2)],
+                        Type::Int,
+                    ),
+                },
+                Instruction::IteratorInit {
+                    iterator: "__it".to_string(),
+                    iterable: TypedIRValue::Variable("xs".into(), Type::list(Type::Int)),
+                },
+            ],
             None,
         );
         assert!(verify(&program).is_ok());

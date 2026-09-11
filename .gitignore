@@ -61,6 +61,16 @@ tests/programs/valid/fibonacci
 tests/programs/valid/hello
 tests/programs/valid/move
 
+# Under tests/programs/, only source-adjacent files are tracked.
+# Everything else is a compiled artifact from running the tests.
+tests/programs/**/*
+!tests/programs/**/*.gol
+!tests/programs/**/*.sh
+!tests/programs/**/*.md
+!tests/programs/**/*.txt
+!tests/programs/**/*.toml
+!tests/programs/**/*.json
+
 # === LLVM/Compiler artifacts ===
 *.ll
 *.bc

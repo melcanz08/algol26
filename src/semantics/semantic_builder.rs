@@ -1442,6 +1442,15 @@ impl SemanticIRBuilder {
         current_block: usize,
         stmt: &Stmt,
     ) -> FlowResult {
+        // A defer is a *pending action*, not a terminator. If we set a
+        // terminator here, `translate_block` sees the block as ended
+        // and drops every subsequent statement — including the eventual
+        // `return`.
+        //
+        // Instead: build the cleanup block, push its id onto the defer
+        // stack, and continue. The eventual terminator emitter (Return
+        // for now; Jump/Branch in a future revision) will chain the
+        // pending cleanups before emitting the real terminator.
         let cleanup_id = program.new_block_id();
 
         func.blocks.push(SemanticBlock {
@@ -1450,9 +1459,23 @@ impl SemanticIRBuilder {
             terminator: None,
         });
         self.push_scope();
-        let _cleanup_flow =
+        let cleanup_flow =
             self.translate_block(program, func, cleanup_id, std::slice::from_ref(stmt));
         self.pop_scope();
+
+        // Ensure the cleanup block has a terminator of its own. A
+        // single Return will replace it during chaining; for now, give
+        // it a Jump to itself so verification doesn't reject it as
+        // unterminated.
+        if let FlowResult::Reachable(id) = cleanup_flow {
+            if !self.block_is_terminated(func, id) {
+                let _ = self.safe_set_terminator(
+                    func,
+                    id,
+                    Terminator::Jump { block: id },
+                );
+            }
+        }
 
         if let Some(defer_ctx) = self.defer_stack.last_mut() {
             defer_ctx.cleanup_blocks.push(cleanup_id);
@@ -1461,14 +1484,6 @@ impl SemanticIRBuilder {
             defer_ctx.cleanup_blocks.push(cleanup_id);
             self.defer_stack.push(defer_ctx);
         }
-
-        let _ = self.safe_set_terminator(
-            func,
-            current_block,
-            Terminator::Defer {
-                cleanup_block: cleanup_id,
-            },
-        );
 
         FlowResult::Reachable(current_block)
     }
@@ -1727,6 +1742,46 @@ impl SemanticIRBuilder {
                         func.name, func.return_type, type_
                     ));
                 }
+                // If any defers are pending in the enclosing scope,
+                // chain them LIFO before the actual return. Each cleanup
+                // block runs its body and jumps to the next; the last
+                // one emits the real Return with the captured value.
+                if let Some(defer_ctx) = self.defer_stack.last() {
+                    if !defer_ctx.cleanup_blocks.is_empty() {
+                        let cleanups: Vec<usize> =
+                            defer_ctx.cleanup_blocks.iter().rev().copied().collect();
+
+                        // Current block jumps to the first cleanup.
+                        let _ = self.safe_set_terminator(
+                            func,
+                            current_block,
+                            Terminator::Jump { block: cleanups[0] },
+                        );
+
+                        // Each cleanup jumps to the next.
+                        for i in 0..cleanups.len() - 1 {
+                            let _ = self.safe_set_terminator(
+                                func,
+                                cleanups[i],
+                                Terminator::Jump { block: cleanups[i + 1] },
+                            );
+                        }
+
+                        // Last cleanup emits the actual return.
+                        let _ = self.safe_set_terminator(
+                            func,
+                            *cleanups.last().unwrap(),
+                            Terminator::Return {
+                                value: coerced_value,
+                                type_,
+                            },
+                        );
+
+                        return FlowResult::Unreachable;
+                    }
+                }
+
+                // No pending defers: normal return.
                 let _ = self.safe_set_terminator(
                     func,
                     current_block,

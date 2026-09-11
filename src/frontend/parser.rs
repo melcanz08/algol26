@@ -480,11 +480,34 @@ impl Parser {
                 Ok(Stmt::Continue)
             }
             Token::Defer => {
-                self.advance();
-                let stmt = self.parse_stmt()?;
-                Ok(Stmt::Defer {
-                    stmt: Box::new(stmt),
-                })
+                self.advance(); // consume 'defer'
+
+                if matches!(self.peek(), Token::Indent) {
+                    // Block form: `defer` followed by an indented body.
+                    // Parse the indented statements and wrap them in an
+                    // Expr::Block so the existing Stmt::Defer shape
+                    // (single statement) still holds.
+                    self.advance(); // consume Indent
+                    let mut stmts = Vec::new();
+                    while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                        stmts.push(self.parse_stmt()?);
+                    }
+                    if matches!(self.peek(), Token::Dedent) {
+                        self.advance(); // consume Dedent
+                    }
+                    Ok(Stmt::Defer {
+                        stmt: Box::new(Stmt::Expression(Expr::Block {
+                            statements: stmts,
+                            trailing_expr: None,
+                        })),
+                    })
+                } else {
+                    // Inline form: `defer print(...)` on one line.
+                    let stmt = self.parse_stmt()?;
+                    Ok(Stmt::Defer {
+                        stmt: Box::new(stmt),
+                    })
+                }
             }
             Token::Alloc => {
                 self.advance();

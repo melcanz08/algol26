@@ -17,7 +17,10 @@ impl DeferLoweringPass {
         }
         Ok(())
     }
-
+    // NOTE: with the new `defer` semantics, Defers are chained directly
+    // by the IR builder at return time. No `Terminator::Defer` nodes
+    // reach this pass, so it currently does nothing. Kept for
+    // historical reasons; remove once the pass is confirmed unused.
     fn lower_function(
         &self,
         func: &mut crate::ir::semantic_ir::SemanticFunction,

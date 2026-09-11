@@ -1388,6 +1388,7 @@ impl Parser {
             Token::StringLit(s) => Ok(Expr::String(s)),
             Token::True => Ok(Expr::Bool(true)),
             Token::False => Ok(Expr::Bool(false)),
+            Token::NullPtr => Ok(Expr::NullPtr), 
             Token::Identifier(name) => self.parse_identifier_expr(name),
             Token::Alloc => {
                 self.advance();

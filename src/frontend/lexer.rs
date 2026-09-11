@@ -22,6 +22,7 @@ pub enum Token {
     Print,
     True,
     False,
+    NullPtr,
 
     // Literals
     Identifier(String),
@@ -161,6 +162,7 @@ lazy_static::lazy_static! {
         m.insert("do", Token::Do);
         m.insert("true", Token::True);
         m.insert("false", Token::False);
+        m.insert("null", Token::NullPtr);
         m.insert("and", Token::And);
         m.insert("or", Token::Or);
         m.insert("not", Token::Not);

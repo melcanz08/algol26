@@ -1,5 +1,5 @@
 // ADVERSARIAL: memory safety
-// EXPECT: REJECT OR REQUIRE UNSAFE
+// EXPECT: REJECT
 procedure main
     val p := null
     val x := *p

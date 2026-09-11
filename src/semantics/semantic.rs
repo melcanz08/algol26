@@ -82,6 +82,12 @@ pub struct SemanticAnalyzer {
     moved_vars: Vec<Vec<String>>,
     borrowed_vars: Vec<HashSet<String>>,
     mutably_borrowed: Vec<HashSet<String>>,
+    /// Variables whose value is statically known to be `null`. Only
+    /// `val` bindings appear here: an immutable binding initialized to
+    /// `null` cannot be reassigned, so it is permanently null. `var`
+    /// bindings are excluded because they can be reassigned and the
+    /// analyzer does not perform value-flow tracking.
+    null_bindings: Vec<HashSet<String>>,
     in_mut_borrow: bool,
     mutable_borrows: Vec<HashMap<String, String>>,
     functions: HashMap<String, FunctionInfo>,
@@ -129,7 +135,7 @@ impl SemanticAnalyzer {
             type_constraints: vec![HashMap::new()],
             trait_registry: TraitRegistry::new(),
             deferred_captures: vec![HashSet::new()],
-
+            null_bindings: vec![HashSet::new()],
             // ─── UNIFY TYPES ───
             type_table: HashMap::new(),
         }
@@ -158,6 +164,7 @@ impl SemanticAnalyzer {
         self.list_values.push(HashMap::new());
         self.type_params.push(HashMap::new());
         self.type_constraints.push(HashMap::new());
+        self.null_bindings.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
@@ -171,6 +178,7 @@ impl SemanticAnalyzer {
         self.list_values.pop();
         self.type_params.pop();
         self.type_constraints.pop();
+        self.null_bindings.pop();
     }
 
     fn release_mutable_borrow(&mut self, reference: &str) {
@@ -745,6 +753,14 @@ impl SemanticAnalyzer {
                 }
 
                 self.declare_variable(name, value_type.clone(), *mutable)?;
+                // A `val` bound to `null` is statically known to hold
+                // null forever. Record it so a later deref can be
+                // rejected at compile time.
+                if !*mutable && matches!(value, Expr::NullPtr) {
+                    if let Some(scope) = self.null_bindings.last_mut() {
+                        scope.insert(name.clone());
+                    }
+                }
                 self.in_mut_borrow = false;
 
                 if let Expr::Var(source, _) = value {
@@ -1129,6 +1145,39 @@ impl SemanticAnalyzer {
                 Ok(Type::mut_borrow(inner_type))
             }
             Expr::Deref { expr } => {
+                // Rule: dereferencing a value statically known to be
+                // null is a compile-time safety error. The language
+                // permits `null` as a value of type `Ptr`; it does not
+                // permit a deref whose operand is provably null.
+                if matches!(expr.as_ref(), Expr::NullPtr) {
+                    return Err(CompileError::simple(
+                        "Cannot dereference a null pointer",
+                        0, 0, "", ErrorCode::E0007,
+                    ).with_suggestion(
+                        "Check the pointer for null before dereferencing, \
+                         e.g. with `if p != null then ...`",
+                    ));
+                }
+                if let Expr::Var(name, _) = expr.as_ref() {
+                    let is_known_null = self
+                        .null_bindings
+                        .iter()
+                        .rev()
+                        .any(|scope| scope.contains(name));
+                    if is_known_null {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "Cannot dereference '{}': it is statically known to be null",
+                                name
+                            ),
+                            0, 0, "", ErrorCode::E0007,
+                        ).with_suggestion(&format!(
+                            "Check '{}' for null before dereferencing",
+                            name
+                        )));
+                    }
+                }
+
                 let inner_type = self.analyze_expr(expr)?;
                 match inner_type {
                     Type::Pointer(t) => Ok(*t),
@@ -2030,4 +2079,33 @@ procedure main
         let result = analyze(source);
         assert!(result.is_err(), "double mut-borrow should fail");
     }
+    #[test]
+fn test_literal_null_deref_rejected() {
+    let source = "\
+procedure main
+    val x := *null
+";
+    assert!(analyze(source).is_err());
+}
+
+#[test]
+fn test_known_null_binding_deref_rejected() {
+    let source = "\
+procedure main
+    val p := null
+    val x := *p
+";
+    assert!(analyze(source).is_err());
+}
+
+#[test]
+fn test_null_as_value_accepted() {
+    let source = "\
+procedure main
+    val p := null
+    if p == null then
+        print(\"ok\")
+";
+    assert!(analyze(source).is_ok());
+}
 }

@@ -78,6 +78,7 @@ weather_report.txt
 tests/adversarial/0*
 tests/adversarial/1*
 tests/adversarial/2*
+tests/adversarial/3*
 !tests/adversarial/*.gol
 !tests/adversarial/*.sh
 !tests/adversarial/*.json

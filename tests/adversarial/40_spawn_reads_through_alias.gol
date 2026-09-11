@@ -6,6 +6,7 @@
 // future work. This case documents the current limitation.
 //
 // EXPECT: REVIEW
+// BACKEND: interpreter
 procedure main
     var x := 5.0
     val p := &x

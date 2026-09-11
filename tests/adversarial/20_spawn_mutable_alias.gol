@@ -1,5 +1,6 @@
 // ADVERSARIAL: concurrency
 // EXPECT: REJECT
+// BACKEND: interpreter
 procedure main
     var x := 0
     spawn

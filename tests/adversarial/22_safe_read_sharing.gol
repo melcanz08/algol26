@@ -1,5 +1,6 @@
 // POSITIVE CONTROL: concurrency
 // EXPECT: ACCEPT
+// BACKEND: interpreter
 procedure main
     val x := 42
     spawn

@@ -16,7 +16,15 @@ for test in "$TEST_DIR"/*.gol; do
   name="$(basename "$test")"
   expected="$(grep -m1 '^// EXPECT:' "$test" | sed 's#^// EXPECT: ##')"
   out="$(mktemp)"
-  "$BIN" "$test" >"$out" 2>&1
+  # Parse optional backend directive. Default: LLVM.
+  backend="$(grep -m1 '^// BACKEND:' "$test" | sed 's#^// BACKEND: ##')"
+  backend="${backend:-llvm}"
+
+  if [[ "$backend" == "interpreter" ]]; then
+      "$BIN" --interpreter "$test" >"$out" 2>&1
+  else
+      "$BIN" "$test" >"$out" 2>&1
+  fi
   status=$?
 
   case "$expected" in

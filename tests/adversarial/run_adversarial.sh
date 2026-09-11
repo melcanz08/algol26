@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_DIR="$ROOT/tests/adversarial"
 BIN="${ALGOL26_BIN:-$ROOT/target/debug/algol26}"
 [[ -x "$BIN" ]] || BIN="${ALGOL26_BIN:-$ROOT/target/release/algol26}"

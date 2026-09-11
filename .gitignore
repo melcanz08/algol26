@@ -73,3 +73,12 @@ weather_report.txt
 # === Temporary files ===
 *.tmp
 *.temp
+
+# Adversarial test outputs (compiled binaries)
+tests/adversarial/0*
+tests/adversarial/1*
+tests/adversarial/2*
+!tests/adversarial/*.gol
+!tests/adversarial/*.sh
+!tests/adversarial/*.json
+!tests/adversarial/*.md

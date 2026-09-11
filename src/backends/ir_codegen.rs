@@ -333,6 +333,53 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 };
                 let idx_val = self.compile_value(index)?;
+                if idx_val.is_int_value() {
+                    let idx_int = idx_val.into_int_value();
+                    let len = self.list_lengths.get(&arr_name).cloned().unwrap_or(0) as u64;
+                    let len_val = self.context.i64_type().const_int(len, false);
+                    let zero = self.context.i64_type().const_int(0, false);
+
+                    let is_negative = self.builder.build_int_compare(
+                        inkwell::IntPredicate::SLT, idx_int, zero, "bounds_check_neg"
+                    ).unwrap();
+                    let is_too_big = self.builder.build_int_compare(
+                        inkwell::IntPredicate::SGE, idx_int, len_val, "bounds_check_big"
+                    ).unwrap();
+                    let out_of_bounds = self.builder.build_or(is_negative, is_too_big, "oob").unwrap();
+
+                    let error_bb = self.context.append_basic_block(
+                        self.current_function.unwrap(), "bounds_error_write"
+                    );
+                    let continue_bb = self.context.append_basic_block(
+                        self.current_function.unwrap(), "bounds_ok_write"
+                    );
+
+                    self.builder.build_conditional_branch(out_of_bounds, error_bb, continue_bb).unwrap();
+
+                    self.builder.position_at_end(error_bb);
+                    let error_msg = self.builder.build_global_string_ptr(
+                        "Error: Array index out of bounds\n", "bounds_err_msg_write"
+                    ).unwrap();
+                    let printf_fn = self.module.get_function("printf").unwrap();
+                    self.builder.build_call(
+                        printf_fn, &[error_msg.as_pointer_value().into()], "print_bounds_error"
+                    ).unwrap();
+
+                    // Return void if the enclosing function is void; otherwise return 1.
+                    let current_fn = self.current_function.unwrap();
+                    match current_fn.get_type().get_return_type() {
+                        Some(_) => {
+                            self.builder
+                                .build_return(Some(&self.context.i32_type().const_int(1, false)))
+                                .unwrap();
+                        }
+                        None => {
+                            self.builder.build_return(None).unwrap();
+                        }
+                    }
+
+                    self.builder.position_at_end(continue_bb);
+                }
                 let val = self.compile_value(value)?;
                 if let Some(arr_ptr) = self.list_arrays.get(&arr_name).cloned() {
                     let array_ty = self

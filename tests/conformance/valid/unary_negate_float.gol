@@ -1,0 +1,4 @@
+// OUTPUT: -5.0
+procedure main
+    val x := 5.0
+    print(-x)

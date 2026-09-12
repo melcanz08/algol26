@@ -1,7 +1,7 @@
 // src/backends/wasm_backend.rs
 
 use crate::backends::backend::{Backend, BackendOutput};
-use crate::backends::ir_codegen::IRCodeGen;
+use crate::backends::llvm_codegen::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::ir::verified_ir::VerifiedIR;
 use inkwell::context::Context;

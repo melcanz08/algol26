@@ -1,0 +1,5 @@
+// OUTPUT: hello
+procedure main
+    val x := "hello"
+    val y := x
+    print(y)

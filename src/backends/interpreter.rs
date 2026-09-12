@@ -13,10 +13,12 @@
 //     interpreter does not create OS threads.
 //   - foreign function calls.
 //   - channel send/receive (no-op instructions).
+use crate::common::types::Type;
 use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
 };
 use std::collections::HashMap;
+
 
 #[derive(Debug, Clone)]
 pub enum RuntimeValue {
@@ -47,14 +49,10 @@ impl RuntimeValue {
 
     pub fn display(&self) -> String {
         match self {
-            RuntimeValue::Int(i) => format!("{}", i),
-            RuntimeValue::Float(f) => {
-                // Match the LLVM backend's `%.1f` formatting so both
-                // backends produce identical output for the same input.
-                format!("{:.1}", f)
-            }
+            RuntimeValue::Int(i) => crate::common::types::print::format_int(*i),
+            RuntimeValue::Float(f) => crate::common::types::print::format_float(*f),
             RuntimeValue::String(s) => s.clone(),
-            RuntimeValue::Bool(b) => format!("{}", b),
+            RuntimeValue::Bool(b) => crate::common::types::print::format_bool(*b),
             RuntimeValue::List(l) => {
                 let items: Vec<String> = l.iter().map(|v| v.display()).collect();
                 format!("[{}]", items.join(", "))
@@ -65,6 +63,21 @@ impl RuntimeValue {
             RuntimeValue::Result { is_ok: false, value } => format!("Error({})", value.display()),
             RuntimeValue::Void => String::new(),
         }
+    }
+}
+
+/// Human-readable name for a `RuntimeValue` variant, used only for
+/// diagnostics when an internal invariant is broken.
+fn runtime_kind(v: &RuntimeValue) -> &'static str {
+    match v {
+        RuntimeValue::Int(_) => "Int",
+        RuntimeValue::Float(_) => "Float",
+        RuntimeValue::String(_) => "String",
+        RuntimeValue::Bool(_) => "Bool",
+        RuntimeValue::List(_) => "List",
+        RuntimeValue::Option(_) => "Option",
+        RuntimeValue::Result { .. } => "Result",
+        RuntimeValue::Void => "Void",
     }
 }
 
@@ -179,9 +192,6 @@ impl Interpreter {
                         current = *join_block;
                     }
                 }
-                Some(Terminator::Defer { cleanup_block }) => {
-                    current = *cleanup_block;
-                }
                 Some(Terminator::Switch {
                     value,
                     cases,
@@ -261,23 +271,6 @@ impl Interpreter {
                         self.variables
                             .insert(arr_name, RuntimeValue::List(new_list));
                     }
-                }
-            }
-            Instruction::MethodCall {
-                object,
-                method,
-                args,
-                result,
-            } => {
-                let recv = self
-                    .variables
-                    .get(object)
-                    .cloned()
-                    .unwrap_or(RuntimeValue::Void);
-                let arg_vals: Vec<RuntimeValue> = args.iter().map(|a| self.eval_value(a)).collect();
-                let val = self.eval_method_call(recv, method, &arg_vals);
-                if let Some(res_name) = result {
-                    self.variables.insert(res_name.clone(), val);
                 }
             }
             _ => {}
@@ -377,7 +370,14 @@ impl Interpreter {
                 Self::eval_binop(op, l, r)
             }
             TypedIRValue::Call { function, args, .. } => self.eval_call(function, args),
-            TypedIRValue::Cast { value, .. } => self.eval_value(value),
+            TypedIRValue::Cast { value, target_type } => {
+                let v = self.eval_value(value);
+                match (v, target_type) {
+                    (RuntimeValue::Int(i), Type::Float) => RuntimeValue::Float(i as f64),
+                    (RuntimeValue::Float(f), Type::Int) => RuntimeValue::Int(f as i64),
+                    (v, _) => v,
+                }
+            }
             TypedIRValue::Some(inner) => {
                 RuntimeValue::Option(Some(Box::new(self.eval_value(inner))))
             }
@@ -395,6 +395,11 @@ impl Interpreter {
     }
 
     fn eval_binop(op: &SemanticBinOp, l: RuntimeValue, r: RuntimeValue) -> RuntimeValue {
+        // Capture the operand kinds before `(l, r)` is moved into the match.
+        // Used only on the unreachable path — cheap enough to always compute.
+        let lk = runtime_kind(&l);
+        let rk = runtime_kind(&r);
+
         match op {
             SemanticBinOp::Add => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Int(a + b),
@@ -402,74 +407,76 @@ impl Interpreter {
                 (RuntimeValue::Int(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a as f64 + b),
                 (RuntimeValue::Float(a), RuntimeValue::Int(b)) => RuntimeValue::Float(a + b as f64),
                 (RuntimeValue::String(a), RuntimeValue::String(b)) => RuntimeValue::String(a + &b),
-                _ => RuntimeValue::Void,
+                _ => unreachable!(
+                    "interpreter: Add received non-numeric operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
             SemanticBinOp::Subtract => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Int(a - b),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a - b),
-                _ => RuntimeValue::Void,
+                _ => unreachable!(
+                    "interpreter: Subtract received mixed operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
             SemanticBinOp::Multiply => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Int(a * b),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a * b),
-                _ => RuntimeValue::Void,
+                _ => unreachable!(
+                    "interpreter: Multiply received mixed operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
             SemanticBinOp::Divide => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
                     if b != 0 {
                         RuntimeValue::Int(a / b)
                     } else {
-                        RuntimeValue::Void
+                        println!("Error: integer division by zero");
+                        std::process::exit(1);
                     }
                 }
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Float(a / b),
-                _ => RuntimeValue::Void,
+                _ => unreachable!(
+                    "interpreter: Divide received mixed operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
             SemanticBinOp::Equal => RuntimeValue::Bool(l.display() == r.display()),
             SemanticBinOp::NotEqual => RuntimeValue::Bool(l.display() != r.display()),
             SemanticBinOp::Greater => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Bool(a > b),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Bool(a > b),
-                _ => RuntimeValue::Bool(false),
+                _ => unreachable!(
+                    "interpreter: Greater received mixed operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
             SemanticBinOp::Less => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Bool(a < b),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Bool(a < b),
-                _ => RuntimeValue::Bool(false),
+                _ => unreachable!(
+                    "interpreter: Less received mixed operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
             SemanticBinOp::GreaterEqual => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Bool(a >= b),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Bool(a >= b),
-                _ => RuntimeValue::Bool(false),
+                _ => unreachable!(
+                    "interpreter: GreaterEqual received mixed operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
             SemanticBinOp::LessEqual => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => RuntimeValue::Bool(a <= b),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => RuntimeValue::Bool(a <= b),
-                _ => RuntimeValue::Bool(false),
+                _ => unreachable!(
+                    "interpreter: LessEqual received mixed operands ({lk}, {rk}) — \
+                     builder should have coerced"
+                ),
             },
-            SemanticBinOp::And => RuntimeValue::Bool(l.as_bool() && r.as_bool()),
-            SemanticBinOp::Or => RuntimeValue::Bool(l.as_bool() || r.as_bool()),
-        }
-    }
-
-    fn eval_method_call(
-        &self,
-        recv: RuntimeValue,
-        method: &str,
-        _args: &[RuntimeValue],
-    ) -> RuntimeValue {
-        match recv {
-            RuntimeValue::String(s) => match method {
-                "upper" | "to_upper" => RuntimeValue::String(s.to_uppercase()),
-                "lower" | "to_lower" => RuntimeValue::String(s.to_lowercase()),
-                "len" | "length" => RuntimeValue::Float(s.len() as f64),
-                _ => RuntimeValue::Void,
-            },
-            RuntimeValue::List(list) => match method {
-                "len" | "length" => RuntimeValue::Float(list.len() as f64),
-                _ => RuntimeValue::Void,
-            },
-            _ => RuntimeValue::Void,
         }
     }
 
@@ -479,11 +486,11 @@ impl Interpreter {
         match func {
             "List.length" | "len" | "length" => {
                 if let Some(RuntimeValue::List(l)) = arg_vals.first() {
-                    RuntimeValue::Float(l.len() as f64)
+                    RuntimeValue::Int(l.len() as i64)
                 } else if let Some(RuntimeValue::String(s)) = arg_vals.first() {
-                    RuntimeValue::Float(s.len() as f64)
+                    RuntimeValue::Int(s.len() as i64)
                 } else {
-                    RuntimeValue::Float(0.0)
+                    RuntimeValue::Int(0)
                 }
             }
             "List.sum" | "sum" => {

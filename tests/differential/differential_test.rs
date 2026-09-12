@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
+use crate::differential::differential_true::{run_interpreter, run_llvm};
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -156,4 +157,23 @@ fn find_compiler() -> PathBuf {
     }
 
     panic!("Compiler binary not found. Run cargo build --release first.");
+}
+
+#[test]
+fn test_differential_bool_print() {
+    // The interpreter prints true/false; the LLVM backend must match.
+    let source = "\
+procedure main
+    print(true)
+    print(false)
+    print(1.0 == 1.0)
+    print(1.0 == 2.0)
+";
+    let interp_out = run_interpreter(source);
+    let llvm_out = run_llvm(source);
+    assert_eq!(
+        interp_out, llvm_out,
+        "LLVM and interpreter disagree on bool output"
+    );
+    assert_eq!(interp_out.trim(), "true\nfalse\ntrue\nfalse");
 }

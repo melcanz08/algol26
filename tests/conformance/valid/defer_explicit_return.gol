@@ -1,0 +1,6 @@
+// OUTPUT: body
+// OUTPUT: cleanup
+procedure main
+    defer print("cleanup")
+    print("body")
+    return

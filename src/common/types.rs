@@ -617,6 +617,84 @@ impl fmt::Display for Type {
     }
 }
 
+/// Canonical print formatting. Both the LLVM backend and the
+/// interpreter consult this module; neither re-implements the
+/// decision about how a value of a given type is rendered.
+pub mod print {
+    use super::Type;
+
+    /// `printf` format string for the given type, if the LLVM backend
+    /// uses a straightforward `printf` lowering. Returns `None` for
+    /// `Bool` — LLVM branches on the value and emits a constant
+    /// `"true\n"` or `"false\n"` (see `llvm_codegen::emit_print_bool`).
+    pub fn llvm_format(ty: &Type) -> Option<&'static str> {
+        match ty {
+            Type::Int => Some("%lld\n"),
+            Type::Float => Some("%.1f\n"),
+            Type::String => Some("%s\n"),
+            Type::Bool => None,
+            _ => None,
+        }
+    }
+
+    /// True if the type has a print representation at all.
+    pub fn is_printable(ty: &Type) -> bool {
+        matches!(ty, Type::Int | Type::Float | Type::Bool | Type::String)
+    }
+
+    /// Interpreter rendering — must agree with `llvm_format` above
+    /// for the same input value.
+    pub fn format_int(v: i64) -> String {
+        format!("{}", v)
+    }
+
+    pub fn format_float(v: f64) -> String {
+        format!("{:.1}", v)
+    }
+
+    pub fn format_bool(v: bool) -> String {
+        format!("{}", v)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn int_is_plain_decimal() {
+            assert_eq!(format_int(0), "0");
+            assert_eq!(format_int(42), "42");
+            assert_eq!(format_int(-7), "-7");
+        }
+
+        #[test]
+        fn float_has_one_decimal_place() {
+            assert_eq!(format_float(0.0), "0.0");
+            assert_eq!(format_float(5.0), "5.0");
+            assert_eq!(format_float(42.5), "42.5");
+            assert_eq!(format_float(-1.5), "-1.5");
+        }
+
+        #[test]
+        fn bool_is_lowercase() {
+            assert_eq!(format_bool(true), "true");
+            assert_eq!(format_bool(false), "false");
+        }
+
+        /// The `%lld\n` spec is what `printf` uses for `format_int`'s
+        /// output; this test just pins the format characters so a
+        /// future edit to one side has to notice the other.
+        #[test]
+        fn llvm_specs_match_interpreter_formats() {
+            assert_eq!(llvm_format(&Type::Int),    Some("%lld\n"));
+            assert_eq!(llvm_format(&Type::Float),  Some("%.1f\n"));
+            assert_eq!(llvm_format(&Type::String), Some("%s\n"));
+            assert_eq!(llvm_format(&Type::Bool),   None);
+            assert_eq!(llvm_format(&Type::Void),   None);
+        }
+    }
+}
+
 // Convenience type aliases
 pub type TypeResult = Result<Type, String>;
 

@@ -1,0 +1,5 @@
+// OUTPUT: 5
+// OUTPUT: 5.0
+procedure main
+    print(5)
+    print(5.0)

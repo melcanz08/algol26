@@ -1,0 +1,9 @@
+// BACKEND: interpreter
+// OUTPUT: 42
+procedure main
+    val opt := Some(42)
+    match opt
+        case Some(v)
+            print(v)
+        case None
+            print(0)

@@ -230,7 +230,6 @@ impl Optimizer {
                         SemanticBinOp::LessEqual => Some(if l <= r { 1.0 } else { 0.0 }),
                         SemanticBinOp::Equal => Some(if l == r { 1.0 } else { 0.0 }),
                         SemanticBinOp::NotEqual => Some(if l != r { 1.0 } else { 0.0 }),
-                        _ => None,
                     };
 
                     if let Some(res) = result {

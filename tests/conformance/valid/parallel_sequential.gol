@@ -1,0 +1,11 @@
+// BACKEND: interpreter
+// OUTPUT: start
+// OUTPUT: A
+// OUTPUT: B
+// OUTPUT: end
+procedure main
+    print("start")
+    parallel
+        print("A")
+        print("B")
+    print("end")

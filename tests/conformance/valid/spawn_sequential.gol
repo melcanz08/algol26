@@ -1,0 +1,9 @@
+// BACKEND: interpreter
+// OUTPUT: before
+// OUTPUT: spawned
+// OUTPUT: after
+procedure main
+    print("before")
+    spawn
+        print("spawned")
+    print("after")

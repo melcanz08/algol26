@@ -1,0 +1,7 @@
+// BACKEND: interpreter
+// OUTPUT: hello
+// OUTPUT: HELLO
+procedure main
+    val s := "hello"
+    print(s)
+    print(String.to_upper(s))

@@ -1,0 +1,5 @@
+// ERROR_CODE: E0007
+procedure main
+    var x := 5.0
+    val y := &mut x
+    val z := &mut x

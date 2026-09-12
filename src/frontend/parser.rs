@@ -1131,18 +1131,23 @@ impl Parser {
                     }
                     self.expect_token(Token::RParen, "')'")?;
                     let span = self.peek_info().clone();
-                    // Use FunctionCall with dotted name for backend compatibility
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: format!("{}.{}", name, method_name),
                         args,
                         span: Span::point(span.line, span.column),
                     }))
                 } else {
-                    // Field access (still unsupported by backend, but keep as FieldAccess)
+                    // Bare method syntax (`s.length`) — no parens. Desugar to a
+                    // zero-arg dotted call so it matches the parens form and the
+                    // expression parser's handling.
+                    //
+                    // NOTE: when struct support lands, this needs a discriminator
+                    // to tell `s.length` (method) from `point.x` (field). Today
+                    // nothing produces a valid FieldAccess, so no case is lost.
                     let span = self.peek_info().clone();
-                    Ok(Stmt::Expression(Expr::FieldAccess {
-                        object: Box::new(Expr::Var(name, Span::point(span.line, span.column))),
-                        field: method_name,
+                    Ok(Stmt::Expression(Expr::FunctionCall {
+                        name: format!("{}.{}", name, method_name),
+                        args: Vec::new(),
                         span: Span::point(span.line, span.column),
                     }))
                 }
@@ -1500,7 +1505,8 @@ impl Parser {
         } else if matches!(self.peek(), Token::Dot) {
             self.advance(); // consume dot
             let method_name = self.expect_identifier("method name")?;
-            if matches!(self.peek(), Token::LParen) {
+
+            let args = if matches!(self.peek(), Token::LParen) {
                 self.advance();
                 let mut args = Vec::new();
                 while !matches!(self.peek(), Token::RParen | Token::Eof) {
@@ -1510,21 +1516,23 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RParen, "')'")?;
-                let span = self.peek_info().clone();
-                Ok(Expr::FunctionCall {
-                    name: format!("{}.{}", name, method_name),
-                    args,
-                    span: Span::point(span.line, span.column),
-                })
+                args
             } else {
-                // Field access
-                let span = self.peek_info().clone();
-                Ok(Expr::FieldAccess {
-                    object: Box::new(Expr::Var(name, Span::point(span.line, span.column))),
-                    field: method_name,
-                    span: Span::point(span.line, span.column),
-                })
-            }
+                // Bare method syntax (`s.length`) — no parens. Desugar to a
+                // zero-arg dotted call so it behaves like `s.length()`.
+                //
+                // NOTE: when struct support lands, this needs a discriminator
+                // to tell `s.length` (method) from `point.x` (field). Today
+                // nothing produces a valid FieldAccess, so no case is lost.
+                Vec::new()
+            };
+
+            let span = self.peek_info().clone();
+            Ok(Expr::FunctionCall {
+                name: format!("{}.{}", name, method_name),
+                args,
+                span: Span::point(span.line, span.column),
+            })
         } else {
             let span = self.peek_info().clone();
             Ok(Expr::Var(name, Span::point(span.line, span.column)))

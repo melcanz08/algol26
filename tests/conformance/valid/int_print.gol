@@ -1,0 +1,5 @@
+// OUTPUT: 42
+// OUTPUT: -7
+procedure main
+    print(42)
+    print(0 - 7)

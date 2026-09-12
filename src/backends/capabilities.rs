@@ -132,11 +132,67 @@ pub fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
     used
 }
 
-/// Classify a function name into a feature, if it maps to one.
-/// `String.length` is intentionally excluded — the LLVM backend
-/// lowers it via `strlen` and it should not force an interpreter
-/// fallback on programs that only need string length.
+/// Classify a function name into a `Feature`, if it maps to one.
+///
+/// This function is the **dispatch half** of the capability contract.
+/// The `Feature` enum documents *what each feature is*; this function
+/// documents *which built-in names trigger which feature*. Keeping
+/// both in sync is what makes the capability matrix trustworthy: the
+/// matrix refuses a program iff the set of features it uses intersects
+/// the LLVM backend's "cannot lower" set, and that set is exactly the
+/// variants classified here.
+///
+/// # Classification rules
+///
+/// | Name pattern                | Feature             |
+/// |-----------------------------|---------------------|
+/// | `String.*` (see exclusions) | `StringFunctions`   |
+/// | `File.*`                    | `FileFunctions`     |
+/// | `List.sum` / `.max` / `.min`| `ListAggregates`    |
+/// | anything else               | (none — permitted)  |
+///
+/// Other `Feature` variants — `Result`, `Spawn`, `Fork`, `Channels`,
+/// `Ffi`, `ListPrint` — are classified by `scan_value`,
+/// `scan_instruction`, and `scan_terminator`, not by name here.
+///
+/// # Exclusions
+///
+/// `String.length` / `String.len` are deliberately **not** classified
+/// under `StringFunctions`. They have a real LLVM lowering
+/// (`IRCodeGen::compile_builtin_value` emits a `strlen` call), so a
+/// program whose only string operation is `.length` should compile
+/// through LLVM rather than being sent to the interpreter. Classifying
+/// them here would regress that case.
+///
+/// `List.length` is likewise not classified under `ListAggregates`.
+/// The LLVM backend lowers it from static list lengths tracked in
+/// `IRCodeGen::list_lengths`.
+///
+/// # Maintenance
+///
+/// Two invariants keep this function honest against the LLVM backend:
+///
+/// 1. **Every name classified here must lack a `compile_builtin_value`
+///    arm.** If you add an LLVM lowering for a name, remove it from
+///    the corresponding classification rule (or add it to the
+///    exclusions at the top of this function).
+///
+/// 2. **Every name *not* classified here must have a
+///    `compile_builtin_value` arm**, unless it's a user function
+///    (dispatched by `module.get_function`) or one of the explicit
+///    exclusions above. Otherwise the program passes the matrix and
+///    then fails at codegen with "unhandled builtin."
+///
+/// When adding a new `Feature` variant, add its display string in
+/// `Feature::description` and its name pattern here in the same commit.
 fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
+    // `String.length` / `String.len` have an LLVM lowering via strlen;
+    // skip them so programs that only need string length still compile
+    // through LLVM. See "Exclusions" in the doc-comment above.
+    if name == "String.length" || name == "String.len" {
+        return;
+    }
+
     if name.starts_with("String.") {
         used.insert(Feature::StringFunctions);
     } else if name.starts_with("File.") {
@@ -175,11 +231,6 @@ fn scan_instruction(
                 used.insert(Feature::Ffi);
             }
             scan_call_name(func, used);
-            for a in args {
-                scan_value(a, extern_fns, used);
-            }
-        }
-        Instruction::MethodCall { args, .. } => {
             for a in args {
                 scan_value(a, extern_fns, used);
             }
@@ -239,12 +290,6 @@ fn scan_value(
         | TypedIRValue::MutBorrow { expr, .. }
         | TypedIRValue::Deref { expr, .. }
         | TypedIRValue::AddrOf { expr, .. } => scan_value(expr, extern_fns, used),
-        TypedIRValue::MethodCall { receiver, args, .. } => {
-            scan_value(receiver, extern_fns, used);
-            for a in args {
-                scan_value(a, extern_fns, used);
-            }
-        }
         TypedIRValue::Range(start, end) => {
             scan_value(start, extern_fns, used);
             scan_value(end, extern_fns, used);
@@ -282,7 +327,6 @@ fn scan_terminator(
         }
         Terminator::IteratorNext { .. }
         | Terminator::Jump { .. }
-        | Terminator::Defer { .. }
         | Terminator::Return { value: None, .. } => {}
     }
 }
@@ -535,5 +579,51 @@ mod tests {
             is_extern: false,
         });
         assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn classified_builtins_are_exactly_the_unlowered_set() {
+        // Every name classified here must be absent from the LLVM
+        // backend's compile_builtin_value. That check lives in a
+        // separate crate, so this test just pins the classification
+        // itself — a change to scan_call_name has to notice this test.
+        let cases: &[(&str, Option<Feature>)] = &[
+            ("String.concat", Some(Feature::StringFunctions)),
+            ("String.substring", Some(Feature::StringFunctions)),
+            ("String.to_upper", Some(Feature::StringFunctions)),
+            ("String.to_lower", Some(Feature::StringFunctions)),
+            ("String.length", None),
+            ("String.len", None),
+            ("File.read", Some(Feature::FileFunctions)),
+            ("File.write", Some(Feature::FileFunctions)),
+            ("File.append", Some(Feature::FileFunctions)),
+            ("List.sum", Some(Feature::ListAggregates)),
+            ("List.max", Some(Feature::ListAggregates)),
+            ("List.min", Some(Feature::ListAggregates)),
+            ("List.length", None),
+            ("Math.sqrt", None),
+            ("print", None),
+        ];
+
+        for (name, expected) in cases {
+            let mut used = HashSet::new();
+            scan_call_name(name, &mut used);
+            match expected {
+                Some(f) => assert!(
+                    used.contains(f),
+                    "'{name}' should be classified as {f:?}, got {used:?}"
+                ),
+                None => assert!(
+                    used.is_empty(),
+                    "'{name}' should not be classified, got {used:?}"
+                ),
+            }
+        }
     }
 }

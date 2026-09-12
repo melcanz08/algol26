@@ -542,32 +542,6 @@ fn verify_instruction(
             }
             Ok(())
         }
-        Instruction::MethodCall {
-            object,
-            method: _,
-            args,
-            result,
-        } => {
-            // The verifier has no trait registry, so it cannot resolve
-            // the method to a signature. It checks structural soundness
-            // — the receiver exists, the arguments verify — and
-            // registers the result with `Unknown`. Real method-type
-            // checking is the analyzer's responsibility.
-            if !env.variables.contains_key(object) {
-                return Err(format!(
-                    "Function '{}': MethodCall receiver '{}' not declared",
-                    func.name, object
-                ));
-            }
-            for a in args {
-                verify_value(a, env)?;
-            }
-            if let Some(name) = result {
-                env.variables.insert(name.clone(), Type::Unknown);
-                env.mutability.insert(name.clone(), false);
-            }
-            Ok(())
-        }
         Instruction::IteratorInit { iterator, iterable } => {
             let iter_ty = verify_value(iterable, env)?;
 
@@ -913,23 +887,6 @@ fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
                 sig.return_type.clone()
             }
         }
-        // ─── Stage 2 additions ───
-        TypedIRValue::MethodCall {
-            receiver,
-            receiver_type: _,
-            method_name: _,
-            args,
-            return_type,
-        } => {
-            // Structural soundness only. The verifier has no trait
-            // registry, so method resolution and signature matching
-            // are the analyzer's job.
-            let _recv = verify_value(receiver, env)?;
-            for a in args {
-                verify_value(a, env)?;
-            }
-            return_type.clone()
-        }
         TypedIRValue::Array(elements, elem_type, len) => {
             if elements.len() != *len {
                 return Err(format!(
@@ -1040,7 +997,6 @@ fn compute_binop_type(op: &SemanticBinOp, lt: &Type, rt: &Type) -> Result<Type, 
             }
         }
         SemanticBinOp::Equal | SemanticBinOp::NotEqual => Ok(Type::Bool),
-        SemanticBinOp::And | SemanticBinOp::Or => Ok(Type::Bool),
     }
 }
 

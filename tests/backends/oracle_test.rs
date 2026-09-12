@@ -71,7 +71,7 @@ function main() -> Int
     return 0
 "#;
     let output = run_interpreter(source);
-    assert_eq!(output, "5.0\n15.0");
+    assert_eq!(output, "5\n15.0");
 }
 
 #[test]

@@ -22,8 +22,6 @@ pub enum SemanticBinOp {
     LessEqual,
     Equal,
     NotEqual,
-    And,
-    Or,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,13 +93,6 @@ pub enum TypedIRValue {
         expr: Box<TypedIRValue>,
         target_type: Type,
     },
-    MethodCall {
-        receiver: Box<TypedIRValue>,
-        receiver_type: Type,
-        method_name: String,
-        args: Vec<TypedIRValue>,
-        return_type: Type,
-    },
     // NEW: Array literal
     Array(Vec<TypedIRValue>, Type, usize), // elements, element_type, length
 
@@ -139,7 +130,6 @@ impl TypedIRValue {
             TypedIRValue::MutBorrow { target_type, .. } => target_type.clone(),
             TypedIRValue::Deref { target_type, .. } => target_type.clone(),
             TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
-            TypedIRValue::MethodCall { return_type, .. } => return_type.clone(),
             _ => Type::Unknown,
         }
     }
@@ -175,12 +165,6 @@ pub enum Instruction {
     },
     Call {
         func: String,
-        args: Vec<TypedIRValue>,
-        result: Option<String>,
-    },
-    MethodCall {
-        object: String,
-        method: String,
         args: Vec<TypedIRValue>,
         result: Option<String>,
     },
@@ -253,9 +237,6 @@ pub enum Terminator {
         blocks: Vec<usize>,
         join_block: usize,
     },
-    Defer {
-        cleanup_block: usize,
-    },
 }
 
 pub type SemanticInstruction = Instruction;
@@ -316,7 +297,6 @@ impl Terminator {
                 v.push(*join_block);
                 v
             }
-            Self::Defer { cleanup_block } => vec![*cleanup_block],
             _ => vec![],
         }
     }

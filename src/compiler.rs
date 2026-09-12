@@ -9,12 +9,11 @@ use crate::frontend::ast::{ImplBlock, TraitDecl, TypeSyntax};
 use crate::frontend::lexer::Lexer;
 use crate::frontend::module_loader::ModuleLoader;
 use crate::frontend::parser::Parser;
-use crate::ir::defer_lowering::DeferLoweringPass;
 use crate::ir::monomorphize::Monomorphizer;
 use crate::ir::optimizer::Optimizer;
 use crate::ir::semantic_ir::SemanticProgram;
 use crate::ir::verified_ir::VerifiedIR;
-use crate::backends::ir_codegen::IRCodeGen;
+use crate::backends::llvm_codegen::IRCodeGen;
 use crate::semantics::race::RaceDetector;
 use crate::semantics::semantic::SemanticAnalyzer;
 use crate::semantics::semantic_builder::SemanticIRBuilder;
@@ -501,7 +500,7 @@ impl Compiler {
         functions: &[crate::frontend::ast::FunctionDecl],
         type_table: std::collections::HashMap<usize, crate::common::types::Type>,
     ) -> Result<SemanticProgram> {
-        let (mut program, diagnostics) =
+        let (program, diagnostics) =
             SemanticIRBuilder::build(functions, type_table);
 
         if !diagnostics.is_empty() {
@@ -518,8 +517,7 @@ impl Compiler {
         }
 
         // Execute Defer Lowering with error checking
-        let defer_pass = DeferLoweringPass::new();
-        defer_pass.lower(&mut program).map_err(|e| {
+        /*defer_pass.lower(&mut program).map_err(|e| {
             CompileError::simple(
                 &format!("Defer lowering failed: {}", e),
                 0,
@@ -527,7 +525,7 @@ impl Compiler {
                 "",
                 ErrorCode::E0002,
             )
-        })?;
+        })?;*/
 
         Ok(program)
     }
@@ -536,7 +534,7 @@ impl Compiler {
         Ok(SemanticIROptimized {
             program: ir,
             optimization_report: OptimizationReport {
-                passes_run: vec!["defer_lowering".to_string(), "cfg_verification".to_string()],
+                passes_run: vec!["cfg_verification".to_string()],
                 instructions_removed: 0,
             },
         })

@@ -1,5 +1,4 @@
 pub mod cfg_verifier;
-pub mod defer_lowering;
 pub mod loop_desugar;
 pub mod monomorphize;
 pub mod optimizer;

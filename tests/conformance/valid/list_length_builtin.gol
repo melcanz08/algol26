@@ -1,0 +1,4 @@
+// OUTPUT: 3
+procedure main
+    val nums := [1.0, 2.0, 3.0]
+    print(List.length(nums))

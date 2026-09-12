@@ -1,19 +1,13 @@
 // tests/ir/defer_lowering_test.rs - ALGOL26 - Defer Tests
 //
-// With the new defer semantics, defers are chained LIFO by the IR
-// builder when the enclosing function returns. There is no
-// Terminator::Defer in the built IR, so these tests run programs
-// through the interpreter and assert on their observable output.
-//
-// Known limitations (documented in translate_defer):
-// - Only Return chains defers. break/continue/fall-through are not
-//   handled.
+// Known limitations:
+// - break/continue do not chain defers (only Return and fall-through).
 // - One defer stack per function, no per-scope tracking.
 
 use algol26::backends::interpreter::Interpreter;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
-use algol26::ir::semantic_ir::{SemanticProgram, Terminator};
+use algol26::ir::semantic_ir::SemanticProgram;
 use algol26::semantics::semantic::SemanticAnalyzer;
 use algol26::semantics::semantic_builder::SemanticIRBuilder;
 
@@ -51,23 +45,12 @@ function f() -> Int
 procedure main
     print(f())
 ";
-    let (ir, diagnostics, output) = build_and_run(source);
+    let (_, diagnostics, output) = build_and_run(source);
     assert!(
         diagnostics.is_empty(),
         "Expected no diagnostics, got: {:?}",
         diagnostics
     );
-
-    // The built IR must not contain Terminator::Defer — the defer is
-    // chained directly at return time by the IR builder.
-    for func in &ir.functions {
-        for block in &func.blocks {
-            assert!(
-                !matches!(block.terminator, Some(Terminator::Defer { .. })),
-                "Terminator::Defer must not appear in built IR"
-            );
-        }
-    }
 
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines, vec!["cleanup", "42"], "got: {}", output);

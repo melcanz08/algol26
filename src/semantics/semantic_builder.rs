@@ -532,13 +532,57 @@ impl SemanticIRBuilder {
                 is_extern: func.is_extern,
             };
 
+            // Fresh defer scope for this function. The previous function's
+            // cleanups must not leak into this one.
+            self.defer_stack.clear();
+
             let flow = self.translate_block(&mut program, &mut semantic_func, entry_id, &func.body);
 
             match flow {
                 FlowResult::Reachable(final_id) => {
-                    if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id) {
-                        if b.terminator.is_none() {
-                            b.terminator = Some(Terminator::Return {
+                    // Fall-off-the-end of a function is an implicit `return`. If
+                    // any defers were registered during this function's body, chain
+                    // their cleanup blocks LIFO before the implicit return — same
+                    // shape as the chain in Stmt::Return.
+                    let cleanups: Vec<usize> = self
+                        .defer_stack
+                        .last()
+                        .map(|ctx| ctx.cleanup_blocks.iter().rev().copied().collect())
+                        .unwrap_or_default();
+
+                    if cleanups.is_empty() {
+                        if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id) {
+                            if b.terminator.is_none() {
+                                b.terminator = Some(Terminator::Return {
+                                    value: None,
+                                    type_: Type::Void,
+                                });
+                            }
+                        }
+                    } else {
+                        // final block → first cleanup
+                        if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id) {
+                            if b.terminator.is_none() {
+                                b.terminator = Some(Terminator::Jump { block: cleanups[0] });
+                            }
+                        }
+                        // each cleanup → next cleanup
+                        for i in 0..cleanups.len() - 1 {
+                            if let Some(cb) = semantic_func
+                                .blocks
+                                .iter_mut()
+                                .find(|b| b.id == cleanups[i])
+                            {
+                                cb.terminator = Some(Terminator::Jump { block: cleanups[i + 1] });
+                            }
+                        }
+                        // last cleanup emits the real return
+                        if let Some(cb) = semantic_func
+                            .blocks
+                            .iter_mut()
+                            .find(|b| b.id == *cleanups.last().unwrap())
+                        {
+                            cb.terminator = Some(Terminator::Return {
                                 value: None,
                                 type_: Type::Void,
                             });
@@ -2330,12 +2374,18 @@ impl SemanticIRBuilder {
                 let inner = self.translate_expr(program, func, current_block, expr);
                 let inner_type = inner.type_of();
                 match op {
-                    crate::frontend::ast::UnaryOp::Negate => TypedIRValue::BinaryOp {
-                        op: SemanticBinOp::Subtract,
-                        left: Box::new(TypedIRValue::Int(0)),
-                        right: Box::new(inner),
-                        result_type: inner_type,
-                    },
+                    crate::frontend::ast::UnaryOp::Negate => {
+                        let zero = match &inner_type {
+                            Type::Float => TypedIRValue::Float(0.0),
+                            _ => TypedIRValue::Int(0),
+                        };
+                        TypedIRValue::BinaryOp {
+                            op: SemanticBinOp::Subtract,
+                            left: Box::new(zero),
+                            right: Box::new(inner),
+                            result_type: inner_type,
+                        }
+                    }
                     crate::frontend::ast::UnaryOp::Not => TypedIRValue::BinaryOp {
                         op: SemanticBinOp::Equal,
                         left: Box::new(inner),
@@ -2469,10 +2519,9 @@ impl SemanticIRBuilder {
                         BinOp::LessEqual => SemanticBinOp::LessEqual,
                         BinOp::Equal => SemanticBinOp::Equal,
                         BinOp::NotEqual => SemanticBinOp::NotEqual,
-                        // And/Or are handled by the arm above; these
-                        // arms keep the inner match exhaustive.
-                        BinOp::And => SemanticBinOp::And,
-                        BinOp::Or => SemanticBinOp::Or,
+                        BinOp::And | BinOp::Or => unreachable!(
+                            "And/Or handled by translate_short_circuit arm above"
+                        ),
                     };
                     TypedIRValue::BinaryOp {
                         op: semantic_op,

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-// src/backends/ir_codegen.rs
+// src/backends/llvm_codegen/mod.rs
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
@@ -17,6 +17,9 @@ use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
 use std::collections::HashMap;
+
+mod types;
+mod effects;
 
 fn ice_opt<T>(opt: Option<T>, msg: &str) -> Result<T> {
     opt.ok_or_else(|| CompileError::simple(msg, 0, 0, "", ErrorCode::E0009))
@@ -206,79 +209,6 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
         let llvm_ty = self.map_type(ty);
         builder.build_alloca(llvm_ty, name).unwrap()
-    }
-
-    fn map_type(&self, ty: &Type) -> BasicTypeEnum<'ctx> {
-        match ty {
-            Type::Int => self.context.i64_type().into(),
-            Type::Float => self.context.f64_type().into(),
-            Type::Bool => self.context.bool_type().into(),
-            Type::String => self.context.ptr_type(AddressSpace::default()).into(),
-            Type::Void => self.context.ptr_type(AddressSpace::default()).into(), // FIX: Void as ptr for now
-            Type::Ptr => self.context.ptr_type(AddressSpace::default()).into(),
-            Type::Unknown => self.context.f64_type().into(), // Default for unknown
-            Type::Never => self.context.ptr_type(AddressSpace::default()).into(),
-
-            // For composite types, use pointer to first-class aggregate
-            Type::List(inner) => {
-                // Create a struct { ptr, length } for runtime bounds checking
-                let elem_ty = self.map_type(inner);
-                let len_ty = self.context.i64_type();
-                self.context
-                    .struct_type(&[elem_ty.into(), len_ty.into()], false)
-                    .into()
-            }
-            Type::Array(inner, size) => {
-                let elem_ty = self.map_type(inner);
-                elem_ty.array_type(*size as u32).into()
-            }
-            Type::Option(inner) => {
-                // Option = { bool is_some, T value }
-                let inner_ty = self.map_type(inner);
-                let bool_ty = self.context.bool_type();
-                self.context
-                    .struct_type(&[bool_ty.into(), inner_ty.into()], false)
-                    .into()
-            }
-            Type::Result { ok, error } => {
-                // Result = { bool is_ok, Ok value, Error value }
-                let ok_ty = self.map_type(ok);
-                let err_ty = self.map_type(error);
-                let bool_ty = self.context.bool_type();
-                self.context
-                    .struct_type(&[bool_ty.into(), ok_ty.into(), err_ty.into()], false)
-                    .into()
-            }
-            Type::Pointer(inner) => {
-                let inner_ty = self.map_type(inner);
-                self.context.ptr_type(AddressSpace::default()).into()
-            }
-            Type::Borrow(inner) | Type::MutBorrow(inner) => {
-                let inner_ty = self.map_type(inner);
-                self.context.ptr_type(AddressSpace::default()).into()
-            }
-            Type::Channel(inner) => {
-                let inner_ty = self.map_type(inner);
-                self.context.ptr_type(AddressSpace::default()).into()
-            }
-            Type::Function { .. } => self.context.ptr_type(AddressSpace::default()).into(),
-            Type::TypeVar(_) | Type::Generic { .. } => self.context.f64_type().into(),
-            Type::Tuple(_) => self.context.ptr_type(AddressSpace::default()).into(),
-        }
-    }
-
-    fn default_value_for_type(&self, ty: &Type) -> BasicValueEnum<'ctx> {
-        match ty {
-            Type::Int => self.context.i64_type().const_int(0, false).into(),
-            Type::Bool => self.context.bool_type().const_int(0, false).into(),
-            Type::String => self
-                .context
-                .ptr_type(AddressSpace::default())
-                .const_null()
-                .into(),
-            Type::Float => self.context.f64_type().const_float(0.0).into(),
-            _ => self.context.f64_type().const_float(0.0).into(),
-        }
     }
 
     fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
@@ -484,92 +414,6 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 } else {
                     self.compile_builtin_call(&callee_name, args, result)?;
-                }
-                Ok(())
-            }
-            Instruction::MethodCall {
-                object,
-                method,
-                args,
-                result,
-            } => {
-                let obj_ty = self.var_types.get(object).cloned().unwrap_or(Type::Unknown);
-                let type_prefix = match obj_ty {
-                    Type::String => "String",
-                    Type::List(_) => "List",
-                    _ => {
-                        if self.list_arrays.contains_key(object) {
-                            "List"
-                        } else {
-                            ""
-                        }
-                    }
-                };
-                let candidate_names = vec![
-                    format!("{}_{}", type_prefix, method),
-                    format!("{}.{}", type_prefix, method),
-                    method.clone(),
-                    format!("String_{}", method),
-                    format!("List_{}", method),
-                ];
-                let mut callee_opt = None;
-                for cand in &candidate_names {
-                    if let Some(f) = self
-                        .module
-                        .get_function(cand)
-                        .or_else(|| self.functions.get(cand).cloned())
-                    {
-                        callee_opt = Some(f);
-                        break;
-                    }
-                }
-                let mut arg_vals: Vec<BasicValueEnum> = Vec::new();
-                if let Some(ptr) = self.variables.get(object) {
-                    let loaded = self
-                        .builder
-                        .build_load(self.map_type(&obj_ty), *ptr, object)
-                        .unwrap();
-                    arg_vals.push(loaded);
-                }
-                for a in args {
-                    arg_vals.push(self.compile_value(a).unwrap());
-                }
-                if let Some(callee) = callee_opt {
-                    let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
-                        arg_vals.iter().map(|v| (*v).into()).collect();
-                    let call_site = self
-                        .builder
-                        .build_call(callee, &call_args, "mcalltmp")
-                        .unwrap();
-                    if let Some(res_name) = result {
-                        let __ret_opt = match call_site.try_as_basic_value() {
-                            inkwell::values::ValueKind::Basic(v) => Some(v),
-                            _ => None,
-                        };
-                        if let Some(ret) = __ret_opt {
-                            if let Some(ptr) = self.variables.get(res_name).cloned() {
-                                self.builder.build_store(ptr, ret).unwrap();
-                            } else {
-                                let alloca = self.create_entry_alloca(res_name, &Type::Float);
-                                self.builder.build_store(alloca, ret).unwrap();
-                                self.variables.insert(res_name.clone(), alloca);
-                                self.var_types.insert(res_name.clone(), Type::Float);
-                            }
-                        }
-                    }
-                } else if method == "len" || method == "length" {
-                    if let Some(res_name) = result {
-                        let len = self.list_lengths.get(object).cloned().unwrap_or(0);
-                        let len_val = self.context.f64_type().const_float(len as f64);
-                        if let Some(ptr) = self.variables.get(res_name) {
-                            self.builder.build_store(*ptr, len_val).unwrap();
-                        } else {
-                            let alloca = self.create_entry_alloca(res_name, &Type::Float);
-                            self.builder.build_store(alloca, len_val).unwrap();
-                            self.variables.insert(res_name.clone(), alloca);
-                            self.var_types.insert(res_name.clone(), Type::Float);
-                        }
-                    }
                 }
                 Ok(())
             }
@@ -998,11 +842,6 @@ impl<'ctx> IRCodeGen<'ctx> {
                 }
                 Ok(())
             }
-            Terminator::Defer { cleanup_block } => {
-                let bb = self.blocks.get(cleanup_block).cloned().unwrap();
-                self.builder.build_unconditional_branch(bb).unwrap();
-                Ok(())
-            }
         }
     }
 
@@ -1352,68 +1191,6 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.compile_value(expr)?
                 }
             }
-            TypedIRValue::MethodCall {
-                receiver,
-                receiver_type,
-                method_name,
-                args,
-                return_type,
-            } => {
-                let recv_val = self.compile_value(receiver)?;
-                let type_prefix = match receiver_type {
-                    Type::String => "String",
-                    Type::List(_) => "List",
-                    _ => "",
-                };
-                let cand_names = vec![
-                    format!("{}_{}", type_prefix, method_name),
-                    format!("{}.{}", type_prefix, method_name),
-                    method_name.clone(),
-                ];
-                let mut callee_opt = None;
-                for cand in &cand_names {
-                    if let Some(f) = self
-                        .module
-                        .get_function(cand)
-                        .or_else(|| self.functions.get(cand).cloned())
-                    {
-                        callee_opt = Some(f);
-                        break;
-                    }
-                }
-                if let Some(callee) = callee_opt {
-                    let mut call_args_vec: Vec<BasicValueEnum> = vec![recv_val];
-                    for a in args {
-                        call_args_vec.push(self.compile_value(a).unwrap());
-                    }
-                    let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
-                        call_args_vec.iter().map(|v| (*v).into()).collect();
-                    let call_site = self
-                        .builder
-                        .build_call(callee, &call_args, "mcalltmp")
-                        .unwrap();
-                    let __ret_opt = match call_site.try_as_basic_value() {
-                        inkwell::values::ValueKind::Basic(v) => Some(v),
-                        _ => None,
-                    };
-                    if let Some(ret) = __ret_opt {
-                        ret
-                    } else {
-                        self.context.f64_type().const_float(0.0).into()
-                    }
-                } else {
-                    if method_name == "len" || method_name == "length" {
-                        if let TypedIRValue::Variable(name, _) = receiver.as_ref() {
-                            if let Some(len) = self.list_lengths.get(name) {
-                                return Ok(self.context.f64_type().const_float(*len as f64).into());
-                            }
-                        }
-                        self.context.f64_type().const_float(0.0).into()
-                    } else {
-                        self.context.f64_type().const_float(0.0).into()
-                    }
-                }
-            }
             TypedIRValue::Some(v) => self.compile_value(v)?,
             TypedIRValue::None { .. } => self
                 .context
@@ -1459,6 +1236,24 @@ impl<'ctx> IRCodeGen<'ctx> {
         left: BasicValueEnum<'ctx>,
         right: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>> {
+        // Describe operand kinds for error messages. Only evaluated on
+        // the error path, but cheap enough to always compute.
+        let describe = |v: &BasicValueEnum<'ctx>| -> &'static str {
+            if v.is_int_value() {
+                "int"
+            } else if v.is_float_value() {
+                "float"
+            } else if v.is_pointer_value() {
+                "ptr"
+            } else if v.is_struct_value() {
+                "struct"
+            } else if v.is_array_value() {
+                "array"
+            } else {
+                "other"
+            }
+        };
+
         let result = match op {
             SemanticBinOp::Add => {
                 if left.is_int_value() && right.is_int_value() {
@@ -1498,7 +1293,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    left
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: Add received non-numeric operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::Subtract => {
@@ -1513,7 +1316,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    left
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: Subtract received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::Multiply => {
@@ -1528,22 +1339,86 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    left
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: Multiply received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::Divide => {
                 if left.is_int_value() && right.is_int_value() {
+                    let l = left.into_int_value();
+                    let r = right.into_int_value();
+
+                    // Runtime check: divisor == 0 → print diagnostic, exit(1).
+                    let zero = self.context.i64_type().const_zero();
+                    let is_zero = self
+                        .builder
+                        .build_int_compare(inkwell::IntPredicate::EQ, r, zero, "div_zero_check")
+                        .unwrap();
+
+                    let current_fn = self.current_function.unwrap();
+                    let err_bb = self
+                        .context
+                        .append_basic_block(current_fn, "div_zero_err");
+                    let ok_bb = self
+                        .context
+                        .append_basic_block(current_fn, "div_ok");
+
                     self.builder
-                        .build_int_signed_div(left.into_int_value(), right.into_int_value(), "sdiv")
-                        .unwrap()
-                        .into()
+                        .build_conditional_branch(is_zero, err_bb, ok_bb)
+                        .unwrap();
+
+                    // Error path: print + exit(1) + unreachable.
+                    self.builder.position_at_end(err_bb);
+                    let msg = self
+                        .builder
+                        .build_global_string_ptr(
+                            "Error: integer division by zero\n",
+                            "div_zero_msg",
+                        )
+                        .unwrap();
+                    let printf_fn = self.module.get_function("printf").unwrap();
+                    self.builder
+                        .build_call(
+                            printf_fn,
+                            &[msg.as_pointer_value().into()],
+                            "print_div_err",
+                        )
+                        .unwrap();
+                    let exit_fn = self.module.get_function("exit").unwrap();
+                    self.builder
+                        .build_call(
+                            exit_fn,
+                            &[self.context.i32_type().const_int(1, false).into()],
+                            "do_exit",
+                        )
+                        .unwrap();
+                    self.builder.build_unreachable().unwrap();
+
+                    // Continuation: real sdiv.
+                    self.builder.position_at_end(ok_bb);
+                    self.builder.build_int_signed_div(l, r, "sdiv").unwrap().into()
                 } else if left.is_float_value() && right.is_float_value() {
                     self.builder
                         .build_float_div(left.into_float_value(), right.into_float_value(), "fdiv")
                         .unwrap()
                         .into()
                 } else {
-                    left
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: Divide received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::Greater => {
@@ -1568,7 +1443,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    self.context.bool_type().const_int(0, false).into()
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: Greater received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::Less => {
@@ -1593,7 +1476,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    self.context.bool_type().const_int(0, false).into()
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: Less received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::GreaterEqual => {
@@ -1618,7 +1509,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    self.context.bool_type().const_int(0, false).into()
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: GreaterEqual received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::LessEqual => {
@@ -1643,7 +1542,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    self.context.bool_type().const_int(0, false).into()
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: LessEqual received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::Equal => {
@@ -1668,7 +1575,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    self.context.bool_type().const_int(0, false).into()
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: Equal received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
             }
             SemanticBinOp::NotEqual => {
@@ -1693,34 +1608,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap()
                         .into()
                 } else {
-                    self.context.bool_type().const_int(0, false).into()
+                    return Err(CompileError::simple(
+                        &format!(
+                            "codegen: NotEqual received mixed operands (left={}, right={}) — \
+                             builder should have coerced",
+                            describe(&left),
+                            describe(&right)
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    ));
                 }
-            }
-            SemanticBinOp::And => {
-                let l = if left.is_int_value() {
-                    left.into_int_value()
-                } else {
-                    self.context.bool_type().const_int(0, false)
-                };
-                let r = if right.is_int_value() {
-                    right.into_int_value()
-                } else {
-                    self.context.bool_type().const_int(0, false)
-                };
-                self.builder.build_and(l, r, "and").unwrap().into()
-            }
-            SemanticBinOp::Or => {
-                let l = if left.is_int_value() {
-                    left.into_int_value()
-                } else {
-                    self.context.bool_type().const_int(0, false)
-                };
-                let r = if right.is_int_value() {
-                    right.into_int_value()
-                } else {
-                    self.context.bool_type().const_int(0, false)
-                };
-                self.builder.build_or(l, r, "or").unwrap().into()
             }
         };
         Ok(result)
@@ -1738,8 +1635,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                         match self.list_lengths.get(var_name) {
                             Some(len) => Ok(self
                                 .context
-                                .f64_type()
-                                .const_float(*len as f64)
+                                .i64_type()
+                                .const_int(*len as u64, false)
                                 .into()),
                             None => Err(CompileError::simple(
                                 &format!(
@@ -1759,17 +1656,34 @@ impl<'ctx> IRCodeGen<'ctx> {
                 }
             }
             "String.length" | "String.len" => {
-                // A real lowering exists (strlen), but the analyzer's
-                // IR-level signature for String.length returns Int and
-                // the value is emitted as f64 elsewhere; mixing the two
-                // would require retyping String.length at the IR level.
-                // Until that is done, refuse rather than emit a wrong
-                // value.
-                Err(CompileError::simple(
-                    "LLVM codegen: String.length has no compatible lowering yet; \
-                     the capability matrix should have refused this program",
-                    0, 0, "", ErrorCode::E0002,
-                ))
+                let arg = args.first().ok_or_else(|| CompileError::simple(
+                    "LLVM codegen: String.length requires exactly one argument",
+                    0, 0, "", ErrorCode::E0004,
+                ))?;
+                let s_val = self.compile_value(arg)?;
+                if !s_val.is_pointer_value() {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "LLVM codegen: String.length expected a pointer argument, got {:?}",
+                            s_val
+                        ),
+                        0, 0, "", ErrorCode::E0002,
+                    ));
+                }
+                let strlen_fn = self.module.get_function("strlen").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: strlen not registered in stdlib",
+                        0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+                let call = self
+                    .builder
+                    .build_call(strlen_fn, &[s_val.into()], "strlen_call")
+                    .unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok(v),
+                    _ => Ok(self.context.i64_type().const_zero().into()),
+                }
             }
             other => Err(CompileError::simple(
                 &format!(
@@ -1802,71 +1716,20 @@ impl<'ctx> IRCodeGen<'ctx> {
         Ok(())
     }
 
-    fn emit_print(&self, val: BasicValueEnum<'ctx>, ty: Type) -> Result<()> {
-        // Peel reference and pointer wrappers, loading through the
-        // pointer to reach the printable value. `print(&x)` prints the
-        // value of `x`, matching the interpreter's eventual
-        // implicit-deref behavior for references.
-        let (val, ty) = match ty {
-            Type::Borrow(inner) | Type::MutBorrow(inner) | Type::Pointer(inner) => {
-                if val.is_pointer_value() {
-                    let inner_ty = (*inner).clone();
-                    let llvm_ty = self.map_type(&inner_ty);
-                    let loaded = self
-                        .builder
-                        .build_load(llvm_ty, val.into_pointer_value(), "print_deref")
-                        .unwrap();
-                    (loaded, inner_ty)
-                } else {
-                    // The value isn't a pointer even though the type
-                    // says it should be. Fall back to the inner type
-                    // without loading — the codegen contract is
-                    // violated, but producing *some* value beats
-                    // emitting a diagnostic mid-print.
-                    (val, (*inner).clone())
-                }
-            }
-            other => (val, other),
-        };
-
-        let printf = self.module.get_function("printf");
-        if let Some(printf_fn) = printf {
-            let format_str = match ty {
-                Type::Int => "%lld\n",
-                Type::Float => "%.1f\n",
-                Type::Bool => "%d\n",
-                Type::String => "%s\n",
-                other => {
-                    return Err(CompileError::simple(
-                        &format!(
-                            "LLVM codegen: cannot print value of type {:?} \
-                             (no printf format mapping)",
-                            other
-                        ),
-                        0, 0, "", ErrorCode::E0002,
-                    ));
-                }
-            };
-            let fmt_ptr = self
-                .builder
-                .build_global_string_ptr(format_str, "fmt")
-                .unwrap();
-            let fmt_arg: BasicValueEnum = fmt_ptr.as_pointer_value().into();
-            let args: Vec<inkwell::values::BasicMetadataValueEnum> =
-                vec![fmt_arg.into(), val.into()];
-            self.builder
-                .build_call(printf_fn, &args, "printcall")
-                .unwrap();
-        }
-        Ok(())
-    }
-
     fn register_stdlib(&mut self) {
         // Print functions
         let i8_ptr = self.context.ptr_type(AddressSpace::default());
         let printf_ty = self.context.i32_type().fn_type(&[i8_ptr.into()], true);
         let printf_fn = self.module.add_function("printf", printf_ty, None);
         self.functions.insert("printf".to_string(), printf_fn);
+
+        // exit(i32) -> void
+        let exit_ty = self
+            .context
+            .void_type()
+            .fn_type(&[self.context.i32_type().into()], false);
+        let exit_fn = self.module.add_function("exit", exit_ty, None);
+        self.functions.insert("exit".to_string(), exit_fn);
 
         // Math functions
         let f64_ty = self.context.f64_type();

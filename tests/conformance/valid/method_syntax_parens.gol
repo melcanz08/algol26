@@ -1,0 +1,4 @@
+// OUTPUT: 5
+procedure main
+    val s := "hello"
+    print(s.length())

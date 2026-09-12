@@ -1,0 +1,9 @@
+// OUTPUT: cleanup
+// OUTPUT: 42
+function compute() -> Int
+    defer
+        print("cleanup")
+    return 42
+
+procedure main
+    print(compute())

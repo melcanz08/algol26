@@ -1,0 +1,7 @@
+// No BACKEND directive: LLVM path refuses with "does not support: spawn".
+// The harness counts the refusal as a pass for valid programs.
+procedure main
+    print("before")
+    spawn
+        print("spawned")
+    print("after")

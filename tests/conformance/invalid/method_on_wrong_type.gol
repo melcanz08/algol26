@@ -1,0 +1,4 @@
+// ERROR_CODE: E0004
+procedure main
+    val n := 5
+    print(n.length)

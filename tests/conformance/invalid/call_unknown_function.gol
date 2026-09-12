@@ -1,0 +1,3 @@
+// ERROR_CODE: E0004
+procedure main
+    print(does_not_exist())

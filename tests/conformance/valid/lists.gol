@@ -1,0 +1,7 @@
+// BACKEND: interpreter
+// OUTPUT: 3
+// OUTPUT: 60.0
+procedure main
+    val xs := [10.0, 20.0, 30.0]
+    print(List.length(xs))
+    print(List.sum(xs))

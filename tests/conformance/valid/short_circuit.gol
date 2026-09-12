@@ -1,0 +1,12 @@
+// OUTPUT: ran
+// OUTPUT: false
+// OUTPUT: true
+function side_effect(msg: String) -> Bool
+    print(msg)
+    return true
+
+procedure main
+    val a := false and side_effect("skipped")
+    val b := true and side_effect("ran")
+    print(a)
+    print(b)

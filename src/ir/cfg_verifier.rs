@@ -9,7 +9,7 @@
 //   - no unreachable blocks from the entry
 //   - function names are unique across the program
 //
-// Checks NOT performed here (see semantic_verifier.rs and future
+// Checks NOT performed here (see verifier.rs and future
 // data-flow work):
 //   - type consistency across block boundaries
 //   - ownership/borrow state at joins

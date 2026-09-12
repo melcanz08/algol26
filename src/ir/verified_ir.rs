@@ -1,12 +1,12 @@
 // src/ir/verified_ir.rs
 //
-// `VerifiedIR::new` runs semantic_verifier::verify before returning.
+// `VerifiedIR::new` runs verifier::verify before returning.
 // The type is a compile-time promise: a `VerifiedIR` value can only
 // exist if verification succeeded. `BackendInput` is an alias for
 // this type, so backend entry points that take `&VerifiedIR` are
 // statically guaranteed to receive verified input.
 //
-// Note that "verified" here means "passed semantic_verifier", whose
+// Note that "verified" here means "passed verifier", whose
 // coverage is documented in that module.
 
 use crate::ir::semantic_ir::SemanticProgram;
@@ -20,7 +20,7 @@ pub struct VerifiedIR {
 impl VerifiedIR {
     pub fn new(program: SemanticProgram) -> Result<Self, String> {
         // Run full verification
-        crate::ir::semantic_verifier::verify(&program)?;
+        crate::ir::verifier::verify(&program)?;
         Ok(VerifiedIR { program })
     }
 
@@ -33,7 +33,7 @@ impl VerifiedIR {
     }
 
     pub fn verify(&self) -> Result<(), String> {
-        crate::ir::semantic_verifier::verify(&self.program)
+        crate::ir::verifier::verify(&self.program)
     }
 
     pub fn function_count(&self) -> usize {

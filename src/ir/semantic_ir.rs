@@ -6,7 +6,7 @@
 //
 // `TypedIRValue::type_of()` returns the type *claimed* by the value
 // node itself. It does not prove that the claim is true — that is the
-// job of semantic_verifier. Downstream consumers should treat the
+// job of verifier. Downstream consumers should treat the
 // claimed type as authoritative only after verification passes.
 use crate::common::types::Type;
 
@@ -330,6 +330,6 @@ impl SemanticProgram {
         id
     }
     pub fn verify(&self) -> Result<(), String> {
-        crate::ir::semantic_verifier::verify(self)
+        crate::ir::verifier::verify(self)
     }
 }

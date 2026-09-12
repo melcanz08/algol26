@@ -31,6 +31,10 @@ mod expr;
 pub(super) struct VariableInfo {
     pub type_: Type,
     pub mutable: bool,
+    /// Capture mode for closures/spawns. Currently written by
+    /// `declare_var` but not yet consumed; will be used when
+    /// escape analysis lands.
+    #[allow(dead_code)]
     pub capture_mode: Option<CaptureMode>,
 }
 
@@ -45,7 +49,7 @@ pub struct SemanticIRBuilder {
     pub(super) pending_merge: Option<usize>,
     pub(super) type_table: HashMap<usize, Type>,
 }
-
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(super) struct FunctionSignature {
     pub params: Vec<(String, Type)>,

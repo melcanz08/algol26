@@ -1,4 +1,4 @@
-// src/semantics/semantic.rs
+// src/semantics/analyzer/mod.rs
 //
 // Ownership and borrow checking, type inference, trait bounds, and
 // scope-based lifetime rules. Produces a type table keyed by AST node

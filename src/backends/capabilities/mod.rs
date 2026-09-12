@@ -1,4 +1,4 @@
-// src/backends/capabilities.rs
+// src/backends/capabilities/mod.rs
 //
 // Feature capability matrix for backends. Each backend declares which
 // language features it can lower. A backend that is asked to lower a

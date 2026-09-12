@@ -1,4 +1,4 @@
-// src/semantics/trait_registry.rs
+// src/semantics/trait_registry/mod.rs
 //
 // Trait and impl registration, method lookup, and generic pattern
 // matching.

@@ -1,4 +1,4 @@
-// algol26/src/race.rs
+// algol26/src/race/mod.rs
 
 use crate::frontend::ast::{Expr, FunctionDecl, Stmt};
 use std::collections::HashMap;

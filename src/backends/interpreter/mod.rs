@@ -1,4 +1,4 @@
-// src/backends/interpreter.rs
+// src/backends/interpreter/mod.rs
 //
 // Tree-walking interpreter over SemanticProgram.
 //

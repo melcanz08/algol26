@@ -205,14 +205,14 @@ impl SemanticIRBuilder {
             let return_type = func
                 .return_type
                 .as_ref()
-                .map(|t| Type::from_str(&t.to_string_rep()))
+                .map(|t| t.to_type())
                 .unwrap_or(Type::Void);
             let params = func
                 .params
                 .iter()
                 .map(|(n, t)| {
                     let type_ = match t {
-                        Some(s) => Type::from_str(&s.to_string_rep()),
+                        Some(s) => s.to_type(),
                         None => Type::Unknown,
                     };
                     (n.clone(), type_)
@@ -232,7 +232,7 @@ impl SemanticIRBuilder {
             self.push_scope();
             for (name, type_str) in &func.params {
                 let param_type = match type_str {
-                    Some(s) => Type::from_str(&s.to_string_rep()),
+                    Some(s) => s.to_type(),
                     None => Type::Unknown,
                 };
                 if self.scopes.last().is_some_and(|s| s.contains_key(name)) {
@@ -253,7 +253,7 @@ impl SemanticIRBuilder {
                     .iter()
                     .map(|(n, t)| {
                         let type_ = match t {
-                            Some(s) => Type::from_str(&s.to_string_rep()),
+                            Some(s) => s.to_type(),
                             None => Type::Unknown,
                         };
                         (n.clone(), type_)
@@ -262,7 +262,7 @@ impl SemanticIRBuilder {
                 return_type: func
                     .return_type
                     .as_ref()
-                    .map(|t| Type::from_str(&t.to_string_rep()))
+                    .map(|t| t.to_type())
                     .unwrap_or(Type::Void),
                 blocks: vec![SemanticBlock {
                     id: entry_id,

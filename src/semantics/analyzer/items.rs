@@ -174,14 +174,14 @@ impl SemanticAnalyzer {
         Ok(())
     }
     pub(super) fn parse_type_annotation(&self, annot: &crate::frontend::ast::TypeSyntax) -> Type {
-        let type_str = annot.to_string_rep();
-        if let Some(type_param) = self.parse_type_param(&type_str) {
-            if let Some(resolved) = self.lookup_type_param(&type_param) {
+        let ty = annot.to_type();
+        // Resolve type variables against declared type params (e.g. `T` → its bound).
+        if let Type::TypeVar(name) = &ty {
+            if let Some(resolved) = self.lookup_type_param(name) {
                 return resolved;
             }
-            return Type::TypeVar(type_param);
         }
-        Type::from_str(&type_str)
+        ty
     }
     pub(super) fn check_all_paths_return(&self, stmts: &[Stmt]) -> bool {
         for stmt in stmts {

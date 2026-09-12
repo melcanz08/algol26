@@ -629,7 +629,7 @@ impl SemanticAnalyzer {
                                 return Ok(method
                                     .return_type
                                     .as_ref()
-                                    .map(|t| Type::from_str(&t.to_string_rep()))
+                                    .map(|t| t.to_type())
                                     .unwrap_or(Type::Void));
                             }
 
@@ -787,7 +787,7 @@ impl SemanticAnalyzer {
                     Ok(method
                         .return_type
                         .as_ref()
-                        .map(|t| Type::from_str(&t.to_string_rep()))
+                        .map(|t| t.to_type())
                         .unwrap_or(Type::Void))
                 } else {
                     Err(CompileError::simple(

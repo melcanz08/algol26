@@ -101,3 +101,10 @@ tests/adversarial/4*
 !tests/adversarial/*.sh
 !tests/adversarial/*.json
 !tests/adversarial/*.md
+
+# Under tests/conformance/, only .gol files are tracked.
+# Compiled binaries from `algol26 run <file>` land next to the source.
+tests/conformance/**/*
+!tests/conformance/**/*.gol
+!tests/conformance/**/*.sh
+!tests/conformance/**/*.md

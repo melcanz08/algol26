@@ -108,3 +108,8 @@ tests/conformance/**/*
 !tests/conformance/**/*.gol
 !tests/conformance/**/*.sh
 !tests/conformance/**/*.md
+
+# Under examples/stats/, only .gol source files are tracked.
+# Compiled binaries from `algol26 run <file>` land next to the source.
+examples/stats/*
+!examples/stats/*.gol

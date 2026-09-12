@@ -97,7 +97,7 @@ impl Interpreter {
                     target,
                     body_block,
                     exit_block,
-                }) => {
+                }) => { 
                     let idx_key = format!("{}_idx", iterator);
                     let current_idx = match self.variables.get(&idx_key) {
                         Some(RuntimeValue::Int(i)) => *i as usize,
@@ -214,7 +214,15 @@ impl Interpreter {
                     }
                 }
             }
-            _ => {}
+            Instruction::IteratorInit { iterator, iterable } => {
+                let val = self.eval_value(iterable);
+                self.variables.insert(iterator.clone(), val);
+                self.variables.insert(
+                    format!("{}_idx", iterator),
+                    RuntimeValue::Int(0),
+                );
+            }
+            _=> {}
         }
         Ok(())
     }

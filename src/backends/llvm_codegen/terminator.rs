@@ -5,6 +5,7 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{SemanticPattern, Terminator, TypedIRValue};
 use inkwell::FloatPredicate;
+use inkwell::types::BasicTypeEnum;
 
 impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_terminator(&mut self, term: &Terminator, ret_type: &Type) -> Result<()> {
@@ -270,10 +271,27 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .get(iterator)
                         .cloned()
                         .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
+
+                    // Derive the element type from the array we're iterating over, rather
+                    // than hardcoding Float. An Int list iterated by `for n in nums` must
+                    // produce an Int loop variable — otherwise every op on `n` sees a
+                    // mixed-type pair and the hardened codegen rejects it.
+                    let elem_llvm_ty: BasicTypeEnum = match arr_ty {
+                        BasicTypeEnum::ArrayType(at) => at.get_element_type(),
+                        _ => self.context.f64_type().into(),
+                    };
+                    let elem_ir_ty = match elem_llvm_ty {
+                        BasicTypeEnum::IntType(_) => Type::Int,
+                        BasicTypeEnum::FloatType(_) => Type::Float,
+                        BasicTypeEnum::PointerType(_) => Type::Ptr,
+                        _ => Type::Float,
+                    };
+
                     let idx_i32 = self
                         .builder
                         .build_int_cast(idx_val, self.context.i32_type(), "idx32")
                         .unwrap();
+
                     let elem_ptr = unsafe {
                         self.builder
                             .build_gep(
@@ -284,17 +302,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                             )
                             .unwrap()
                     };
-                    let elem_ty = self.context.f64_type();
-                    let loaded = self.builder.build_load(elem_ty, elem_ptr, target).unwrap();
+
+                    let loaded = self
+                        .builder
+                        .build_load(elem_llvm_ty, elem_ptr, target)
+                        .unwrap();
+
                     let target_ptr = if let Some(p) = self.variables.get(target).cloned() {
                         p
                     } else {
-                        let alloca = self.create_entry_alloca(target, &Type::Float);
+                        let alloca = self.create_entry_alloca(target, &elem_ir_ty);
                         self.variables.insert(target.clone(), alloca);
-                        self.var_types.insert(target.clone(), Type::Float);
+                        self.var_types.insert(target.clone(), elem_ir_ty.clone());
                         alloca
                     };
+
                     self.builder.build_store(target_ptr, loaded).unwrap();
+
                     let next_idx = self
                         .builder
                         .build_int_add(

@@ -670,6 +670,77 @@ procedure main
     );
 }
 
+#[test]
+fn test_differential_for_int_list() {
+    let source = r#"
+procedure main
+    val nums := [10, 20, 30]
+    var total := 0
+    for n in nums do
+        total := total + n
+    print(total)
+"#;
+    let llvm_output = run_llvm(source);
+    let interp_output = run_interpreter(source);
+    assert_eq!(interp_output.trim(), llvm_output.trim(),
+        "Interpreter and LLVM disagree on int-list for-loop");
+    assert_eq!(llvm_output.trim(), "60");
+}
+
+#[test]
+fn test_differential_for_int_list_with_if() {
+    let source = r#"
+procedure main
+    val nums := [10, 20, 30]
+    var total := 0
+    for n in nums do
+        if n > 5 then
+            total := total + n
+    print(total)
+"#;
+    let llvm_output = run_llvm(source);
+    let interp_output = run_interpreter(source);
+    assert_eq!(interp_output.trim(), llvm_output.trim(),
+        "Interpreter and LLVM disagree on int-list for-loop with if body");
+    assert_eq!(llvm_output.trim(), "60");
+}
+
+#[test]
+fn test_differential_for_float_list_with_if() {
+    let source = r#"
+procedure main
+    val nums := [10.0, 20.0, 30.0]
+    var total := 0.0
+    for n in nums do
+        if n > 5.0 then
+            total := total + n
+    print(total)
+"#;
+    let llvm_output = run_llvm(source);
+    let interp_output = run_interpreter(source);
+    assert_eq!(interp_output.trim(), llvm_output.trim(),
+        "Interpreter and LLVM disagree on float-list for-loop with if body");
+    assert_eq!(llvm_output.trim(), "60.0");
+}
+
+#[test]
+fn test_differential_for_int_list_count() {
+    let source = r#"
+procedure main
+    val nums := [10, 20, 30]
+    var count := 0
+    for n in nums do
+        if n > 5 then
+            count := count + 1
+    print(count)
+"#;
+    let llvm_output = run_llvm(source);
+    let interp_output = run_interpreter(source);
+    assert_eq!(interp_output.trim(), llvm_output.trim(),
+        "Interpreter and LLVM disagree on int-list for-loop counting");
+    assert_eq!(llvm_output.trim(), "3");
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

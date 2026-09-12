@@ -1,7 +1,7 @@
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::optimizer::Optimizer;
-use algol26::semantics::semantic_builder::SemanticIRBuilder;
+use algol26::semantics::builder::SemanticIRBuilder;
 
 fn build_ir(src: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(src.to_string()).unwrap();

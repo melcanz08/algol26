@@ -4,7 +4,7 @@ use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::optimizer::Optimizer;
 use algol26::ir::semantic_ir::SemanticProgram;
-use algol26::semantics::semantic_builder::SemanticIRBuilder;
+use algol26::semantics::builder::SemanticIRBuilder;
 use std::time::Instant;
 
 fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {

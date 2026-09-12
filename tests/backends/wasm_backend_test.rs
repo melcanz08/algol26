@@ -8,7 +8,7 @@ use algol26::frontend::ast::FunctionDecl;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::semantic_ir::SemanticProgram;
-use algol26::semantics::semantic_builder::SemanticIRBuilder;
+use algol26::semantics::builder::SemanticIRBuilder;
 
 fn build_ir(source: &str) -> (SemanticProgram, Vec<String>, Vec<FunctionDecl>) {
     let lexer = Lexer::new(source.to_string()).unwrap();

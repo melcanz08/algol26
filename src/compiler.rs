@@ -16,7 +16,7 @@ use crate::ir::verified_ir::VerifiedIR;
 use crate::backends::llvm_codegen::IRCodeGen;
 use crate::semantics::race::RaceDetector;
 use crate::semantics::semantic::SemanticAnalyzer;
-use crate::semantics::semantic_builder::SemanticIRBuilder;
+use crate::semantics::builder::SemanticIRBuilder;
 use inkwell::context::Context;
 use std::path::{Path, PathBuf};
 use std::process::Command;

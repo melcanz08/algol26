@@ -4,14 +4,12 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;
-
 mod decl;
 mod ident;
 mod literal;
 mod operator;
 #[cfg(test)]
 mod tests;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     // Keywords
@@ -123,7 +121,6 @@ pub enum Token {
     SelfType,
     Case,        // NEW: case keyword for match arms
 }
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum CTypeName {
     Void,
@@ -148,12 +145,10 @@ pub enum CTypeName {
     IntPtrT,
     UIntPtrT,
 }
-
 pub struct Lexer {
     pub tokens: Vec<Token>,
     pub positions: Vec<(usize, usize)>, // (line, column) for each token
 }
-
 lazy_static::lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token> = {
         let mut m = HashMap::new();
@@ -206,7 +201,6 @@ lazy_static::lazy_static! {
         m
     };
 }
-
 // Helper: Strip comments but not inside string literals
 fn strip_comment_not_in_string(line: &str) -> String {
     let mut result = String::new();
@@ -230,7 +224,6 @@ fn strip_comment_not_in_string(line: &str) -> String {
 
     result
 }
-
 impl Lexer {
     pub fn new(source: String) -> Result<Self> {
         let mut tokens = Vec::new();
@@ -367,7 +360,6 @@ impl Lexer {
 
         Ok(Lexer { tokens, positions: token_positions })
     }
-
     fn tokenize_line(
         trimmed: &str,
         line_number: usize,
@@ -392,11 +384,6 @@ impl Lexer {
         }
         Ok(())
     }
-
-    
-
-    
-
     fn tokenize_expression(
         expr: &str,
         line_number: usize,
@@ -435,6 +422,4 @@ impl Lexer {
         }
         Ok(())
     }
-
-    
 }

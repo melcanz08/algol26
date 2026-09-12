@@ -70,20 +70,33 @@ fn run_compiler(
     if backend == Some("interpreter") {
         cmd.arg("--interpreter");
     } else {
-        // `run` compiles to a native binary and executes it. The
-        // program's stdout appears after the compiler's own status
-        // lines, which are all bracketed and can be filtered.
         cmd.arg("run");
     }
+
+    // Send the compiled artifact to target/ so it doesn't collide with
+    // source files or run concurrently with other test targets.
+    let out_dir = std::env::temp_dir().join("algol26-conformance");
+    let _ = std::fs::create_dir_all(&out_dir);
+    let stem = program
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("program");
+    let output = out_dir.join(stem);
+    cmd.arg("--output").arg(&output);
+
     cmd.arg(program);
     cmd.output().expect("failed to invoke compiler")
 }
 
 fn compile_only(binary: &PathBuf, program: &PathBuf) -> std::process::Output {
-    // `build` compiles without running. Used for invalid programs,
-    // where we only need the diagnostic.
+    let out_dir = std::env::temp_dir().join("algol26-conformance");
+    let _ = std::fs::create_dir_all(&out_dir);
+    let stem = program.file_stem().and_then(|s| s.to_str()).unwrap_or("program");
+    let output = out_dir.join(stem);
     Command::new(binary)
         .arg("build")
+        .arg("--output")
+        .arg(&output)
         .arg(program)
         .output()
         .expect("failed to invoke compiler")

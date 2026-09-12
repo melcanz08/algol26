@@ -18,8 +18,7 @@ use crate::semantics::race::RaceDetector;
 use crate::semantics::analyzer::SemanticAnalyzer;
 use crate::semantics::builder::SemanticIRBuilder;
 use inkwell::context::Context;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 pub struct Compiler;
 
@@ -566,10 +565,7 @@ impl Compiler {
         codegen.module.print_to_file(&ir_path).map_err(|e| {
             let err = CompileError::simple(
                 &format!("Failed to emit LLVM IR: {}", e),
-                0,
-                0,
-                "",
-                ErrorCode::E0001,
+                0, 0, "", ErrorCode::E0001,
             );
             err.display();
             err
@@ -581,62 +577,11 @@ impl Compiler {
             return Ok(());
         }
 
-        let output_path = if Path::new(output_name).is_absolute() {
-            PathBuf::from(output_name)
-        } else {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(output_name)
-        };
-
-        let output = Command::new("clang")
-            .arg(&ir_path)
-            .arg("-o")
-            .arg(&output_path)
-            .arg("-O2")
-            .arg("-lm")
-            .arg("-lpthread")
-            .output()
-            .map_err(|e| {
-                let err = CompileError::simple(
-                    &format!("Failed to run clang: {}", e),
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0001,
-                );
-                err.display();
-                err
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let err = CompileError::simple(
-                &format!("Linking failed: {}", stderr),
-                0,
-                0,
-                "",
-                ErrorCode::E0001,
-            );
-            err.display();
-            return Err(err);
-        }
-
+        let output_path = crate::toolchain::link_llvm_ir(&ir_path, output_name)?;
         println!("[Successfully compiled to {}]", output_path.display());
 
         if run_after_compile {
-            let status = Command::new(&output_path).status().map_err(|e| {
-                let err = CompileError::simple(
-                    &format!("Failed to run: {}", e),
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0001,
-                );
-                err.display();
-                err
-            })?;
-            let _ = status;
+            crate::toolchain::run_binary(&output_path)?;
         }
 
         Ok(())

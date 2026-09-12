@@ -5,7 +5,7 @@ use algol26::ir::semantic_ir::SemanticProgram;
 use algol26::semantics::builder::SemanticIRBuilder;
 
 fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
-    use algol26::semantics::semantic::SemanticAnalyzer;
+    use algol26::semantics::analyzer::SemanticAnalyzer;
 
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);

@@ -1,7 +1,7 @@
 use algol26::common::diagnostics::ErrorCode;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
-use algol26::semantics::semantic::SemanticAnalyzer;
+use algol26::semantics::analyzer::SemanticAnalyzer;
 use std::fs;
 
 fn analyze_source(src: &str) -> Result<(), algol26::common::diagnostics::CompileError> {

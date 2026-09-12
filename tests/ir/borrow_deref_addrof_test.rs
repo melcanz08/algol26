@@ -57,7 +57,7 @@ procedure main
 fn test_double_borrow_fails() {
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
-    use algol26::semantics::semantic::SemanticAnalyzer;
+    use algol26::semantics::analyzer::SemanticAnalyzer;
 
     // Plain string (not r#"..."#) to avoid top-level Indent tokens.
     let source = "procedure main\n    var x := 5.0\n    var y := &mut x\n    var z := &mut x\n";
@@ -121,7 +121,7 @@ fn test_method_call_desugars_to_function_call() {
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
     use algol26::ir::semantic_ir::TypedIRValue;
-    use algol26::semantics::semantic::SemanticAnalyzer;
+    use algol26::semantics::analyzer::SemanticAnalyzer;
     use algol26::semantics::builder::SemanticIRBuilder;
 
     let source = "\
@@ -170,7 +170,7 @@ procedure main
 fn test_if_expr_in_vardecl_keeps_following_statements() {
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
-    use algol26::semantics::semantic::SemanticAnalyzer;
+    use algol26::semantics::analyzer::SemanticAnalyzer;
     use algol26::semantics::builder::SemanticIRBuilder;
     use algol26::ir::semantic_ir::Instruction;
 

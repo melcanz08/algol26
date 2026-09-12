@@ -4,7 +4,7 @@
 use algol26::backends::interpreter::Interpreter;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
-use algol26::semantics::semantic::SemanticAnalyzer;
+use algol26::semantics::analyzer::SemanticAnalyzer;
 use algol26::semantics::builder::SemanticIRBuilder;
 
 fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {

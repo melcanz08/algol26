@@ -58,7 +58,17 @@ impl fmt::Display for IrLevel {
     }
 }
 
-/// The formal contract. Documentation the compiler can check.
+/// The formal contract.
+///
+/// The `requires` / `guarantees` / `may_change` / `must_preserve`
+/// fields are **metadata**: they document what the pass promises,
+/// in a form a human can read. The compiler does not execute them.
+///
+/// What the compiler *does* enforce structurally is `kind`,
+/// `input`, and `output` — via `PipelineBuilder::validate_chain`
+/// and `Scheduler`. Those three fields are the machine-checked
+/// portion of the contract; everything else is a contract with the
+/// reader.
 #[derive(Debug, Clone)]
 pub struct PassContract {
     pub id: PassId,

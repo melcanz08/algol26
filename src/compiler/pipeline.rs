@@ -55,11 +55,21 @@ impl<Prog: 'static> PipelineBuilder<Prog> {
             let c = stage.contract();
             match c.kind {
                 PassKind::Analysis => {
+                    // Analysis reads the current representation and
+                    // produces metadata, not a new IR level.
                     if c.input != c.output {
                         return Err(PipelineError::AnalysisChangedLevel(
                             c.id, c.input, c.output,
                         ));
                     }
+                    if let Some(cur) = current {
+                        if cur != c.input {
+                            return Err(PipelineError::AnalysisAtWrongLevel(
+                                c.id, cur, c.input,
+                            ));
+                        }
+                    }
+                    current = Some(c.input);
                 }
                 PassKind::Transform | PassKind::Verification | PassKind::Annotation => {
                     if c.input != c.output {
@@ -80,6 +90,11 @@ impl<Prog: 'static> PipelineBuilder<Prog> {
                             return Err(PipelineError::ChainMismatch(c.id, cur, c.input));
                         }
                     }
+                    if c.output <= c.input {
+                        return Err(PipelineError::LoweringDidNotAdvance(
+                            c.id, c.input, c.output,
+                        ));
+                    }
                     current = Some(c.output);
                 }
             }
@@ -93,6 +108,14 @@ pub enum PipelineError {
     ChainMismatch(PassId, IrLevel, IrLevel),
     NonLoweringChangedLevel(PassId, IrLevel, IrLevel),
     AnalysisChangedLevel(PassId, IrLevel, IrLevel),
+    /// A `Lowering` pass declared `output <= input`, which does not
+    /// advance the IR level. `Lowering` must move strictly forward.
+    LoweringDidNotAdvance(PassId, IrLevel, IrLevel),
+    /// An `Analysis` pass declared an `input` level that does not
+    /// match the pipeline's current level. Analyses run on the
+    /// current representation; out-of-band inspection is not
+    /// supported.
+    AnalysisAtWrongLevel(PassId, IrLevel, IrLevel),
     UnknownPass(PassId),
 }
 
@@ -115,8 +138,106 @@ impl fmt::Display for PipelineError {
                 id, i, o
             ),
             Self::UnknownPass(id) => write!(f, "unknown pass `{}`", id),
+            Self::LoweringDidNotAdvance(id, input, output) => write!(
+                f,
+                "lowering pass `{}` does not advance IR level ({} -> {})",
+                id, input, output
+            ),
+            Self::AnalysisAtWrongLevel(id, expected, got) => write!(
+                f,
+                "analysis pass `{}` expects input `{}` but pipeline is at `{}`",
+                id, got, expected
+            ),
         }
     }
 }
 
 impl std::error::Error for PipelineError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compiler::context::CompilerContext;
+    use crate::compiler::pass::{PassContract, PassId, PassResult};
+    use crate::compiler::program::Program;
+
+    macro_rules! dummy_pass {
+        ($name:ident, $id:expr, $kind:expr, $in:expr, $out:expr) => {
+            struct $name;
+            impl Pass<Program> for $name {
+                fn contract(&self) -> &PassContract {
+                    static C: PassContract = PassContract {
+                        id: PassId($id),
+                        kind: $kind,
+                        input: $in,
+                        output: $out,
+                        requires: &[],
+                        guarantees: &[],
+                        may_change: &[],
+                        must_preserve: &[],
+                        may_fail: false,
+                    };
+                    &C
+                }
+                fn run(&self, _: &mut CompilerContext, _: &mut Program) -> PassResult {
+                    Ok(())
+                }
+            }
+        };
+    }
+
+    dummy_pass!(NoAdvance, "test.no_advance",
+        PassKind::Lowering, IrLevel::Ast, IrLevel::Ast);
+
+    dummy_pass!(Backwards, "test.backwards",
+        PassKind::Lowering, IrLevel::SemanticIr, IrLevel::Ast);
+
+    dummy_pass!(GoodLowering, "test.good_lowering",
+        PassKind::Lowering, IrLevel::Ast, IrLevel::SemanticIr);
+
+    dummy_pass!(AstLower, "test.ast_lower",
+        PassKind::Lowering, IrLevel::Source, IrLevel::Ast);
+
+    dummy_pass!(AnalysisAtAst, "test.analysis_ast",
+        PassKind::Analysis, IrLevel::Ast, IrLevel::Ast);
+
+    #[test]
+    fn lowering_must_advance() {
+        match Pipeline::builder().add(NoAdvance).build() {
+            Err(PipelineError::LoweringDidNotAdvance(_, _, _)) => {}
+            Err(other) => panic!("expected LoweringDidNotAdvance, got {:?}", other),
+            Ok(_) => panic!("expected LoweringDidNotAdvance, pipeline built successfully"),
+        }
+    }
+
+    #[test]
+    fn lowering_cannot_go_backwards() {
+        match Pipeline::builder().add(Backwards).build() {
+            Err(PipelineError::LoweringDidNotAdvance(_, _, _)) => {}
+            Err(other) => panic!("expected LoweringDidNotAdvance, got {:?}", other),
+            Ok(_) => panic!("expected LoweringDidNotAdvance, pipeline built successfully"),
+        }
+    }
+
+    #[test]
+    fn analysis_must_match_current_level() {
+        match Pipeline::builder()
+            .add(GoodLowering)
+            .add(AnalysisAtAst)
+            .build()
+        {
+            Err(PipelineError::AnalysisAtWrongLevel(_, _, _)) => {}
+            Err(other) => panic!("expected AnalysisAtWrongLevel, got {:?}", other),
+            Ok(_) => panic!("expected AnalysisAtWrongLevel, pipeline built successfully"),
+        }
+    }
+
+    #[test]
+    fn analysis_at_correct_level_is_accepted() {
+        Pipeline::builder()
+            .add(AstLower)
+            .add(AnalysisAtAst)
+            .build()
+            .expect("analysis at current level should be accepted");
+    }
+}

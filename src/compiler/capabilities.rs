@@ -103,7 +103,12 @@ impl CapabilityMatrix {
     pub fn caps_for(&self, b: BackendKind) -> BackendCapabilities {
         let mut supported = std::collections::HashSet::new();
         for f in Feature::all() {
-            if matches!(self.get(*f, b), Support::Full | Support::Partial) {
+            // Only `Full` counts as supported. `Partial` means
+            // "the backend accepts this but semantics may diverge,
+            // or a fallback is required" — that is not the same
+            // promise, and collapsing the two would let a backend
+            // run on a program it cannot honestly compile.
+            if matches!(self.get(*f, b), Support::Full) {
                 supported.insert(*f);
             }
         }
@@ -173,5 +178,16 @@ mod tests {
             assert_eq!(derived.supported, original.supported);
             assert_eq!(derived.has_interpreter_fallback, original.has_interpreter_fallback);
         }
+    }
+    #[test]
+    fn partial_is_not_collapsed_into_supported() {
+        use crate::backends::capabilities::Feature;
+        let mut m = CapabilityMatrix::new();
+        m.set(Feature::Spawn, BackendKind::Llvm, Support::Partial);
+        let caps = m.caps_for(BackendKind::Llvm);
+        assert!(
+            !caps.supported.contains(&Feature::Spawn),
+            "Partial must not be treated as Full by caps_for"
+        );
     }
 }

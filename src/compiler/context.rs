@@ -6,16 +6,21 @@ use crate::common::diagnostics::Diagnostic;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptLevel { O0, O1, O2, O3 }
 
-/// Named language features a compilation may enable or disable.
-///
 /// Distinct from `crate::compiler::capabilities::Feature` — that one
 /// describes what a *backend* supports. This one describes what the
-/// *frontend and semantics* are allowed to accept. A program can
-/// target LLVM with `Feature::Regions` enabled; it cannot target LLVM
-/// with `Feature::Spawn` enabled because LLVM's capability matrix
-/// says `None` for Spawn. The two enums are deliberately separate so
-/// "the language accepts this" and "this backend can lower it"
-/// remain distinct questions.
+/// *frontend and semantics* are allowed to accept.
+///
+/// The two are separate axes. A compilation may have
+/// `LangFeature::Channels` enabled (the language accepts channel
+/// syntax and semantics), while the LLVM backend's capability
+/// matrix says `Support::None` for its own `Feature::Channels`
+/// (the backend cannot lower it). The capability check refuses the
+/// program at the backend boundary; it does not stop the frontend
+/// from parsing or the analyzer from checking it.
+///
+/// Feature names overlap where the concepts align — `Channels`,
+/// `Regions` — but the enums are not mirrors of each other. Do
+/// not assume one variant exists because the other does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LangFeature {
     Generics,

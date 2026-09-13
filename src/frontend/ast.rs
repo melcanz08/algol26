@@ -101,11 +101,6 @@ pub enum Expr {
     PtrLiteral(usize),
     /// Null pointer
     NullPtr,
-    /// Cast expression for FFI
-    Cast {
-        expr: Box<Expr>,
-        target_type: String,
-    },
 
     // NEW: Method call syntax
     MethodCall {

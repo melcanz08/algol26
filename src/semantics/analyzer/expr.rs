@@ -735,10 +735,6 @@ impl SemanticAnalyzer {
             }
             Expr::PtrLiteral(_) => Ok(Type::Ptr),
             Expr::NullPtr => Ok(Type::Ptr),
-            Expr::Cast { expr: cast_expr, target_type } => {
-                let _source_type = self.analyze_expr(cast_expr)?;
-                Ok(Type::from_str(target_type))
-            }
 
             // ─── UNIFY TYPES ─── give Range and FieldAccess proper inferred types.
             Expr::Range { start, end, .. } => {

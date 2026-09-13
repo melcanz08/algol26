@@ -233,7 +233,6 @@ impl Monomorphizer {
                 _ => Type::Unknown,
             },
             Expr::AddrOf { expr } => Type::pointer(self.infer_expr_type(expr)),
-            Expr::Cast { target_type, .. } => Type::from_str(target_type),
             _ => Type::Unknown,
         }
     }

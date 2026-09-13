@@ -1103,17 +1103,6 @@ impl SemanticIRBuilder {
             ),
             Expr::PtrLiteral(val) => TypedIRValue::PtrLiteral(*val),
             Expr::NullPtr => TypedIRValue::NullPtr,
-            Expr::Cast {
-                expr: cast_expr,
-                target_type,
-            } => {
-                let inner = self.translate_expr(program, func, current_block, cast_expr);
-                let target = Type::from_str(target_type);
-                TypedIRValue::Cast {
-                    value: Box::new(inner),
-                    target_type: target,
-                }
-            }
             Expr::Range { start, end, inclusive: _ } => {
                 // For now, represent a range as a list containing the start and end values.
                 // This is not a full range implementation, but avoids silent Void.

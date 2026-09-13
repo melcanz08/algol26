@@ -321,9 +321,11 @@ impl Monomorphizer {
             } => Stmt::VarDecl {
                 name: name.clone(),
                 value: self.substitute_in_expr(value, type_bindings),
-                type_annotation: type_annotation
-                    .as_ref()
-                    .map(|t| self.substitute_type_string(t, type_bindings)),
+                type_annotation: type_annotation.as_ref().map(|t| {
+                    TypeSyntax::from_string(
+                        &self.substitute_type_string(&t.to_string_rep(), type_bindings),
+                    )
+                }),
                 mutable: *mutable,
                 span: *span,
             },

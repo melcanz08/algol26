@@ -171,7 +171,7 @@ pub enum Stmt {
     VarDecl {
         name: String,
         value: Expr,
-        type_annotation: Option<String>,
+        type_annotation: Option<TypeSyntax>,
         mutable: bool,
         span: Span,
     },

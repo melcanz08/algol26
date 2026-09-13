@@ -172,7 +172,7 @@ impl Parser {
         let is_mutable = matches!(self.peek(), Token::Var);
         self.advance();
         let name = self.expect_identifier("variable name")?;
-        let type_annotation = self.parse_type_annotation()?.map(|t| t.to_string_rep());
+        let type_annotation = self.parse_type_annotation()?;
 
         match self.advance() {
             Token::Assign => {}

@@ -48,7 +48,7 @@ impl SemanticIRBuilder {
             } => {
                 if matches!(value, Expr::For { .. } | Expr::While { .. }) {
                     let decl_type = if let Some(t) = type_annotation {
-                        Type::from_str(t)
+                        t.to_type()
                     } else {
                         Type::Void
                     };
@@ -135,8 +135,8 @@ impl SemanticIRBuilder {
                 }
 
                 let value_type = typed_value.type_of();
-                let type_ = if let Some(type_str) = type_annotation {
-                    let declared_type = Type::from_str(type_str);
+                let type_ = if let Some(annot) = type_annotation {
+                    let declared_type = annot.to_type();
                     if value_type != Type::Unknown
                         && declared_type != Type::Unknown
                         && !value_type.can_coerce_to(&declared_type)

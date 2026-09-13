@@ -109,14 +109,6 @@ impl SemanticAnalyzer {
             self.functions.insert(clean_name, FunctionInfo { params, return_type });
         }
     }
-    pub(super) fn parse_type_param(&self, type_str: &str) -> Option<String> {
-        let trimmed = type_str.trim();
-        if trimmed.len() == 1 && trimmed.chars().next().is_some_and(|c| c.is_uppercase()) {
-            Some(trimmed.to_string())
-        } else {
-            None
-        }
-    }
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
         if func.is_extern {
             return Ok(());

@@ -351,6 +351,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                         )
                         .unwrap()
                         .into()
+                } else if left.is_pointer_value() && right.is_pointer_value() {
+                    let l_int = self
+                        .builder
+                        .build_ptr_to_int(left.into_pointer_value(), self.context.i64_type(), "eq_l_ptr")
+                        .unwrap();
+                    let r_int = self
+                        .builder
+                        .build_ptr_to_int(right.into_pointer_value(), self.context.i64_type(), "eq_r_ptr")
+                        .unwrap();
+                    self.builder
+                        .build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "ptr_eq")
+                        .unwrap()
+                        .into()
                 } else {
                     return Err(CompileError::simple(
                         &format!(
@@ -382,6 +395,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                             right.into_float_value(),
                             "fne",
                         )
+                        .unwrap()
+                        .into()
+                } else if left.is_pointer_value() && right.is_pointer_value() {
+                    let l_int = self
+                        .builder
+                        .build_ptr_to_int(left.into_pointer_value(), self.context.i64_type(), "eq_l_ptr")
+                        .unwrap();
+                    let r_int = self
+                        .builder
+                        .build_ptr_to_int(right.into_pointer_value(), self.context.i64_type(), "eq_r_ptr")
+                        .unwrap();
+                    self.builder
+                        .build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "ptr_eq")
                         .unwrap()
                         .into()
                 } else {

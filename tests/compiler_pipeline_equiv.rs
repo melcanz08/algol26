@@ -13,7 +13,6 @@ use algol26::compiler::program::Program;
 use algol26::compiler::Compiler;
 use algol26::compiler::passes::optimize::OptimizePass;
 use algol26::compiler::passes::build_ir::BuildSemanticIRPass;
-use algol26::compiler::program::AstPayload;
 use algol26::ir::semantic_ir::SemanticProgram;
 use algol26::ir::optimizer::Optimizer;
 

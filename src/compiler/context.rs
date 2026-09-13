@@ -160,6 +160,13 @@ impl CompilerContext {
             .filter(|d| matches!(d, Diagnostic::Warning(_)))
             .count()
     }
+    // Render every diagnostic collected so far as a single string.
+    ///
+    /// Useful for a future `inspect` command or for error paths that
+    /// want to print once rather than per-diagnostic.
+    pub fn render_diagnostics(&self) -> String {
+        crate::diagnostics::renderer::render_all(&self.diagnostics)
+    }
 }
 
 #[cfg(test)]

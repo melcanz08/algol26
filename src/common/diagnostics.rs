@@ -114,26 +114,7 @@ impl CompileError {
     }
 
     pub fn display(&self) {
-        if self.line > 0 {
-            eprintln!(
-                "error[{}]: {} (line {}, column {})",
-                self.error_code.as_str(),
-                self.message,
-                self.line,
-                self.column
-            );
-        } else {
-            eprintln!("error[{}]: {}", self.error_code.as_str(), self.message);
-        }
-        if self.line > 0 && !self.source_line.is_empty() {
-            eprintln!("  --> Line {}:{}", self.line, self.column);
-            eprintln!("  |");
-            eprintln!("{} | {}", self.line, self.source_line);
-            eprintln!("  | {}^", " ".repeat(self.column));
-        }
-        if let Some(suggestion) = &self.suggestion {
-            eprintln!("  = help: {}", suggestion);
-        }
+        eprint!("{}", crate::diagnostics::renderer::render_one(self));
     }
 }
 

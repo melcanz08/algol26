@@ -95,28 +95,33 @@ mod tests {
         let mut p = Program::new("", "");
         p.ast = Some(AstPayload {
             functions: Rc::clone(&funcs),
-            type_table: HashMap::new(),
+            traits: Vec::new(),
+            impls: Vec::new(),
+            span_map: HashMap::new(),
         });
         p.typed = Some(TypedProgram {
             functions: Rc::clone(&funcs),
-            type_table: HashMap::new(),
             type_info: TypeInfo::default(),
+            type_table: HashMap::new(),
         });
         p.assert_addressing_invariant();
     }
 
+    
     #[test]
     #[should_panic(expected = "addressing invariant violated")]
     fn addressing_invariant_catches_divergent_allocations() {
         let mut p = Program::new("", "");
         p.ast = Some(AstPayload {
             functions: Rc::new(Vec::new()),
-            type_table: HashMap::new(),
+            traits: Vec::new(),
+            impls: Vec::new(),
+            span_map: HashMap::new(),
         });
         p.typed = Some(TypedProgram {
             functions: Rc::new(Vec::new()),   // deliberately a different Rc
-            type_table: HashMap::new(),
             type_info: TypeInfo::default(),
+            type_table: HashMap::new(),
         });
         p.assert_addressing_invariant();
     }

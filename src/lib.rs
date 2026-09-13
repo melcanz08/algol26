@@ -14,6 +14,7 @@ pub use crate::frontend::ast::{ImplBlock, TraitDecl, TraitMethod};
 pub mod backends;
 pub mod common;
 pub mod compiler;
+pub mod diagnostics;
 pub mod ffi;
 pub mod frontend;
 pub mod ir;

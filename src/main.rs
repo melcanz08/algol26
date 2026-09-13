@@ -8,6 +8,14 @@ use std::path::Path;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    // `inspect` has its own sub-flags and bypasses the compile path
+    // entirely. Intercept before the generic flag parser runs so
+    // `--passes`, `--tokens`, etc. don't get pushed into positional.
+    if args.get(1).map(|s| s.as_str()) == Some("inspect") {
+        let rest: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
+        run_inspect(&rest);
+        std::process::exit(0);
+    }
     if args.len() < 2 {
         print_usage();
         std::process::exit(1);
@@ -166,7 +174,14 @@ fn print_usage() {
     println!("  build <file.gol>       Compile to executable (default)");
     println!("  wasm <file.gol>        Compile to WebAssembly");
     println!("  run <file.gol>         Compile and run immediately");
+    println!("  inspect [sub] [file]   Inspect compiler internals");
     println!("  <file.gol>             Same as 'build'");
+    println!();
+    println!("Inspect subcommands:");
+    println!("  --passes               List registered passes and their contracts");
+    println!("  --tokens <file.gol>    Dump lexer tokens");
+    println!("  --ast    <file.gol>    Dump parsed AST (before type checking)");
+    println!("  --ir     <file.gol>    Dump semantic IR (after type checking)");
     println!();
     println!("Options:");
     println!("  --emit-llvm            Only generate LLVM IR");
@@ -181,4 +196,177 @@ fn print_usage() {
     println!("  algol26 build hello.gol");
     println!("  algol26 run hello.gol");
     println!("  algol26 hello.gol");
+    println!("  algol26 inspect --passes");
+    println!("  algol26 inspect --ir hello.gol");
+}
+
+// ─── inspect ─────────────────────────────────────────────────────────
+
+fn run_inspect(args: &[&str]) {
+    let mut passes = false;
+    let mut tokens = false;
+    let mut ast = false;
+    let mut ir = false;
+    let mut file: Option<String> = None;
+
+    for a in args {
+        match *a {
+            "--passes" => passes = true,
+            "--tokens" => tokens = true,
+            "--ast" => ast = true,
+            "--ir" => ir = true,
+            "--help" | "-h" => {
+                print_inspect_usage();
+                return;
+            }
+            other if other.starts_with("--") => {
+                eprintln!("Error: unknown inspect flag '{}'", other);
+                print_inspect_usage();
+                std::process::exit(1);
+            }
+            other => {
+                if file.is_some() {
+                    eprintln!("Error: inspect takes at most one file");
+                    std::process::exit(1);
+                }
+                file = Some(other.to_string());
+            }
+        }
+    }
+
+    if passes {
+        inspect_passes();
+        return;
+    }
+
+    let Some(path) = file else {
+        eprintln!("Error: inspect needs a file, or --passes");
+        print_inspect_usage();
+        std::process::exit(1);
+    };
+
+    let source = fs::read_to_string(&path).unwrap_or_else(|e| {
+        eprintln!("Error: cannot read '{}': {}", path, e);
+        std::process::exit(1);
+    });
+    let filename = Path::new(&path)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.clone());
+
+    let mut compiler = Compiler::default();
+
+    if tokens {
+        inspect_tokens(&compiler, &source);
+    } else if ast {
+        inspect_ast(&mut compiler, &source, &filename);
+    } else if ir {
+        inspect_ir(&mut compiler, &source, &filename);
+    } else {
+        eprintln!("Error: inspect needs one of --passes, --tokens, --ast, --ir");
+        print_inspect_usage();
+        std::process::exit(1);
+    }
+}
+
+fn inspect_passes() {
+    use algol26::compiler::passes::build_ir::BuildSemanticIRPass;
+    use algol26::compiler::passes::optimize::OptimizePass;
+    use algol26::compiler::passes::type_check::TypeCheckPass;
+    use algol26::compiler::passes::verify_ir::VerifyIrPass;
+    use algol26::compiler::program::Program;
+    use algol26::compiler::registry::PassRegistry;
+
+    let mut reg: PassRegistry<Program> = PassRegistry::new();
+    reg.register(TypeCheckPass);
+    reg.register(BuildSemanticIRPass);
+    reg.register(OptimizePass);
+    reg.register(VerifyIrPass);
+
+    println!("Registered passes:");
+    for c in reg.contracts() {
+        println!();
+        println!("  {} [{}]", c.id, match c.kind {
+            algol26::compiler::pass::PassKind::Analysis    => "analysis",
+            algol26::compiler::pass::PassKind::Transform   => "transform",
+            algol26::compiler::pass::PassKind::Verification => "verify",
+            algol26::compiler::pass::PassKind::Lowering    => "lowering",
+            algol26::compiler::pass::PassKind::Annotation  => "annotation",
+        });
+        println!("    level:         {} -> {}", c.input, c.output);
+        println!("    may_fail:      {}", c.may_fail);
+        if !c.requires.is_empty() {
+            println!("    requires:");
+            for r in c.requires { println!("      - {}", r); }
+        }
+        if !c.guarantees.is_empty() {
+            println!("    guarantees:");
+            for g in c.guarantees { println!("      - {}", g); }
+        }
+        if !c.must_preserve.is_empty() {
+            println!("    must_preserve:");
+            for m in c.must_preserve { println!("      - {}", m); }
+        }
+    }
+}
+
+fn inspect_tokens(compiler: &Compiler, source: &str) {
+    match compiler.lex_source_for(source) {
+        Ok(lexed) => {
+            println!("{} token(s):", lexed.tokens.len());
+            for (i, tok) in lexed.tokens.iter().enumerate() {
+                let pos = lexed.positions.get(i).copied().unwrap_or((0, 0));
+                println!("  {:>4}  {}:{}  {:?}", i, pos.0, pos.1, tok);
+            }
+        }
+        Err(e) => {
+            e.display();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn inspect_ast(compiler: &mut Compiler, source: &str, filename: &str) {
+    match compiler.parse_source_for(source, filename) {
+        Ok(parsed) => {
+            println!("{} function(s):", parsed.functions.len());
+            for f in parsed.functions.iter() {
+                println!();
+                println!("{:#?}", f);
+            }
+            if !parsed.traits.is_empty() {
+                println!("\n{} trait(s):", parsed.traits.len());
+                for t in &parsed.traits { println!("  {:?}", t); }
+            }
+            if !parsed.impls.is_empty() {
+                println!("\n{} impl block(s):", parsed.impls.len());
+                for i in &parsed.impls { println!("  {:?}", i); }
+            }
+        }
+        Err(e) => {
+            e.display();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn inspect_ir(compiler: &mut Compiler, source: &str, filename: &str) {
+    match compiler.build_semantic_ir_for(source, filename) {
+        Ok(ir) => {
+            println!("{:#?}", ir);
+        }
+        Err(e) => {
+            e.display();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn print_inspect_usage() {
+    eprintln!("Usage: algol26 inspect [--passes] [--tokens|--ast|--ir] [file.gol]");
+    eprintln!();
+    eprintln!("  --passes         list registered compiler passes and their contracts");
+    eprintln!("  --tokens <file>  dump lexer tokens");
+    eprintln!("  --ast    <file>  dump the parsed AST (before type checking)");
+    eprintln!("  --ir     <file>  dump the semantic IR (after type checking)");
 }

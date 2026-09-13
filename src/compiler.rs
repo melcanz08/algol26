@@ -193,6 +193,11 @@ impl Compiler {
         Ok(self.monomorphize(&parsed))
     }
 
+    /// Lex a source string. Used by `algol26 inspect --tokens`.
+    pub fn lex_source_for(&self, source: &str) -> Result<LexedProgram> {
+        self.lex(source)
+    }
+
     pub fn type_check_source_for(
         &mut self,
         source: &str,

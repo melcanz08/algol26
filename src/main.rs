@@ -179,6 +179,7 @@ fn print_usage() {
     println!();
     println!("Inspect subcommands:");
     println!("  --passes               List registered passes and their contracts");
+    println!("  --capabilities         Print the feature × backend capability matrix");
     println!("  --tokens <file.gol>    Dump lexer tokens");
     println!("  --ast    <file.gol>    Dump parsed AST (before type checking)");
     println!("  --ir     <file.gol>    Dump semantic IR (after type checking)");
@@ -208,6 +209,7 @@ fn run_inspect(args: &[&str]) {
     let mut ast = false;
     let mut ir = false;
     let mut file: Option<String> = None;
+    let mut capabilities = false;
 
     for a in args {
         match *a {
@@ -215,6 +217,7 @@ fn run_inspect(args: &[&str]) {
             "--tokens" => tokens = true,
             "--ast" => ast = true,
             "--ir" => ir = true,
+            "--capabilities" => capabilities = true,
             "--help" | "-h" => {
                 print_inspect_usage();
                 return;
@@ -236,6 +239,11 @@ fn run_inspect(args: &[&str]) {
 
     if passes {
         inspect_passes();
+        return;
+    }
+
+    if capabilities {
+        inspect_capabilities();
         return;
     }
 
@@ -263,7 +271,7 @@ fn run_inspect(args: &[&str]) {
     } else if ir {
         inspect_ir(&mut compiler, &source, &filename);
     } else {
-        eprintln!("Error: inspect needs one of --passes, --tokens, --ast, --ir");
+        eprintln!("Error: inspect needs one of --passes, --capabilities, --tokens, --ast, --ir");
         print_inspect_usage();
         std::process::exit(1);
     }
@@ -362,10 +370,17 @@ fn inspect_ir(compiler: &mut Compiler, source: &str, filename: &str) {
     }
 }
 
+fn inspect_capabilities() {
+    use algol26::compiler::capabilities::CapabilityMatrix;
+    let m = CapabilityMatrix::standard();
+    print!("{}", m.render_table());
+}
+
 fn print_inspect_usage() {
-    eprintln!("Usage: algol26 inspect [--passes] [--tokens|--ast|--ir] [file.gol]");
+    eprintln!("Usage: algol26 inspect [--passes|--capabilities] [--tokens|--ast|--ir] [file.gol]");
     eprintln!();
     eprintln!("  --passes         list registered compiler passes and their contracts");
+    eprintln!("  --capabilities   print the feature × backend capability matrix");
     eprintln!("  --tokens <file>  dump lexer tokens");
     eprintln!("  --ast    <file>  dump the parsed AST (before type checking)");
     eprintln!("  --ir     <file>  dump the semantic IR (after type checking)");

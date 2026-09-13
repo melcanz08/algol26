@@ -1,7 +1,7 @@
 // examples/pass_pipeline.rs
 
 use algol26::compiler::{
-    capabilities::{BackendKind, Feature},
+    capabilities::BackendKind,
     context::{CompilerConfig, CompilerContext, OptLevel},
     pass::{IrLevel, Pass, PassContract, PassId, PassKind, PassResult},
     pipeline::Pipeline,
@@ -91,6 +91,7 @@ impl Pass<Program> for OwnershipAnalysis {
 }
 
 fn main() {
+    use algol26::compiler::capabilities::CapabilityMatrix;
     let config = CompilerConfig {
         target: BackendKind::Interpreter,
         opt_level: OptLevel::O0,
@@ -99,8 +100,9 @@ fn main() {
     let mut ctx = CompilerContext::new(config);
 
     // Sanity: capability matrix
-    println!("Capability matrix:\n{}", ctx.capabilities.render_table());
-    assert!(ctx.capabilities.supports(Feature::Ownership, BackendKind::Llvm));
+    println!("Capability matrix:\n{}", CapabilityMatrix::standard().render_table());
+    use algol26::compiler::capabilities::Feature;
+    assert!(ctx.capabilities.supports(Feature::Ffi, BackendKind::Llvm));
     assert!(!ctx.capabilities.supports(Feature::Spawn, BackendKind::Llvm));
 
     // Build the pipeline. The builder validates contract chaining.

@@ -51,6 +51,36 @@ pub enum Feature {
 }
 
 impl Feature {
+    /// Every variant, in display order. Used by the capability matrix
+    /// renderer and the sync test.
+    pub fn all() -> &'static [Feature] {
+        &[
+            Feature::Result,
+            Feature::Spawn,
+            Feature::Fork,
+            Feature::Channels,
+            Feature::Ffi,
+            Feature::StringFunctions,
+            Feature::FileFunctions,
+            Feature::ListAggregates,
+            Feature::ListPrint,
+        ]
+    }
+
+    /// Short identifier for tables and CLI output.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Feature::Result => "result",
+            Feature::Spawn => "spawn",
+            Feature::Fork => "fork",
+            Feature::Channels => "channels",
+            Feature::Ffi => "ffi",
+            Feature::StringFunctions => "string.*",
+            Feature::FileFunctions => "file.*",
+            Feature::ListAggregates => "list.agg",
+            Feature::ListPrint => "print(list)",
+        }
+    }
     pub fn description(&self) -> &'static str {
         match self {
             Feature::Result => "Result<T, E> and try/catch",

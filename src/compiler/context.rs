@@ -167,6 +167,20 @@ impl CompilerContext {
     pub fn render_diagnostics(&self) -> String {
         crate::diagnostics::renderer::render_all(&self.diagnostics)
     }
+        /// Check whether `program` uses only features the configured
+    /// target backend supports.
+    ///
+    /// Delegates to the scan in `backends::capabilities`, feeding it
+    /// a `BackendCapabilities` reconstructed from this context's
+    /// matrix. When config-driven overrides exist (e.g. `--no-spawn`),
+    /// they will be reflected here without touching the scan.
+    pub fn check_backend(
+        &self,
+        program: &crate::ir::semantic_ir::SemanticProgram,
+    ) -> crate::common::diagnostics::Result<()> {
+        let caps = self.capabilities.caps_for(self.config.target);
+        crate::backends::capabilities::check_backend(program, &caps)
+    }
 }
 
 #[cfg(test)]

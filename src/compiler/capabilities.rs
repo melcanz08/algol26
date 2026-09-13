@@ -1,9 +1,27 @@
 // src/compiler/capabilities.rs
 
+//! Capability matrix — a view over the backend capability tables.
+//!
+//! The authoritative declaration of what each backend supports lives
+//! in `crate::backends::capabilities::BackendCapabilities`. This
+//! module renders that data as a feature × backend grid for the
+//! `inspect --capabilities` CLI and, in future, for config-driven
+//! overrides.
+//!
+//! Keep the two in sync: `standard()` derives from the constructors,
+//! and `tests::matrix_matches_backend_constructors` asserts they
+//! agree.
+
+pub use crate::backends::capabilities::{BackendCapabilities, Feature};
+
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BackendKind { Interpreter, Llvm, Wasm }
+pub enum BackendKind {
+    Interpreter,
+    Llvm,
+    Wasm,
+}
 
 impl BackendKind {
     pub fn all() -> [BackendKind; 3] {
@@ -16,41 +34,25 @@ impl BackendKind {
             BackendKind::Wasm => "wasm",
         }
     }
+    pub fn caps(self) -> BackendCapabilities {
+        match self {
+            BackendKind::Interpreter => BackendCapabilities::interpreter(),
+            BackendKind::Llvm => BackendCapabilities::llvm(),
+            BackendKind::Wasm => BackendCapabilities::wasm(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Support {
+    /// Backend lowers this feature natively.
     Full,
-    /// Supported but semantically divergent, or requires a fallback.
+    /// Backend accepts this feature but semantics may diverge, or the
+    /// backend requires a fallback. Currently unused by `standard()`;
+    /// reserved for config-driven overrides.
     Partial,
+    /// Backend refuses this feature.
     None,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Feature {
-    Ownership, Spawn, Ffi, Channels, Regions,
-    Generics, Traits, Defer, TryCatch,
-}
-
-impl Feature {
-    pub fn all() -> &'static [Feature] {
-        use Feature::*;
-        &[Ownership, Spawn, Ffi, Channels, Regions,
-          Generics, Traits, Defer, TryCatch]
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            Feature::Ownership => "ownership",
-            Feature::Spawn     => "spawn",
-            Feature::Ffi       => "ffi",
-            Feature::Channels  => "channels",
-            Feature::Regions   => "regions",
-            Feature::Generics  => "generics",
-            Feature::Traits    => "traits",
-            Feature::Defer     => "defer",
-            Feature::TryCatch  => "try/catch",
-        }
-    }
 }
 
 pub struct CapabilityMatrix {
@@ -58,7 +60,9 @@ pub struct CapabilityMatrix {
 }
 
 impl CapabilityMatrix {
-    pub fn new() -> Self { Self { entries: HashMap::new() } }
+    pub fn new() -> Self {
+        Self { entries: HashMap::new() }
+    }
 
     pub fn set(&mut self, f: Feature, b: BackendKind, s: Support) {
         self.entries.insert((f, b), s);
@@ -72,67 +76,62 @@ impl CapabilityMatrix {
         matches!(self.get(f, b), Support::Full)
     }
 
-    /// The baseline matrix. **Keep this honest** — every `None` here should
-    /// correspond to a refusal in the relevant backend, not a silent miscompile.
+    /// Derive from `BackendCapabilities::llvm()/wasm()/interpreter()`.
     ///
-    ///   Ownership  : semantic, backend-independent -> Full everywhere
-    ///   Generics   : monomorphized before lowering  -> Full everywhere
-    ///   Spawn      : only the interpreter runs it; LLVM/WASM refuse
-    ///                (see tests/conformance/valid/spawn_llvm_refused.gol)
-    ///   FFI        : LLVM only (C ABI); interpreter/WASM refuse
+    /// The constructors are the source of truth; this view is what the
+    /// renderer and the CLI consume.
     pub fn standard() -> Self {
-        use BackendKind::*;
-        use Feature::*;
-        use Support::*;
-
         let mut m = Self::new();
-
-        // Cross-backend features.
         for b in BackendKind::all() {
-            m.set(Ownership, b, Full);
-            m.set(Generics,  b, Full);
-            m.set(Traits,    b, Full);
-            m.set(Regions,   b, Full);
-            m.set(Defer,     b, Full);
+            let caps = b.caps();
+            for f in Feature::all() {
+                let s = if caps.supported.contains(f) {
+                    Support::Full
+                } else {
+                    Support::None
+                };
+                m.set(*f, b, s);
+            }
         }
-
-        // Backend-specific features.
-        m.set(Spawn,    Interpreter, Full);
-        m.set(Spawn,    Llvm,        None);
-        m.set(Spawn,    Wasm,        Partial);
-
-        m.set(Channels, Interpreter, Full);
-        m.set(Channels, Llvm,        None);
-        m.set(Channels, Wasm,        None);
-
-        m.set(Ffi,      Interpreter, None);
-        m.set(Ffi,      Llvm,        Full);
-        m.set(Ffi,      Wasm,        None);
-
-        m.set(TryCatch, Interpreter, Full);
-        m.set(TryCatch, Llvm,        Full);
-        m.set(TryCatch, Wasm,        None);
-
         m
+    }
+
+    /// Reconstruct a `BackendCapabilities` from the matrix.
+    ///
+    /// Used by `CompilerContext::check_backend` so that config overrides
+    /// (once they exist) reach the scan.
+    pub fn caps_for(&self, b: BackendKind) -> BackendCapabilities {
+        let mut supported = std::collections::HashSet::new();
+        for f in Feature::all() {
+            if matches!(self.get(*f, b), Support::Full | Support::Partial) {
+                supported.insert(*f);
+            }
+        }
+        BackendCapabilities {
+            name: b.name(),
+            supported,
+            has_interpreter_fallback: b != BackendKind::Interpreter,
+        }
     }
 
     /// Text rendering for `algol26 inspect --capabilities`.
     pub fn render_table(&self) -> String {
-        let features = Feature::all();
-        let backends = BackendKind::all();
         let mut out = String::new();
-        out.push_str("feature       ");
-        for b in backends { out.push_str(&format!("{:>12} ", b.name())); }
+        out.push_str(&format!("{:<14}", "feature"));
+        for b in BackendKind::all() {
+            out.push_str(&format!("{:>13}", b.name()));
+        }
         out.push('\n');
-        for f in features {
+
+        for f in Feature::all() {
             out.push_str(&format!("{:<14}", f.name()));
-            for b in backends {
+            for b in BackendKind::all() {
                 let cell = match self.get(*f, b) {
                     Support::Full => "✓",
                     Support::Partial => "⚠",
                     Support::None => "✗",
                 };
-                out.push_str(&format!("{:>12} ", cell));
+                out.push_str(&format!("{:>13}", cell));
             }
             out.push('\n');
         }
@@ -140,4 +139,39 @@ impl CapabilityMatrix {
     }
 }
 
-impl Default for CapabilityMatrix { fn default() -> Self { Self::new() } }
+impl Default for CapabilityMatrix {
+    fn default() -> Self { Self::standard() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matrix_matches_backend_constructors() {
+        let m = CapabilityMatrix::standard();
+        for b in BackendKind::all() {
+            let caps = b.caps();
+            for f in Feature::all() {
+                let from_caps = caps.supported.contains(f);
+                let from_matrix = m.supports(*f, b);
+                assert_eq!(
+                    from_caps, from_matrix,
+                    "matrix and constructor disagree on {} for {}",
+                    f.name(), b.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn caps_for_round_trips() {
+        let m = CapabilityMatrix::standard();
+        for b in BackendKind::all() {
+            let derived = m.caps_for(b);
+            let original = b.caps();
+            assert_eq!(derived.supported, original.supported);
+            assert_eq!(derived.has_interpreter_fallback, original.has_interpreter_fallback);
+        }
+    }
+}

@@ -1,42 +1,27 @@
+// src/compiler/program.rs
+
 //! The compilation unit that flows through the pipeline.
 //!
 //! Deliberately narrow. Config and capabilities live on
 //! `CompilerContext`; this struct owns only data derived from the
 //! source being compiled.
 
-use crate::common::types::Type;
-use crate::compiler::TypeInfo;
-use crate::frontend::ast::FunctionDecl;
-use crate::ir::semantic_ir::SemanticProgram;
 use crate::compiler::TypedProgram;
+use crate::frontend::ast::{FunctionDecl, ImplBlock, TraitDecl};
+use crate::ir::semantic_ir::SemanticProgram;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// Ast-level inputs consumed by `BuildSemanticIRPass` today, and by
-/// `TypeCheckPass` once it exists.
+/// Ast-level inputs consumed by `TypeCheckPass`.
 ///
-/// `type_table` here is populated after type checking; before that it
-/// is empty. See `TypedAstPayload` for the same data alongside the
-/// analyzer's stats.
+/// The analyzer's output — type table, `TypeInfo` — lives on
+/// `Program::typed`, not here. This struct is the frontend's output
+/// before any semantic annotation.
 pub struct AstPayload {
     pub functions: Rc<Vec<FunctionDecl>>,
-    pub type_table: HashMap<usize, Type>,
-    pub traits: Vec<crate::frontend::ast::TraitDecl>,
-    pub impls: Vec<crate::frontend::ast::ImplBlock>,
+    pub traits: Vec<TraitDecl>,
+    pub impls: Vec<ImplBlock>,
     pub span_map: HashMap<usize, (usize, usize)>,
-}
-
-/// The typed AST: functions plus the analyzer's inferred type table
-/// and stats.
-///
-/// **Invariant:** `functions` MUST be `Rc::clone` of the
-/// corresponding `AstPayload::functions`. Same allocation, same
-/// addresses, or the `type_table` keys will not resolve. See
-/// `docs/compiler/type-table-addressing.md`.
-pub struct TypedAstPayload {
-    pub functions: Rc<Vec<FunctionDecl>>,
-    pub type_table: HashMap<usize, Type>,
-    pub type_info: TypeInfo,
 }
 
 pub struct Program {
@@ -46,9 +31,14 @@ pub struct Program {
     /// Ast-level inputs, before type checking.
     pub ast: Option<AstPayload>,
 
-    /// Typed AST, populated by `TypeCheckPass`. Shares its
-    /// `functions` allocation with `ast`.
-    pub typed: Option<TypedProgram>,  // ← was Option<TypedAstPayload>
+    /// Typed AST, produced by `TypeCheckPass`.
+    ///
+    /// **Invariant:** `typed.functions` MUST be the same `Rc` as
+    /// `ast.functions` — same allocation, same addresses. The
+    /// analyzer keys `type_table` by those addresses; a clone would
+    /// silently invalidate every lookup. See
+    /// `docs/compiler/type-table-addressing.md`.
+    pub typed: Option<TypedProgram>,
 
     /// Semantic IR, produced by `BuildSemanticIRPass`.
     pub semantic_ir: Option<SemanticProgram>,

@@ -186,13 +186,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
             .unwrap();
         let mut ctx = CompilerContext::new(CompilerConfig::default());
         let mut program = Program::new("", "");
-        program.ast = Some(AstPayload {
-            functions: typed.functions.clone(),
-            type_table: typed.type_table.clone(),
-            traits: Vec::new(),
-            impls: Vec::new(),
-            span_map: std::collections::HashMap::new(),
-        });
+        program.typed = Some(typed.clone());
         let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
         assert!(
             outcome.succeeded(),
@@ -281,7 +275,6 @@ fn type_check_pass_agrees_with_direct_call() {
         let mut program = Program::new(&source, &filename);
         program.ast = Some(AstPayload {
             functions: Rc::clone(&parsed.functions),
-            type_table: std::collections::HashMap::new(),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             span_map: parsed.span_map.clone(),

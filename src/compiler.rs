@@ -43,7 +43,7 @@ pub struct ParsedProgram {
     pub impls: Vec<ImplBlock>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypedProgram {
     pub functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     pub type_info: TypeInfo,
@@ -55,7 +55,7 @@ pub struct SemanticIROptimized {
     pub optimization_report: OptimizationReport,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
     pub total_functions: usize,
     pub total_variables: usize,
@@ -170,7 +170,7 @@ impl Compiler {
         filename: &str,
     ) -> Result<SemanticProgram> {
         let typed = self.type_check_source_for(source, filename)?;
-        self.run_build_ir_pass(typed.functions, typed.type_table)
+        self.run_build_ir_pass(typed)
     }
 
     /// Runs the frontend up to and including monomorphization, stopping
@@ -301,7 +301,7 @@ impl Compiler {
             .expect("optimize+verify pipeline left IR in place"))
     }
 
-        /// Runs `BuildSemanticIRPass` on the given typed AST.
+    /// Runs `BuildSemanticIRPass` on the given typed AST.
     ///
     /// Shape matches `run_verify_pass` / `run_optimize_pass`:
     /// construct the pipeline, load inputs into a transient `Program`,
@@ -311,13 +311,12 @@ impl Compiler {
     /// `Program`, these helpers collapse into pass invocations.
     fn run_build_ir_pass(
         &self,
-        functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
-        type_table: std::collections::HashMap<usize, crate::common::types::Type>,
+        typed: TypedProgram,
     ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
         use crate::compiler::context::{CompilerConfig, CompilerContext};
         use crate::compiler::passes::build_ir::BuildSemanticIRPass;
         use crate::compiler::pipeline::Pipeline;
-        use crate::compiler::program::{AstPayload, Program};
+        use crate::compiler::program::Program;
         use crate::compiler::scheduler::Scheduler;
 
         let pipeline = Pipeline::builder()
@@ -327,13 +326,7 @@ impl Compiler {
 
         let mut ctx = CompilerContext::new(CompilerConfig::default());
         let mut program = Program::new("", "");
-        program.ast = Some(AstPayload {
-            functions,
-            type_table,
-            traits: Vec::new(),
-            impls: Vec::new(),
-            span_map: std::collections::HashMap::new(),
-        });
+        program.typed = Some(typed);
 
         let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
 
@@ -419,7 +412,6 @@ impl Compiler {
         let mut program = Program::new("", "");
         program.ast = Some(AstPayload {
             functions,
-            type_table: std::collections::HashMap::new(),
             traits,
             impls,
             span_map,

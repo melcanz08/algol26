@@ -437,6 +437,45 @@ impl Compiler {
             .expect("type_check pass left typed in place"))
     }
 
+    /// Runs `TypeTableCompletePass` on the typed AST.
+    ///
+    /// `Analysis` kind: reads `program.typed`, produces diagnostics,
+    /// never fails. Returns the number of warnings emitted so callers
+    /// can surface it (e.g. `inspect` or `--verbose`).
+    fn run_type_table_complete_pass(&self, typed: TypedProgram) -> Result<usize> {
+        use crate::compiler::context::{CompilerConfig, CompilerContext};
+        use crate::compiler::passes::type_table_complete::TypeTableCompletePass;
+        use crate::compiler::pipeline::Pipeline;
+        use crate::compiler::program::Program;
+        use crate::compiler::scheduler::Scheduler;
+
+        let pipeline = Pipeline::builder()
+            .add(TypeTableCompletePass)
+            .build()
+            .expect("single-pass pipeline is trivially valid");
+
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut program = Program::new("", "");
+        program.typed = Some(typed);
+
+        let _outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
+
+        for d in ctx.diagnostics.iter() {
+            d.display();
+        }
+
+        Ok(ctx.warning_count())
+    }
+
+    /// Public wrapper for `inspect --type-table`.
+    ///
+    /// `run_type_table_complete_pass` is private so only the driver
+    /// uses it; the CLI goes through this. Returns the number of
+    /// warnings the pass emitted (0 means the table is complete).
+    pub fn run_type_table_complete_pass_public(&self, typed: TypedProgram) -> Result<usize> {
+        self.run_type_table_complete_pass(typed)
+    }
+
     pub fn compile(
         &mut self,
         source: &str,
@@ -483,6 +522,11 @@ impl Compiler {
         let phase_start = Instant::now();
         let typed = self.type_check(&parsed)?;
         let type_check_time = phase_start.elapsed();
+
+        // Phase 7.5: TYPE TABLE COMPLETENESS
+        let phase_start = Instant::now();
+        let _warnings = self.run_type_table_complete_pass(typed.clone())?;
+        let type_table_check_time = phase_start.elapsed();
 
         // Phase 8: SAFETY CHECK
         let phase_start = Instant::now();
@@ -535,6 +579,7 @@ impl Compiler {
             eprintln!("  Optimize:   {:.4}s", optimize_time.as_secs_f64());
             eprintln!("  Verify(2):  {:.4}s", verify_post_time.as_secs_f64());
             eprintln!("  Lower:      {:.4}s", lower_time.as_secs_f64());
+            eprintln!("  TypeTblChk: {:.4}s", type_table_check_time.as_secs_f64());
         }
 
         Ok(())

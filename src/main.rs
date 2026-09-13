@@ -180,6 +180,7 @@ fn print_usage() {
     println!("Inspect subcommands:");
     println!("  --passes               List registered passes and their contracts");
     println!("  --capabilities         Print the feature × backend capability matrix");
+    println!("  --type-table <file.gol> Check the analyzer's type table for completeness");
     println!("  --tokens <file.gol>    Dump lexer tokens");
     println!("  --ast    <file.gol>    Dump parsed AST (before type checking)");
     println!("  --ir     <file.gol>    Dump semantic IR (after type checking)");
@@ -210,6 +211,7 @@ fn run_inspect(args: &[&str]) {
     let mut ir = false;
     let mut file: Option<String> = None;
     let mut capabilities = false;
+    let mut type_table = false;
 
     for a in args {
         match *a {
@@ -218,6 +220,7 @@ fn run_inspect(args: &[&str]) {
             "--ast" => ast = true,
             "--ir" => ir = true,
             "--capabilities" => capabilities = true,
+            "--type-table" => type_table = true,
             "--help" | "-h" => {
                 print_inspect_usage();
                 return;
@@ -248,7 +251,7 @@ fn run_inspect(args: &[&str]) {
     }
 
     let Some(path) = file else {
-        eprintln!("Error: inspect needs a file, or --passes");
+        eprintln!("Error: inspect needs a file, or --passes / --capabilities");
         print_inspect_usage();
         std::process::exit(1);
     };
@@ -270,8 +273,10 @@ fn run_inspect(args: &[&str]) {
         inspect_ast(&mut compiler, &source, &filename);
     } else if ir {
         inspect_ir(&mut compiler, &source, &filename);
+    } else if type_table {
+        inspect_type_table(&mut compiler, &source, &filename);
     } else {
-        eprintln!("Error: inspect needs one of --passes, --capabilities, --tokens, --ast, --ir");
+        eprintln!("Error: inspect needs one of --passes, --capabilities, --type-table, --tokens, --ast, --ir");
         print_inspect_usage();
         std::process::exit(1);
     }
@@ -376,11 +381,37 @@ fn inspect_capabilities() {
     print!("{}", m.render_table());
 }
 
+fn inspect_type_table(compiler: &mut Compiler, source: &str, filename: &str) {
+    match compiler.type_check_source_for(source, filename) {
+        Ok(typed) => {
+            println!("{} function(s)", typed.functions.len());
+            println!("{} type_table entries", typed.type_table.len());
+            let warnings = match compiler.run_type_table_complete_pass_public(typed) {
+                Ok(w) => w,
+                Err(e) => {
+                    e.display();
+                    std::process::exit(1);
+                }
+            };
+            if warnings == 0 {
+                println!("✓ type table complete");
+            } else {
+                println!("⚠ {} warning(s) above", warnings);
+            }
+        }
+        Err(e) => {
+            e.display();
+            std::process::exit(1);
+        }
+    }
+}
+
 fn print_inspect_usage() {
     eprintln!("Usage: algol26 inspect [--passes|--capabilities] [--tokens|--ast|--ir] [file.gol]");
     eprintln!();
     eprintln!("  --passes         list registered compiler passes and their contracts");
     eprintln!("  --capabilities   print the feature × backend capability matrix");
+    eprintln!("  --type-table <file>  check the analyzer's type table for completeness");
     eprintln!("  --tokens <file>  dump lexer tokens");
     eprintln!("  --ast    <file>  dump the parsed AST (before type checking)");
     eprintln!("  --ir     <file>  dump the semantic IR (after type checking)");

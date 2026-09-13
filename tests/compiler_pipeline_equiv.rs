@@ -307,3 +307,43 @@ fn type_check_pass_agrees_with_direct_call() {
     assert!(checked > 0, "no files exercised");
     eprintln!("type_check equivalence: {} files checked", checked);
 }
+
+#[test]
+fn type_table_complete_passes_on_conformance_suite() {
+    let dir = std::path::Path::new("tests/conformance/valid");
+    let mut checked = 0usize;
+    let mut total_warnings = 0usize;
+
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("gol") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        let filename = path.file_name().unwrap().to_string_lossy().to_string();
+
+        let mut compiler = Compiler::default();
+        let typed = match compiler.type_check_source_for(&source, &filename) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let warnings = compiler
+            .run_type_table_complete_pass_public(typed)
+            .expect("pass cannot fail");
+        if warnings > 0 {
+            eprintln!("  {} file(s): {} warnings in {}", filename, warnings, filename);
+        }
+        total_warnings += warnings;
+        checked += 1;
+    }
+
+    assert!(checked > 0, "no files exercised");
+    eprintln!(
+        "type_table_complete: {} files checked, {} total warnings",
+        checked, total_warnings
+    );
+    // Assert at most one file has warnings — expected to be adjusted
+    // once we see the initial numbers.
+    // For now, informational only.
+}

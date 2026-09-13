@@ -24,6 +24,20 @@ impl VerifiedIR {
         Ok(VerifiedIR { program })
     }
 
+    /// Wrap a program that has *just* been checked by `VerifyIrPass`.
+    ///
+    /// Unlike `new`, this does not re-run the verifier. It exists so
+    /// `Compiler::run_verify_pass` and `Compiler::run_optimize_pass`
+    /// can share the type-level guarantee without double-verifying:
+    /// both have already run `VerifyIrPass` on this exact program in
+    /// the same call.
+    ///
+    /// `pub(crate)` and named to be unappealing: public API should
+    /// always use `new`.
+    pub(crate) fn from_verify_pass(program: SemanticProgram) -> Self {
+        VerifiedIR { program }
+    }
+
     pub fn program(&self) -> &SemanticProgram {
         &self.program
     }

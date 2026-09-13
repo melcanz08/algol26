@@ -50,18 +50,15 @@ pub struct TypedProgram {
     pub type_table: std::collections::HashMap<usize, crate::common::types::Type>,
 }
 
-pub struct SemanticIROptimized {
-    pub program: SemanticProgram,
-    pub optimization_report: OptimizationReport,
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
     pub total_functions: usize,
     pub total_variables: usize,
     pub types_checked: bool,
 }
-
+/// TODO: OptimizationReport is orphaned after removing 
+///SemanticIROptimized; either delete or reintroduce via 
+///the optimizer's return value
 #[derive(Debug, Default)]
 pub struct OptimizationReport {
     pub passes_run: Vec<String>,
@@ -212,18 +209,16 @@ impl Compiler {
         self.type_check(&parsed)
     }
 
-    /// Runs `VerifyIrPass` on the given IR, returning it unchanged on
-    /// success and a `CompileError` on failure.
+    /// Runs `VerifyIrPass` on the given IR and returns a `VerifiedIR`.
     ///
-    /// Takes ownership because `Program` owns `Option<SemanticProgram>`;
-    /// the pass does not mutate the IR, so the value round-trips out
-    /// intact. When Transform passes migrate, this signature stays
-    /// correct — the pipeline mutates in place and hands the value back.
+    /// The return type is the safety property: after this call, the
+    /// IR is known to have passed verification, and the only way to
+    /// reach the optimizer or a backend is to hold a `VerifiedIR`.
     fn run_verify_pass(
         &self,
         semantic_ir: crate::ir::semantic_ir::SemanticProgram,
         context_label: &str,
-    ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
+    ) -> Result<VerifiedIR> {
         use crate::compiler::context::{CompilerConfig, CompilerContext};
         use crate::compiler::passes::verify_ir::VerifyIrPass;
         use crate::compiler::pipeline::Pipeline;
@@ -251,26 +246,25 @@ impl Compiler {
             ));
         }
 
-        Ok(program
+        let verified = program
             .semantic_ir
             .take()
-            .expect("verification pass left IR in place"))
+            .expect("verification pass left IR in place");
+
+        // `VerifyIrPass` just succeeded on this exact program. Wrap
+        // without re-running the verifier.
+        Ok(VerifiedIR::from_verify_pass(verified))
     }
 
-    /// Runs `OptimizePass` followed by `VerifyIrPass`.
+    /// Runs `OptimizePass` followed by `VerifyIrPass` on the given
+    /// `VerifiedIR`, and returns a fresh `VerifiedIR`.
     ///
-    /// The two are combined because the scheduler enforces the
-    /// transform-must-be-verified discipline locally: the pipeline is
-    /// `[Transform, Verification]` at the same IR level, so the
-    /// `require_verification_after_transforms` rule is satisfied
-    /// without having to disable it for this call site.
-    ///
-    /// On failure, the error carries the "after optimization" wording
-    /// that Phase 12 of `compile()` used to produce directly.
-    fn run_optimize_pass(
-        &self,
-        semantic_ir: crate::ir::semantic_ir::SemanticProgram,
-    ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
+    /// The signature is the point: unverified IR cannot enter the
+    /// optimizer, and unverified IR cannot leave it. The single
+    /// `into_program()` call in the middle is the one place the
+    /// wrapper is peeled — immediately followed by mutation, then
+    /// re-verification, then re-wrapping.
+    fn run_optimize_pass(&self, verified: VerifiedIR) -> Result<VerifiedIR> {
         use crate::compiler::context::{CompilerConfig, CompilerContext};
         use crate::compiler::passes::optimize::OptimizePass;
         use crate::compiler::passes::verify_ir::VerifyIrPass;
@@ -286,7 +280,7 @@ impl Compiler {
 
         let mut ctx = CompilerContext::new(CompilerConfig::default());
         let mut program = Program::new("", "");
-        program.semantic_ir = Some(semantic_ir);
+        program.semantic_ir = Some(verified.into_program());
 
         let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
 
@@ -300,10 +294,12 @@ impl Compiler {
             ));
         }
 
-        Ok(program
+        let optimized = program
             .semantic_ir
             .take()
-            .expect("optimize+verify pipeline left IR in place"))
+            .expect("optimize+verify pipeline left IR in place");
+
+        Ok(VerifiedIR::from_verify_pass(optimized))
     }
 
     /// Runs `BuildSemanticIRPass` on the given typed AST.
@@ -534,26 +530,25 @@ impl Compiler {
 
         // Phase 9: BUILD SEMANTIC IR
         let phase_start = Instant::now();
-        let mut semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
+        let semantic_ir =
+            self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
         let ir_build_time = phase_start.elapsed();
 
-        // Phase 10: VERIFY IR (pre-optimization)
+        // Phase 10: VERIFY IR (pre-optimization) → VerifiedIR
         let phase_start = Instant::now();
-        semantic_ir = self.run_verify_pass(semantic_ir, "after construction")?;
+        let verified_pre = self.run_verify_pass(semantic_ir, "after construction")?;
         let verify_pre_time = phase_start.elapsed();
 
-        // Phase 11 + 12: OPTIMIZE, then VERIFY (post-optimization)
+        // Phase 11 + 12: OPTIMIZE inside the verified wrapper → VerifiedIR
         let phase_start = Instant::now();
-        semantic_ir = self.run_optimize_pass(semantic_ir)?;
+        let verified_post = self.run_optimize_pass(verified_pre)?;
         let optimize_time = phase_start.elapsed();
         let verify_post_time = std::time::Duration::ZERO;
-
-        let optimized_semantic_ir = self.optimize_semantic_ir(semantic_ir)?;
 
         // Phase 13: LOWER TO BACKEND
         let phase_start = Instant::now();
         self.lower_to_llvm(
-            &optimized_semantic_ir,
+            &verified_post,
             filename,
             output_name,
             emit_llvm,
@@ -732,33 +727,25 @@ impl Compiler {
         build_semantic_ir_program(functions, type_table)
     }
 
-    fn optimize_semantic_ir(&self, ir: SemanticProgram) -> Result<SemanticIROptimized> {
-        Ok(SemanticIROptimized {
-            program: ir,
-            optimization_report: OptimizationReport {
-                passes_run: vec!["cfg_verification".to_string()],
-                instructions_removed: 0,
-            },
-        })
-    }
-
     fn lower_to_llvm(
         &self,
-        optimized: &SemanticIROptimized,
+        verified: &VerifiedIR,
         filename: &str,
         output_name: &str,
         emit_llvm: bool,
         run_after_compile: bool,
     ) -> Result<()> {
+        let program = verified.program();
+
         crate::backends::capabilities::check_backend(
-            &optimized.program,
+            program,
             &crate::backends::capabilities::BackendCapabilities::llvm(),
         )?;
 
         let context = Context::create();
         let mut codegen = IRCodeGen::new(&context, "algol26_module");
 
-        codegen.compile(&optimized.program).map_err(|e| {
+        codegen.compile(program).map_err(|e| {
             e.display();
             CompileError::simple("Code generation failed", 0, 0, "", ErrorCode::E0002)
         })?;

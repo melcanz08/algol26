@@ -106,3 +106,7 @@ Every IR transformation pass has a contract defining:
 
 These contracts are currently documented but NOT enforced in code.
 Future work: Add runtime verification after each pass to enforce these contracts.
+## See also
+
+- `type-table-addressing.md` — invariant that any pass carrying
+  AST-level data must preserve

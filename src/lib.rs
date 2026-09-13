@@ -1,5 +1,6 @@
 #![deny(clippy::panic)]
 #![deny(clippy::unwrap_used)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::panic))]
 #![allow(clippy::expect_used)] // LLVM builder ICE
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::if_same_then_else)]

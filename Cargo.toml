@@ -24,3 +24,12 @@ path = "src/main.rs"
 
 [dev-dependencies]
 proptest = "1.4"
+
+[lints.clippy]
+# TODO(melcanz): `CompileError` carries a 136-byte `String` for
+# `source_line`, which trips `result_large_err` on every function
+# returning `Result<T, CompileError>`. ~14 sites in `compiler.rs`,
+# ~300 repo-wide. Proper fix is boxing the error in the `Result`
+# alias in `common/diagnostics.rs` — repo-wide mechanical change,
+# tracked separately.
+result_large_err = "allow"

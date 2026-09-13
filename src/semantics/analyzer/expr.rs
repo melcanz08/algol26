@@ -758,52 +758,6 @@ impl SemanticAnalyzer {
                     "Field access requires struct support, which is not yet implemented",
                 ))
             }
-            Expr::MethodCall { receiver, method_name, args, .. } => {
-                // Treat like a dotted function call for now.
-                let recv_type = self.analyze_expr(receiver)?;
-                if let Some(method) = self.resolve_trait_method(&recv_type, method_name) {
-                    for (arg, (_, param_type)) in args.iter().zip(&method.params) {
-                        let arg_type = self.analyze_expr(arg)?;
-                        let expected_type = match param_type {
-                            Some(s) => s.to_type(),
-                            None => Type::Unknown,
-                        };
-                        if !arg_type.can_coerce_to(&expected_type)
-                            && expected_type != Type::Unknown
-                        {
-                            return Err(CompileError::simple(
-                                &format!(
-                                    "Method '{}' argument type mismatch: expected {}, found {}",
-                                    method_name, expected_type, arg_type
-                                ),
-                                0, 0, "", ErrorCode::E0002,
-                            ));
-                        }
-                    }
-                    Ok(method
-                        .return_type
-                        .as_ref()
-                        .map(|t| t.to_type())
-                        .unwrap_or(Type::Void))
-                } else {
-                    Err(CompileError::simple(
-                        &format!("Type {} has no method '{}'", recv_type, method_name),
-                        0, 0, "", ErrorCode::E0004,
-                    ))
-                }
-            }
-
-            // ─── UNIFY TYPES ─── StructLiteral is currently unsupported.
-            Expr::StructLiteral { type_name, .. } => Err(CompileError::simple(
-                &format!("Struct literal '{}' is not supported yet", type_name),
-                0, 0, "", ErrorCode::E0002,
-            )),
-
-            // ─── UNIFY TYPES ─── TypeAssert is currently unsupported.
-            Expr::TypeAssert { type_name, .. } => Err(CompileError::simple(
-                &format!("Type assertion '{}' is not supported yet", type_name),
-                0, 0, "", ErrorCode::E0002,
-            )),
         }
     }
     pub(super) fn substitute_type_vars(&self, type_: &Type, bindings: &HashMap<String, Type>) -> Type {

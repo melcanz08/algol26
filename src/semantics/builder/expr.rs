@@ -1127,7 +1127,6 @@ impl SemanticIRBuilder {
                 ));
                 TypedIRValue::Void
             }
-            _ => TypedIRValue::Void,
         }
     }
     ///```text

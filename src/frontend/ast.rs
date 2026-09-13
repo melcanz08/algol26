@@ -102,32 +102,11 @@ pub enum Expr {
     /// Null pointer
     NullPtr,
 
-    // NEW: Method call syntax
-    MethodCall {
-        receiver: Box<Expr>,
-        method_name: String,
-        args: Vec<Expr>,
-        span: Span,
-    },
-
     // NEW: Range expression (for iteration)
     Range {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
         inclusive: bool,
-    },
-
-    // NEW: Type assertion
-    TypeAssert {
-        expr: Box<Expr>,
-        type_name: String,
-        span: Span,
-    },
-
-    // NEW: Struct literal
-    StructLiteral {
-        type_name: String,
-        fields: Vec<(String, Expr)>,
     },
 
     // NEW: Field access

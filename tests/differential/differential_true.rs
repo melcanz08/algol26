@@ -741,6 +741,26 @@ procedure main
     assert_eq!(llvm_output.trim(), "3");
 }
 
+#[test]
+fn test_differential_null_equality() {
+    let source = r#"
+procedure main
+    val p := null
+    if p == null then
+        print("null")
+    else
+        print("not null")
+"#;
+    let llvm_output = run_llvm(source);
+    let interp_output = run_interpreter(source);
+    assert_eq!(
+        interp_output.trim(),
+        llvm_output.trim(),
+        "Interpreter and LLVM disagree on null equality"
+    );
+    assert_eq!(llvm_output.trim(), "null");
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

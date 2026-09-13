@@ -25,6 +25,10 @@ pub enum PassKind {
     Verification,
     /// Consumes one IR level and produces the next (e.g. AST -> SemanticIr).
     Lowering,
+    /// Reads `Program`, produces new metadata at the same IR level.
+    /// Does not mutate the primary representation, so no trailing
+    /// `Verification` is required — unlike `Transform`.
+    Annotation,
 }
 
 /// Compilation IR level. The scheduler uses these to validate the pipeline.
@@ -81,14 +85,40 @@ pub struct PassError {
     pub pass: PassId,
     pub message: String,
     pub fatal: bool,
+    /// If this failure originated from a `CompileError`, the original
+    /// is preserved here so `ErrorCode` and span survive the pass
+    /// boundary. `run_*_pass` helpers prefer this over reconstructing.
+    pub cause: Option<Box<crate::common::diagnostics::CompileError>>,
 }
 
 impl PassError {
     pub fn new(pass: PassId, message: impl Into<String>) -> Self {
-        Self { pass, message: message.into(), fatal: true }
+        Self {
+            pass,
+            message: message.into(),
+            fatal: true,
+            cause: None,
+        }
     }
     pub fn recoverable(pass: PassId, message: impl Into<String>) -> Self {
-        Self { pass, message: message.into(), fatal: false }
+        Self {
+            pass,
+            message: message.into(),
+            fatal: false,
+            cause: None,
+        }
+    }
+    /// Construct from a `CompileError`, preserving its code and span.
+    pub fn from_compile_error(
+        pass: PassId,
+        err: crate::common::diagnostics::CompileError,
+    ) -> Self {
+        Self {
+            pass,
+            message: err.message.clone(),
+            fatal: true,
+            cause: Some(Box::new(err)),
+        }
     }
 }
 

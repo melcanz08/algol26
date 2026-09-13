@@ -189,6 +189,9 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
         program.ast = Some(AstPayload {
             functions: typed.functions.clone(),
             type_table: typed.type_table.clone(),
+            traits: Vec::new(),
+            impls: Vec::new(),
+            span_map: std::collections::HashMap::new(),
         });
         let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
         assert!(
@@ -210,4 +213,105 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
 
     assert!(checked > 0, "no files exercised");
     eprintln!("build_ir equivalence: {} files checked", checked);
+}
+
+/// Canonical string form of a `TypedProgram` for comparison.
+///
+/// `TypedProgram::type_table` is a `HashMap`, whose `Debug` output
+/// depends on internal iteration order. Sort entries by key so two
+/// tables with the same contents compare equal.
+fn canonical_typed(typed: &algol26::compiler::TypedProgram) -> String {
+    let mut entries: Vec<(usize, String)> = typed
+        .type_table
+        .iter()
+        .map(|(k, v)| (*k, format!("{:?}", v)))
+        .collect();
+    entries.sort();
+    format!(
+        "functions={:?}\ntype_info={:?}\ntype_table={:?}",
+        typed.functions, typed.type_info, entries
+    )
+}
+
+#[test]
+fn type_check_pass_agrees_with_direct_call() {
+    use algol26::compiler::pass::{Pass, PassKind};
+    use algol26::compiler::passes::type_check::TypeCheckPass;
+    use algol26::compiler::program::AstPayload;
+    use std::rc::Rc;
+
+    let dir = std::path::Path::new("tests/conformance/valid");
+    let mut checked = 0usize;
+
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("gol") {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).unwrap();
+        let filename = path.file_name().unwrap().to_string_lossy().to_string();
+
+        // Run the frontend *once*. Both paths below consume this same
+        // `parsed` allocation, so type_table keys (which are addresses)
+        // are comparable.
+        let mut compiler = Compiler::default();
+        let parsed = match compiler.parse_source_for(&source, &filename) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        // Path A: the free function directly.
+        let direct = match algol26::compiler::type_check_program(
+            &parsed.functions,
+            &parsed.traits,
+            &parsed.impls,
+            &parsed.span_map,
+        ) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        // Path B: through the pass, same input.
+        let pass = TypeCheckPass;
+        assert_eq!(pass.contract().kind, PassKind::Annotation);
+
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut program = Program::new(&source, &filename);
+        program.ast = Some(AstPayload {
+            functions: Rc::clone(&parsed.functions),
+            type_table: std::collections::HashMap::new(),
+            traits: parsed.traits.clone(),
+            impls: parsed.impls.clone(),
+            span_map: parsed.span_map.clone(),
+        });
+        pass.run(&mut ctx, &mut program)
+            .unwrap_or_else(|e| panic!("type_check pass failed on {}: {:?}", filename, e));
+        let via_pass = program.typed.take().unwrap();
+
+        assert_eq!(
+            canonical_typed(&direct),
+            canonical_typed(&via_pass),
+            "typed AST diverges on {}",
+            filename
+        );
+
+        // Both outputs must share the input's allocation.
+        assert!(
+            Rc::ptr_eq(&parsed.functions, &direct.functions),
+            "free function violated addressing invariant on {}",
+            filename
+        );
+        assert!(
+            Rc::ptr_eq(&parsed.functions, &via_pass.functions),
+            "pass violated addressing invariant on {}",
+            filename
+        );
+
+        checked += 1;
+    }
+
+    assert!(checked > 0, "no files exercised");
+    eprintln!("type_check equivalence: {} files checked", checked);
 }

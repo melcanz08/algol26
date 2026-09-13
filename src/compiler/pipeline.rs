@@ -61,7 +61,7 @@ impl<Prog: 'static> PipelineBuilder<Prog> {
                         ));
                     }
                 }
-                PassKind::Transform | PassKind::Verification => {
+                PassKind::Transform | PassKind::Verification | PassKind::Annotation => {
                     if c.input != c.output {
                         return Err(PipelineError::NonLoweringChangedLevel(
                             c.id, c.input, c.output,

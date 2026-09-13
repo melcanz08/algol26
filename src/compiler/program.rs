@@ -8,6 +8,7 @@ use crate::common::types::Type;
 use crate::compiler::TypeInfo;
 use crate::frontend::ast::FunctionDecl;
 use crate::ir::semantic_ir::SemanticProgram;
+use crate::compiler::TypedProgram;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -20,6 +21,9 @@ use std::rc::Rc;
 pub struct AstPayload {
     pub functions: Rc<Vec<FunctionDecl>>,
     pub type_table: HashMap<usize, Type>,
+    pub traits: Vec<crate::frontend::ast::TraitDecl>,
+    pub impls: Vec<crate::frontend::ast::ImplBlock>,
+    pub span_map: HashMap<usize, (usize, usize)>,
 }
 
 /// The typed AST: functions plus the analyzer's inferred type table
@@ -44,7 +48,7 @@ pub struct Program {
 
     /// Typed AST, populated by `TypeCheckPass`. Shares its
     /// `functions` allocation with `ast`.
-    pub typed: Option<TypedAstPayload>,
+    pub typed: Option<TypedProgram>,  // ← was Option<TypedAstPayload>
 
     /// Semantic IR, produced by `BuildSemanticIRPass`.
     pub semantic_ir: Option<SemanticProgram>,
@@ -85,7 +89,7 @@ impl Program {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::compiler::{TypeInfo, TypedProgram};
     #[test]
     fn program_starts_empty() {
         let p = Program::new("src", "test.gol");
@@ -103,7 +107,7 @@ mod tests {
             functions: Rc::clone(&funcs),
             type_table: HashMap::new(),
         });
-        p.typed = Some(TypedAstPayload {
+        p.typed = Some(TypedProgram {
             functions: Rc::clone(&funcs),
             type_table: HashMap::new(),
             type_info: TypeInfo::default(),
@@ -119,7 +123,7 @@ mod tests {
             functions: Rc::new(Vec::new()),
             type_table: HashMap::new(),
         });
-        p.typed = Some(TypedAstPayload {
+        p.typed = Some(TypedProgram {
             functions: Rc::new(Vec::new()),   // deliberately a different Rc
             type_table: HashMap::new(),
             type_info: TypeInfo::default(),

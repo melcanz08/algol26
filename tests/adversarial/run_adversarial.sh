@@ -2,12 +2,23 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_DIR="$ROOT/tests/adversarial"
-BIN="${ALGOL26_BIN:-$ROOT/target/debug/algol26}"
-[[ -x "$BIN" ]] || BIN="${ALGOL26_BIN:-$ROOT/target/release/algol26}"
-
-if [[ ! -x "$BIN" ]]; then
-  echo "ALGOL26 binary not found. Set ALGOL26_BIN or build the project first."
-  exit 2
+if [[ -n "${ALGOL26_BIN:-}" ]]; then
+    BIN="$ALGOL26_BIN"
+elif [[ -x "$ROOT/target/debug/algol26" && -x "$ROOT/target/release/algol26" ]]; then
+    # Prefer whichever was built most recently, so the harness tests
+    # the binary you actually just rebuilt.
+    if [[ "$ROOT/target/release/algol26" -nt "$ROOT/target/debug/algol26" ]]; then
+        BIN="$ROOT/target/release/algol26"
+    else
+        BIN="$ROOT/target/debug/algol26"
+    fi
+elif [[ -x "$ROOT/target/release/algol26" ]]; then
+    BIN="$ROOT/target/release/algol26"
+elif [[ -x "$ROOT/target/debug/algol26" ]]; then
+    BIN="$ROOT/target/debug/algol26"
+else
+    echo "ALGOL26 binary not found. Set ALGOL26_BIN or build the project first."
+    exit 2
 fi
 
 pass=0; fail=0; review=0

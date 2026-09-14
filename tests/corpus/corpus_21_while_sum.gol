@@ -1,0 +1,8 @@
+// OUTPUT: 55
+procedure main
+    var i := 1
+    var total := 0
+    while i <= 10 do
+        total := total + i
+        i := i + 1
+    print(total)

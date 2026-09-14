@@ -1,0 +1,11 @@
+// OUTPUT: 20
+trait Doubler
+    function double(n: Int) -> Int
+
+impl Doubler for Int
+    function double(n: Int) -> Int
+        return n * 2
+
+procedure main
+    val x := 10
+    print(x.double(x))

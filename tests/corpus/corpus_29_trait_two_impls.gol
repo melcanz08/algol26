@@ -1,0 +1,14 @@
+// OUTPUT: 6
+// OUTPUT: 3
+trait Doubler
+    function double(n: Int) -> Int
+
+impl Doubler for Int
+    function double(n: Int) -> Int
+        return n * 2
+
+procedure main
+    val three := 3
+    val one := 1
+    print(three.double(three))
+    print(one.double(one) + 1)

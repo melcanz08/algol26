@@ -1,0 +1,11 @@
+// OUTPUT: 1
+trait Constant
+    function value() -> Int
+
+impl Constant for Int
+    function value() -> Int
+        return 1
+
+procedure main
+    val x := 10
+    print(x.value())

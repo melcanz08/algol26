@@ -1,0 +1,14 @@
+// OUTPUT: 1
+// OUTPUT: 3
+// OUTPUT: 5
+procedure main
+    var i := 0
+    while i < 6 do
+        i := i + 1
+        if i == 2 then
+            continue
+        if i == 4 then
+            continue
+        if i == 6 then
+            continue
+        print(i)

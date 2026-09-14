@@ -1,0 +1,5 @@
+// BACKEND: interpreter
+// OUTPUT: 42
+procedure main
+    region r
+        print(42)

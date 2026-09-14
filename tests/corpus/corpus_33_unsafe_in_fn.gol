@@ -1,0 +1,13 @@
+// BACKEND: interpreter
+// OUTPUT: before
+// OUTPUT: unsafely
+// OUTPUT: after
+function do_unsafe() -> Int
+    unsafe
+        print("unsafely")
+    return 0
+
+procedure main
+    print("before")
+    do_unsafe()
+    print("after")

@@ -1,0 +1,5 @@
+// BACKEND: interpreter
+// OUTPUT: inside
+procedure main
+    unsafe
+        print("inside")

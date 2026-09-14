@@ -1,0 +1,13 @@
+// KNOWN_FAILURE: channel runtime not implemented in any backend
+// BACKEND: interpreter
+// OUTPUT: 1
+// OUTPUT: 2
+procedure main
+    channel a Int
+    channel b Int
+    send a, 1
+    send b, 2
+    receive a into x
+    receive b into y
+    print(x)
+    print(y)

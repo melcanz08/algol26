@@ -1,0 +1,13 @@
+// OUTPUT: 0
+// OUTPUT: 2
+// OUTPUT: 4
+// OUTPUT: 6
+// OUTPUT: 8
+function double(n: Int) -> Int
+    return n * 2
+
+procedure main
+    var i := 0
+    while i < 5 do
+        print(double(i))
+        i := i + 1

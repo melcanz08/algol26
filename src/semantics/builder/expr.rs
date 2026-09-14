@@ -333,7 +333,27 @@ impl SemanticIRBuilder {
             }
             Stmt::Import { .. } => SemanticInstruction::Nop,
             Stmt::Expression(expr) => {
-                let _typed_value = self.translate_expr(program, func, current_block, expr);
+                // A discarded function call must still execute its side
+                // effects. `translate_expr` for FunctionCall returns the
+                // value without pushing an instruction — the caller pushes
+                // it. For discarded calls, push with `result: None`.
+                if let Expr::FunctionCall { name: func_name, args, .. } = expr {
+                    let typed_args: Vec<TypedIRValue> = args
+                        .iter()
+                        .map(|a| self.translate_expr(program, func, current_block, a))
+                        .collect();
+                    self.safe_push_instruction(
+                        func,
+                        current_block,
+                        Instruction::Call {
+                            func: func_name.clone(),
+                            args: typed_args,
+                            result: None,
+                        },
+                    );
+                } else {
+                    let _typed_value = self.translate_expr(program, func, current_block, expr);
+                }
                 if let Some(merge) = self.pending_merge.take() {
                     return FlowResult::Reachable(merge);
                 }

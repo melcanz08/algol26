@@ -1,0 +1,9 @@
+// BACKEND: interpreter
+// OUTPUT: 10
+// OUTPUT: 20
+procedure main
+    region r
+        var x := 10
+        print(x)
+        x := 20
+        print(x)

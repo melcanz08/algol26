@@ -1,0 +1,11 @@
+// OUTPUT: 15
+function add(a: Int, b: Int) -> Int
+    return a + b
+
+procedure main
+    var total := 0
+    var i := 1
+    while i <= 5 do
+        total := add(total, i)
+        i := i + 1
+    print(total)

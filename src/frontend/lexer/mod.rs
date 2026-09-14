@@ -405,18 +405,30 @@ impl Lexer {
         tokens: &mut Vec<Token>,
         positions: &mut Vec<usize>,
     ) -> Result<()> {
-        if let Some(rest) = trimmed
-            .strip_prefix("procedure")
-            .or_else(|| trimmed.strip_prefix("proc"))
-        {
-            let prefix_len = trimmed.len() - rest.len();
-            positions.push(prefix_len);
-            let rest = rest.trim();
-            Lexer::parse_declaration(Token::Procedure, rest, tokens, positions);
-        } else if let Some(rest) = trimmed.strip_prefix("function") {
-            positions.push("function".len());
-            let rest = rest.trim();
-            Lexer::parse_declaration(Token::Function, rest, tokens, positions);
+        if trimmed.starts_with("procedure") {
+            Lexer::parse_declaration(
+                Token::Procedure,
+                "procedure".len(),
+                trimmed,
+                tokens,
+                positions,
+            );
+        } else if trimmed.starts_with("proc") {
+            Lexer::parse_declaration(
+                Token::Procedure,
+                "proc".len(),
+                trimmed,
+                tokens,
+                positions,
+            );
+        } else if trimmed.starts_with("function") {
+            Lexer::parse_declaration(
+                Token::Function,
+                "function".len(),
+                trimmed,
+                tokens,
+                positions,
+            );
         } else {
             Lexer::tokenize_expression(trimmed, line_number, line, tokens, positions)?;
         }

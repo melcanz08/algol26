@@ -6,7 +6,7 @@ use crate::frontend::ast::{
     BinOp, Expr, ExternDecl, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Program, Stmt,
     TraitDecl, TraitMethod, TypeSyntax, UnaryOp, WhereClause,
 };
-use crate::frontend::lexer::{Token, SpannedToken};
+use crate::frontend::lexer::{SpannedToken, Token};
 
 mod types;
 mod pattern;
@@ -19,14 +19,28 @@ mod tests;
 #[derive(Clone, Debug)]
 pub(super) struct TokenInfo {
     token: Token,
-    line: usize,
-    column: usize,
+    span: Span,
+}
+
+impl TokenInfo {
+    /// Start line of this token's span.
+    pub(super) fn line(&self) -> usize {
+        self.span.start_line
+    }
+    /// Start column of this token's span.
+    pub(super) fn column(&self) -> usize {
+        self.span.start_column
+    }
 }
 
 pub struct Parser {
     pub(super) tokens: Vec<TokenInfo>,
     pub(super) pos: usize,
     pub(super) span_map: std::collections::HashMap<usize, (usize, usize)>,
+    /// Span of the most recently consumed token, updated by `advance()`.
+    /// Used by PR-4 to construct compound node spans. Defaults to
+    /// `Span::default()` before any token is consumed.
+    last_span: Span,
 }
 
 impl Parser {
@@ -35,8 +49,7 @@ impl Parser {
             .into_iter()
             .map(|st| TokenInfo {
                 token: st.token,
-                line: st.span.start_line,
-                column: st.span.start_column,
+                span: st.span,
             })
             .collect();
 
@@ -44,6 +57,7 @@ impl Parser {
             tokens: token_infos,
             pos: 0,
             span_map: std::collections::HashMap::new(),
+            last_span: Span::default(),
         }
     }
 
@@ -58,27 +72,51 @@ impl Parser {
             .unwrap_or(&Token::Eof)
     }
 
-    fn peek_info(&self) -> &TokenInfo {
-        self.tokens.get(self.pos).unwrap_or(&TokenInfo {
-            token: Token::Eof,
-            line: 0,
-            column: 0,
-        })
+    fn peek_info(&self) -> TokenInfo {
+        self.tokens
+            .get(self.pos)
+            .cloned()
+            .unwrap_or(TokenInfo {
+                token: Token::Eof,
+                span: Span::default(),
+            })
+    }
+
+    /// Span of the token at the current position (the one `peek` would return).
+    /// Returns `Span::default()` at EOF.
+    #[allow(dead_code)] // TODO(pr-4): remove once AST nodes carry spans
+    pub(super) fn current_span(&self) -> Span {
+        self.tokens
+            .get(self.pos)
+            .map(|ti| ti.span)
+            .unwrap_or_default()
+    }
+
+    /// Span of the most recently consumed token, as recorded by `advance()`.
+    #[allow(dead_code)] // TODO(pr-4): remove once AST nodes carry spans
+    pub(super) fn last_span(&self) -> Span {
+        self.last_span
     }
 
     fn advance(&mut self) -> Token {
         let info = self.tokens.get(self.pos).cloned().unwrap_or(TokenInfo {
             token: Token::Eof,
-            line: 0,
-            column: 0,
+            span: Span::default(),
         });
+        self.last_span = info.span;
         self.pos += 1;
         info.token
     }
 
     fn error(&self, message: &str) -> CompileError {
         let info = self.peek_info();
-        CompileError::simple(message, info.line, info.column, "", ErrorCode::E0001)
+        CompileError::simple(
+            message,
+            info.span.start_line,
+            info.span.start_column,
+            "",
+            ErrorCode::E0001,
+        )
     }
 
     fn skip_keyword(&mut self, keyword: &str) {

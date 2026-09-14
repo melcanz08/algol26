@@ -124,13 +124,13 @@ impl Parser {
                 })
             }
             Token::Not => {
-                let start_info = self.peek_info().clone();
+                let start_info = self.peek_info();
                 self.advance();
                 let operand = self.parse_unary()?;
                 Ok(Expr::Unary {
                     op: UnaryOp::Not,
                     expr: Box::new(operand),
-                    span: Span::point(start_info.line, start_info.column),
+                    span: Span::point(start_info.line(), start_info.column()),
                 })
             }
             Token::Star => {
@@ -160,7 +160,7 @@ impl Parser {
         }
     }
     pub(super) fn parse_primary(&mut self) -> Result<Expr> {
-        //let start_info = self.peek_info().clone();
+        //let start_info = self.peek_info();
         match self.advance() {
             Token::If => self.parse_if_expr(),
             Token::For => self.parse_for_expr(),
@@ -234,11 +234,11 @@ impl Parser {
                 self.expect_token(Token::LParen, "'('")?;
                 let size = self.parse_expr()?;
                 self.expect_token(Token::RParen, "')'")?;
-                let span = self.peek_info().clone();
+                let span = self.peek_info();
                 Ok(Expr::FunctionCall {
                     name: "alloc".to_string(),
                     args: vec![size],
-                    span: Span::point(span.line, span.column),
+                    span: Span::point(span.line(), span.column()),
                 })
             }
             Token::Free => {
@@ -246,11 +246,11 @@ impl Parser {
                 self.expect_token(Token::LParen, "'('")?;
                 let ptr = self.parse_expr()?;
                 self.expect_token(Token::RParen, "')'")?;
-                let span = self.peek_info().clone();
+                let span = self.peek_info();
                 Ok(Expr::FunctionCall {
                     name: "free".to_string(),
                     args: vec![ptr],
-                    span: Span::point(span.line, span.column),
+                    span: Span::point(span.line(), span.column()),
                 })
             }
             Token::LParen => {
@@ -320,19 +320,19 @@ impl Parser {
                 }
             }
             self.expect_token(Token::RParen, "')'")?;
-            let span = self.peek_info().clone();
+            let span = self.peek_info();
             Ok(Expr::FunctionCall {
                 name,
                 args,
-                span: Span::point(span.line, span.column),
+                span: Span::point(span.line(), span.column()),
             })
         } else if matches!(self.peek(), Token::LBracket) {
             self.advance();
             let index = self.parse_expr()?;
             self.expect_token(Token::RBracket, "']'")?;
-            let span = self.peek_info().clone();
+            let span = self.peek_info();
             Ok(Expr::ArrayAccess {
-                array: Box::new(Expr::Var(name, Span::point(span.line, span.column))),
+                array: Box::new(Expr::Var(name, Span::point(span.line(), span.column()))),
                 index: Box::new(index),
             })
         } else if matches!(self.peek(), Token::Dot) {
@@ -360,15 +360,15 @@ impl Parser {
                 Vec::new()
             };
 
-            let span = self.peek_info().clone();
+            let span = self.peek_info();
             Ok(Expr::FunctionCall {
                 name: format!("{}.{}", name, method_name),
                 args,
-                span: Span::point(span.line, span.column),
+                span: Span::point(span.line(), span.column()),
             })
         } else {
-            let span = self.peek_info().clone();
-            Ok(Expr::Var(name, Span::point(span.line, span.column)))
+            let span = self.peek_info();
+            Ok(Expr::Var(name, Span::point(span.line(), span.column())))
         }
     }
     pub(super) fn parse_if_expr(&mut self) -> Result<Expr> {
@@ -404,7 +404,7 @@ impl Parser {
         self.parse_if_expr()
     }
     pub(super) fn parse_for_expr(&mut self) -> Result<Expr> {
-        let start_info = self.peek_info().clone();
+        let start_info = self.peek_info();
         let var = self.expect_identifier("iterator variable")?;
         self.expect_token(Token::In, "'in'")?;
         let iterable = Box::new(self.parse_expr()?);
@@ -415,11 +415,11 @@ impl Parser {
             iterable,
             body,
             trailing_expr,
-            span: Span::point(start_info.line, start_info.column),
+            span: Span::point(start_info.line(), start_info.column()),
         })
     }
     pub(super) fn parse_while_expr(&mut self) -> Result<Expr> {
-        let start_info = self.peek_info().clone();
+        let start_info = self.peek_info();
         let condition = Box::new(self.parse_expr()?);
         self.skip_optional_do();
         let (body, trailing_expr) = self.parse_loop_body()?;
@@ -427,7 +427,7 @@ impl Parser {
             condition,
             body,
             trailing_expr,
-            span: Span::point(start_info.line, start_info.column),
+            span: Span::point(start_info.line(), start_info.column()),
         })
     }
     pub(super) fn parse_try_catch_expr(&mut self) -> Result<Expr> {

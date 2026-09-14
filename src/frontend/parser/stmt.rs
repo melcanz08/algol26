@@ -63,11 +63,11 @@ impl Parser {
                     self.advance();
                     let size = self.parse_expr()?;
                     self.expect_token(Token::RParen, "')'")?;
-                    let span = self.peek_info().clone();
+                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: "alloc".to_string(),
                         args: vec![size],
-                        span: Span::point(span.line, span.column),
+                        span: Span::point(span.line(), span.column()),
                     }))
                 } else {
                     Err(self.error("Expected '(' after alloc"))
@@ -79,11 +79,11 @@ impl Parser {
                     self.advance();
                     let ptr = self.parse_expr()?;
                     self.expect_token(Token::RParen, "')'")?;
-                    let span = self.peek_info().clone();
+                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: "free".to_string(),
                         args: vec![ptr],
-                        span: Span::point(span.line, span.column),
+                        span: Span::point(span.line(), span.column()),
                     }))
                 } else {
                     Err(self.error("Expected '(' after free"))
@@ -182,9 +182,9 @@ impl Parser {
         }
 
         let value = self.parse_expr()?;
-        let span = self.peek_info().clone();
+        let span = self.peek_info();
         Ok(Stmt::VarDecl {
-            span: Span::point(span.line, span.column),
+            span: Span::point(span.line(), span.column()),
             name,
             value,
             type_annotation,
@@ -359,11 +359,11 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RParen, "')'")?;
-                let span = self.peek_info().clone();
+                let span = self.peek_info();
                 Ok(Stmt::Expression(Expr::FunctionCall {
                     name,
                     args,
-                    span: Span::point(span.line, span.column),
+                    span: Span::point(span.line(), span.column()),
                 }))
             }
             Token::LBracket => {
@@ -380,9 +380,9 @@ impl Parser {
                         value,
                     })
                 } else {
-                    let span = self.peek_info().clone();
+                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::ArrayAccess {
-                        array: Box::new(Expr::Var(name, Span::point(span.line, span.column))),
+                        array: Box::new(Expr::Var(name, Span::point(span.line(), span.column()))),
                         index: Box::new(index),
                     }))
                 }
@@ -406,11 +406,11 @@ impl Parser {
                         }
                     }
                     self.expect_token(Token::RParen, "')'")?;
-                    let span = self.peek_info().clone();
+                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: format!("{}.{}", name, method_name),
                         args,
-                        span: Span::point(span.line, span.column),
+                        span: Span::point(span.line(), span.column()),
                     }))
                 } else {
                     // Bare method syntax (`s.length`) — no parens. Desugar to a
@@ -420,19 +420,19 @@ impl Parser {
                     // NOTE: when struct support lands, this needs a discriminator
                     // to tell `s.length` (method) from `point.x` (field). Today
                     // nothing produces a valid FieldAccess, so no case is lost.
-                    let span = self.peek_info().clone();
+                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: format!("{}.{}", name, method_name),
                         args: Vec::new(),
-                        span: Span::point(span.line, span.column),
+                        span: Span::point(span.line(), span.column()),
                     }))
                 }
             }
             _ => {
-                let span = self.peek_info().clone();
+                let span = self.peek_info();
                 Ok(Stmt::Expression(Expr::Var(
                     name,
-                    Span::point(span.line, span.column),
+                    Span::point(span.line(), span.column()),
                 )))
             }
         }

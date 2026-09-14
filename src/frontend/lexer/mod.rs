@@ -4,6 +4,8 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;
+use crate::common::span::Span;
+
 mod decl;
 mod ident;
 mod literal;
@@ -145,9 +147,15 @@ pub enum CTypeName {
     IntPtrT,
     UIntPtrT,
 }
+
+#[derive(Clone, Debug)]
+pub struct SpannedToken {
+    pub token: Token,
+    pub span: Span,
+}
+
 pub struct Lexer {
-    pub tokens: Vec<Token>,
-    pub positions: Vec<(usize, usize)>, // (line, column) for each token
+    pub tokens: Vec<SpannedToken>,
 }
 lazy_static::lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token> = {
@@ -358,7 +366,19 @@ impl Lexer {
         }
         token_positions.truncate(tokens.len());
 
-        Ok(Lexer { tokens, positions: token_positions })
+        // PR-1a: pair each token with a point span. Real spans (with correct
+        // end positions) will be computed in PR-1b; for now we just carry
+        // the currently-produced (line, column) through the new type.
+        let spanned: Vec<SpannedToken> = tokens
+            .into_iter()
+            .zip(token_positions)
+            .map(|(token, (line, column))| SpannedToken {
+                token,
+                span: Span::point(line, column),
+            })
+            .collect();
+
+        Ok(Lexer { tokens: spanned })
     }
     fn tokenize_line(
         trimmed: &str,

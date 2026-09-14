@@ -327,9 +327,14 @@ fn inspect_tokens(compiler: &Compiler, source: &str) {
     match compiler.lex_source_for(source) {
         Ok(lexed) => {
             println!("{} token(s):", lexed.tokens.len());
-            for (i, tok) in lexed.tokens.iter().enumerate() {
-                let pos = lexed.positions.get(i).copied().unwrap_or((0, 0));
-                println!("  {:>4}  {}:{}  {:?}", i, pos.0, pos.1, tok);
+            for (i, st) in lexed.tokens.iter().enumerate() {
+                println!(
+                    "  {:>4}  {}:{}  {:?}",
+                    i,
+                    st.span.start_line,
+                    st.span.start_column,
+                    st.token
+                );
             }
         }
         Err(e) => {

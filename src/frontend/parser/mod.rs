@@ -6,7 +6,7 @@ use crate::frontend::ast::{
     BinOp, Expr, ExternDecl, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Program, Stmt,
     TraitDecl, TraitMethod, TypeSyntax, UnaryOp, WhereClause,
 };
-use crate::frontend::lexer::Token;
+use crate::frontend::lexer::{Token, SpannedToken};
 
 mod types;
 mod pattern;
@@ -30,21 +30,13 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Self::new_with_positions(tokens, Vec::new())
-    }
-
-    pub fn new_with_positions(tokens: Vec<Token>, positions: Vec<(usize, usize)>) -> Self {
+    pub fn new(tokens: Vec<SpannedToken>) -> Self {
         let token_infos = tokens
             .into_iter()
-            .enumerate()
-            .map(|(i, token)| {
-                let (line, column) = positions.get(i).copied().unwrap_or((0, 0));
-                TokenInfo {
-                    token,
-                    line,
-                    column,
-                }
+            .map(|st| TokenInfo {
+                token: st.token,
+                line: st.span.start_line,
+                column: st.span.start_column,
             })
             .collect();
 

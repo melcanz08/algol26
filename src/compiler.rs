@@ -32,8 +32,7 @@ pub mod program;
 pub struct Compiler;
 
 pub struct LexedProgram {
-    pub tokens: Vec<crate::frontend::lexer::Token>,
-    pub positions: Vec<(usize, usize)>,
+    pub tokens: Vec<crate::frontend::lexer::SpannedToken>,
 }
 
 pub struct ParsedProgram {
@@ -626,7 +625,6 @@ impl Compiler {
         let lexer = Lexer::new(source.to_string())?;
         Ok(LexedProgram {
             tokens: lexer.tokens,
-            positions: lexer.positions,
         })
     }
 
@@ -642,7 +640,7 @@ impl Compiler {
     }
 
     fn parse(&self, lexed: LexedProgram) -> Result<ParsedProgram> {
-        let mut parser = Parser::new_with_positions(lexed.tokens, lexed.positions);
+        let mut parser = Parser::new(lexed.tokens);
         let program = parser.parse_program()?;
         let span_map = parser.get_span_map().clone();
         Ok(ParsedProgram {
@@ -675,7 +673,7 @@ impl Compiler {
                                 ErrorCode::E0001,
                             )
                         })?;
-                        let mut parser = Parser::new_with_positions(lexer.tokens, lexer.positions);
+                        let mut parser = Parser::new(lexer.tokens);
                         let imported_program = parser.parse_program().map_err(|e| {
                             e.display();
                             CompileError::simple(

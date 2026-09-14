@@ -33,7 +33,7 @@ impl SemanticIRBuilder {
         func.blocks
             .iter()
             .find(|b| b.id == id)
-            .map_or(false, |b| Self::is_terminated(b))
+            .is_some_and(Self::is_terminated)
     }
     pub(super) fn translate_block_with_result(
         &mut self,
@@ -57,7 +57,7 @@ impl SemanticIRBuilder {
             let value = self.translate_expr(program, func, final_block, expr);
             // Optionally coerce the value to the target type
             let coerced = self.coerce_value(value, &target_type);
-            let _ = self.safe_push_instruction(
+            self.safe_push_instruction(
                 func,
                 final_block,
                 SemanticInstruction::Assign {
@@ -68,7 +68,7 @@ impl SemanticIRBuilder {
         } else {
             // No trailing expression: assign a default value (Void or a default of target_type)
             // For now, we assign Void; this may be insufficient for types that need a value.
-            let _ = self.safe_push_instruction(
+            self.safe_push_instruction(
                 func,
                 final_block,
                 SemanticInstruction::Assign {
@@ -85,7 +85,7 @@ impl SemanticIRBuilder {
         self.iter_counter += 1;
         // Declare the variable in the current scope (and in the IR)
         self.declare_var(&name, type_hint.clone(), true);
-        let _ = self.safe_push_instruction(
+        self.safe_push_instruction(
             func,
             current_block,
             SemanticInstruction::Declare {

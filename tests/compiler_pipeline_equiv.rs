@@ -33,7 +33,7 @@ fn verify_pass_agrees_with_direct_call_on_conformance_valid() {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
-        let mut compiler = Compiler::default();
+        let mut compiler = Compiler;
         let sem = match compiler.build_semantic_ir_for(&source, &filename) {
             Ok(s) => s,
             // Frontend rejections are not what this test is about; the
@@ -99,12 +99,12 @@ fn optimize_pass_produces_identical_ir_to_direct_call() {
         // Build IR twice. `build_semantic_ir_for` is deterministic
         // (see backends_tests::test_semantic_ir_is_deterministic),
         // so the two inputs are byte-identical.
-        let mut compiler = Compiler::default();
+        let mut compiler = Compiler;
         let mut ir_a = match compiler.build_semantic_ir_for(&source, &filename) {
             Ok(s) => s,
             Err(_) => continue,
         };
-        let mut compiler = Compiler::default();
+        let mut compiler = Compiler;
         let ir_b = compiler.build_semantic_ir_for(&source, &filename).unwrap();
 
         // Path A: direct.
@@ -163,7 +163,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
 
         // Build the typed AST once via the existing helper — this is
         // the same input both paths consume.
-        let mut compiler = Compiler::default();
+        let mut compiler = Compiler;
         let typed = match compiler.type_check_source_for(&source, &filename) {
             Ok(t) => t,
             Err(_) => continue,
@@ -249,7 +249,7 @@ fn type_check_pass_agrees_with_direct_call() {
         // Run the frontend *once*. Both paths below consume this same
         // `parsed` allocation, so type_table keys (which are addresses)
         // are comparable.
-        let mut compiler = Compiler::default();
+        let mut compiler = Compiler;
         let parsed = match compiler.parse_source_for(&source, &filename) {
             Ok(p) => p,
             Err(_) => continue,
@@ -323,7 +323,7 @@ fn type_table_complete_passes_on_conformance_suite() {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
-        let mut compiler = Compiler::default();
+        let mut compiler = Compiler;
         let typed = match compiler.type_check_source_for(&source, &filename) {
             Ok(t) => t,
             Err(_) => continue,

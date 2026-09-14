@@ -200,7 +200,7 @@ fn test_stress_10_level_closure_capture() {
         } else {
             src.push_str(&format!(" return x{} + 1.0\n", i));
         }
-        src.push_str("\n");
+        src.push('\n');
     }
     src.push_str("procedure main\n val r := f9(0.0)\n print(r)\n");
     let start = Instant::now();

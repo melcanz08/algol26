@@ -108,23 +108,23 @@ impl FFIRegistry {
     }
 
     fn types_compatible(c_type: &CType, algol_type: &Type) -> bool {
-        match (c_type, algol_type) {
-            (CType::CInt, Type::Int) => true,
-            (CType::CLong, Type::Int) => true,
-            (CType::CLongLong, Type::Int) => true,
-            (CType::CShort, Type::Int) => true,
-            (CType::CFloat, Type::Float) => true,
-            (CType::CDouble, Type::Float) => true,
-            (CType::CBool, Type::Bool) => true,
-            (CType::CString, Type::String) => true,
-            (CType::CVoid, Type::Void) => true,
-            (CType::CPointer(_), Type::Ptr) => true,
-            (CType::CPointer(_), Type::Pointer(_)) => true,
-            (CType::CConstPointer(_), Type::Ptr) => true,
-            (CType::CConstPointer(_), Type::Pointer(_)) => true,
-            (CType::CSizeT, Type::Int) => true,
-            _ => false,
-        }
+        matches!(
+            (c_type, algol_type),
+            (CType::CInt, Type::Int)
+                | (CType::CLong, Type::Int)
+                | (CType::CLongLong, Type::Int)
+                | (CType::CShort, Type::Int)
+                | (CType::CFloat, Type::Float)
+                | (CType::CDouble, Type::Float)
+                | (CType::CBool, Type::Bool)
+                | (CType::CString, Type::String)
+                | (CType::CVoid, Type::Void)
+                | (CType::CPointer(_), Type::Ptr)
+                | (CType::CPointer(_), Type::Pointer(_))
+                | (CType::CConstPointer(_), Type::Ptr)
+                | (CType::CConstPointer(_), Type::Pointer(_))
+                | (CType::CSizeT, Type::Int)
+        )
     }
 }
 

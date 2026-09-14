@@ -31,6 +31,12 @@ pub struct OptimizationStats {
     pub simplified_branches: usize,
 }
 
+impl Default for Optimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Optimizer {
     fn has_cfg_cycle(func: &crate::ir::semantic_ir::SemanticFunction) -> bool {
         use std::collections::HashSet;

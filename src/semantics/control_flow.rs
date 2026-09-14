@@ -9,6 +9,12 @@ use crate::ir::semantic_ir::{
 pub struct ControlFlowAnalyzer;
 pub struct ControlFlowTranslator;
 
+impl Default for ControlFlowAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ControlFlowAnalyzer {
     pub fn new() -> Self {
         Self
@@ -53,6 +59,12 @@ impl ControlFlowAnalyzer {
         }
 
         Ok(())
+    }
+}
+
+impl Default for ControlFlowTranslator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

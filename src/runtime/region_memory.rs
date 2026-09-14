@@ -136,7 +136,7 @@ impl RegionAllocator {
     }
 
     pub fn is_valid_ptr(&self, region_name: &str, ptr: NonNull<u8>) -> bool {
-        self.memory.get(region_name).map_or(false, |blocks| blocks.iter().any(|b| b.ptr == ptr && b.allocated))
+        self.memory.get(region_name).is_some_and(|blocks| blocks.iter().any(|b| b.ptr == ptr && b.allocated))
     }
 
     pub fn total_allocated(&self) -> usize { self.regions.values().filter(|r| !r.freed).map(|r| r.size).sum() }

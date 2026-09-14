@@ -265,7 +265,7 @@ fn run_inspect(args: &[&str]) {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| path.clone());
 
-    let mut compiler = Compiler::default();
+    let mut compiler = Compiler;
 
     if tokens {
         inspect_tokens(&compiler, &source);

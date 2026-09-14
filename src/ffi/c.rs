@@ -160,20 +160,20 @@ impl FFIInfo {
     }
 
     fn types_compatible(c_type: &CType, algol_type: &crate::common::types::Type) -> bool {
-        match (c_type, algol_type) {
-            (CType::CInt, crate::common::types::Type::Int) => true,
-            (CType::CLong, crate::common::types::Type::Int) => true,
-            (CType::CLongLong, crate::common::types::Type::Int) => true,
-            (CType::CFloat, crate::common::types::Type::Float) => true,
-            (CType::CDouble, crate::common::types::Type::Float) => true,
-            (CType::CBool, crate::common::types::Type::Bool) => true,
-            (CType::CString, crate::common::types::Type::String) => true,
-            (CType::CVoid, crate::common::types::Type::Void) => true,
-            (CType::CPointer(_), crate::common::types::Type::Ptr) => true,
-            (CType::CPointer(_), crate::common::types::Type::Pointer(_)) => true,
-            (CType::CConstPointer(_), crate::common::types::Type::Ptr) => true,
-            _ => false,
-        }
+        matches!(
+            (c_type, algol_type),
+            (CType::CInt, crate::common::types::Type::Int)
+                | (CType::CLong, crate::common::types::Type::Int)
+                | (CType::CLongLong, crate::common::types::Type::Int)
+                | (CType::CFloat, crate::common::types::Type::Float)
+                | (CType::CDouble, crate::common::types::Type::Float)
+                | (CType::CBool, crate::common::types::Type::Bool)
+                | (CType::CString, crate::common::types::Type::String)
+                | (CType::CVoid, crate::common::types::Type::Void)
+                | (CType::CPointer(_), crate::common::types::Type::Ptr)
+                | (CType::CPointer(_), crate::common::types::Type::Pointer(_))
+                | (CType::CConstPointer(_), crate::common::types::Type::Ptr)
+        )
     }
 }
 

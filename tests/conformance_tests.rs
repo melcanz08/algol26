@@ -109,7 +109,7 @@ fn program_stdout(raw: &str) -> String {
         .lines()
         .filter(|l| !l.starts_with('['))
         .collect();
-    while lines.last().map_or(false, |l| l.trim().is_empty()) {
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
         lines.pop();
     }
     lines.join("\n")

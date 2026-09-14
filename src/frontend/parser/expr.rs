@@ -490,15 +490,15 @@ impl Parser {
 
         if let Some(last) = statements.last() {
             let can_be_trailing = match last {
-                Stmt::Expression(expr) => match expr {
-                    Expr::Block { .. } => false,
-                    Expr::If { .. } => false,
-                    Expr::Match { .. } => false,
-                    Expr::For { .. } => false,
-                    Expr::While { .. } => false,
-                    Expr::TryCatch { .. } => false,
-                    _ => true,
-                },
+                Stmt::Expression(expr) => !matches!(
+                    expr,
+                    Expr::Block { .. }
+                        | Expr::If { .. }
+                        | Expr::Match { .. }
+                        | Expr::For { .. }
+                        | Expr::While { .. }
+                        | Expr::TryCatch { .. }
+                ),
                 _ => false,
             };
             if can_be_trailing {

@@ -25,7 +25,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let elem_ty = self.map_type(inner);
                 let len_ty = self.context.i64_type();
                 self.context
-                    .struct_type(&[elem_ty.into(), len_ty.into()], false)
+                    .struct_type(&[elem_ty, len_ty.into()], false)
                     .into()
             }
             Type::Array(inner, size) => {
@@ -37,7 +37,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let inner_ty = self.map_type(inner);
                 let bool_ty = self.context.bool_type();
                 self.context
-                    .struct_type(&[bool_ty.into(), inner_ty.into()], false)
+                    .struct_type(&[bool_ty.into(), inner_ty], false)
                     .into()
             }
             Type::Result { ok, error } => {
@@ -46,7 +46,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let err_ty = self.map_type(error);
                 let bool_ty = self.context.bool_type();
                 self.context
-                    .struct_type(&[bool_ty.into(), ok_ty.into(), err_ty.into()], false)
+                    .struct_type(&[bool_ty.into(), ok_ty, err_ty], false)
                     .into()
             }
             Type::Pointer(inner) => {

@@ -53,7 +53,7 @@ impl SemanticIRBuilder {
                         Type::Void
                     };
                     self.declare_var(name, decl_type.clone(), *mutable);
-                    let _ = self.safe_push_instruction(
+                    self.safe_push_instruction(
                         func,
                         current_block,
                         SemanticInstruction::Declare {
@@ -123,7 +123,7 @@ impl SemanticIRBuilder {
                         .iter()
                         .map(|a| self.translate_expr(program, func, current_block, a))
                         .collect();
-                    let _ = self.safe_push_instruction(
+                    self.safe_push_instruction(
                         func,
                         current_block,
                         Instruction::Call {
@@ -161,7 +161,7 @@ impl SemanticIRBuilder {
                 // Branch terminator, effectively deleting the rest of
                 // the enclosing block.
                 if let Some(merge) = self.pending_merge.take() {
-                    let _ = self.safe_push_instruction(
+                    self.safe_push_instruction(
                         func,
                         merge,
                         SemanticInstruction::Declare {
@@ -251,7 +251,7 @@ impl SemanticIRBuilder {
                             defer_ctx.cleanup_blocks.iter().rev().copied().collect();
 
                         // Current block jumps to the first cleanup.
-                        let _ = self.safe_set_terminator(
+                        self.safe_set_terminator(
                             func,
                             current_block,
                             Terminator::Jump { block: cleanups[0] },
@@ -259,7 +259,7 @@ impl SemanticIRBuilder {
 
                         // Each cleanup jumps to the next.
                         for i in 0..cleanups.len() - 1 {
-                            let _ = self.safe_set_terminator(
+                            self.safe_set_terminator(
                                 func,
                                 cleanups[i],
                                 Terminator::Jump { block: cleanups[i + 1] },
@@ -267,9 +267,9 @@ impl SemanticIRBuilder {
                         }
 
                         // Last cleanup emits the actual return.
-                        let _ = self.safe_set_terminator(
+                        self.safe_set_terminator(
                             func,
-                            *cleanups.last().unwrap(),
+                            *cleanups.last().expect("cleanups is non-empty here"),
                             Terminator::Return {
                                 value: coerced_value,
                                 type_,
@@ -281,7 +281,7 @@ impl SemanticIRBuilder {
                 }
 
                 // No pending defers: normal return.
-                let _ = self.safe_set_terminator(
+                self.safe_set_terminator(
                     func,
                     current_block,
                     Terminator::Return {
@@ -346,7 +346,7 @@ impl SemanticIRBuilder {
             }
         };
 
-        let _ = self.safe_push_instruction(func, current_block, instruction);
+        self.safe_push_instruction(func, current_block, instruction);
 
         match &stmt {
             Stmt::Return { .. } => FlowResult::Unreachable,
@@ -679,7 +679,7 @@ impl SemanticIRBuilder {
                     match s {
                         Stmt::Break => {
                             if let Some(loop_ctx) = self.loop_stack.last().copied() {
-                                let _ = self.safe_set_terminator(
+                                self.safe_set_terminator(
                                     func,
                                     current,
                                     Terminator::Jump {
@@ -693,7 +693,7 @@ impl SemanticIRBuilder {
                         }
                         Stmt::Continue => {
                             if let Some(loop_ctx) = self.loop_stack.last().copied() {
-                                let _ = self.safe_set_terminator(
+                                self.safe_set_terminator(
                                     func,
                                     current,
                                     Terminator::Jump {
@@ -802,14 +802,14 @@ impl SemanticIRBuilder {
                     instructions: Vec::new(),
                     terminator: None,
                 });
-                let _ = self.safe_set_terminator(
+                self.safe_set_terminator(
                     func,
                     default_block_id,
                     Terminator::Jump { block: merge_id },
                 );
 
                 // Set the switch terminator on the current block
-                let _ = self.safe_set_terminator(
+                self.safe_set_terminator(
                     func,
                     current_block,
                     Terminator::Switch {
@@ -853,7 +853,7 @@ impl SemanticIRBuilder {
                     ) {
                         // Jump to merge if not already terminated
                         self.block_is_terminated(func, final_block);
-                        let _ = self.safe_set_terminator(
+                        self.safe_set_terminator(
                             func,
                             final_block,
                             Terminator::Jump { block: merge_id },
@@ -915,7 +915,7 @@ impl SemanticIRBuilder {
                     };
 
                 // Allocate the try_value variable before branching.
-                let _ = self.safe_push_instruction(
+                self.safe_push_instruction(
                     func,
                     current_block,
                     SemanticInstruction::Declare {
@@ -973,7 +973,7 @@ impl SemanticIRBuilder {
                 let switch_value =
                     TypedIRValue::Variable(try_value_name.clone(), Type::result(Type::Unknown, Type::Unknown));
 
-                let _ = self.safe_set_terminator(
+                self.safe_set_terminator(
                     func,
                     after_try,
                     Terminator::Switch {
@@ -994,7 +994,7 @@ impl SemanticIRBuilder {
 
                 // ─── Ok block: assign payload to result_var ───
                 self.declare_var(&ok_payload_name, result_type.clone(), false);
-                let _ = self.safe_push_instruction(
+                self.safe_push_instruction(
                     func,
                     ok_block_id,
                     SemanticInstruction::Assign {
@@ -1002,7 +1002,7 @@ impl SemanticIRBuilder {
                         value: TypedIRValue::Variable(ok_payload_name.clone(), result_type.clone()),
                     },
                 );
-                let _ = self.safe_set_terminator(
+                self.safe_set_terminator(
                     func,
                     ok_block_id,
                     Terminator::Jump { block: merge_id },
@@ -1038,7 +1038,7 @@ impl SemanticIRBuilder {
 
                 if let Some(final_block) = catch_flow {
                     if !self.block_is_terminated(func, final_block) {
-                        let _ = self.safe_set_terminator(
+                        self.safe_set_terminator(
                             func,
                             final_block,
                             Terminator::Jump { block: merge_id },
@@ -1049,7 +1049,7 @@ impl SemanticIRBuilder {
                     // from the Ok path, but we still want it to exist as
                     // a target. Add an unreachable jump so verification
                     // doesn't complain.
-                    let _ = self.safe_set_terminator(
+                    self.safe_set_terminator(
                         func,
                         err_block_id,
                         Terminator::Jump { block: merge_id },
@@ -1187,7 +1187,7 @@ impl SemanticIRBuilder {
             _ => unreachable!("translate_short_circuit called with non-And/Or op"),
         };
 
-        let _ = self.safe_set_terminator(func, branch_block, Terminator::Branch {
+        self.safe_set_terminator(func, branch_block, Terminator::Branch {
             condition: left_val,
             then_block: then_blk,
             else_block: else_blk,
@@ -1199,11 +1199,11 @@ impl SemanticIRBuilder {
         // as the block to append the Assign to.
         let right_val = self.translate_expr(program, func, eval_right_id, right);
         let right_end = self.pending_merge.take().unwrap_or(eval_right_id);
-        let _ = self.safe_push_instruction(func, right_end, SemanticInstruction::Assign {
+        self.safe_push_instruction(func, right_end, SemanticInstruction::Assign {
             target: result_var.clone(),
             value: right_val,
         });
-        let _ = self.safe_set_terminator(func, right_end, Terminator::Jump { block: merge_id });
+        self.safe_set_terminator(func, right_end, Terminator::Jump { block: merge_id });
 
         // Short branch: assign the short-circuit constant.
         let short_const = match op {
@@ -1211,11 +1211,11 @@ impl SemanticIRBuilder {
             BinOp::Or => TypedIRValue::Bool(true),
             _ => unreachable!(),
         };
-        let _ = self.safe_push_instruction(func, short_id, SemanticInstruction::Assign {
+        self.safe_push_instruction(func, short_id, SemanticInstruction::Assign {
             target: result_var.clone(),
             value: short_const,
         });
-        let _ = self.safe_set_terminator(func, short_id, Terminator::Jump { block: merge_id });
+        self.safe_set_terminator(func, short_id, Terminator::Jump { block: merge_id });
 
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(result_var, Type::Bool)

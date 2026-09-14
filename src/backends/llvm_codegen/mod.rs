@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
+#![allow(clippy::unwrap_used)]
 
 // src/backends/llvm_codegen/mod.rs
 

@@ -317,6 +317,12 @@ pub struct SemanticProgram {
     pub functions: Vec<SemanticFunction>,
     pub block_counter: usize,
 }
+impl Default for SemanticProgram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticProgram {
     pub fn new() -> Self {
         Self {

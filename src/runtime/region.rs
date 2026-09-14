@@ -98,11 +98,10 @@ impl RegionManager {
     }
 
     pub fn allocate_in_current(&mut self, size: usize) -> Result<(), String> {
-        let region_id = self
+        let region_id = *self
             .region_stack
             .last()
-            .ok_or_else(|| "No active region".to_string())?
-            .clone();
+            .ok_or_else(|| "No active region".to_string())?;
 
         self.allocate_in_region(region_id, size)
     }

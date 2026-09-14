@@ -115,7 +115,7 @@ impl SemanticIRBuilder {
                 }
                 Stmt::Break => {
                     if let Some(loop_ctx) = self.loop_stack.last().copied() {
-                        let _ = self.safe_set_terminator(
+                        self.safe_set_terminator(
                             func,
                             current_block,
                             Terminator::Jump {
@@ -130,7 +130,7 @@ impl SemanticIRBuilder {
                 }
                 Stmt::Continue => {
                     if let Some(loop_ctx) = self.loop_stack.last().copied() {
-                        let _ = self.safe_set_terminator(
+                        self.safe_set_terminator(
                             func,
                             current_block,
                             Terminator::Jump {
@@ -177,7 +177,7 @@ impl SemanticIRBuilder {
         let then_id = program.new_block_id();
         let else_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             branch_from,
             Terminator::Branch {
@@ -215,12 +215,10 @@ impl SemanticIRBuilder {
             (t_flow, e_flow) => {
                 let merge_id = program.new_block_id();
                 if let FlowResult::Reachable(id) = t_flow {
-                    let _ =
-                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
                 if let FlowResult::Reachable(id) = e_flow {
-                    let _ =
-                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
                 func.blocks.push(SemanticBlock {
                     id: merge_id,
@@ -269,7 +267,7 @@ impl SemanticIRBuilder {
         func.blocks.push(SemanticBlock { id: merge_id, instructions: Vec::new(), terminator: None });
 
         // Set the branch from the current block.
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             branch_from,
             Terminator::Branch {
@@ -310,7 +308,7 @@ impl SemanticIRBuilder {
 
         if let Some(id) = then_final {
             if !self.block_is_terminated(func, id) {
-                let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
+                self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
             }
         }
 
@@ -340,12 +338,12 @@ impl SemanticIRBuilder {
 
             if let Some(id) = else_final {
                 if !self.block_is_terminated(func, id) {
-                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
             }
         } else {
             // No else branch: jump directly to merge.
-            let _ = self.safe_set_terminator(func, else_id, Terminator::Jump { block: merge_id });
+            self.safe_set_terminator(func, else_id, Terminator::Jump { block: merge_id });
         }
 
         self.pending_merge = Some(merge_id);
@@ -364,7 +362,7 @@ impl SemanticIRBuilder {
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
+        self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
 
         func.blocks.push(SemanticBlock {
             id: cond_id,
@@ -381,7 +379,7 @@ impl SemanticIRBuilder {
             ));
         }
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             cond_id,
             Terminator::Branch {
@@ -409,7 +407,7 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(id) = body_flow {
             if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
@@ -433,7 +431,7 @@ impl SemanticIRBuilder {
         let result_name = format!("__while_result_{}", self.iter_counter);
         self.iter_counter += 1;
 
-        let _ = self.safe_push_instruction(
+        self.safe_push_instruction(
             func,
             current_block,
             SemanticInstruction::Declare {
@@ -465,12 +463,12 @@ impl SemanticIRBuilder {
             terminator: None,
         });
 
-        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
+        self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
 
         let cond = self.translate_expr(program, func, cond_id, condition);
         let branch_from = self.pending_merge.take().unwrap_or(cond_id);
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             branch_from,
             Terminator::Branch {
@@ -490,7 +488,7 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(bid) = body_flow {
             if let Some(te) = trailing_expr {
                 let te_val = self.translate_expr(program, func, bid, te);
-                let _ = self.safe_push_instruction(
+                self.safe_push_instruction(
                     func,
                     bid,
                     SemanticInstruction::Assign {
@@ -501,8 +499,7 @@ impl SemanticIRBuilder {
             }
             if let Some(block) = func.blocks.iter_mut().find(|b| b.id == bid) {
                 if !Self::is_terminated(block) {
-                    let _ =
-                        self.safe_set_terminator(func, bid, Terminator::Jump { block: cond_id });
+                    self.safe_set_terminator(func, bid, Terminator::Jump { block: cond_id });
                 }
             }
         }
@@ -543,12 +540,12 @@ impl SemanticIRBuilder {
             terminator: None,
         });
 
-        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
+        self.safe_set_terminator(func, current_block, Terminator::Jump { block: cond_id });
 
         let cond = self.translate_expr(program, func, cond_id, condition);
         let branch_from = self.pending_merge.take().unwrap_or(cond_id);
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             branch_from,
             Terminator::Branch {
@@ -572,7 +569,7 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(id) = body_flow {
             if let Some(te) = trailing_expr {
                 let te_val = self.translate_expr(program, func, id, te);
-                let _ = self.safe_push_instruction(
+                self.safe_push_instruction(
                     func,
                     id,
                     SemanticInstruction::Assign {
@@ -584,7 +581,7 @@ impl SemanticIRBuilder {
 
             if let Some(block) = func.blocks.iter().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
@@ -607,7 +604,7 @@ impl SemanticIRBuilder {
         let body_id = program.new_block_id();
         let merge_id = program.new_block_id();
 
-        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
+        self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
 
         func.blocks.push(SemanticBlock {
             id: init_id,
@@ -631,7 +628,7 @@ impl SemanticIRBuilder {
         self.iter_counter += 1;
         let iter_name = format!("__iter_{}_{}", var, self.iter_counter);
 
-        let _ = self.safe_push_instruction(
+        self.safe_push_instruction(
             func,
             init_id,
             Instruction::IteratorInit {
@@ -640,7 +637,7 @@ impl SemanticIRBuilder {
             },
         );
 
-        let _ = self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
+        self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
 
         func.blocks.push(SemanticBlock {
             id: cond_id,
@@ -672,7 +669,7 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(id) = body_flow {
             if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
@@ -699,7 +696,7 @@ impl SemanticIRBuilder {
         let result_name = format!("__for_result_{}", self.iter_counter);
         self.iter_counter += 1;
 
-        let _ = self.safe_push_instruction(
+        self.safe_push_instruction(
             func,
             current_block,
             SemanticInstruction::Declare {
@@ -737,7 +734,7 @@ impl SemanticIRBuilder {
             terminator: None,
         });
 
-        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
+        self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
 
         let iterable_val = self.translate_expr(program, func, init_id, iterable);
         let elem_type = match iterable_val.type_of() {
@@ -751,7 +748,7 @@ impl SemanticIRBuilder {
         let iter_name = format!("__iter_{}_{}", var, self.iter_counter);
         self.iter_counter += 1;
 
-        let _ = self.safe_push_instruction(
+        self.safe_push_instruction(
             func,
             init_id,
             Instruction::IteratorInit {
@@ -760,9 +757,9 @@ impl SemanticIRBuilder {
             },
         );
 
-        let _ = self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
+        self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             cond_id,
             Terminator::IteratorNext {
@@ -786,7 +783,7 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(id) = body_flow {
             if let Some(te) = trailing_expr {
                 let te_val = self.translate_expr(program, func, id, te);
-                let _ = self.safe_push_instruction(
+                self.safe_push_instruction(
                     func,
                     id,
                     SemanticInstruction::Assign {
@@ -798,7 +795,7 @@ impl SemanticIRBuilder {
 
             if let Some(block) = func.blocks.iter().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
@@ -843,7 +840,7 @@ impl SemanticIRBuilder {
             terminator: None,
         });
 
-        let _ = self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
+        self.safe_set_terminator(func, current_block, Terminator::Jump { block: init_id });
 
         let iterable_val = self.translate_expr(program, func, init_id, iterable);
         let elem_type = match iterable_val.type_of() {
@@ -857,7 +854,7 @@ impl SemanticIRBuilder {
         let iter_name = format!("__iter_{}_{}", var, self.iter_counter);
         self.iter_counter += 1;
 
-        let _ = self.safe_push_instruction(
+        self.safe_push_instruction(
             func,
             init_id,
             Instruction::IteratorInit {
@@ -866,9 +863,9 @@ impl SemanticIRBuilder {
             },
         );
 
-        let _ = self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
+        self.safe_set_terminator(func, init_id, Terminator::Jump { block: cond_id });
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             cond_id,
             Terminator::IteratorNext {
@@ -892,7 +889,7 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(id) = body_flow {
             if let Some(te) = trailing_expr {
                 let te_val = self.translate_expr(program, func, id, te);
-                let _ = self.safe_push_instruction(
+                self.safe_push_instruction(
                     func,
                     id,
                     SemanticInstruction::Assign {
@@ -904,7 +901,7 @@ impl SemanticIRBuilder {
 
             if let Some(block) = func.blocks.iter().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
+                    self.safe_set_terminator(func, id, Terminator::Jump { block: cond_id });
                 }
             }
         }
@@ -958,7 +955,7 @@ impl SemanticIRBuilder {
 
         let default_block = Some(merge_id);
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             switch_from,
             Terminator::Switch {
@@ -1002,7 +999,7 @@ impl SemanticIRBuilder {
                     all_unreachable = false;
                     if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                         if !Self::is_terminated(block) {
-                            let _ = self.safe_set_terminator(
+                            self.safe_set_terminator(
                                 func,
                                 id,
                                 Terminator::Jump { block: merge_id },
@@ -1042,7 +1039,7 @@ impl SemanticIRBuilder {
             terminator: None,
         });
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             current_block,
             Terminator::Spawn {
@@ -1063,7 +1060,7 @@ impl SemanticIRBuilder {
         if let FlowResult::Reachable(id) = spawn_flow {
             if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                 if !Self::is_terminated(block) {
-                    let _ = self.safe_set_terminator(
+                    self.safe_set_terminator(
                         func,
                         id,
                         Terminator::Jump {
@@ -1106,7 +1103,7 @@ impl SemanticIRBuilder {
             if let FlowResult::Reachable(id) = block_flow {
                 if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                     if !Self::is_terminated(block) {
-                        let _ = self.safe_set_terminator(
+                        self.safe_set_terminator(
                             func,
                             id,
                             Terminator::Jump { block: merge_id },
@@ -1116,7 +1113,7 @@ impl SemanticIRBuilder {
             }
         }
 
-        let _ = self.safe_set_terminator(
+        self.safe_set_terminator(
             func,
             current_block,
             Terminator::Fork {
@@ -1166,7 +1163,7 @@ impl SemanticIRBuilder {
         // unterminated.
         if let FlowResult::Reachable(id) = cleanup_flow {
             if !self.block_is_terminated(func, id) {
-                let _ = self.safe_set_terminator(
+                self.safe_set_terminator(
                     func,
                     id,
                     Terminator::Jump { block: id },

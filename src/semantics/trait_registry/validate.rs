@@ -28,7 +28,7 @@ impl TraitRegistry {
                 let has_default = self
                     .default_methods
                     .get(trait_name)
-                    .map_or(false, |defaults| defaults.contains_key(&required.name));
+                    .is_some_and(|defaults| defaults.contains_key(&required.name));
 
                 if !has_default {
                     return Err(format!(

@@ -179,22 +179,20 @@ impl SemanticAnalyzer {
         for stmt in stmts {
             match stmt {
                 Stmt::Return { .. } => return true,
-                Stmt::Expression(Expr::If { then_branch, else_branch, .. }) => {
-                    if let Some(else_expr) = else_branch {
-                        let then_returns = matches!(then_branch.as_ref(), Expr::Block { statements, .. }
-                            if self.check_all_paths_return(statements));
-                        let else_returns = matches!(else_expr.as_ref(), Expr::Block { statements, .. }
-                            if self.check_all_paths_return(statements));
-                        if then_returns && else_returns {
-                            return true;
-                        }
-                    }
-                }
-                Stmt::Expression(Expr::Block { statements, .. }) => {
-                    if self.check_all_paths_return(statements) {
+                Stmt::Expression(Expr::If { then_branch, else_branch: Some(else_expr), .. }) => {
+                    let then_returns = matches!(then_branch.as_ref(), Expr::Block { statements, .. }
+                        if self.check_all_paths_return(statements));
+                    let else_returns = matches!(else_expr.as_ref(), Expr::Block { statements, .. }
+                        if self.check_all_paths_return(statements));
+                    if then_returns && else_returns {
                         return true;
                     }
+                    
                 }
+                Stmt::Expression(Expr::Block { statements, .. })
+                    if self.check_all_paths_return(statements) => {
+                        return true;
+                    }
                 _ => {}
             }
         }

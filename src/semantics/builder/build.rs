@@ -321,7 +321,7 @@ impl SemanticIRBuilder {
                         if let Some(cb) = semantic_func
                             .blocks
                             .iter_mut()
-                            .find(|b| b.id == *cleanups.last().unwrap())
+                            .find(|b| cleanups.last().is_some_and(|last| b.id == *last))
                         {
                             cb.terminator = Some(Terminator::Return {
                                 value: None,

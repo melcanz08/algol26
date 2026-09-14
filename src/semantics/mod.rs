@@ -1,3 +1,5 @@
+// src/semantic/mod.rs
+
 pub mod control_flow;
 pub mod escape;
 pub mod flow_analyzer;

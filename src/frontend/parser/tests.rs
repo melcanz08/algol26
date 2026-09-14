@@ -113,3 +113,59 @@ fn test_parse_range() {
         _ => panic!("Expected VarDecl"),
     }
 }
+
+#[test]
+fn test_negation_produces_unary_negate() {
+    // `-x` must produce Unary::Negate, not `0.0 - x`. The analyzer
+    // relies on this to type-check `-"string"` with a proper error
+    // instead of a confusing "arithmetic on String" diagnostic.
+    use crate::frontend::ast::UnaryOp;
+
+    let source = "function main() -> Float\n    return -5.0";
+    let functions = parse_source(source).expect("parse error");
+    match &functions[0].body[0] {
+        Stmt::Return { value: Some(expr), .. } => match expr {
+            Expr::Unary { op: UnaryOp::Negate, .. } => {}
+            other => panic!("expected Unary::Negate, got {:?}", other),
+        },
+        other => panic!("expected Return, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_match_expression_in_value_position() {
+    // `match` must be usable as a value-producing expression. Its arms
+    // must carry trailing expressions so the analyzer can type them.
+    let source = "\
+function main() -> Float
+    val x := match 1
+        case 1
+            42.0
+        case _
+            0.0
+    return x";
+    let functions = parse_source(source).expect("parse error");
+
+    // The VarDecl's value should be an Expr::Match.
+    match &functions[0].body[0] {
+        Stmt::VarDecl { value, .. } => match value {
+            Expr::Match { cases, .. } => {
+                assert_eq!(cases.len(), 2);
+                for case in cases {
+                    // Each arm's body must be a Block with a trailing_expr.
+                    match &case.body {
+                        Expr::Block { trailing_expr, .. } => {
+                            assert!(
+                                trailing_expr.is_some(),
+                                "match arm lost its trailing expression"
+                            );
+                        }
+                        other => panic!("expected Block, got {:?}", other),
+                    }
+                }
+            }
+            other => panic!("expected Expr::Match, got {:?}", other),
+        },
+        other => panic!("expected VarDecl, got {:?}", other),
+    }
+}

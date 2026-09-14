@@ -18,7 +18,10 @@ impl Parser {
             Token::Channel => self.parse_channel_decl(),
             Token::Send => self.parse_send(),
             Token::Receive => self.parse_receive(),
-            Token::Match => self.parse_match(),
+                        Token::Match => {
+                self.advance(); // consume 'match'
+                Ok(Stmt::Expression(self.parse_match_expr()?))
+            }
             Token::Break => {
                 let span = self.current_span();
                 self.advance();
@@ -304,9 +307,12 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_match(&mut self) -> Result<Stmt> {
-        let start_span = self.current_span();
-        self.advance(); // consume 'match'
+    /// Parse a `match` expression. Assumes `match` has already been
+    /// consumed by the caller. Returns `Expr::Match` so it can be used
+    /// both in value position (`parse_primary`) and statement position
+    /// (`parse_stmt` wraps the result in `Stmt::Expression`).
+    pub(super) fn parse_match_expr(&mut self) -> Result<Expr> {
+        let start_span = self.last_span();
         let value = self.parse_expr()?;
 
         let mut cases = Vec::new();
@@ -315,7 +321,6 @@ impl Parser {
             self.advance(); // indent to case level
 
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
-                // Expect 'case' keyword
                 if !matches!(self.peek(), Token::Case) {
                     return Err(self.error("Expected 'case' in match arm"));
                 }
@@ -334,30 +339,25 @@ impl Parser {
                     };
                 }
 
-                // optional 'then' or '=>'? We'll just parse body as block
-                let mut body = Vec::new();
-                if let Token::Indent = self.peek() {
-                    self.advance();
-                    while !matches!(self.peek(), Token::Dedent | Token::Eof) {
-                        body.push(self.parse_stmt()?);
-                    }
-                    if let Token::Dedent = self.peek() {
-                        self.advance();
-                    }
-                } else {
-                    // single expression?
-                    let expr = self.parse_expr()?;
-                    body.push(Stmt::Expression(expr));
-                }
+                // Arm body — same shape as any block: statements plus an
+                // optional trailing expression. `parse_block_expr` handles
+                // the trailing-expression extraction (a `print(...)` stays
+                // a statement; a bare `42.0` becomes the trailing value).
+                let body = self.parse_block_expr()?;
 
-                cases.push(MatchCaseExpr {
-                    pattern,
-                    body: Expr::Block {
-                        statements: body,
-                        trailing_expr: None,
-                        span: case_span,
-                    },
-                });
+                // If `parse_block_expr` fell through without a span (empty
+                // arm), give it the case's span so the analyzer can point
+                // diagnostics at the `case` keyword.
+                let body = match body {
+                    Expr::Block { statements, trailing_expr, span }
+                        if span == Span::default() =>
+                    {
+                        Expr::Block { statements, trailing_expr, span: case_span }
+                    }
+                    other => other,
+                };
+
+                cases.push(MatchCaseExpr { pattern, body });
             }
 
             if let Token::Dedent = self.peek() {
@@ -365,11 +365,11 @@ impl Parser {
             }
         }
 
-        Ok(Stmt::Expression(Expr::Match {
+        Ok(Expr::Match {
             value: Box::new(value),
             cases,
             span: start_span,
-        }))
+        })
     }
 
     pub(super) fn parse_return(&mut self) -> Result<Stmt> {

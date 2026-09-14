@@ -131,21 +131,10 @@ impl Parser {
         match self.peek().clone() {
             Token::Minus => {
                 self.advance();
-                if let Token::IntLit(n) = self.peek().clone() {
-                    let lit_span = self.current_span();
-                    self.advance();
-                    return Ok(Expr::Int(-n, lit_span));
-                }
-                if let Token::FloatLit(f) = self.peek().clone() {
-                    let lit_span = self.current_span();
-                    self.advance();
-                    return Ok(Expr::Number(-f, lit_span));
-                }
                 let operand = self.parse_unary()?;
-                Ok(Expr::Binary {
-                    left: Box::new(Expr::Number(0.0, start_span)),
-                    op: BinOp::Subtract,
-                    right: Box::new(operand),
+                Ok(Expr::Unary {
+                    op: UnaryOp::Negate,
+                    expr: Box::new(operand),
                     span: start_span,
                 })
             }
@@ -195,6 +184,7 @@ impl Parser {
             Token::For => self.parse_for_expr(),
             Token::While => self.parse_while_expr(),
             Token::Try => self.parse_try_catch_expr(),
+            Token::Match => self.parse_match_expr(),
             Token::IntLit(start) => {
                 if matches!(self.peek(), Token::DotDot) {
                     self.advance();

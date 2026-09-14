@@ -7,18 +7,19 @@ impl RaceDetector {
             self.analyze_stmt(stmt, false);
         }
     }
+
     pub(super) fn analyze_stmt(&mut self, stmt: &Stmt, in_spawn: bool) {
         self.scope_depth += 1;
 
         match stmt {
-            Stmt::Spawn { body } => {
+            Stmt::Spawn { body, .. } => {
                 let mut spawn_accesses = HashMap::new();
                 for s in body {
                     self.analyze_stmt_in_collection(s, &mut spawn_accesses);
                 }
                 self.spawned_accesses.push(spawn_accesses);
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, .. } => {
                 if in_spawn {
                     if let Some(accesses) = self.spawned_accesses.last_mut() {
                         Self::merge_access_map(accesses, name, AccessType::Write);
@@ -50,6 +51,7 @@ impl RaceDetector {
                 condition,
                 then_branch,
                 else_branch,
+                ..
             }) => {
                 self.analyze_expr(condition, in_spawn);
                 if let Expr::Block { statements, .. } = then_branch.as_ref() {
@@ -91,10 +93,10 @@ impl RaceDetector {
                     self.analyze_stmt(s, in_spawn);
                 }
             }
-            Stmt::Print { expr } => {
+            Stmt::Print { expr, .. } => {
                 self.analyze_expr(expr, in_spawn);
             }
-            Stmt::Parallel { blocks } => {
+            Stmt::Parallel { blocks, .. } => {
                 for block in blocks {
                     let mut block_accesses = HashMap::new();
                     for s in block {
@@ -111,13 +113,14 @@ impl RaceDetector {
 
         self.scope_depth -= 1;
     }
+
     pub(super) fn analyze_stmt_in_collection(
         &mut self,
         stmt: &Stmt,
         accesses: &mut HashMap<String, AccessType>,
     ) {
         match stmt {
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, .. } => {
                 Self::merge_access_map(accesses, name, AccessType::Write);
                 self.collect_expr_accesses(value, accesses);
             }
@@ -127,13 +130,14 @@ impl RaceDetector {
                 }
                 self.collect_expr_accesses(value, accesses);
             }
-            Stmt::Print { expr } => {
+            Stmt::Print { expr, .. } => {
                 self.collect_expr_accesses(expr, accesses);
             }
             Stmt::Expression(Expr::If {
                 condition,
                 then_branch,
                 else_branch,
+                ..
             }) => {
                 self.collect_expr_accesses(condition, accesses);
                 if let Expr::Block { statements, .. } = then_branch.as_ref() {
@@ -172,6 +176,7 @@ impl RaceDetector {
             _ => {}
         }
     }
+
     pub(super) fn analyze_expr(&mut self, expr: &Expr, in_spawn: bool) {
         match expr {
             Expr::Var(name, _) => {
@@ -206,7 +211,7 @@ impl RaceDetector {
                 self.analyze_expr(collection, in_spawn);
                 self.analyze_expr(index, in_spawn);
             }
-            Expr::List(elements) => {
+            Expr::List(elements, _) => {
                 for elem in elements {
                     self.analyze_expr(elem, in_spawn);
                 }

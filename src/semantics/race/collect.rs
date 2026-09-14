@@ -7,6 +7,7 @@ impl RaceDetector {
             self.collect_declarations_from_stmt(stmt);
         }
     }
+
     pub(super) fn collect_declarations_from_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl { name, mutable, .. } => {
@@ -40,12 +41,12 @@ impl RaceDetector {
                     self.collect_declarations_from_stmt(s);
                 }
             }
-            Stmt::Spawn { body } => {
+            Stmt::Spawn { body, .. } => {
                 for s in body {
                     self.collect_declarations_from_stmt(s);
                 }
             }
-            Stmt::Parallel { blocks } => {
+            Stmt::Parallel { blocks, .. } => {
                 for block in blocks {
                     for s in block {
                         self.collect_declarations_from_stmt(s);
@@ -55,7 +56,12 @@ impl RaceDetector {
             _ => {}
         }
     }
-    pub(super) fn collect_expr_accesses(&mut self, expr: &Expr, accesses: &mut HashMap<String, AccessType>) {
+
+    pub(super) fn collect_expr_accesses(
+        &mut self,
+        expr: &Expr,
+        accesses: &mut HashMap<String, AccessType>,
+    ) {
         match expr {
             Expr::Var(name, _) => {
                 Self::merge_access_map(accesses, name, AccessType::Read);
@@ -80,7 +86,7 @@ impl RaceDetector {
                 self.collect_expr_accesses(collection, accesses);
                 self.collect_expr_accesses(index, accesses);
             }
-            Expr::List(elements) => {
+            Expr::List(elements, _) => {
                 for elem in elements {
                     self.collect_expr_accesses(elem, accesses);
                 }
@@ -94,11 +100,17 @@ impl RaceDetector {
             _ => {}
         }
     }
-    pub(super) fn merge_access_map(map: &mut HashMap<String, AccessType>, key: &str, new_access: AccessType) {
+
+    pub(super) fn merge_access_map(
+        map: &mut HashMap<String, AccessType>,
+        key: &str,
+        new_access: AccessType,
+    ) {
         map.entry(key.to_string())
             .and_modify(|existing| Self::merge_access(existing, new_access.clone()))
             .or_insert(new_access);
     }
+
     pub(super) fn merge_access(existing: &mut AccessType, new: AccessType) {
         *existing = match (&*existing, &new) {
             (AccessType::Read, AccessType::Read) => AccessType::Read,

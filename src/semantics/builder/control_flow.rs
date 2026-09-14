@@ -1,4 +1,4 @@
-// src/semantics/semantic_builder/control_flow.rs
+// src/semantics/builder/control_flow.rs
 
 use super::*;
 
@@ -30,6 +30,7 @@ impl SemanticIRBuilder {
                     condition,
                     then_branch,
                     else_branch,
+                    ..
                 }) => {
                     // Borrow branch statements directly from the AST.
                     // Cloning them would allocate new nodes whose
@@ -39,11 +40,9 @@ impl SemanticIRBuilder {
                         Expr::Block { statements, .. } => statements.as_slice(),
                         _ => &[],
                     };
-                    let else_stmts: Option<&[Stmt]> = else_branch.as_ref().map(|e| {
-                        match e.as_ref() {
-                            Expr::Block { statements, .. } => statements.as_slice(),
-                            _ => &[],
-                        }
+                    let else_stmts: Option<&[Stmt]> = else_branch.as_ref().map(|e| match e.as_ref() {
+                        Expr::Block { statements, .. } => statements.as_slice(),
+                        _ => &[],
                     });
                     self.translate_if(
                         program,
@@ -96,24 +95,28 @@ impl SemanticIRBuilder {
                         FlowResult::Reachable(current_block)
                     }
                 }
-                Stmt::Spawn { body } => self.translate_spawn(program, func, current_block, body),
-                Stmt::Parallel { blocks } => {
+                Stmt::Spawn { body, .. } => {
+                    self.translate_spawn(program, func, current_block, body)
+                }
+                Stmt::Parallel { blocks, .. } => {
                     self.translate_parallel(program, func, current_block, blocks)
                 }
-                Stmt::Defer { stmt } => self.translate_defer(program, func, current_block, stmt),
-                Stmt::RegionBlock { name: _, body } => {
+                Stmt::Defer { stmt, .. } => {
+                    self.translate_defer(program, func, current_block, stmt)
+                }
+                Stmt::RegionBlock { name: _, body, .. } => {
                     self.push_scope();
                     let flow = self.translate_block(program, func, current_block, body);
                     self.pop_scope();
                     flow
                 }
-                Stmt::UnsafeBlock { body } => {
+                Stmt::UnsafeBlock { body, .. } => {
                     self.push_scope();
                     let flow = self.translate_block(program, func, current_block, body);
                     self.pop_scope();
                     flow
                 }
-                Stmt::Break => {
+                Stmt::Break(_) => {
                     if let Some(loop_ctx) = self.loop_stack.last().copied() {
                         self.safe_set_terminator(
                             func,
@@ -128,7 +131,7 @@ impl SemanticIRBuilder {
                         FlowResult::Reachable(current_block)
                     }
                 }
-                Stmt::Continue => {
+                Stmt::Continue(_) => {
                     if let Some(loop_ctx) = self.loop_stack.last().copied() {
                         self.safe_set_terminator(
                             func,
@@ -150,6 +153,7 @@ impl SemanticIRBuilder {
 
         current_flow
     }
+
     pub(super) fn translate_if(
         &mut self,
         program: &mut SemanticProgram,
@@ -229,6 +233,7 @@ impl SemanticIRBuilder {
             }
         }
     }
+
     pub(super) fn translate_if_with_target(
         &mut self,
         program: &mut SemanticProgram,
@@ -262,9 +267,21 @@ impl SemanticIRBuilder {
         let merge_id = program.new_block_id();
 
         // Create all blocks before setting terminators.
-        func.blocks.push(SemanticBlock { id: then_id, instructions: Vec::new(), terminator: None });
-        func.blocks.push(SemanticBlock { id: else_id, instructions: Vec::new(), terminator: None });
-        func.blocks.push(SemanticBlock { id: merge_id, instructions: Vec::new(), terminator: None });
+        func.blocks.push(SemanticBlock {
+            id: then_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: else_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
+        func.blocks.push(SemanticBlock {
+            id: merge_id,
+            instructions: Vec::new(),
+            terminator: None,
+        });
 
         // Set the branch from the current block.
         self.safe_set_terminator(
@@ -349,6 +366,7 @@ impl SemanticIRBuilder {
         self.pending_merge = Some(merge_id);
         FlowResult::Reachable(merge_id)
     }
+
     #[allow(dead_code)]
     pub(super) fn translate_while(
         &mut self,
@@ -419,6 +437,7 @@ impl SemanticIRBuilder {
         });
         FlowResult::Reachable(merge_id)
     }
+
     pub(super) fn translate_while_expr(
         &mut self,
         program: &mut SemanticProgram,
@@ -510,6 +529,7 @@ impl SemanticIRBuilder {
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(result_name, Type::Void)
     }
+
     pub(super) fn translate_while_expr_with_target(
         &mut self,
         program: &mut SemanticProgram,
@@ -589,8 +609,9 @@ impl SemanticIRBuilder {
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(target_name.to_string(), Type::Void)
     }
+
     #[allow(dead_code)]
-    pub(super)fn translate_for(
+    pub(super) fn translate_for(
         &mut self,
         program: &mut SemanticProgram,
         func: &mut SemanticFunction,
@@ -683,6 +704,7 @@ impl SemanticIRBuilder {
         });
         FlowResult::Reachable(merge_id)
     }
+
     pub(super) fn translate_for_expr(
         &mut self,
         program: &mut SemanticProgram,
@@ -803,6 +825,7 @@ impl SemanticIRBuilder {
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(result_name, Type::Void)
     }
+
     pub(super) fn translate_for_expr_with_target(
         &mut self,
         program: &mut SemanticProgram,
@@ -909,6 +932,7 @@ impl SemanticIRBuilder {
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(target_name.to_string(), Type::Void)
     }
+
     #[allow(dead_code)]
     pub(super) fn translate_match(
         &mut self,
@@ -923,7 +947,6 @@ impl SemanticIRBuilder {
         // a nested value-producing expression). The Switch terminator
         // attaches to the value's merge block.
         let switch_from = self.pending_merge.take().unwrap_or(current_block);
-        let typed_value_for_binding = typed_value.clone();
         let merge_id = program.new_block_id();
 
         let mut case_triplets = Vec::new();
@@ -934,7 +957,9 @@ impl SemanticIRBuilder {
                     SemanticPattern::Some { binding: v.clone() }
                 }
                 crate::frontend::ast::Pattern::None => SemanticPattern::None,
-                crate::frontend::ast::Pattern::Ok(v) => SemanticPattern::Ok { binding: v.clone() },
+                crate::frontend::ast::Pattern::Ok(v) => {
+                    SemanticPattern::Ok { binding: v.clone() }
+                }
                 crate::frontend::ast::Pattern::Error(v) => {
                     SemanticPattern::Error { binding: v.clone() }
                 }
@@ -1023,6 +1048,7 @@ impl SemanticIRBuilder {
             FlowResult::Reachable(merge_id)
         }
     }
+
     pub(super) fn translate_spawn(
         &mut self,
         program: &mut SemanticProgram,
@@ -1073,6 +1099,7 @@ impl SemanticIRBuilder {
 
         FlowResult::Reachable(continuation_id)
     }
+
     pub(super) fn translate_parallel(
         &mut self,
         program: &mut SemanticProgram,
@@ -1129,6 +1156,7 @@ impl SemanticIRBuilder {
         });
         FlowResult::Reachable(merge_id)
     }
+
     pub(super) fn translate_defer(
         &mut self,
         program: &mut SemanticProgram,
@@ -1163,11 +1191,7 @@ impl SemanticIRBuilder {
         // unterminated.
         if let FlowResult::Reachable(id) = cleanup_flow {
             if !self.block_is_terminated(func, id) {
-                self.safe_set_terminator(
-                    func,
-                    id,
-                    Terminator::Jump { block: id },
-                );
+                self.safe_set_terminator(func, id, Terminator::Jump { block: id });
             }
         }
 

@@ -29,7 +29,8 @@ impl SemanticAnalyzer {
         if let Some(set) = self.mutably_borrowed.get_mut(idx) {
             set.remove(&source);
         }
-    }    
+    }
+
     pub(super) fn all_moved_vars(&self) -> Vec<String> {
         let mut result = Vec::new();
         for scope in &self.moved_vars {
@@ -41,11 +42,13 @@ impl SemanticAnalyzer {
         }
         result
     }
+
     pub(super) fn is_moved(&self, name: &str) -> bool {
         self.moved_vars
             .iter()
             .any(|scope| scope.iter().any(|v| v == name))
     }
+
     pub(super) fn mark_moved(&mut self, name: &str) {
         if let Some(scope) = self.moved_vars.last_mut() {
             if !scope.contains(&name.to_string()) {
@@ -53,22 +56,26 @@ impl SemanticAnalyzer {
             }
         }
     }
+
     pub(super) fn mark_borrowed(&mut self, name: &str) {
         if let Some(scope) = self.borrowed_vars.last_mut() {
             scope.insert(name.to_string());
         }
     }
+
     pub(super) fn mark_mutably_borrowed(&mut self, name: &str) {
         if let Some(scope) = self.mutably_borrowed.last_mut() {
             scope.insert(name.to_string());
         }
     }
+
     pub(super) fn is_mutably_borrowed(&self, name: &str) -> bool {
         self.mutably_borrowed
             .iter()
             .rev()
             .any(|scope| scope.contains(name))
     }
+
     pub(super) fn register_mutable_borrow(&mut self, reference: &str, source: &str) -> Result<()> {
         // The source must be declared `var` — you cannot take a mutable
         // borrow of an immutable (`val`) binding.
@@ -111,9 +118,11 @@ impl SemanticAnalyzer {
         }
         Ok(())
     }
+
     pub(super) fn is_borrowed(&self, name: &str) -> bool {
         self.borrowed_vars.iter().rev().any(|scope| scope.contains(name))
     }
+
     pub(super) fn check_borrow_rules(&self, name: &str, mutable: bool) -> Result<()> {
         if let Some(scope) = self.deferred_captures.last() {
             if scope.contains(name) {
@@ -149,10 +158,11 @@ impl SemanticAnalyzer {
         }
         Ok(())
     }
+
     pub(super) fn collect_deferred_captures(&self, stmt: &Stmt, captured: &mut HashSet<String>) {
         match stmt {
-            Stmt::Print { expr } => self.collect_expr_captures(expr, captured),
-            Stmt::Assign { name, value } => {
+            Stmt::Print { expr, .. } => self.collect_expr_captures(expr, captured),
+            Stmt::Assign { name, value, .. } => {
                 captured.insert(name.clone());
                 self.collect_expr_captures(value, captured);
             }
@@ -163,6 +173,7 @@ impl SemanticAnalyzer {
             _ => {}
         }
     }
+
     pub(super) fn collect_expr_captures(&self, expr: &Expr, captured: &mut HashSet<String>) {
         match expr {
             Expr::Var(name, _) => {
@@ -177,7 +188,7 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(arg, captured);
                 }
             }
-            Expr::ArrayAccess { array, index } => {
+            Expr::ArrayAccess { array, index, .. } => {
                 self.collect_expr_captures(array, captured);
                 self.collect_expr_captures(index, captured);
             }

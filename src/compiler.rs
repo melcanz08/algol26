@@ -657,7 +657,7 @@ impl Compiler {
 
         for func in parsed.functions.iter() {
             for stmt in &func.body {
-                if let Stmt::Import { path } = stmt {
+                if let Stmt::Import { path, .. } = stmt {
                     let resolved = loader.resolve_import(path, current_file)?;
                     let source = loader.load_file(&resolved)?;
 

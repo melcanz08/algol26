@@ -20,70 +20,43 @@ impl Parser {
             Token::Receive => self.parse_receive(),
             Token::Match => self.parse_match(),
             Token::Break => {
+                let span = self.current_span();
                 self.advance();
-                Ok(Stmt::Break)
+                Ok(Stmt::Break(span))
             }
             Token::Continue => {
+                let span = self.current_span();
                 self.advance();
-                Ok(Stmt::Continue)
+                Ok(Stmt::Continue(span))
             }
-            Token::Defer => {
-                self.advance(); // consume 'defer'
-
-                if matches!(self.peek(), Token::Indent) {
-                    // Block form: `defer` followed by an indented body.
-                    // Parse the indented statements and wrap them in an
-                    // Expr::Block so the existing Stmt::Defer shape
-                    // (single statement) still holds.
-                    self.advance(); // consume Indent
-                    let mut stmts = Vec::new();
-                    while !matches!(self.peek(), Token::Dedent | Token::Eof) {
-                        stmts.push(self.parse_stmt()?);
-                    }
-                    if matches!(self.peek(), Token::Dedent) {
-                        self.advance(); // consume Dedent
-                    }
-                    Ok(Stmt::Defer {
-                        stmt: Box::new(Stmt::Expression(Expr::Block {
-                            statements: stmts,
-                            trailing_expr: None,
-                        })),
-                    })
-                } else {
-                    // Inline form: `defer print(...)` on one line.
-                    let stmt = self.parse_stmt()?;
-                    Ok(Stmt::Defer {
-                        stmt: Box::new(stmt),
-                    })
-                }
-            }
+            Token::Defer => self.parse_defer(),
             Token::Alloc => {
+                let span = self.current_span();
                 self.advance();
                 if matches!(self.peek(), Token::LParen) {
                     self.advance();
                     let size = self.parse_expr()?;
                     self.expect_token(Token::RParen, "')'")?;
-                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: "alloc".to_string(),
                         args: vec![size],
-                        span: Span::point(span.line(), span.column()),
+                        span,
                     }))
                 } else {
                     Err(self.error("Expected '(' after alloc"))
                 }
             }
             Token::Free => {
+                let span = self.current_span();
                 self.advance();
                 if matches!(self.peek(), Token::LParen) {
                     self.advance();
                     let ptr = self.parse_expr()?;
                     self.expect_token(Token::RParen, "')'")?;
-                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: "free".to_string(),
                         args: vec![ptr],
-                        span: Span::point(span.line(), span.column()),
+                        span,
                     }))
                 } else {
                     Err(self.error("Expected '(' after free"))
@@ -100,8 +73,9 @@ impl Parser {
                 self.parse_stmt()
             }
             Token::End => {
+                let span = self.current_span();
                 self.advance();
-                Ok(Stmt::Expression(Expr::Bool(true)))
+                Ok(Stmt::Expression(Expr::Bool(true, span)))
             }
             _other => {
                 let expr = self.parse_expr()?;
@@ -109,11 +83,45 @@ impl Parser {
             }
         }
     }
+
+    pub(super) fn parse_defer(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
+        self.advance(); // consume 'defer'
+
+        if matches!(self.peek(), Token::Indent) {
+            // Block form: `defer` followed by an indented body.
+            self.advance(); // consume Indent
+            let mut stmts = Vec::new();
+            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                stmts.push(self.parse_stmt()?);
+            }
+            if matches!(self.peek(), Token::Dedent) {
+                self.advance(); // consume Dedent
+            }
+            Ok(Stmt::Defer {
+                stmt: Box::new(Stmt::Expression(Expr::Block {
+                    statements: stmts,
+                    trailing_expr: None,
+                    span: start_span,
+                })),
+                span: start_span,
+            })
+        } else {
+            // Inline form: `defer print(...)` on one line.
+            let stmt = self.parse_stmt()?;
+            Ok(Stmt::Defer {
+                stmt: Box::new(stmt),
+                span: start_span,
+            })
+        }
+    }
+
     pub(super) fn parse_block(&mut self) -> Result<Vec<Stmt>> {
         let block_expr = self.parse_block_expr()?;
         if let Expr::Block {
             mut statements,
             trailing_expr,
+            ..
         } = block_expr
         {
             if let Some(expr) = trailing_expr {
@@ -124,6 +132,7 @@ impl Parser {
             Ok(vec![])
         }
     }
+
     pub(super) fn parse_loop_body(&mut self) -> Result<(Vec<Stmt>, Option<Box<Expr>>)> {
         if matches!(self.peek(), Token::Indent) {
             self.advance();
@@ -168,7 +177,9 @@ impl Parser {
             Ok((Vec::new(), Some(Box::new(expr))))
         }
     }
+
     pub(super) fn parse_var_decl(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         let is_mutable = matches!(self.peek(), Token::Var);
         self.advance();
         let name = self.expect_identifier("variable name")?;
@@ -177,21 +188,25 @@ impl Parser {
         match self.advance() {
             Token::Assign => {}
             other => {
-                return Err(self.error(&format!("Expected assignment operator, found {:?}", other)))
+                return Err(self.error(&format!(
+                    "Expected assignment operator, found {:?}",
+                    other
+                )))
             }
         }
 
         let value = self.parse_expr()?;
-        let span = self.peek_info();
         Ok(Stmt::VarDecl {
-            span: Span::point(span.line(), span.column()),
+            span: start_span,
             name,
             value,
             type_annotation,
             mutable: is_mutable,
         })
     }
+
     pub(super) fn parse_print(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         if matches!(self.peek(), Token::LParen) {
             self.advance();
@@ -200,23 +215,35 @@ impl Parser {
         if matches!(self.peek(), Token::RParen) {
             self.advance();
         }
-        Ok(Stmt::Print { expr })
+        Ok(Stmt::Print {
+            expr,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_for(&mut self) -> Result<Stmt> {
         self.advance(); // consume 'for'
         Ok(Stmt::Expression(self.parse_for_expr()?))
     }
+
     pub(super) fn parse_while(&mut self) -> Result<Stmt> {
         self.advance(); // consume 'while'
         Ok(Stmt::Expression(self.parse_while_expr()?))
     }
+
     pub(super) fn parse_spawn(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         self.skip_optional_do();
         let body = self.parse_block()?;
-        Ok(Stmt::Spawn { body })
+        Ok(Stmt::Spawn {
+            body,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_parallel(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         self.skip_optional_do();
         let mut blocks = Vec::new();
@@ -225,24 +252,40 @@ impl Parser {
             self.advance();
             blocks.push(self.parse_block()?);
         }
-        Ok(Stmt::Parallel { blocks })
+        Ok(Stmt::Parallel {
+            blocks,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_channel_decl(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         let name = self.expect_identifier("channel name")?;
         let _type_annotation = self.parse_type_annotation()?;
-        Ok(Stmt::ChannelDecl { name })
+        Ok(Stmt::ChannelDecl {
+            name,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_send(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         let channel = self.expect_identifier("channel name")?;
         if matches!(self.peek(), Token::Comma) {
             self.advance();
         }
         let value = self.parse_expr()?;
-        Ok(Stmt::Send { channel, value })
+        Ok(Stmt::Send {
+            channel,
+            value,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_receive(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         let channel = self.expect_identifier("channel name")?;
         let target = if matches!(
@@ -254,9 +297,15 @@ impl Parser {
         } else {
             String::new()
         };
-        Ok(Stmt::Receive { channel, target })
+        Ok(Stmt::Receive {
+            channel,
+            target,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_match(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance(); // consume 'match'
         let value = self.parse_expr()?;
 
@@ -268,9 +317,9 @@ impl Parser {
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
                 // Expect 'case' keyword
                 if !matches!(self.peek(), Token::Case) {
-                    // allow optional 'case'? but we'll require it now
                     return Err(self.error("Expected 'case' in match arm"));
                 }
+                let case_span = self.current_span();
                 self.advance(); // consume 'case'
 
                 let mut pattern = self.parse_pattern()?;
@@ -306,6 +355,7 @@ impl Parser {
                     body: Expr::Block {
                         statements: body,
                         trailing_expr: None,
+                        span: case_span,
                     },
                 });
             }
@@ -318,34 +368,54 @@ impl Parser {
         Ok(Stmt::Expression(Expr::Match {
             value: Box::new(value),
             cases,
+            span: start_span,
         }))
     }
+
     pub(super) fn parse_return(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         let value = if matches!(self.peek(), Token::Eof | Token::Dedent) {
             None
         } else {
             Some(self.parse_expr()?)
         };
-        Ok(Stmt::Return { value })
+        Ok(Stmt::Return {
+            value,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_unsafe(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         let body = self.parse_block()?;
-        Ok(Stmt::UnsafeBlock { body })
+        Ok(Stmt::UnsafeBlock {
+            body,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_region(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         let name = self.expect_identifier("region name")?;
         let body = self.parse_block()?;
-        Ok(Stmt::RegionBlock { name, body })
+        Ok(Stmt::RegionBlock {
+            name,
+            body,
+            span: start_span,
+        })
     }
+
     pub(super) fn parse_try_catch(&mut self) -> Result<Stmt> {
         // Called from parse_stmt, which peeks — consume 'try' here.
         self.advance();
         Ok(Stmt::Expression(self.parse_try_catch_expr()?))
     }
+
     pub(super) fn parse_identifier_stmt(&mut self, name: String) -> Result<Stmt> {
+        let ident_span = self.current_span();
         self.advance();
 
         match self.peek().clone() {
@@ -359,11 +429,10 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RParen, "')'")?;
-                let span = self.peek_info();
                 Ok(Stmt::Expression(Expr::FunctionCall {
                     name,
                     args,
-                    span: Span::point(span.line(), span.column()),
+                    span: ident_span,
                 }))
             }
             Token::LBracket => {
@@ -378,19 +447,24 @@ impl Parser {
                         array: name,
                         index,
                         value,
+                        span: ident_span,
                     })
                 } else {
-                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::ArrayAccess {
-                        array: Box::new(Expr::Var(name, Span::point(span.line(), span.column()))),
+                        array: Box::new(Expr::Var(name, ident_span)),
                         index: Box::new(index),
+                        span: ident_span,
                     }))
                 }
             }
             Token::Assign => {
                 self.advance();
                 let value = self.parse_expr()?;
-                Ok(Stmt::Assign { name, value })
+                Ok(Stmt::Assign {
+                    name,
+                    value,
+                    span: ident_span,
+                })
             }
             Token::Dot => {
                 self.advance(); // consume dot
@@ -406,11 +480,10 @@ impl Parser {
                         }
                     }
                     self.expect_token(Token::RParen, "')'")?;
-                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: format!("{}.{}", name, method_name),
                         args,
-                        span: Span::point(span.line(), span.column()),
+                        span: ident_span,
                     }))
                 } else {
                     // Bare method syntax (`s.length`) — no parens. Desugar to a
@@ -420,21 +493,14 @@ impl Parser {
                     // NOTE: when struct support lands, this needs a discriminator
                     // to tell `s.length` (method) from `point.x` (field). Today
                     // nothing produces a valid FieldAccess, so no case is lost.
-                    let span = self.peek_info();
                     Ok(Stmt::Expression(Expr::FunctionCall {
                         name: format!("{}.{}", name, method_name),
                         args: Vec::new(),
-                        span: Span::point(span.line(), span.column()),
+                        span: ident_span,
                     }))
                 }
             }
-            _ => {
-                let span = self.peek_info();
-                Ok(Stmt::Expression(Expr::Var(
-                    name,
-                    Span::point(span.line(), span.column()),
-                )))
-            }
+            _ => Ok(Stmt::Expression(Expr::Var(name, ident_span))),
         }
     }
 }

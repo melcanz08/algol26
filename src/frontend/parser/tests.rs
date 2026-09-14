@@ -55,7 +55,7 @@ fn test_parse_function_call() {
     let source = "function main()\n    print add(1, 2)";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
-        Stmt::Print { expr } => match expr {
+        Stmt::Print { expr, .. } => match expr {
             Expr::FunctionCall { name, args, .. } => {
                 assert_eq!(name, "add");
                 assert_eq!(args.len(), 2);
@@ -103,7 +103,7 @@ fn test_parse_range() {
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::VarDecl { value, .. } => match value {
-            Expr::Range { start, end, inclusive } => {
+            Expr::Range { start, end, inclusive, .. } => {
                 assert!(!inclusive);
                 assert!(start.is_some());
                 assert!(end.is_some());

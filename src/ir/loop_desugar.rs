@@ -23,7 +23,7 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 span,
             } => {
                 let desugared_value = desugar_expr(value, env);
-                if let Expr::List(elements) = &desugared_value {
+                if let Expr::List(elements, _) = &desugared_value {
                     env.insert(name.clone(), elements.clone());
                 }
                 result.push(Stmt::VarDecl {
@@ -43,7 +43,7 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
             }) => {
                 let resolved_iterable = resolve_iterable(&iterable, env);
 
-                if let Expr::List(elements) = &resolved_iterable {
+                if let Expr::List(elements, _) = &resolved_iterable {
                     // Unroll if known list and no complex control flow
                     if !has_complex_cf(&body) && trailing_expr.is_none() {
                         for elem in elements {
@@ -53,11 +53,11 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
 
                             for s in folded {
                                 match s {
-                                    Stmt::Break => {
+                                    Stmt::Break(_) => {
                                         should_break = true;
                                         break;
                                     }
-                                    Stmt::Continue => {
+                                    Stmt::Continue(_) => {
                                         break; // Continue to next iteration
                                     }
                                     _ => {
@@ -111,16 +111,18 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 let desugared = desugar_expr(expr, env);
                 result.push(Stmt::Expression(desugared));
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, span } => {
                 let desugared = desugar_expr(value, env);
                 result.push(Stmt::Assign {
                     name,
                     value: desugared,
+                    span,
                 });
             }
-            Stmt::Print { expr } => {
+            Stmt::Print { expr, span } => {
                 result.push(Stmt::Print {
                     expr: desugar_expr(expr, env),
+                    span,
                 });
             }
             other => {
@@ -141,7 +143,7 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
             span,
         } => {
             let resolved = resolve_iterable(&iterable, env);
-            if let Expr::List(elements) = &resolved {
+            if let Expr::List(elements, _) = &resolved {
                 if !has_complex_cf(&body) {
                     if let Some(te) = trailing_expr.as_ref() {
                         if let Some(last) = elements.last() {
@@ -178,27 +180,37 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
         Expr::Block {
             statements,
             trailing_expr,
+            span,
         } => {
             let desugared_stmts = desugar_stmts(statements, env);
             let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
             Expr::Block {
                 statements: desugared_stmts,
                 trailing_expr: desugared_trailing,
+                span,
             }
         }
         Expr::If {
             condition,
             then_branch,
             else_branch,
+            span,
         } => Expr::If {
             condition: Box::new(desugar_expr(*condition, env)),
             then_branch: Box::new(desugar_expr(*then_branch, env)),
             else_branch: else_branch.map(|e| Box::new(desugar_expr(*e, env))),
+            span,
         },
-        Expr::Binary { left, op, right } => Expr::Binary {
+        Expr::Binary {
+            left,
+            op,
+            right,
+            span,
+        } => Expr::Binary {
             left: Box::new(desugar_expr(*left, env)),
             op,
             right: Box::new(desugar_expr(*right, env)),
+            span,
         },
         other => other,
     }
@@ -208,7 +220,7 @@ fn resolve_iterable(iterable: &Expr, env: &HashMap<String, Vec<Expr>>) -> Expr {
     match iterable {
         Expr::Var(vname, _) => {
             if let Some(elems) = env.get(vname) {
-                Expr::List(elems.clone())
+                Expr::List(elems.clone(), crate::common::span::Span::default())
             } else {
                 iterable.clone()
             }
@@ -223,7 +235,7 @@ fn has_complex_cf(stmts: &[Stmt]) -> bool {
 
 fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Break | Stmt::Continue | Stmt::Return { .. } | Stmt::Defer { .. } => true,
+        Stmt::Break(_) | Stmt::Continue(_) | Stmt::Return { .. } | Stmt::Defer { .. } => true,
         // `var y := x` (with y != x) is a potential move of x. If the
         // loop is unrolled, the move appears once per iteration in the
         // enclosing scope — but that scope has no notion of iteration,
@@ -236,10 +248,14 @@ fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
         // ability to reject moves-in-loops correctly.
         Stmt::VarDecl { name, value: Expr::Var(src, _), .. } if name != src => true,
         Stmt::Expression(expr) => expr_has_complex_cf(expr),
-        Stmt::Spawn { body } | Stmt::RegionBlock { body, .. } | Stmt::UnsafeBlock { body } => {
+        Stmt::Spawn { body, .. }
+        | Stmt::RegionBlock { body, .. }
+        | Stmt::UnsafeBlock { body, .. } => {
             body.iter().any(stmt_has_complex_cf)
         }
-        Stmt::Parallel { blocks } => blocks.iter().any(|b| b.iter().any(stmt_has_complex_cf)),
+        Stmt::Parallel { blocks, .. } => {
+            blocks.iter().any(|b| b.iter().any(stmt_has_complex_cf))
+        }
         _ => false,
     }
 }
@@ -249,6 +265,7 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
         Expr::Block {
             statements,
             trailing_expr,
+            ..
         } => {
             statements.iter().any(stmt_has_complex_cf)
                 || trailing_expr
@@ -291,12 +308,13 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
                 condition,
                 then_branch,
                 else_branch,
+                span,
             }) => {
                 if let Some(cond_val) = eval_const_expr(&condition) {
                     if cond_val {
                         if let Expr::Block { statements, .. } = then_branch.as_ref() {
                             for s in statements {
-                                if matches!(s, Stmt::Break) {
+                                if matches!(s, Stmt::Break(_)) {
                                     return result;
                                 }
                                 result.push(s.clone());
@@ -305,7 +323,7 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
                     } else if let Some(else_br) = else_branch {
                         if let Expr::Block { statements, .. } = else_br.as_ref() {
                             for s in statements {
-                                if matches!(s, Stmt::Break) {
+                                if matches!(s, Stmt::Break(_)) {
                                     return result;
                                 }
                                 result.push(s.clone());
@@ -317,6 +335,7 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
                         condition,
                         then_branch,
                         else_branch,
+                        span,
                     }));
                 }
             }
@@ -329,8 +348,8 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
 
 fn eval_const_expr(expr: &Expr) -> Option<bool> {
     match expr {
-        Expr::Bool(b) => Some(*b),
-        Expr::Binary { left, op, right } => {
+        Expr::Bool(b, _) => Some(*b),
+        Expr::Binary { left, op, right, .. } => {
             let l = eval_const_num(left)?;
             let r = eval_const_num(right)?;
             match op {
@@ -349,8 +368,8 @@ fn eval_const_expr(expr: &Expr) -> Option<bool> {
 
 fn eval_const_num(expr: &Expr) -> Option<f64> {
     match expr {
-        Expr::Number(n) => Some(*n),
-        Expr::Int(i) => Some(*i as f64),
+        Expr::Number(n, _) => Some(*n),
+        Expr::Int(i, _) => Some(*i as f64),
         _ => None,
     }
 }
@@ -359,12 +378,14 @@ fn substitute_var_literal(stmts: &[Stmt], old_name: &str, literal: &Expr) -> Vec
     stmts
         .iter()
         .map(|stmt| match stmt {
-            Stmt::Assign { name, value } => Stmt::Assign {
+            Stmt::Assign { name, value, span } => Stmt::Assign {
                 name: name.clone(),
                 value: substitute_expr_literal(value, old_name, literal),
+                span: *span,
             },
-            Stmt::Print { expr } => Stmt::Print {
+            Stmt::Print { expr, span } => Stmt::Print {
                 expr: substitute_expr_literal(expr, old_name, literal),
+                span: *span,
             },
             Stmt::Expression(expr) => {
                 Stmt::Expression(substitute_expr_literal(expr, old_name, literal))
@@ -391,25 +412,34 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
     match expr {
         Expr::Var(name, _) if name == old_name => literal.clone(),
         Expr::Var(name, span) => Expr::Var(name.clone(), *span),
-        Expr::Binary { left, op, right } => Expr::Binary {
+        Expr::Binary {
+            left,
+            op,
+            right,
+            span,
+        } => Expr::Binary {
             left: Box::new(substitute_expr_literal(left, old_name, literal)),
             op: op.clone(),
             right: Box::new(substitute_expr_literal(right, old_name, literal)),
+            span: *span,
         },
         Expr::If {
             condition,
             then_branch,
             else_branch,
+            span,
         } => Expr::If {
             condition: Box::new(substitute_expr_literal(condition, old_name, literal)),
             then_branch: Box::new(substitute_expr_literal(then_branch, old_name, literal)),
             else_branch: else_branch
                 .as_ref()
                 .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
+            span: *span,
         },
         Expr::Block {
             statements,
             trailing_expr,
+            span,
         } => {
             let new_stmts = substitute_var_literal(statements, old_name, literal);
             Expr::Block {
@@ -417,6 +447,7 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
                 trailing_expr: trailing_expr
                     .as_ref()
                     .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
+                span: *span,
             }
         }
         Expr::FunctionCall { name, args, span } => Expr::FunctionCall {

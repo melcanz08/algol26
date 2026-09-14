@@ -1,4 +1,4 @@
-// src/semantics/semantic_builder/values.rs
+// src/semantics/builder/values.rs
 
 use super::*;
 
@@ -6,7 +6,11 @@ impl SemanticIRBuilder {
     /// Resolve `receiver.method` to the mangled name that actually exists
     /// in `function_types`. Tries both `Type.method` (built-ins) and
     /// `Type_method` (impl-derived names).
-    pub(super) fn resolve_method_call(&self, receiver_type: &Type, method_name: &str) -> Option<String> {
+    pub(super) fn resolve_method_call(
+        &self,
+        receiver_type: &Type,
+        method_name: &str,
+    ) -> Option<String> {
         let base = Self::base_type_name(receiver_type)?;
 
         // Dot form — matches Math.sqrt, String.length, List.sum, File.read, …
@@ -23,13 +27,14 @@ impl SemanticIRBuilder {
 
         None
     }
+
     pub(super) fn coerce_value(&self, value: TypedIRValue, target: &Type) -> TypedIRValue {
         let value_type = value.type_of();
         if value_type != Type::Unknown
             && *target != Type::Unknown
             && value_type != *target
             && value_type.can_coerce_to(target)
-            && value_type.can_cast_to(target)   // ← new: match the verifier's rule
+            && value_type.can_cast_to(target)
         {
             TypedIRValue::Cast {
                 value: Box::new(value),
@@ -39,8 +44,13 @@ impl SemanticIRBuilder {
             value
         }
     }
+
     #[allow(dead_code)]
-    pub(super) fn compile_pattern_match(&self, pattern: &Pattern, value: &TypedIRValue) -> bool {
+    pub(super) fn compile_pattern_match(
+        &self,
+        pattern: &Pattern,
+        value: &TypedIRValue,
+    ) -> bool {
         match pattern {
             Pattern::Some(_) => matches!(value, TypedIRValue::Some(_)),
             Pattern::SomeNested(inner) => match value {
@@ -61,30 +71,36 @@ impl SemanticIRBuilder {
             _ => true,
         }
     }
+
     #[allow(dead_code)]
     pub(super) fn evaluate_guard(&self, _condition: &Expr) -> bool {
         true
     }
+
     #[allow(dead_code)]
     pub(super) fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
         match stmt {
-            Stmt::Break | Stmt::Continue | Stmt::Defer { .. } => true,
+            Stmt::Break(_) | Stmt::Continue(_) | Stmt::Defer { .. } => true,
             Stmt::Expression(expr) => Self::expr_has_complex_cf(expr),
-            Stmt::Spawn { body } | Stmt::RegionBlock { body, .. } | Stmt::UnsafeBlock { body } => {
+            Stmt::Spawn { body, .. }
+            | Stmt::RegionBlock { body, .. }
+            | Stmt::UnsafeBlock { body, .. } => {
                 body.iter().any(Self::stmt_has_complex_cf)
             }
-            Stmt::Parallel { blocks } => blocks
+            Stmt::Parallel { blocks, .. } => blocks
                 .iter()
                 .any(|b| b.iter().any(Self::stmt_has_complex_cf)),
             _ => false,
         }
     }
+
     #[allow(dead_code)]
     pub(super) fn expr_has_complex_cf(expr: &Expr) -> bool {
         match expr {
             Expr::Block {
                 statements,
                 trailing_expr,
+                ..
             } => {
                 statements.iter().any(Self::stmt_has_complex_cf)
                     || trailing_expr
@@ -101,7 +117,9 @@ impl SemanticIRBuilder {
                         .as_ref()
                         .is_some_and(|e| Self::expr_has_complex_cf(e))
             }
-            Expr::Match { cases, .. } => cases.iter().any(|c| Self::expr_has_complex_cf(&c.body)),
+            Expr::Match { cases, .. } => {
+                cases.iter().any(|c| Self::expr_has_complex_cf(&c.body))
+            }
             Expr::TryCatch {
                 try_branch,
                 catch_branch,

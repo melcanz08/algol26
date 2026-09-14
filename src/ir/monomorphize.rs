@@ -1,7 +1,7 @@
 // src/ir/monomorphize.rs
 
-use crate::frontend::ast::BinOp;
 use crate::common::types::Type;
+use crate::frontend::ast::BinOp;
 use crate::frontend::ast::{Expr, FunctionDecl, Stmt, TypeSyntax};
 use crate::semantics::trait_registry::TraitRegistry;
 use std::collections::HashMap;
@@ -49,12 +49,10 @@ impl Monomorphizer {
             let trait_name = &clause.trait_name;
             let type_param = &clause.type_param;
 
-            // Check if trait exists
             if !registry.trait_exists(trait_name) {
                 return Err(format!("Unknown trait '{}'", trait_name));
             }
 
-            // For each concrete instantiation of the type param, check it implements the trait
             if let Some(type_args) = self.type_bindings.get(&func.name) {
                 for type_args_inst in type_args {
                     for (i, param) in func.type_params.iter().enumerate() {
@@ -88,7 +86,7 @@ impl Monomorphizer {
             Stmt::VarDecl { value, .. } => self.collect_from_expr(value),
             Stmt::Assign { value, .. } => self.collect_from_expr(value),
             Stmt::Expression(expr) => self.collect_from_expr(expr),
-            Stmt::Print { expr } => self.collect_from_expr(expr),
+            Stmt::Print { expr, .. } => self.collect_from_expr(expr),
             Stmt::Return {
                 value: Some(expr), ..
             } => {
@@ -125,6 +123,7 @@ impl Monomorphizer {
                 condition,
                 then_branch,
                 else_branch,
+                ..
             } => {
                 self.collect_from_expr(condition);
                 self.collect_from_expr(then_branch);
@@ -135,6 +134,7 @@ impl Monomorphizer {
             Expr::Block {
                 statements,
                 trailing_expr,
+                ..
             } => {
                 for s in statements {
                     self.collect_from_stmt(s);
@@ -143,14 +143,14 @@ impl Monomorphizer {
                     self.collect_from_expr(e);
                 }
             }
-            Expr::List(elements) => {
+            Expr::List(elements, _) => {
                 for e in elements {
                     self.collect_from_expr(e);
                 }
             }
-            Expr::Some { value } => self.collect_from_expr(value),
-            Expr::Ok { value } => self.collect_from_expr(value),
-            Expr::Error { value } => self.collect_from_expr(value),
+            Expr::Some { value, .. } => self.collect_from_expr(value),
+            Expr::Ok { value, .. } => self.collect_from_expr(value),
+            Expr::Error { value, .. } => self.collect_from_expr(value),
             _ => {}
         }
     }
@@ -158,11 +158,11 @@ impl Monomorphizer {
     #[allow(dead_code)]
     fn infer_expr_type(&self, expr: &Expr) -> Type {
         match expr {
-            Expr::Int(_) => Type::Int,
-            Expr::Number(_) => Type::Float,
-            Expr::String(_) => Type::String,
-            Expr::Bool(_) => Type::Bool,
-            Expr::List(elements) => {
+            Expr::Int(_, _) => Type::Int,
+            Expr::Number(_, _) => Type::Float,
+            Expr::String(_, _) => Type::String,
+            Expr::Bool(_, _) => Type::Bool,
+            Expr::List(elements, _) => {
                 if elements.is_empty() {
                     return Type::list(Type::Unknown);
                 }
@@ -173,7 +173,9 @@ impl Monomorphizer {
                 }
                 Type::list(common)
             }
-            Expr::Binary { left, op, right } => {
+            Expr::Binary {
+                left, op, right, ..
+            } => {
                 let lt = self.infer_expr_type(left);
                 let rt = self.infer_expr_type(right);
                 match op {
@@ -196,18 +198,14 @@ impl Monomorphizer {
                 }
             }
             Expr::FunctionCall { name, args, .. } => {
-                // Check if function has known return type
                 if let Some(instantiations) = self.instantiations.get(name) {
                     let arg_types: Vec<Type> =
                         args.iter().map(|a| self.infer_expr_type(a)).collect();
                     if let Some(_specialized) = instantiations.get(&arg_types) {
-                        // Return type would need to be looked up
-                        // For now, return Unknown
                         return Type::Unknown;
                     }
                 }
 
-                // Check built-in functions
                 match name.as_str() {
                     "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp"
                     | "Math.log" | "Math.floor" | "Math.ceil" | "Math.abs" => Type::Float,
@@ -217,22 +215,22 @@ impl Monomorphizer {
                     _ => Type::Unknown,
                 }
             }
-            Expr::Some { value } => Type::option(self.infer_expr_type(value)),
-            Expr::None => Type::option(Type::Unknown),
-            Expr::Ok { value } => Type::result(self.infer_expr_type(value), Type::Unknown),
-            Expr::Error { value } => Type::result(Type::Unknown, self.infer_expr_type(value)),
+            Expr::Some { value, .. } => Type::option(self.infer_expr_type(value)),
+            Expr::None(_) => Type::option(Type::Unknown),
+            Expr::Ok { value, .. } => Type::result(self.infer_expr_type(value), Type::Unknown),
+            Expr::Error { value, .. } => Type::result(Type::Unknown, self.infer_expr_type(value)),
             Expr::ArrayAccess { array, .. } => match self.infer_expr_type(array) {
                 Type::List(inner) => *inner,
                 Type::Array(inner, _) => *inner,
                 _ => Type::Unknown,
             },
-            Expr::Borrow { expr } => Type::borrow(self.infer_expr_type(expr)),
-            Expr::MutBorrow { expr } => Type::mut_borrow(self.infer_expr_type(expr)),
-            Expr::Deref { expr } => match self.infer_expr_type(expr) {
+            Expr::Borrow { expr, .. } => Type::borrow(self.infer_expr_type(expr)),
+            Expr::MutBorrow { expr, .. } => Type::mut_borrow(self.infer_expr_type(expr)),
+            Expr::Deref { expr, .. } => match self.infer_expr_type(expr) {
                 Type::Borrow(inner) | Type::MutBorrow(inner) | Type::Pointer(inner) => *inner,
                 _ => Type::Unknown,
             },
-            Expr::AddrOf { expr } => Type::pointer(self.infer_expr_type(expr)),
+            Expr::AddrOf { expr, .. } => Type::pointer(self.infer_expr_type(expr)),
             _ => Type::Unknown,
         }
     }
@@ -328,20 +326,23 @@ impl Monomorphizer {
                 mutable: *mutable,
                 span: *span,
             },
-            Stmt::Assign { name, value } => Stmt::Assign {
+            Stmt::Assign { name, value, span } => Stmt::Assign {
                 name: name.clone(),
                 value: self.substitute_in_expr(value, type_bindings),
+                span: *span,
             },
             Stmt::Expression(expr) => {
                 Stmt::Expression(self.substitute_in_expr(expr, type_bindings))
             }
-            Stmt::Print { expr } => Stmt::Print {
+            Stmt::Print { expr, span } => Stmt::Print {
                 expr: self.substitute_in_expr(expr, type_bindings),
+                span: *span,
             },
-            Stmt::Return { value } => Stmt::Return {
+            Stmt::Return { value, span } => Stmt::Return {
                 value: value
                     .as_ref()
                     .map(|v| self.substitute_in_expr(v, type_bindings)),
+                span: *span,
             },
             _ => stmt.clone(),
         }
@@ -357,7 +358,6 @@ impl Monomorphizer {
                 let clean_name = name.trim_end_matches("()");
                 let mut new_name = clean_name.to_string();
 
-                // If this call is to a generic function, use the specialized name
                 if let Some(instantiations) = self.instantiations.get(clean_name) {
                     let arg_types: Vec<Type> =
                         new_args.iter().map(|a| self.infer_expr_type(a)).collect();
@@ -372,25 +372,34 @@ impl Monomorphizer {
                     span: *span,
                 }
             }
-            Expr::Binary { left, op, right } => Expr::Binary {
+            Expr::Binary {
+                left,
+                op,
+                right,
+                span,
+            } => Expr::Binary {
                 left: Box::new(self.substitute_in_expr(left, type_bindings)),
                 op: op.clone(),
                 right: Box::new(self.substitute_in_expr(right, type_bindings)),
+                span: *span,
             },
             Expr::If {
                 condition,
                 then_branch,
                 else_branch,
+                span,
             } => Expr::If {
                 condition: Box::new(self.substitute_in_expr(condition, type_bindings)),
                 then_branch: Box::new(self.substitute_in_expr(then_branch, type_bindings)),
                 else_branch: else_branch
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
+                span: *span,
             },
             Expr::Block {
                 statements,
                 trailing_expr,
+                span,
             } => Expr::Block {
                 statements: statements
                     .iter()
@@ -399,21 +408,26 @@ impl Monomorphizer {
                 trailing_expr: trailing_expr
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
+                span: *span,
             },
-            Expr::List(elements) => Expr::List(
+            Expr::List(elements, span) => Expr::List(
                 elements
                     .iter()
                     .map(|e| self.substitute_in_expr(e, type_bindings))
                     .collect(),
+                *span,
             ),
-            Expr::Some { value } => Expr::Some {
+            Expr::Some { value, span } => Expr::Some {
                 value: Box::new(self.substitute_in_expr(value, type_bindings)),
+                span: *span,
             },
-            Expr::Ok { value } => Expr::Ok {
+            Expr::Ok { value, span } => Expr::Ok {
                 value: Box::new(self.substitute_in_expr(value, type_bindings)),
+                span: *span,
             },
-            Expr::Error { value } => Expr::Error {
+            Expr::Error { value, span } => Expr::Error {
                 value: Box::new(self.substitute_in_expr(value, type_bindings)),
+                span: *span,
             },
             _ => expr.clone(),
         }
@@ -462,27 +476,18 @@ impl Monomorphizer {
     pub fn monomorphize(&mut self, functions: &[FunctionDecl]) -> Vec<FunctionDecl> {
         let mut result = Vec::new();
 
-        // First pass: create specialized functions
         for func in functions {
             if func.type_params.is_empty() {
                 result.push(func.clone());
             } else {
-                // Always keep the generic function in the output. If
-                // a call site is not specialized (because its type args
-                // could not be resolved at monomorphize time), the
-                // analyzer will look the generic up by name and bind
-                // the type variables from the real argument types.
-                // Dropping the generic here would leave such calls
-                // pointing at a name that no longer exists.
+                // Keep the generic function in the output. If a call
+                // site's type args could not be resolved at monomorphize
+                // time, the analyzer looks the generic up by name and
+                // binds type variables from the real argument types.
                 result.push(func.clone());
 
                 if let Some(all_type_args) = self.type_bindings.get(&func.name).cloned() {
                     for type_args in &all_type_args {
-                        // If any type argument is Unknown or contains a
-                        // TypeVar, the AST-only inference could not
-                        // determine a concrete type for the call. Skip
-                        // this specialization — the analyzer will
-                        // resolve the generic call instead.
                         if type_args.iter().any(has_unresolved) {
                             continue;
                         }
@@ -493,11 +498,11 @@ impl Monomorphizer {
                                 bindings.insert(param.clone(), concrete.clone());
                             }
                         }
-                        // Check trait bounds
-                        if let Err(err) = self.check_trait_bounds_for_instantiation(func, type_args)
+                        if let Err(err) =
+                            self.check_trait_bounds_for_instantiation(func, type_args)
                         {
                             eprintln!("Trait bound violation: {}", err);
-                            continue; // Skip this instantiation
+                            continue;
                         }
 
                         let specialized = self.substitute_in_function(func, &bindings);
@@ -512,7 +517,6 @@ impl Monomorphizer {
             }
         }
 
-        // Second pass: rewrite call sites in non-generic functions
         for func in result.iter_mut() {
             if func.type_params.is_empty() {
                 func.body = func
@@ -541,20 +545,23 @@ impl Monomorphizer {
                 mutable: *mutable,
                 span: *span,
             },
-            Stmt::Assign { name, value } => Stmt::Assign {
+            Stmt::Assign { name, value, span } => Stmt::Assign {
                 name: name.clone(),
                 value: self.substitute_in_expr_with_instantiations(value),
+                span: *span,
             },
             Stmt::Expression(expr) => {
                 Stmt::Expression(self.substitute_in_expr_with_instantiations(expr))
             }
-            Stmt::Print { expr } => Stmt::Print {
+            Stmt::Print { expr, span } => Stmt::Print {
                 expr: self.substitute_in_expr_with_instantiations(expr),
+                span: *span,
             },
-            Stmt::Return { value } => Stmt::Return {
+            Stmt::Return { value, span } => Stmt::Return {
                 value: value
                     .as_ref()
                     .map(|v| self.substitute_in_expr_with_instantiations(v)),
+                span: *span,
             },
             _ => stmt.clone(),
         }
@@ -587,25 +594,34 @@ impl Monomorphizer {
                     span: *span,
                 }
             }
-            Expr::Binary { left, op, right } => Expr::Binary {
+            Expr::Binary {
+                left,
+                op,
+                right,
+                span,
+            } => Expr::Binary {
                 left: Box::new(self.substitute_in_expr_with_instantiations(left)),
                 op: op.clone(),
                 right: Box::new(self.substitute_in_expr_with_instantiations(right)),
+                span: *span,
             },
             Expr::If {
                 condition,
                 then_branch,
                 else_branch,
+                span,
             } => Expr::If {
                 condition: Box::new(self.substitute_in_expr_with_instantiations(condition)),
                 then_branch: Box::new(self.substitute_in_expr_with_instantiations(then_branch)),
                 else_branch: else_branch
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
+                span: *span,
             },
             Expr::Block {
                 statements,
                 trailing_expr,
+                span,
             } => Expr::Block {
                 statements: statements
                     .iter()
@@ -614,12 +630,14 @@ impl Monomorphizer {
                 trailing_expr: trailing_expr
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
+                span: *span,
             },
-            Expr::List(elements) => Expr::List(
+            Expr::List(elements, span) => Expr::List(
                 elements
                     .iter()
                     .map(|e| self.substitute_in_expr_with_instantiations(e))
                     .collect(),
+                *span,
             ),
             _ => expr.clone(),
         }

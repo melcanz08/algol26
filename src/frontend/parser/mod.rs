@@ -22,17 +22,6 @@ pub(super) struct TokenInfo {
     span: Span,
 }
 
-impl TokenInfo {
-    /// Start line of this token's span.
-    pub(super) fn line(&self) -> usize {
-        self.span.start_line
-    }
-    /// Start column of this token's span.
-    pub(super) fn column(&self) -> usize {
-        self.span.start_column
-    }
-}
-
 pub struct Parser {
     pub(super) tokens: Vec<TokenInfo>,
     pub(super) pos: usize,

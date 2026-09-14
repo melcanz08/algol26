@@ -109,7 +109,7 @@ impl<'a> Walker<'a> {
             Stmt::RegionBlock { body, .. } => {
                 for s in body { self.visit_stmt(s); }
             }
-            Stmt::UnsafeBlock { body } => {
+            Stmt::UnsafeBlock { body, .. } => {
                 for s in body { self.visit_stmt(s); }
             }
             Stmt::Assign { value, .. } => self.visit_expr(value),
@@ -117,16 +117,16 @@ impl<'a> Walker<'a> {
                 self.visit_expr(index);
                 self.visit_expr(value);
             }
-            Stmt::Return { value } => {
+            Stmt::Return { value, .. } => {
                 if let Some(e) = value { self.visit_expr(e); }
             }
-            Stmt::Print { expr } => self.visit_expr(expr),
-            Stmt::Defer { stmt } => self.visit_stmt(stmt),
-            Stmt::Break | Stmt::Continue => {}
-            Stmt::Spawn { body } => {
+            Stmt::Print { expr, .. } => self.visit_expr(expr),
+            Stmt::Defer { stmt, .. } => self.visit_stmt(stmt),
+            Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Spawn { body, .. } => {
                 for s in body { self.visit_stmt(s); }
             }
-            Stmt::Parallel { blocks } => {
+            Stmt::Parallel { blocks, .. } => {
                 for b in blocks {
                     for s in b { self.visit_stmt(s); }
                 }
@@ -155,45 +155,45 @@ impl<'a> Walker<'a> {
 
     fn visit_expr_children(&mut self, expr: &Expr) {
         match expr {
-            Expr::Number(_)
-            | Expr::Int(_)
-            | Expr::String(_)
-            | Expr::Bool(_)
+            Expr::Number(_, _)
+            | Expr::Int(_, _)
+            | Expr::String(_, _)
+            | Expr::Bool(_, _)
             | Expr::Var(_, _)
-            | Expr::None
-            | Expr::NullPtr
-            | Expr::PtrLiteral(_) => {}
+            | Expr::None(_)
+            | Expr::NullPtr(_)
+            | Expr::PtrLiteral(_, _) => {}
 
-            Expr::Block { statements, trailing_expr } => {
+            Expr::Block { statements, trailing_expr, .. } => {
                 for s in statements { self.visit_stmt(s); }
                 if let Some(e) = trailing_expr { self.visit_expr(e); }
             }
-            Expr::If { condition, then_branch, else_branch } => {
+            Expr::If { condition, then_branch, else_branch, .. } => {
                 self.visit_expr(condition);
                 self.visit_expr(then_branch);
                 if let Some(e) = else_branch { self.visit_expr(e); }
             }
-            Expr::Match { value, cases } => {
+            Expr::Match { value, cases, .. } => {
                 self.visit_expr(value);
                 for c in cases {
                     self.visit_pattern(&c.pattern);
                     self.visit_expr(&c.body);
                 }
             }
-            Expr::Borrow { expr }
-            | Expr::MutBorrow { expr }
-            | Expr::Deref { expr }
-            | Expr::AddrOf { expr }
-            | Expr::Some { value: expr }
-            | Expr::Ok { value: expr }
-            | Expr::Error { value: expr }
+            Expr::Borrow { expr, .. }
+            | Expr::MutBorrow { expr, .. }
+            | Expr::Deref { expr, .. }
+            | Expr::AddrOf { expr, .. }
+            | Expr::Some { value: expr, .. }
+            | Expr::Ok { value: expr, .. }
+            | Expr::Error { value: expr, .. }
             | Expr::Unary { expr, .. } => {
                 self.visit_expr(expr);
             }
-            Expr::List(items) => {
+            Expr::List(items, _) => {
                 for e in items { self.visit_expr(e); }
             }
-            Expr::ArrayAccess { array, index } => {
+            Expr::ArrayAccess { array, index, .. } => {
                 self.visit_expr(array);
                 self.visit_expr(index);
             }
@@ -259,10 +259,10 @@ impl<'a> Walker<'a> {
 
 fn expr_kind(e: &Expr) -> &'static str {
     match e {
-        Expr::Number(_) => "number",
-        Expr::Int(_) => "int",
-        Expr::String(_) => "string",
-        Expr::Bool(_) => "bool",
+        Expr::Number(_, _) => "number",
+        Expr::Int(_, _) => "int",
+        Expr::String(_, _) => "string",
+        Expr::Bool(_, _) => "bool",
         Expr::Var(_, _) => "var",
         Expr::Block { .. } => "block",
         Expr::If { .. } => "if",
@@ -271,20 +271,20 @@ fn expr_kind(e: &Expr) -> &'static str {
         Expr::MutBorrow { .. } => "mut_borrow",
         Expr::Deref { .. } => "deref",
         Expr::AddrOf { .. } => "addr_of",
-        Expr::List(_) => "list",
+        Expr::List(_, _) => "list",
         Expr::ArrayAccess { .. } => "array_access",
         Expr::Binary { .. } => "binary",
         Expr::Unary { .. } => "unary",
         Expr::FunctionCall { .. } => "call",
         Expr::Some { .. } => "some",
-        Expr::None => "none",
+        Expr::None(_) => "none",
         Expr::Ok { .. } => "ok",
         Expr::TryCatch { .. } => "try_catch",
         Expr::Error { .. } => "error",
         Expr::For { .. } => "for",
         Expr::While { .. } => "while",
-        Expr::PtrLiteral(_) => "ptr_literal",
-        Expr::NullPtr => "null_ptr",
+        Expr::PtrLiteral(_, _) => "ptr_literal",
+        Expr::NullPtr(_) => "null_ptr",
         Expr::Range { .. } => "range",
         Expr::FieldAccess { .. } => "field_access",
     }
@@ -293,12 +293,14 @@ fn expr_kind(e: &Expr) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::span::Span;
 
     #[test]
     fn walker_reports_every_leaf_node() {
         let ast = Expr::Block {
             statements: vec![],
-            trailing_expr: Some(Box::new(Expr::Int(42))),
+            trailing_expr: Some(Box::new(Expr::Int(42, Span::default()))),
+            span: Span::default(),
         };
         let table = HashMap::new();
         let mut w = Walker { type_table: &table, missing: Vec::new() };
@@ -311,10 +313,11 @@ mod tests {
 
     #[test]
     fn walker_silent_when_table_complete() {
-        let inner = Expr::Int(42);
+        let inner = Expr::Int(42, Span::default());
         let outer = Expr::Block {
             statements: vec![],
-            trailing_expr: Some(Box::new(Expr::Int(1))),
+            trailing_expr: Some(Box::new(Expr::Int(1, Span::default()))),
+            span: Span::default(),
         };
         let mut table = HashMap::new();
         table.insert(&inner as *const Expr as usize, Type::Int);
@@ -329,15 +332,18 @@ mod tests {
         // illustrative, not a full completeness check.
         let _ = inner;
     }
+
     #[test]
     fn statement_position_expr_is_not_checked() {
         let stmt = Stmt::Expression(Expr::If {
-            condition: Box::new(Expr::Bool(true)),
+            condition: Box::new(Expr::Bool(true, Span::default())),
             then_branch: Box::new(Expr::Block {
                 statements: vec![],
-                trailing_expr: Some(Box::new(Expr::Int(1))),
+                trailing_expr: Some(Box::new(Expr::Int(1, Span::default()))),
+                span: Span::default(),
             }),
             else_branch: None,
+            span: Span::default(),
         });
         let table = HashMap::new();
         let mut w = Walker { type_table: &table, missing: Vec::new() };

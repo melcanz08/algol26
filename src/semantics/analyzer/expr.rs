@@ -6,6 +6,7 @@ impl SemanticAnalyzer {
     pub(super) fn analyze_expr(&mut self, expr: &Expr) -> Result<Type> {
         self.analyze_expr_with_context(expr, None)
     }
+
     // ─── UNIFY TYPES ───────────────────────────────────────────────────────
     // Public entry: calls the inner analyzer and records the resulting type.
     pub(super) fn analyze_expr_with_context(
@@ -19,6 +20,7 @@ impl SemanticAnalyzer {
             .insert(expr as *const Expr as usize, ty.clone());
         Ok(ty)
     }
+
     // The actual match arm dispatch (renamed from the original).
     pub(super) fn analyze_expr_inner(
         &mut self,
@@ -26,7 +28,7 @@ impl SemanticAnalyzer {
         expected_type: Option<&Type>,
     ) -> Result<Type> {
         match expr {
-            Expr::Borrow { expr } => {
+            Expr::Borrow { expr, .. } => {
                 if let Expr::Var(name, _) = expr.as_ref() {
                     self.check_borrow_rules(name, false)?;
                     self.mark_borrowed(name);
@@ -36,24 +38,27 @@ impl SemanticAnalyzer {
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::borrow(inner_type))
             }
-            Expr::MutBorrow { expr } => {
+            Expr::MutBorrow { expr, .. } => {
                 if let Expr::Var(name, _) = expr.as_ref() {
                     // Do NOT release existing borrows here — that would undo
                     // the very borrow we just registered. `check_borrow_rules`
                     // will correctly reject a second mut-borrow of the same source.
                     self.check_borrow_rules(name, true)?;
-                    let inner_type = self.lookup_variable(name).map(|(t, _)| t).unwrap_or(Type::Unknown);
+                    let inner_type = self
+                        .lookup_variable(name)
+                        .map(|(t, _)| t)
+                        .unwrap_or(Type::Unknown);
                     return Ok(Type::mut_borrow(inner_type));
                 }
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::mut_borrow(inner_type))
             }
-            Expr::Deref { expr } => {
+            Expr::Deref { expr, .. } => {
                 // Rule: dereferencing a value statically known to be
                 // null is a compile-time safety error. The language
                 // permits `null` as a value of type `Ptr`; it does not
                 // permit a deref whose operand is provably null.
-                if matches!(expr.as_ref(), Expr::NullPtr) {
+                if matches!(expr.as_ref(), Expr::NullPtr(_)) {
                     return Err(CompileError::simple(
                         "Cannot dereference a null pointer",
                         0, 0, "", ErrorCode::E0007,
@@ -90,15 +95,15 @@ impl SemanticAnalyzer {
                     _ => Ok(Type::Unknown),
                 }
             }
-            Expr::AddrOf { expr } => {
+            Expr::AddrOf { expr, .. } => {
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::pointer(inner_type))
             }
-            Expr::Number(_) => Ok(Type::Float),
-            Expr::Int(_) => Ok(Type::Int),
-            Expr::String(_) => Ok(Type::String),
-            Expr::Bool(_) => Ok(Type::Bool),
-            Expr::List(elements) => {
+            Expr::Number(_, _) => Ok(Type::Float),
+            Expr::Int(_, _) => Ok(Type::Int),
+            Expr::String(_, _) => Ok(Type::String),
+            Expr::Bool(_, _) => Ok(Type::Bool),
+            Expr::List(elements, _) => {
                 if elements.is_empty() {
                     return Ok(Type::list(Type::Unknown));
                 }
@@ -110,18 +115,18 @@ impl SemanticAnalyzer {
                 }
                 Ok(Type::list(list_type))
             }
-            Expr::Some { value } => {
+            Expr::Some { value, .. } => {
                 let inner = self.analyze_expr(value)?;
                 Ok(Type::option(inner))
             }
-            Expr::None => {
+            Expr::None(_) => {
                 if let Some(Type::Option(inner)) = expected_type {
                     Ok(Type::option((**inner).clone()))
                 } else {
                     Ok(Type::option(Type::Unknown))
                 }
             }
-            Expr::Ok { value } => {
+            Expr::Ok { value, .. } => {
                 // Compute the payload type independently. `expected_type`
                 // is used only to learn the error type of the enclosing
                 // Result, not to influence the payload's analysis.
@@ -134,7 +139,7 @@ impl SemanticAnalyzer {
 
                 Ok(Type::result(inner, error_type))
             }
-            Expr::Error { value } => {
+            Expr::Error { value, .. } => {
                 let inner = self.analyze_expr(value)?;
 
                 let ok_type = match expected_type {
@@ -144,8 +149,14 @@ impl SemanticAnalyzer {
 
                 Ok(Type::result(ok_type, inner))
             }
-            Expr::Block { statements, trailing_expr } => {
-                for s in statements { self.analyze_stmt(s)?; }
+            Expr::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                for s in statements {
+                    self.analyze_stmt(s)?;
+                }
                 let result = if let Some(expr) = trailing_expr {
                     self.analyze_expr(expr)?
                 } else {
@@ -153,7 +164,12 @@ impl SemanticAnalyzer {
                 };
                 Ok(result)
             }
-            Expr::If { condition, then_branch, else_branch } => {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 let cond_type = self.analyze_expr(condition)?;
                 if cond_type != Type::Bool && cond_type != Type::Unknown && cond_type != Type::Void {
                     return Err(CompileError::simple(
@@ -189,7 +205,7 @@ impl SemanticAnalyzer {
                     Ok(Type::Void)
                 }
             }
-            Expr::Match { value, cases } => {
+            Expr::Match { value, cases, .. } => {
                 let value_type = self.analyze_expr(value)?;
                 if let Some(first_case) = cases.first() {
                     self.check_pattern_type(&first_case.pattern, &value_type)?;
@@ -245,7 +261,13 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
-            Expr::TryCatch { try_branch, catch_var, catch_branch, finally_body } => {
+            Expr::TryCatch {
+                try_branch,
+                catch_var,
+                catch_branch,
+                finally_body,
+                ..
+            } => {
                 let try_type = self.analyze_expr(try_branch)?;
 
                 // The try body must evaluate to a Result<T, E>.
@@ -305,7 +327,13 @@ impl SemanticAnalyzer {
             // See the module doc comment "Loop ownership analysis".
             // Borrows are restored to the pre-loop state; moves
             // inside the body are rejected (see below).
-            Expr::For { var, iterable, body, trailing_expr, span } => {
+            Expr::For {
+                var,
+                iterable,
+                body,
+                trailing_expr,
+                span,
+            } => {
                 let iter_type = self.analyze_expr(iterable)?;
                 let elem_type = if let Type::List(t) = iter_type.clone() {
                     *t
@@ -318,16 +346,21 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 };
                 let outer_borrowed = self.borrowed_vars.last().cloned().unwrap_or_default();
-                let outer_mutably_borrowed = self.mutably_borrowed.last().cloned().unwrap_or_default();
+                let outer_mutably_borrowed =
+                    self.mutably_borrowed.last().cloned().unwrap_or_default();
 
                 self.push_scope();
                 self.declare_variable(var, elem_type, false)?;
                 let moves_before = self.all_moved_vars();
-                for s in body { self.analyze_stmt(s)?; }
+                for s in body {
+                    self.analyze_stmt(s)?;
+                }
                 let moves_after = self.all_moved_vars();
-                let new_moves: Vec<String> = moves_after.iter()
+                let new_moves: Vec<String> = moves_after
+                    .iter()
                     .filter(|v| !moves_before.contains(v))
-                    .cloned().collect();
+                    .cloned()
+                    .collect();
 
                 let result_type = if let Some(expr) = trailing_expr {
                     self.analyze_expr(expr)?
@@ -356,7 +389,12 @@ impl SemanticAnalyzer {
             // See the module doc comment "Loop ownership analysis".
             // Borrows are restored; moves are propagated outward
             // because the loop may run zero times.
-            Expr::While { condition, body, trailing_expr, span } => {
+            Expr::While {
+                condition,
+                body,
+                trailing_expr,
+                span,
+            } => {
                 let cond_type = self.analyze_expr(condition)?;
                 if cond_type != Type::Bool && cond_type != Type::Unknown {
                     return Err(CompileError::simple(
@@ -365,10 +403,13 @@ impl SemanticAnalyzer {
                     ));
                 }
                 let outer_borrowed = self.borrowed_vars.last().cloned().unwrap_or_default();
-                let outer_mutably_borrowed = self.mutably_borrowed.last().cloned().unwrap_or_default();
+                let outer_mutably_borrowed =
+                    self.mutably_borrowed.last().cloned().unwrap_or_default();
 
                 self.push_scope();
-                for s in body { self.analyze_stmt(s)?; }
+                for s in body {
+                    self.analyze_stmt(s)?;
+                }
                 let moved_in_loop = self.moved_vars.last().cloned().unwrap_or_default();
                 let result_type = if let Some(expr) = trailing_expr {
                     self.analyze_expr(expr)?
@@ -411,17 +452,19 @@ impl SemanticAnalyzer {
                         line, column, "", ErrorCode::E0007,
                     ).with_suggestion("Wait for the mutable borrow to end before reading"));
                 }
-                self.lookup_variable(name).map(|(t, _)| t).ok_or_else(|| {
-                    CompileError::simple(
-                        &format!("Undefined variable '{}'", name),
-                        line, column, "", ErrorCode::E0003,
-                    ).with_suggestion(&format!(
-                        "Declare '{}' with 'var {} := ...' or 'val {} := ...' in this scope",
-                        name, name, name
-                    ))
-                })
+                self.lookup_variable(name)
+                    .map(|(t, _)| t)
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            &format!("Undefined variable '{}'", name),
+                            line, column, "", ErrorCode::E0003,
+                        ).with_suggestion(&format!(
+                            "Declare '{}' with 'var {} := ...' or 'val {} := ...' in this scope",
+                            name, name, name
+                        ))
+                    })
             }
-            Expr::ArrayAccess { array, index } => {
+            Expr::ArrayAccess { array, index, .. } => {
                 let array_type = self.analyze_expr(array)?;
                 let element_type = match array_type {
                     Type::List(element_type) => *element_type,
@@ -437,8 +480,8 @@ impl SemanticAnalyzer {
 
                 let mut out_of_bounds: Option<(i64, usize, String)> = None;
                 let literal_index: Option<i64> = match index.as_ref() {
-                    Expr::Int(v) => Some(*v),
-                    Expr::Number(f) => Some(*f as i64),
+                    Expr::Int(v, _) => Some(*v),
+                    Expr::Number(f, _) => Some(*f as i64),
                     _ => None,
                 };
                 if let Some(idx_val) = literal_index {
@@ -449,10 +492,11 @@ impl SemanticAnalyzer {
                             }
                         }
                     }
-                    if let Expr::List(elements) = array.as_ref() {
+                    if let Expr::List(elements, _) = array.as_ref() {
                         let list_len = elements.len();
                         if idx_val < 0 || (idx_val as usize) >= list_len {
-                            out_of_bounds = Some((idx_val, list_len, "list literal".to_string()));
+                            out_of_bounds =
+                                Some((idx_val, list_len, "list literal".to_string()));
                         }
                     }
                 }
@@ -477,14 +521,27 @@ impl SemanticAnalyzer {
                 }
                 Ok(element_type)
             }
-            Expr::Binary { left, op, right } => {
+            Expr::Binary {
+                left,
+                op,
+                right,
+                ..
+            } => {
                 let mut left_type = self.analyze_expr(left)?;
                 let mut right_type = self.analyze_expr(right)?;
 
-                if let Type::Borrow(inner) = &left_type { left_type = (**inner).clone(); }
-                if let Type::MutBorrow(inner) = &left_type { left_type = (**inner).clone(); }
-                if let Type::Borrow(inner) = &right_type { right_type = (**inner).clone(); }
-                if let Type::MutBorrow(inner) = &right_type { right_type = (**inner).clone(); }
+                if let Type::Borrow(inner) = &left_type {
+                    left_type = (**inner).clone();
+                }
+                if let Type::MutBorrow(inner) = &left_type {
+                    left_type = (**inner).clone();
+                }
+                if let Type::Borrow(inner) = &right_type {
+                    right_type = (**inner).clone();
+                }
+                if let Type::MutBorrow(inner) = &right_type {
+                    right_type = (**inner).clone();
+                }
 
                 match op {
                     BinOp::Add => {
@@ -573,7 +630,9 @@ impl SemanticAnalyzer {
                             // through the built-in registry, not the trait registry.
                             if let Some(base) = Self::base_type_name(&receiver_type) {
                                 let builtin_form = format!("{}.{}", base, method_name);
-                                if let Some(func_info) = self.functions.get(&builtin_form).cloned() {
+                                if let Some(func_info) =
+                                    self.functions.get(&builtin_form).cloned()
+                                {
                                     // Analyze each explicit arg. The receiver is
                                     // implicitly the first argument at IR-build time,
                                     // so its type is already known.
@@ -583,7 +642,8 @@ impl SemanticAnalyzer {
                                     // Optional strict check: if the built-in takes N
                                     // params and the receiver counts as one, then
                                     // `args.len() + 1 == N` should hold.
-                                    let expected_extra = func_info.params.len().saturating_sub(1);
+                                    let expected_extra =
+                                        func_info.params.len().saturating_sub(1);
                                     if args.len() != expected_extra {
                                         return Err(CompileError::simple(
                                             &format!(
@@ -598,17 +658,23 @@ impl SemanticAnalyzer {
                             }
 
                             // ─── Trait-based method resolution ───
-                            if let Some(method) = self.resolve_trait_method(&receiver_type, method_name) {
+                            if let Some(method) =
+                                self.resolve_trait_method(&receiver_type, method_name)
+                            {
                                 if args.len() != method.params.len() {
                                     return Err(CompileError::simple(
                                         &format!(
                                             "Method '{}' expects {} arguments, got {}",
-                                            method_name, method.params.len(), args.len()
+                                            method_name,
+                                            method.params.len(),
+                                            args.len()
                                         ),
                                         0, 0, "", ErrorCode::E0002,
                                     ));
                                 }
-                                for (arg, (param_name, param_type)) in args.iter().zip(&method.params) {
+                                for (arg, (param_name, param_type)) in
+                                    args.iter().zip(&method.params)
+                                {
                                     let arg_type = self.analyze_expr(arg)?;
                                     let expected_type = match param_type {
                                         Some(s) => s.to_type(),
@@ -705,7 +771,8 @@ impl SemanticAnalyzer {
                         )));
                     }
                 }
-                let return_type = self.substitute_type_vars(&func_info.return_type, &type_bindings);
+                let return_type =
+                    self.substitute_type_vars(&func_info.return_type, &type_bindings);
                 Ok(return_type)
             }
             Expr::Unary { op, expr, .. } => {
@@ -733,8 +800,8 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Expr::PtrLiteral(_) => Ok(Type::Ptr),
-            Expr::NullPtr => Ok(Type::Ptr),
+            Expr::PtrLiteral(_, _) => Ok(Type::Ptr),
+            Expr::NullPtr(_) => Ok(Type::Ptr),
 
             // ─── UNIFY TYPES ─── give Range and FieldAccess proper inferred types.
             Expr::Range { start, end, .. } => {
@@ -760,15 +827,26 @@ impl SemanticAnalyzer {
             }
         }
     }
-    pub(super) fn substitute_type_vars(&self, type_: &Type, bindings: &HashMap<String, Type>) -> Type {
+
+    pub(super) fn substitute_type_vars(
+        &self,
+        type_: &Type,
+        bindings: &HashMap<String, Type>,
+    ) -> Type {
         match type_ {
-            Type::TypeVar(name) => bindings.get(name).cloned().unwrap_or_else(|| type_.clone()),
+            Type::TypeVar(name) => bindings
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| type_.clone()),
             Type::List(inner) => Type::list(self.substitute_type_vars(inner, bindings)),
             Type::Array(inner, size) => {
                 Type::array(self.substitute_type_vars(inner, bindings), *size)
             }
             Type::Tuple(elements) => Type::tuple(
-                elements.iter().map(|e| self.substitute_type_vars(e, bindings)).collect(),
+                elements
+                    .iter()
+                    .map(|e| self.substitute_type_vars(e, bindings))
+                    .collect(),
             ),
             Type::Option(inner) => Type::option(self.substitute_type_vars(inner, bindings)),
             Type::Result { ok, error } => Type::result(
@@ -777,16 +855,21 @@ impl SemanticAnalyzer {
             ),
             Type::Pointer(inner) => Type::pointer(self.substitute_type_vars(inner, bindings)),
             Type::Borrow(inner) => Type::borrow(self.substitute_type_vars(inner, bindings)),
-            Type::MutBorrow(inner) => Type::mut_borrow(self.substitute_type_vars(inner, bindings)),
+            Type::MutBorrow(inner) => {
+                Type::mut_borrow(self.substitute_type_vars(inner, bindings))
+            }
             Type::Channel(inner) => Type::channel(self.substitute_type_vars(inner, bindings)),
             _ => type_.clone(),
         }
     }
+
     // The pattern-type checker is unchanged.
     pub(super) fn check_pattern_type(&self, pattern: &Pattern, value_type: &Type) -> Result<()> {
         match pattern {
             Pattern::None => {
-                if let Type::Option(_) = value_type { Ok(()) } else {
+                if let Type::Option(_) = value_type {
+                    Ok(())
+                } else {
                     Err(CompileError::simple(
                         &format!("Cannot match None against {}", value_type),
                         0, 0, "", ErrorCode::E0002,
@@ -794,7 +877,9 @@ impl SemanticAnalyzer {
                 }
             }
             Pattern::Some(_) | Pattern::SomeNested(_) => {
-                if let Type::Option(_) = value_type { Ok(()) } else {
+                if let Type::Option(_) = value_type {
+                    Ok(())
+                } else {
                     Err(CompileError::simple(
                         &format!("Cannot match Some against {}", value_type),
                         0, 0, "", ErrorCode::E0002,
@@ -802,7 +887,9 @@ impl SemanticAnalyzer {
                 }
             }
             Pattern::Ok(_) | Pattern::OkNested(_) => {
-                if let Type::Result { .. } = value_type { Ok(()) } else {
+                if let Type::Result { .. } = value_type {
+                    Ok(())
+                } else {
                     Err(CompileError::simple(
                         &format!("Cannot match Ok against {}", value_type),
                         0, 0, "", ErrorCode::E0002,
@@ -810,7 +897,9 @@ impl SemanticAnalyzer {
                 }
             }
             Pattern::Error(_) | Pattern::ErrorNested(_) => {
-                if let Type::Result { .. } = value_type { Ok(()) } else {
+                if let Type::Result { .. } = value_type {
+                    Ok(())
+                } else {
                     Err(CompileError::simple(
                         &format!("Cannot match Error against {}", value_type),
                         0, 0, "", ErrorCode::E0002,
@@ -819,13 +908,15 @@ impl SemanticAnalyzer {
             }
             Pattern::Literal(lit) => {
                 let lit_type = match lit {
-                    crate::frontend::ast::Expr::Int(_) => Type::Int,
-                    crate::frontend::ast::Expr::Number(_) => Type::Float,
-                    crate::frontend::ast::Expr::String(_) => Type::String,
-                    crate::frontend::ast::Expr::Bool(_) => Type::Bool,
+                    crate::frontend::ast::Expr::Int(_, _) => Type::Int,
+                    crate::frontend::ast::Expr::Number(_, _) => Type::Float,
+                    crate::frontend::ast::Expr::String(_, _) => Type::String,
+                    crate::frontend::ast::Expr::Bool(_, _) => Type::Bool,
                     _ => Type::Unknown,
                 };
-                if lit_type.can_coerce_to(value_type) { Ok(()) } else {
+                if lit_type.can_coerce_to(value_type) {
+                    Ok(())
+                } else {
                     Err(CompileError::simple(
                         &format!(
                             "Cannot match literal of type {} against {}",

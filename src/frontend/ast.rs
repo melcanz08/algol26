@@ -1,54 +1,63 @@
-#![allow(dead_code)]
-
-// algol26/src/frontend/ast.rs 
+// algol26/src/frontend/ast.rs
 
 use crate::common::span::Span;
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Number(f64),
-    Int(i64),
-    String(String),
-    Bool(bool),
+    // ─── Literals ───
+    Number(f64, Span),
+    Int(i64, Span),
+    String(String, Span),
+    Bool(bool, Span),
+    NullPtr(Span),
+    PtrLiteral(usize, Span),
+
     Var(String, Span),
-    /// Represents an inline scoped block of code that evaluates to a value.
-    /// Example: val result := val a := 5; a + 10 end
+
+    /// Inline scoped block.
     Block {
         statements: Vec<Stmt>,
         trailing_expr: Option<Box<Expr>>,
+        span: Span,
     },
-    /// Evolved If-Else that acts as a value-producing expression.
     If {
         condition: Box<Expr>,
-        then_branch: Box<Expr>,         // Must be an Expr::Block
-        else_branch: Option<Box<Expr>>, // Must be an Expr::Block
+        then_branch: Box<Expr>,
+        else_branch: Option<Box<Expr>>,
+        span: Span,
     },
-    /// Evolved Match that acts as a value-producing expression.
     Match {
         value: Box<Expr>,
         cases: Vec<MatchCaseExpr>,
+        span: Span,
     },
     Borrow {
         expr: Box<Expr>,
+        span: Span,
     },
     MutBorrow {
         expr: Box<Expr>,
+        span: Span,
     },
     Deref {
         expr: Box<Expr>,
+        span: Span,
     },
     AddrOf {
         expr: Box<Expr>,
+        span: Span,
     },
-    List(Vec<Expr>),
+    List(Vec<Expr>, Span),
     ArrayAccess {
         array: Box<Expr>,
         index: Box<Expr>,
+        span: Span,
     },
     Binary {
         left: Box<Expr>,
         op: BinOp,
         right: Box<Expr>,
+        span: Span,
     },
     Unary {
         op: UnaryOp,
@@ -60,28 +69,26 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
-    // Option type
     Some {
         value: Box<Expr>,
+        span: Span,
     },
-    None,
-    // Result type
+    None(Span),
     Ok {
         value: Box<Expr>,
-    },
-    /// Evolved Try-Catch that acts as a value-producing expression.
-    TryCatch {
-        try_branch: Box<Expr>, // Must be an Expr::Block
-        catch_var: Option<String>,
-        catch_branch: Box<Expr>,         // Must be an Expr::Block
-        finally_body: Option<Vec<Stmt>>, // Finalizing side-effects (runs regardless)
+        span: Span,
     },
     Error {
         value: Box<Expr>,
+        span: Span,
     },
-    // --- ORTHOGONAL: Loops as expressions ---
-    /// For loop as expression - returns last trailing_expr from last iteration, or Void
-    /// Example: val sum := for item in [1.0, 2.0, 3.0] do item + 1.0
+    TryCatch {
+        try_branch: Box<Expr>,
+        catch_var: Option<String>,
+        catch_branch: Box<Expr>,
+        finally_body: Option<Vec<Stmt>>,
+        span: Span,
+    },
     For {
         var: String,
         iterable: Box<Expr>,
@@ -89,27 +96,18 @@ pub enum Expr {
         trailing_expr: Option<Box<Expr>>,
         span: Span,
     },
-    /// While loop as expression - returns last trailing_expr, or Void
-    /// Example: val result := while x < 10.0 do x := x + 1.0; x
     While {
         condition: Box<Expr>,
         body: Vec<Stmt>,
         trailing_expr: Option<Box<Expr>>,
         span: Span,
     },
-    /// Raw pointer value (only valid in unsafe blocks)
-    PtrLiteral(usize),
-    /// Null pointer
-    NullPtr,
-
-    // NEW: Range expression (for iteration)
     Range {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
         inclusive: bool,
+        span: Span,
     },
-
-    // NEW: Field access
     FieldAccess {
         object: Box<Expr>,
         field: String,
@@ -119,8 +117,8 @@ pub enum Expr {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnaryOp {
-    Negate, // -x
-    Not,    // not x
+    Negate,
+    Not,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -139,7 +137,6 @@ pub enum BinOp {
     Or,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum Stmt {
     VarDecl {
@@ -151,54 +148,66 @@ pub enum Stmt {
     },
     Import {
         path: String,
+        span: Span,
     },
     RegionBlock {
         name: String,
         body: Vec<Stmt>,
+        span: Span,
     },
     UnsafeBlock {
         body: Vec<Stmt>,
+        span: Span,
     },
     Assign {
         name: String,
         value: Expr,
+        span: Span,
     },
     ArrayAssign {
         array: String,
         index: Expr,
         value: Expr,
+        span: Span,
     },
     Return {
         value: Option<Expr>,
+        span: Span,
     },
     Print {
         expr: Expr,
+        span: Span,
     },
     Defer {
         stmt: Box<Stmt>,
+        span: Span,
     },
-    Break,
-    Continue,
+    Break(Span),
+    Continue(Span),
     Spawn {
         body: Vec<Stmt>,
+        span: Span,
     },
     Parallel {
         blocks: Vec<Vec<Stmt>>,
+        span: Span,
     },
     ChannelDecl {
         name: String,
+        span: Span,
     },
     Send {
         channel: String,
         value: Expr,
+        span: Span,
     },
     Receive {
         channel: String,
         target: String,
+        span: Span,
     },
-    /// THE UNIFIER: Allows any standalone Expr to be executed as a basic statement.
-    /// This entirely replaces the old standalone Stmt::If, Stmt::Match, Stmt::TryCatch,
-    /// and Stmt::FunctionCall variants!
+    /// Wraps any expression in statement position. The inner `Expr`
+    /// already carries its own span; no separate span on this variant.
     Expression(Expr),
 }
 
@@ -223,7 +232,7 @@ pub struct FunctionDecl {
 #[derive(Clone, Debug)]
 pub struct MatchCaseExpr {
     pub pattern: Pattern,
-    pub body: Expr, // Evaluates directly to an Expr (usually an Expr::Block)
+    pub body: Expr,
 }
 
 #[derive(Clone, Debug)]
@@ -235,21 +244,17 @@ pub enum Pattern {
     Wildcard,
     Binding(String),
     Literal(Expr),
-    // NEW: Nested patterns
     SomeNested(Box<Pattern>),
     OkNested(Box<Pattern>),
     ErrorNested(Box<Pattern>),
-    // NEW: Pattern guards
     Guarded {
         pattern: Box<Pattern>,
         condition: Box<Expr>,
     },
-    // NEW: List destructuring
     ListDestructure {
         first: Option<Box<Pattern>>,
         rest: Option<Box<Pattern>>,
     },
-    // NEW: Range patterns
     Range {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
@@ -265,7 +270,7 @@ pub struct TraitDecl {
 #[derive(Clone, Debug)]
 pub struct TraitMethod {
     pub name: String,
-    pub params: Vec<(String, Option<TypeSyntax>)>, // (param_name, type)
+    pub params: Vec<(String, Option<TypeSyntax>)>,
     pub return_type: Option<TypeSyntax>,
 }
 
@@ -278,37 +283,29 @@ pub struct ImplBlock {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeSyntax {
-    /// Named type like Int, Float, String, Self
     Named(String),
-    /// Generic type like Option<Int>, Result<Int, String>
     Generic { name: String, args: Vec<TypeSyntax> },
-    /// Unknown/inferred type (no annotation)
     Unknown,
 }
 
 impl TypeSyntax {
-    /// ALGOL26: Direct conversion from TypeSyntax to semantic Type
-    /// This avoids string round-tripping which loses type information
     pub fn to_type(&self) -> crate::common::types::Type {
         use crate::common::types::Type;
-
         match self {
-            TypeSyntax::Named(name) => {
-                // Handle primitive types and type variables
-                match name.as_str() {
-                    "Int" | "int" => Type::Int,
-                    "Float" | "float" => Type::Float,
-                    "String" | "string" => Type::String,
-                    "Bool" | "bool" => Type::Bool,
-                    "Void" | "void" => Type::Void,
-                    "Self" => Type::TypeVar("Self".to_string()),
-                    // Single uppercase = type variable
-                    _ if name.len() == 1 && name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) => {
-                        Type::TypeVar(name.clone())
-                    }
-                    _ => Type::Unknown,
+            TypeSyntax::Named(name) => match name.as_str() {
+                "Int" | "int" => Type::Int,
+                "Float" | "float" => Type::Float,
+                "String" | "string" => Type::String,
+                "Bool" | "bool" => Type::Bool,
+                "Void" | "void" => Type::Void,
+                "Self" => Type::TypeVar("Self".to_string()),
+                _ if name.len() == 1
+                    && name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) =>
+                {
+                    Type::TypeVar(name.clone())
                 }
-            }
+                _ => Type::Unknown,
+            },
             TypeSyntax::Generic { name, args } => match name.to_lowercase().as_str() {
                 "borrow" if args.len() == 1 => Type::borrow(args[0].to_type()),
                 "mutborrow" | "mut_borrow" if args.len() == 1 => {
@@ -325,7 +322,6 @@ impl TypeSyntax {
         }
     }
 
-    /// Convert TypeSyntax to string for backward compatibility
     pub fn to_string_rep(&self) -> String {
         match self {
             TypeSyntax::Named(name) => name.clone(),
@@ -337,7 +333,6 @@ impl TypeSyntax {
         }
     }
 
-    /// Get the string representation (for semantic analysis)
     pub fn as_str(&self) -> &str {
         match self {
             TypeSyntax::Named(name) => name,
@@ -346,16 +341,11 @@ impl TypeSyntax {
         }
     }
 
-    /// Create TypeSyntax from a type name string
     pub fn from_string(s: &str) -> Self {
         if s.is_empty() {
             TypeSyntax::Unknown
         } else if s.contains('<') || s.contains('[') {
-            let (open_char, close_char) = if s.contains('<') {
-                ('<', '>')
-            } else {
-                ('[', ']')
-            };
+            let (open_char, close_char) = if s.contains('<') { ('<', '>') } else { ('[', ']') };
             let Some(open_pos) = s.find(open_char) else {
                 return TypeSyntax::Unknown;
             };
@@ -376,8 +366,6 @@ impl TypeSyntax {
     }
 }
 
-/// Raw FFI declaration syntax captured by the parser
-/// The FFI lowering pass converts this to FFIInfo
 #[derive(Clone, Debug, Default)]
 pub struct ExternDecl {
     pub abi: Option<String>,

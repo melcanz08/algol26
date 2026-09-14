@@ -6,25 +6,31 @@ impl SemanticAnalyzer {
     pub(super) fn analyze_stmt(&mut self, stmt: &Stmt) -> Result<()> {
         self.in_mut_borrow = false;
         match stmt {
-            Stmt::VarDecl { name, value, type_annotation, mutable, .. } => {
+            Stmt::VarDecl {
+                name,
+                value,
+                type_annotation,
+                mutable,
+                ..
+            } => {
                 // Detect mut-borrow before analyzing so we can set the "allow
                 // read during this declaration" flag.
-                let mut_borrow_source: Option<String> = if let Expr::MutBorrow { expr } = value {
-                    if let Expr::Var(source_name, _) = expr.as_ref() {
-
-                        Some(source_name.clone())
+                let mut_borrow_source: Option<String> =
+                    if let Expr::MutBorrow { expr, .. } = value {
+                        if let Expr::Var(source_name, _) = expr.as_ref() {
+                            Some(source_name.clone())
+                        } else {
+                            None
+                        }
                     } else {
                         None
-                    }
-                } else {
-                    None
-                };
+                    };
 
                 if mut_borrow_source.is_some() {
                     self.in_mut_borrow = true;
                 }
 
-                if let Expr::List(elements) = value {
+                if let Expr::List(elements, _) = value {
                     self.declare_list_length(name, elements.len());
                     self.declare_list_values(name, elements.clone());
                 } else if let Expr::Var(source, _) = value {
@@ -55,7 +61,8 @@ impl SemanticAnalyzer {
 
                 if let Some(annotated) = type_annotation {
                     let expected = annotated.to_type();
-                    let is_borrow = matches!(value, Expr::Borrow { .. } | Expr::MutBorrow { .. });
+                    let is_borrow =
+                        matches!(value, Expr::Borrow { .. } | Expr::MutBorrow { .. });
                     if !is_borrow
                         && expected != Type::Unknown
                         && !value_type.can_coerce_to(&expected)
@@ -72,12 +79,12 @@ impl SemanticAnalyzer {
                         )));
                     }
                 }
-            
+
                 self.declare_variable(name, value_type.clone(), *mutable)?;
                 // A `val` bound to `null` is statically known to hold
                 // null forever. Record it so a later deref can be
                 // rejected at compile time.
-                if !*mutable && matches!(value, Expr::NullPtr) {
+                if !*mutable && matches!(value, Expr::NullPtr(_)) {
                     if let Some(scope) = self.null_bindings.last_mut() {
                         scope.insert(name.clone());
                     }
@@ -88,7 +95,10 @@ impl SemanticAnalyzer {
                     if let Some(scope) = self.deferred_captures.last() {
                         if scope.contains(source) {
                             return Err(CompileError::simple(
-                                &format!("Cannot move '{}' after it was captured by defer", source),
+                                &format!(
+                                    "Cannot move '{}' after it was captured by defer",
+                                    source
+                                ),
                                 0, 0, "", ErrorCode::E0007,
                             ).with_suggestion(
                                 "Deferred statements capture variables at declaration time",
@@ -100,7 +110,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, .. } => {
                 let (var_type, _mutable) = self.lookup_variable(name).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined variable '{}'", name),
@@ -116,7 +126,8 @@ impl SemanticAnalyzer {
                     _ => var_type.clone(),
                 };
 
-                let value_type = self.analyze_expr_with_context(value, Some(&target_type))?;
+                let value_type =
+                    self.analyze_expr_with_context(value, Some(&target_type))?;
                 if target_type != value_type
                     && target_type != Type::Unknown
                     && !value_type.can_coerce_to(&target_type)
@@ -138,25 +149,34 @@ impl SemanticAnalyzer {
             }
             Stmt::Expression(expr) => {
                 match expr {
-                    Expr::If { then_branch, else_branch, condition } => {
+                    Expr::If {
+                        then_branch,
+                        else_branch,
+                        condition,
+                        ..
+                    } => {
                         let cond_type = self.analyze_expr(condition)?;
                         if cond_type != Type::Bool && cond_type != Type::Unknown {
                             return Err(CompileError::simple(
-                                "If condition must be Bool", 0, 0, "", ErrorCode::E0002,
+                                "If condition must be Bool",
+                                0, 0, "", ErrorCode::E0002,
                             ));
                         }
-                        let moved_before = self.moved_vars.last().cloned().unwrap_or_default();
+                        let moved_before =
+                            self.moved_vars.last().cloned().unwrap_or_default();
 
                         self.push_scope();
                         let then_result = self.analyze_expr(then_branch);
-                        let moved_after_then = self.moved_vars.last().cloned().unwrap_or_default();
+                        let moved_after_then =
+                            self.moved_vars.last().cloned().unwrap_or_default();
                         self.pop_scope();
                         then_result?;
 
                         let moved_after_else = if let Some(else_expr) = else_branch {
                             self.push_scope();
                             let else_result = self.analyze_expr(else_expr);
-                            let moved_after = self.moved_vars.last().cloned().unwrap_or_default();
+                            let moved_after =
+                                self.moved_vars.last().cloned().unwrap_or_default();
                             self.pop_scope();
                             else_result?;
                             moved_after
@@ -191,8 +211,9 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Stmt::Return { value } => {
-                let expected_type = self.current_return_type.clone().unwrap_or(Type::Void);
+            Stmt::Return { value, .. } => {
+                let expected_type =
+                    self.current_return_type.clone().unwrap_or(Type::Void);
                 match (value, &expected_type) {
                     (Some(_expr), Type::Void) => {
                         return Err(CompileError::simple(
@@ -204,10 +225,17 @@ impl SemanticAnalyzer {
                     }
                     (None, Type::Void) => {}
                     (Some(expr), expected) => {
-                        let actual_type = self.analyze_expr_with_context(expr, Some(expected))?;
+                        let actual_type =
+                            self.analyze_expr_with_context(expr, Some(expected))?;
                         let can_return = actual_type.can_coerce_to(expected)
-                            || matches!(&actual_type, Type::Borrow(inner) if (**inner).can_coerce_to(expected))
-                            || matches!(&actual_type, Type::MutBorrow(inner) if (**inner).can_coerce_to(expected));
+                            || matches!(
+                                &actual_type,
+                                Type::Borrow(inner) if (**inner).can_coerce_to(expected)
+                            )
+                            || matches!(
+                                &actual_type,
+                                Type::MutBorrow(inner) if (**inner).can_coerce_to(expected)
+                            );
                         if !can_return && *expected != Type::Unknown {
                             return Err(CompileError::simple(
                                 &format!(
@@ -223,15 +251,22 @@ impl SemanticAnalyzer {
                     }
                     (None, expected) => {
                         return Err(CompileError::simple(
-                            &format!("Missing return value: function should return {}", expected),
+                            &format!(
+                                "Missing return value: function should return {}",
+                                expected
+                            ),
                             0, 0, "", ErrorCode::E0002,
-                        ).with_suggestion("Add a return statement with the appropriate value"));
+                        ).with_suggestion(
+                            "Add a return statement with the appropriate value",
+                        ));
                     }
                 }
             }
-            Stmt::Print { expr } => { self.analyze_expr(expr)?; }
-            Stmt::Break | Stmt::Continue => {}
-            Stmt::Defer { stmt } => {
+            Stmt::Print { expr, .. } => {
+                self.analyze_expr(expr)?;
+            }
+            Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Defer { stmt, .. } => {
                 let mut captured = HashSet::new();
                 self.collect_deferred_captures(stmt, &mut captured);
                 if let Some(scope) = self.deferred_captures.last_mut() {
@@ -241,22 +276,26 @@ impl SemanticAnalyzer {
                 }
                 self.analyze_stmt(stmt)?;
             }
-            Stmt::Spawn { body } => {
+            Stmt::Spawn { body, .. } => {
                 self.push_scope();
-                for s in body { self.analyze_stmt(s)?; }
+                for s in body {
+                    self.analyze_stmt(s)?;
+                }
                 self.pop_scope();
             }
-            Stmt::Parallel { blocks } => {
+            Stmt::Parallel { blocks, .. } => {
                 for block in blocks {
                     self.push_scope();
-                    for s in block { self.analyze_stmt(s)?; }
+                    for s in block {
+                        self.analyze_stmt(s)?;
+                    }
                     self.pop_scope();
                 }
             }
-            Stmt::ChannelDecl { name } => {
+            Stmt::ChannelDecl { name, .. } => {
                 self.declare_variable(name, Type::channel(Type::Unknown), false)?;
             }
-            Stmt::Send { channel, value } => {
+            Stmt::Send { channel, value, .. } => {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined channel '{}'", channel),
@@ -265,7 +304,9 @@ impl SemanticAnalyzer {
                 })?;
                 self.analyze_expr(value)?;
             }
-            Stmt::Receive { channel, target } => {
+            Stmt::Receive {
+                channel, target, ..
+            } => {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined channel '{}'", channel),
@@ -273,23 +314,34 @@ impl SemanticAnalyzer {
                     )
                 })?;
                 if !target.is_empty() {
-                    if let Some((Type::Channel(element_type), _)) = self.lookup_variable(channel) {
+                    if let Some((Type::Channel(element_type), _)) =
+                        self.lookup_variable(channel)
+                    {
                         self.declare_variable(target, *element_type, false)?;
                     }
                 }
             }
-            Stmt::UnsafeBlock { body } => {
+            Stmt::UnsafeBlock { body, .. } => {
                 self.push_scope();
-                for s in body { self.analyze_stmt(s)?; }
+                for s in body {
+                    self.analyze_stmt(s)?;
+                }
                 self.pop_scope();
             }
-            Stmt::RegionBlock { name: _, body } => {
+            Stmt::RegionBlock { name: _, body, .. } => {
                 self.push_scope();
-                for s in body { self.analyze_stmt(s)?; }
+                for s in body {
+                    self.analyze_stmt(s)?;
+                }
                 self.pop_scope();
             }
             Stmt::Import { .. } => {}
-            Stmt::ArrayAssign { array, index, value } => {
+            Stmt::ArrayAssign {
+                array,
+                index,
+                value,
+                ..
+            } => {
                 // Mirrors the checks in `Expr::ArrayAccess`, which were
                 // added during the hardening pass but never propagated to
                 // the write path. Without these, `xs[1.5] := 99` and
@@ -306,7 +358,10 @@ impl SemanticAnalyzer {
                     Type::Unknown => Type::Unknown,
                     other => {
                         return Err(CompileError::simple(
-                            &format!("Array assignment requires list, found {}", other),
+                            &format!(
+                                "Array assignment requires list, found {}",
+                                other
+                            ),
                             0, 0, "", ErrorCode::E0002,
                         ));
                     }
@@ -327,8 +382,8 @@ impl SemanticAnalyzer {
 
                 // Literal index: bounds-check against known list length.
                 let literal_index: Option<i64> = match index {
-                    Expr::Int(v) => Some(*v),
-                    Expr::Number(f) => Some(*f as i64),
+                    Expr::Int(v, _) => Some(*v),
+                    Expr::Number(f, _) => Some(*f as i64),
                     _ => None,
                 };
                 if let Some(idx_val) = literal_index {
@@ -369,6 +424,7 @@ impl SemanticAnalyzer {
         }
         Ok(())
     }
+
     pub(super) fn bind_pattern_variables(&mut self, pattern: &Pattern, value_type: &Type) {
         match pattern {
             Pattern::Binding(var) => {

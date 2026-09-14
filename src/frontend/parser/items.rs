@@ -43,6 +43,7 @@ impl Parser {
             impls,
         })
     }
+
     pub(super) fn parse_function(&mut self) -> Result<FunctionDecl> {
         let is_extern = matches!(self.peek(), Token::Extern);
         let mut ffi_info = None;
@@ -174,6 +175,7 @@ impl Parser {
             where_clauses,
         })
     }
+
     pub(super) fn parse_trait(&mut self) -> Result<TraitDecl> {
         self.advance();
         let name = self.expect_identifier("trait name")?;
@@ -222,6 +224,7 @@ impl Parser {
         }
         Ok(TraitDecl { name, methods })
     }
+
     pub(super) fn parse_impl(&mut self) -> Result<ImplBlock> {
         self.advance();
         let trait_name = self.expect_identifier("trait name")?;
@@ -248,13 +251,20 @@ impl Parser {
             methods,
         })
     }
+
     pub(super) fn parse_import(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
         self.advance();
         let path = match self.advance() {
             Token::StringLit(s) => s,
             Token::Identifier(s) => s,
-            other => return Err(self.error(&format!("Expected import path, found {:?}", other))),
+            other => {
+                return Err(self.error(&format!("Expected import path, found {:?}", other)))
+            }
         };
-        Ok(Stmt::Import { path })
+        Ok(Stmt::Import {
+            path,
+            span: start_span,
+        })
     }
 }

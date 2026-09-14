@@ -209,13 +209,31 @@ lazy_static::lazy_static! {
         m
     };
 }
-// Helper: Strip comments but not inside string literals
+// Helper: Strip comments but not inside string literals.
+//
+// Handles escape sequences inside strings: `\"` does not toggle the
+// in-string state, and `\\` does not start an escape. Without this, a
+// line like `print("a\"b") // c` leaves the state machine out of sync
+// and the trailing comment is mis-tokenized.
 fn strip_comment_not_in_string(line: &str) -> String {
     let mut result = String::new();
     let mut in_string = false;
+    let mut escaped = false;
     let mut chars = line.chars().peekable();
 
     while let Some(c) = chars.next() {
+        if escaped {
+            // Previous char was a backslash inside a string; this char
+            // is its escape target, whatever it is. Push and reset.
+            result.push(c);
+            escaped = false;
+            continue;
+        }
+        if c == '\\' && in_string {
+            result.push(c);
+            escaped = true;
+            continue;
+        }
         if c == '"' {
             in_string = !in_string;
             result.push(c);

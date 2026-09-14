@@ -99,3 +99,26 @@ fn test_case_keyword() {
     let lexer = Lexer::new(source.to_string()).expect("ICE");
     assert!(has_token(&lexer, &Token::Case));
 }
+
+#[test]
+fn test_escaped_quote_does_not_break_comment_stripping() {
+    // ALGOL26 source: var s := "a\"b" // comment
+    // The escaped quote must not terminate the string, so the trailing
+    // `// comment` must still be recognized as a comment and stripped.
+    let source = "var s := \"a\\\"b\" // comment";
+    let lexer = Lexer::new(source.to_string()).expect("ICE");
+    assert!(has_token(&lexer, &Token::StringLit("a\"b".to_string())));
+    // The word "comment" must NOT have been tokenized.
+    assert!(!has_token(&lexer, &Token::Identifier("comment".to_string())));
+}
+
+#[test]
+fn test_escaped_backslash_before_quote() {
+    // ALGOL26 source: var s := "\\" // done
+    // `"\\"` is a string containing one backslash. The next quote closes
+    // the string, and `//` starts a comment.
+    let source = "var s := \"\\\\\" // done";
+    let lexer = Lexer::new(source.to_string()).expect("ICE");
+    assert!(has_token(&lexer, &Token::StringLit("\\".to_string())));
+    assert!(!has_token(&lexer, &Token::Identifier("done".to_string())));
+}

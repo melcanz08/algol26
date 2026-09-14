@@ -1,0 +1,12 @@
+// OUTPUT: iter
+// OUTPUT: 1
+// OUTPUT: iter
+// OUTPUT: 2
+// OUTPUT: iter
+// OUTPUT: 3
+// OUTPUT: done
+procedure main
+    for i in [1, 2, 3] do
+        print("iter")
+        print(i)
+    print("done")

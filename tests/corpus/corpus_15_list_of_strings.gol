@@ -1,0 +1,8 @@
+// OUTPUT: 3
+// OUTPUT: hello
+// OUTPUT: world
+procedure main
+    val words := ["hello", "world", "again"]
+    print(List.length(words))
+    print(words[0])
+    print(words[1])

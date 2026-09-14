@@ -1,0 +1,11 @@
+// OUTPUT: 95
+// OUTPUT: 190
+function inner(a: Int) -> Int
+    return a * 2
+
+function outer(a: Int) -> Int
+    return inner(a) * inner(a) - a
+
+procedure main
+    print(outer(5))
+    print(inner(outer(5)))

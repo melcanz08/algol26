@@ -1,0 +1,10 @@
+// OUTPUT: inner
+// OUTPUT: result
+// OUTPUT: outer
+procedure main
+    defer print("outer")
+    print(compute())
+
+function compute() -> String
+    defer print("inner")
+    return "result"

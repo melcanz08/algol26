@@ -83,6 +83,26 @@ impl<'ctx> IRCodeGen<'ctx> {
                 default_block,
             } => {
                 let val = self.compile_value(value)?;
+                // Only Literal patterns are supported by the LLVM backend today.
+                // Some/None/Ok/Error/Wildcard and pattern bindings require runtime
+                // tag decoding and payload extraction that the LLVM codegen doesn't
+                // implement yet. The interpreter handles them all — refuse cleanly
+                // rather than emitting a switch that silently matches the wrong case.
+                let has_non_literal = cases
+                    .iter()
+                    .any(|(pat, _)| !matches!(pat, SemanticPattern::Literal(_)));
+
+                if has_non_literal {
+                    return Err(CompileError::simple(
+                        "The LLVM backend does not support match with pattern bindings. \
+                         Run through the interpreter instead: \
+                         `algol26 run --interpreter <file.gol>`",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
                 if val.is_int_value() {
                     let iv = val.into_int_value();
                     let default_bb = if let Some(default_id) = default_block {

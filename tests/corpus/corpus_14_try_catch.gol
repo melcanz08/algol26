@@ -1,0 +1,15 @@
+// BACKEND: interpreter
+// OUTPUT: 5
+// OUTPUT: 99
+procedure main
+    val ok := try
+        Ok(5)
+    catch e
+        99
+    print(ok)
+
+    val err := try
+        Error(0)
+    catch e
+        99
+    print(err)

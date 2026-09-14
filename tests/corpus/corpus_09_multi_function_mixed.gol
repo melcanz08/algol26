@@ -1,0 +1,12 @@
+// OUTPUT: 37.5
+// OUTPUT: 42
+function c_to_f(c: float) -> float
+    return c * 9.0 / 5.0 + 32.0
+
+function double_int(n: Int) -> Int
+    return n * 2
+
+procedure main
+    val temp := c_to_f(3.0)
+    print(temp + 0.1)
+    print(double_int(21))

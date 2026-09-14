@@ -1,0 +1,11 @@
+// OUTPUT: 120
+// OUTPUT: 1
+function fact(n: Int) -> Int
+    if n <= 1 then
+        return 1
+    else
+        return n * fact(n - 1)
+
+procedure main
+    print(fact(5))
+    print(fact(1))

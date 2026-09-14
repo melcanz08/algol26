@@ -1012,11 +1012,11 @@ impl SemanticIRBuilder {
                 // The switch's Error pattern binds catch_var at runtime;
                 // declare it in the IR builder's scope so the catch body
                 // can reference it.
+                self.push_scope();
                 if catch_var.is_some() {
                     self.declare_var(&catch_binding, Type::Unknown, false);
                 }
 
-                self.push_scope();
                 let (catch_stmts, catch_trailing): (Vec<Stmt>, Option<Box<Expr>>) =
                     match catch_branch.as_ref() {
                         Expr::Block { statements, trailing_expr } => {

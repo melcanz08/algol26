@@ -1,0 +1,15 @@
+// BACKEND: interpreter
+// OUTPUT: 55.0
+// OUTPUT: 4
+function weighted_sum(xs: List<Int>) -> float
+    var total := 0.0
+    var weight := 1
+    for x in xs do
+        total := total + x * weight
+        weight := weight + 1
+    return total
+
+procedure main
+    val nums := [1, 2, 3, 4, 5]
+    print(weighted_sum(nums))
+    print(List.length([10, 20, 30, 40]))

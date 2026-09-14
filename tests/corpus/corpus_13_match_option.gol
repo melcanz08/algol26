@@ -1,0 +1,19 @@
+// BACKEND: interpreter
+// OUTPUT: has value
+// OUTPUT: 7
+// OUTPUT: empty
+procedure main
+    val a := Some(7)
+    val b := None
+    match a
+        case Some(v)
+            print("has value")
+            print(v)
+        case None
+            print("empty")
+    match b
+        case Some(v)
+            print("has value")
+            print(v)
+        case None
+            print("empty")

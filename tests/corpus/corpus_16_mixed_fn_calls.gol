@@ -1,0 +1,21 @@
+// OUTPUT: 6
+// OUTPUT: 120
+// OUTPUT: 8
+function sum_to(n: Int) -> Int
+    var total := 0
+    var i := 1
+    for _ in [1, 2, 3] do
+        total := total + i
+        i := i + 1
+    return total
+
+function fact(n: Int) -> Int
+    if n <= 1 then
+        return 1
+    else
+        return n * fact(n - 1)
+
+procedure main
+    print(sum_to(5))
+    print(fact(5))
+    print(sum_to(2) + 2)

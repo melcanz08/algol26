@@ -27,8 +27,9 @@ impl SemanticIRBuilder {
         let value_type = value.type_of();
         if value_type != Type::Unknown
             && *target != Type::Unknown
-            && value_type.can_coerce_to(target)
             && value_type != *target
+            && value_type.can_coerce_to(target)
+            && value_type.can_cast_to(target)   // ← new: match the verifier's rule
         {
             TypedIRValue::Cast {
                 value: Box::new(value),

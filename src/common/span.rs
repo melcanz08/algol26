@@ -40,12 +40,21 @@ impl Span {
         Span::point(line, column)
     }
 
-    /// Check if this span contains another span
+    /// Check if this span contains another span.
+    ///
+    /// Columns are compared only when the corresponding start/end lines are
+    /// equal — a column on line 3 has no meaningful comparison to a column
+    /// on line 1.
     pub fn contains(&self, other: &Span) -> bool {
-        self.start_line <= other.start_line
-            && self.end_line >= other.end_line
-            && self.start_column <= other.start_column
-            && self.end_column >= other.end_column
+        let start_ok = self.start_line < other.start_line
+            || (self.start_line == other.start_line
+                && self.start_column <= other.start_column);
+
+        let end_ok = self.end_line > other.end_line
+            || (self.end_line == other.end_line
+                && self.end_column >= other.end_column);
+
+        start_ok && end_ok
     }
 
     /// Get the line (for backward compatibility)
@@ -108,5 +117,47 @@ mod tests {
         let inner = Span::new(3, 3, 5, 5);
         assert!(outer.contains(&inner));
         assert!(!inner.contains(&outer));
+    }
+        #[test]
+    fn test_span_contains_multiline_inner() {
+        // Regression for the case where the inner span lives on a line
+        // strictly between the outer's start and end lines. The old
+        // implementation compared columns across different lines and
+        // wrongly returned false.
+        let outer = Span::new(1, 5, 3, 10);
+        let inner = Span::new(2, 20, 2, 25);
+        assert!(
+            outer.contains(&inner),
+            "outer spans lines 1-3, inner is entirely on line 2"
+        );
+    }
+
+    #[test]
+    fn test_span_contains_same_line_uses_columns() {
+        // Same line on both endpoints: columns matter.
+        let outer = Span::new(1, 5, 1, 20);
+        let inner = Span::new(1, 10, 1, 15);
+        assert!(outer.contains(&inner));
+
+        // Inner extends past outer on the same line — must be false.
+        let too_wide = Span::new(1, 10, 1, 25);
+        assert!(!outer.contains(&too_wide));
+    }
+
+    #[test]
+    fn test_span_contains_straddling_lines() {
+        // Outer spans lines 2-4. Inner starts on line 1 — must be false.
+        let outer = Span::new(2, 5, 4, 10);
+        let earlier = Span::new(1, 5, 2, 5);
+        assert!(!outer.contains(&earlier));
+
+        // Inner ends on line 5 — must be false.
+        let later = Span::new(3, 5, 5, 5);
+        assert!(!outer.contains(&later));
+
+        // Inner starts and ends on the outer's boundary lines but is
+        // fully inside the columns at those lines — true.
+        let at_boundary = Span::new(2, 5, 4, 10);
+        assert!(outer.contains(&at_boundary));
     }
 }

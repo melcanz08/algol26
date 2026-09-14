@@ -113,3 +113,6 @@ tests/conformance/**/*
 # Compiled binaries from `algol26 run <file>` land next to the source.
 examples/stats/*
 !examples/stats/*.gol
+# Corpus build artifacts (keep only .gol sources)
+tests/corpus/*
+!tests/corpus/*.gol

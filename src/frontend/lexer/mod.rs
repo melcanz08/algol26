@@ -358,12 +358,27 @@ impl Lexer {
             line_idx += 1;
             current_line = line_number;
 
-            let _token_count_before = tokens.len();
+            let tokens_before = tokens.len();
             let mut char_positions: Vec<usize> = Vec::new();
             Lexer::tokenize_line(trimmed, line_number, line, &mut tokens, &mut char_positions)?;
             let base_column = indent + 1;
 
-            // Push positions for tokens on this line
+            let tokens_added = tokens.len() - tokens_before;
+            if tokens_added != char_positions.len() {
+                return Err(CompileError::simple(
+                    &format!(
+                        "internal lexer error: line {} added {} token(s) but {} position(s)",
+                        line_number,
+                        tokens_added,
+                        char_positions.len()
+                    ),
+                    line_number,
+                    0,
+                    line,
+                    ErrorCode::E0001,
+                ));
+            }
+
             for col in &char_positions {
                 token_positions.push((current_line, base_column + col));
             }
@@ -379,14 +394,20 @@ impl Lexer {
         token_positions.push((current_line, 0));
 
         // Ensure lengths match (should, but just in case)
-        while token_positions.len() < tokens.len() {
-            token_positions.push((current_line, 0));
+        if tokens.len() != token_positions.len() {
+            return Err(CompileError::simple(
+                &format!(
+                    "internal lexer invariant violated: {} token(s) but {} position(s)",
+                    tokens.len(),
+                    token_positions.len()
+                ),
+                current_line,
+                0,
+                "",
+                ErrorCode::E0001,
+            ));
         }
-        token_positions.truncate(tokens.len());
 
-        // PR-1a: pair each token with a point span. Real spans (with correct
-        // end positions) will be computed in PR-1b; for now we just carry
-        // the currently-produced (line, column) through the new type.
         let spanned: Vec<SpannedToken> = tokens
             .into_iter()
             .zip(token_positions)
@@ -458,7 +479,7 @@ impl Lexer {
             } else if c.is_alphabetic() || c == '_' {
                 positions.push(position);
                 let ident = Lexer::read_identifier(&mut chars);
-                position += ident.len();
+                position += ident.chars().count();
                 Lexer::classify_identifier(ident, tokens);
             } else if c.is_numeric() {
                 positions.push(position);

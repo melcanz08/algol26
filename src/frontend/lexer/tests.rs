@@ -122,3 +122,26 @@ fn test_escaped_backslash_before_quote() {
     assert!(has_token(&lexer, &Token::StringLit("\\".to_string())));
     assert!(!has_token(&lexer, &Token::Identifier("done".to_string())));
 }
+
+#[test]
+fn test_non_ascii_identifier_position_tracking() {
+    // `xé` has 2 chars but 3 bytes in UTF-8. The lexer must advance its
+    // internal position counter by *chars*, not bytes, or every token
+    // that follows a non-ASCII identifier gets a column that's too large.
+    let source = "var xé := 5";
+    let lexer = Lexer::new(source.to_string()).expect("ICE");
+
+    let int_token = lexer
+        .tokens
+        .iter()
+        .find(|st| matches!(st.token, Token::IntLit(5)))
+        .expect("IntLit(5) not found in lexer output");
+
+    // 1-based columns in `var xé := 5`:
+    //   v=1  a=2  r=3  ' '=4  x=5  é=6  ' '=7  :=8-9  ' '=10  5=11
+    assert_eq!(
+        int_token.span.start_column, 11,
+        "IntLit(5) should be at column 11, got {}",
+        int_token.span.start_column
+    );
+}

@@ -169,3 +169,29 @@ function main() -> Float
         other => panic!("expected VarDecl, got {:?}", other),
     }
 }
+
+#[test]
+fn test_garbage_pattern_is_rejected() {
+    // A pattern that doesn't parse must be an error, not a silent
+    // fallback to Wildcard. Otherwise a typo like `case + 42` compiles
+    // and silently behaves as `case _`.
+    //
+    // Note: we use `+` (a real lexer token that `parse_pattern` doesn't
+    // handle) rather than a character like `@`, which the lexer rejects
+    // before the parser runs.
+    let source = "\
+function main() -> Float
+    val x := match 1
+        case + 42
+            1.0
+        case _
+            0.0
+    return x";
+    let err = parse_source(source).expect_err("garbage pattern should fail to parse");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Unexpected token in pattern"),
+        "expected pattern-error message, got: {}",
+        msg
+    );
+}

@@ -205,10 +205,10 @@ impl Parser {
                 self.advance();
                 Ok(Pattern::Binding(name))
             }
-            _ => {
-                self.advance();
-                Ok(Pattern::Wildcard)
-            }
+            other => Err(self.error(&format!(
+                "Unexpected token in pattern: {:?}",
+                other
+            ))),
         }
     }
 }

@@ -2,14 +2,13 @@
 
 **ALGOL 58 reimagined for 2026.**
 
-A historically inspired systems programming language combining ALGOL's clarity with indentation, compile-time safety, deterministic resource management, safe concurrency, and modern native compilation.
+A historically inspired systems programming language combining ALGOL's
+clarity with indentation, compile-time safety, deterministic resource
+management, safe concurrency, and native compilation via LLVM.
 
 > **Control without unsafe defaults.**
 
-**Version**: v0.8.0
-**Status**: Architecture Hardening COMPLETE — 150+ tests, zero warnings
-**License**: MIT
-**Built with**: Rust 1.70+ + LLVM 17 (inkwell 0.7.1)
+**Version:** v0.8.0 · **License:** MIT · **Built with:** Rust 1.70+ and LLVM 17
 
 ---
 
@@ -18,19 +17,21 @@ A historically inspired systems programming language combining ALGOL's clarity w
 ```bash
 # Build
 cargo build
-cargo test   # 150+ tests, 23 suites, zero failures
 
-# Run a program
-./target/debug/algol26 examples/basic/test.gol
+# Run the test suite (337 tests, including a 37-program corpus)
+cargo test --all-features
 
-# Run comprehensive test
-./target/debug/algol26 examples/systems/comprehensive_test/full_test.gol
-examples/systems/comprehensive_test/full_test
-# === ALL TESTS PASSED ===
+# Run a program through LLVM
+./target/debug/algol26 run examples/basic/test.gol
 
-# Release build
-cargo build --release
+# Or run through the interpreter
+./target/debug/algol26 run --interpreter examples/basic/test.gol
+
+# Just type-check
+./target/debug/algol26 check examples/basic/test.gol
 ```
+
+Run `./target/debug/algol26 --help` for the full CLI.
 
 ## Example
 
@@ -38,119 +39,150 @@ cargo build --release
 function add(x: Int, y: Int) -> Int
     return x + y
 
-function main() -> Int
+procedure main
     val result := add(5, 3)
-    print result  # 8
-    return 0
+    print(result)
 ```
 
-## Features
+## Language at a Glance
 
-### Language
-- Procedures and functions
-- Type inference: Int/Float/Bool/String/List/Option/Result
-- Arrays with bounds checking
-- Immutability (`val`/`var`)
-- Move/Copy semantics
-- Borrow checking
-- **Generics** (`<T>`) with monomorphization
-- **Traits/Interfaces** with method dispatch
-- **Pattern matching** (parsing complete)
-- **FFI** (extern C functions)
-- Modules/imports
-- Error handling (try/catch/finally)
-- Defer (LIFO cleanup)
-- Concurrency syntax (spawn, parallel)
+- **Indentation-based**, like Python — no braces, no semicolons
+- **Immutable by default** (`val`), opt-in mutability (`var`)
+- **Statically typed** with inference: `Int`, `float`, `Bool`, `String`,
+  `List<T>`, `Option<T>`, `Result<T, E>`
+- **Borrow checking** and **move semantics** enforced at compile time
+- **Region-based memory** — no garbage collector
+- **Traits and impls** with explicit receiver passing: `x.method(x)`
+- **`defer`** for LIFO cleanup, **`try`/`catch`** for `Result` handling
+- **`match`** on `Option`, `Result`, and literals
+- **FFI** via `extern "C"` for calling into C libraries
+- **`spawn`** and **`parallel`** blocks for structured concurrency
+- **`region`** blocks and `alloc` / `free` for manual memory
 
-### Standard Library
-
-| Module | Functions |
-|--------|-----------|
-| Math | sqrt, pow, sin, cos, abs, floor, ceil, exp, log, tan |
-| String | concat, upper, lower, length, substring |
-| File | read, write, append |
-| List | length, sum, max, min, print `[1.0, 2.0]` |
-
-### Backends
+## Backends
 
 | Backend | Output | Status |
 |---------|--------|--------|
-| LLVM (IRCodeGen) | Native executable | ✅ Stable |
-| Interpreter | Direct execution | ✅ Stable (semantic oracle) |
-| WASM | .wasm module | ✅ Compilation (execution future) |
+| Interpreter | Direct execution (semantic oracle) | Complete |
+| LLVM | Native executable | Most features; refuses some (see below) |
+| WASM | `.wasm` module | Compilation only; execution not wired up |
 
-### Optimizer
-- Constant propagation
-- Constant folding
-- Common Subexpression Elimination
-- Dead Code Elimination
+**For the accurate, corpus-verified feature matrix, see
+[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).**
+That file is the single source of truth for what works where.
+
+## Known Limitations
+
+These are verified gaps, tracked by corpus programs:
+
+- **LLVM does not support `match` with pattern bindings.** Use the
+  interpreter. (`tests/corpus/corpus_13_match_option.gol`)
+- **LLVM does not support `try`/`catch` or `Result` values.** Use the
+  interpreter. (`tests/corpus/corpus_14_try_catch.gol`)
+- **LLVM cannot iterate over a list passed as a function parameter.**
+  Use the interpreter. (`tests/corpus/corpus_10_deep_control.gol`)
+- **Channels (`channel`, `send`, `receive`) parse and analyze but have
+  no backend runtime.** Programs run but the operations are no-ops.
+  (`tests/corpus/corpus_23`–`corpus_26`)
+- **`alloc` cannot appear in a `var` declaration.** Only as a bare
+  statement: `alloc(8)` works; `val p := alloc(8)` does not parse.
+
+## Testing
+
+```bash
+cargo test --all-features
+```
+
+The suite has 14 test binaries covering:
+
+- 137 unit tests (types, lexer, parser, IR, verifier, FFI)
+- 43 differential tests (interpreter vs LLVM vs WASM)
+- 49 semantic tests (borrow checker, traits, ownership)
+- 40 IR tests (verification, optimization, defer, short-circuit)
+- 27 integration tests (conformance, hardening, stress)
+- 20 backend tests (independence, oracle)
+- **37 corpus programs** in `tests/corpus/` — differential harness in
+  `tests/corpus_diff.rs` runs every program and compares output
+
+The corpus is the most important test suite. Every feature in
+`IMPLEMENTATION_STATUS.md` is backed by at least one corpus program.
+Adding a feature means adding a corpus program.
+
+## How to Add a Corpus Program
+
+1. Write a `.gol` program in `tests/corpus/`
+2. Header lines declare expected behavior:
+   ```
+   // OUTPUT: expected line 1
+   // OUTPUT: expected line 2
+   ```
+3. If the program requires the interpreter, add:
+   ```
+   // BACKEND: interpreter
+   ```
+4. If the program documents a known compiler bug, add:
+   ```
+   // KNOWN_FAILURE: short description
+   ```
+5. Run `cargo test --test corpus_diff`. If it passes, commit.
+
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | Feature matrix + known gaps |
+| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0009) |
+| [`docs/releases/`](docs/releases/) | Release notes |
+| [`docs/archive/`](docs/archive/) | Superseded docs, kept for history |
+| [`docs/README.md`](docs/README.md) | Full index of all docs |
 
 ## Architecture
 
 ```
 src/
-├── common/      — types, diagnostics, span
-├── frontend/    — lexer, parser, ast, module_loader
-├── semantics/   — semantic analysis, type checker, traits, borrow
-├── ir/          — semantic IR, verified IR, optimizer, lowering
-├── backends/    — LLVM, WASM, Interpreter
-├── runtime/     — region memory
-└── ffi/         — C types, FFI registry
+├── common/        — types, diagnostics, span
+├── frontend/      — lexer, parser, AST, module loader
+├── semantics/     — analyzer (types, borrow, traits, race) + IR builder
+├── ir/            — semantic IR, verifier, optimizer, loop desugar
+├── backends/      — interpreter, LLVM codegen, WASM
+├── runtime/       — region memory
+├── compiler/      — pass pipeline, scheduler, registry
+├── diagnostics/   — error rendering
+└── ffi/           — C type definitions, FFI registry
+```
 
-Pipeline:
+Compilation pipeline:
+
+```
 Lex → Parse → Desugar → Expand Impl → Monomorphize → Type Check
 → Safety Check → Build IR → Verify → Optimize → Verify → Lower to Backend
 ```
 
-## Testing (150+ tests, 23 suites)
-
-| Suite | Tests | Purpose |
-|-------|-------|---------|
-| Unit (lib.rs) | 40 | Types, lexer, parser, IR, FFI, span |
-| Semantics | 29 | Borrow check, traits, validation |
-| IR | 21 | Verification, optimization, defer |
-| Backends | 16 | Independence, oracle, WASM |
-| Differential | 14 | LLVM vs Interpreter vs WASM |
-| Integration | 13 | Conformance, hardening |
-| Property | 5 | No-panic on edge cases |
-| Fuzz | 4 | 700 iterations, zero crashes |
-| Frontend | 2 | FFI parsing |
-
-## Documentation
-
-| Document | Location |
-|----------|----------|
-| Architecture Contract | docs/compiler/algol26-contract.md |
-| IR Pass Contracts | docs/compiler/ir-pass-contracts.md |
-| Memory Model | docs/memory/memory-model.md |
-| Language Freeze | docs/language/language-freeze.md |
-| Versioning | docs/language/versioning.md |
-| Formal Specification | docs/formal-specification/ |
-| Architecture Inventory | docs/architecture/architecture-inventory.md |
-| Decisions (ADRs) | docs/decisions/ |
-
 ## Safety Guarantees
 
-| Guarantee | Status |
-|-----------|--------|
-| Type safety | ✅ Enforced |
-| Immutability | ✅ Enforced |
-| Bounds checking | ✅ Enforced |
-| Use-after-move | ✅ Enforced |
-| Borrow checking | ✅ Enforced |
-| Trait bounds | ✅ Enforced |
-| No-panic (fuzz) | ✅ 700 iterations |
-| IR verification | ✅ VerifiedIR wrapper |
+| Guarantee | Enforced by |
+|-----------|-------------|
+| Type safety | Semantic analyzer |
+| Immutability | Semantic analyzer |
+| Bounds checking | IR verifier + runtime |
+| Use-after-move | Analyzer + IR verifier |
+| Borrow checking | Semantic analyzer |
+| Trait bounds | Trait registry |
+| IR well-formedness | VerifiedIR wrapper |
+| No-panic on malformed input | Fuzz tests (700 iterations) |
 
-## Known Limitations
+See [`docs/decisions/`](docs/decisions/) for the reasoning behind each
+guarantee.
 
-| Limitation | Target |
-|------------|--------|
-| Real threads (spawn sequential) | v0.9.0 |
-| Pattern matching code gen | v0.8.1 |
-| FFI type marshaling | v0.9.0 |
-| Generic types (Stack<T>) | v0.9.0 |
-| Standard library expansion | v0.9.0 |
+## Contributing
+
+See [`docs/README.md`](docs/README.md) for the doc taxonomy and how to
+update each type. In short:
+
+- **Reference docs** (like `IMPLEMENTATION_STATUS.md`) are audited against
+  the code and must be accurate.
+- **ADRs and release notes** are frozen — never updated, kept as history.
+- **Superseded docs** move to `docs/archive/` rather than being deleted.
 
 ## License
 
@@ -158,4 +190,5 @@ MIT — Rommel Edorot Caneos
 
 ## Acknowledgments
 
-ALGOL 58 (inspiration) · Python (indentation) · Rust (implementation) · LLVM 17 (backend)
+ALGOL 58 (inspiration) · Python (indentation) · Rust (implementation)
+· LLVM 17 (native backend)

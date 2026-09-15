@@ -1,5 +1,5 @@
-# baseline captured at 2026-09-15T02:59:10Z
-# git HEAD: 99d7270
+# baseline captured at 2026-09-15T11:32:43Z
+# git HEAD: d769d4a
 
 ======================================================================
 FILE: tests/corpus/corpus_01_sum_list.gol
@@ -243,7 +243,7 @@ FILE: tests/corpus/corpus_10_deep_control.gol
 --- check ---
 [Checking tests/corpus/corpus_10_deep_control.gol]
 error[E0004]: iterator idx not found for '__iter_x_1' - available: [] lists:[]
-error[E0002]: Code generation failed
+error[E0002]: Codegen failed: iterator idx not found for '__iter_x_1' - available: [] lists:[]
 check_exit=1
 
 --- run --interpreter ---
@@ -258,7 +258,7 @@ interp_exit=0
 [Compiling and running tests/corpus/corpus_10_deep_control.gol]
 [Output: tests/corpus/corpus_10_deep_control]
 error[E0004]: iterator idx not found for '__iter_x_1' - available: [] lists:[]
-error[E0002]: Code generation failed
+error[E0002]: Codegen failed: iterator idx not found for '__iter_x_1' - available: [] lists:[]
 llvm_exit=1
 
 ======================================================================
@@ -328,8 +328,13 @@ FILE: tests/corpus/corpus_13_match_option.gol
 ======================================================================
 --- check ---
 [Checking tests/corpus/corpus_13_match_option.gol]
-error[E0002]: The LLVM backend does not support match with pattern bindings. Run through the interpreter instead: `algol26 run --interpreter <file.gol>`
-error[E0002]: Code generation failed
+error[E0002]: The LLVM backend does not support: Option<T>: Some(x) and None.
+
+Run through the interpreter instead:
+
+    algol26 run --interpreter <file.gol>
+
+The interpreter exercises the same semantic layer and supports these features.
 check_exit=1
 
 --- run --interpreter ---
@@ -344,8 +349,13 @@ interp_exit=0
 --- run (llvm) ---
 [Compiling and running tests/corpus/corpus_13_match_option.gol]
 [Output: tests/corpus/corpus_13_match_option]
-error[E0002]: The LLVM backend does not support match with pattern bindings. Run through the interpreter instead: `algol26 run --interpreter <file.gol>`
-error[E0002]: Code generation failed
+error[E0002]: The LLVM backend does not support: Option<T>: Some(x) and None.
+
+Run through the interpreter instead:
+
+    algol26 run --interpreter <file.gol>
+
+The interpreter exercises the same semantic layer and supports these features.
 llvm_exit=1
 
 ======================================================================

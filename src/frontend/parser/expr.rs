@@ -157,15 +157,13 @@ impl Parser {
             }
             Token::Ampersand => {
                 self.advance();
-                if let Token::Identifier(ref s) = self.peek().clone() {
-                    if s == "mut" {
-                        self.advance();
-                        let expr = self.parse_unary()?;
-                        return Ok(Expr::MutBorrow {
-                            expr: Box::new(expr),
-                            span: start_span,
-                        });
-                    }
+                if matches!(self.peek(), Token::Mut) {
+                    self.advance();
+                    let expr = self.parse_unary()?;
+                    return Ok(Expr::MutBorrow {
+                        expr: Box::new(expr),
+                        span: start_span,
+                    });
                 }
                 let expr = self.parse_unary()?;
                 Ok(Expr::Borrow {
@@ -280,12 +278,13 @@ impl Parser {
                 Ok(expr)
             }
             Token::Some => {
-                if matches!(self.peek(), Token::LParen) {
+                let parenthesized = matches!(self.peek(), Token::LParen);
+                if parenthesized {
                     self.advance();
                 }
                 let value = self.parse_expr()?;
-                if matches!(self.peek(), Token::RParen) {
-                    self.advance();
+                if parenthesized {
+                    self.expect_token(Token::RParen, "')'")?;
                 }
                 Ok(Expr::Some {
                     value: Box::new(value),
@@ -294,12 +293,13 @@ impl Parser {
             }
             Token::None => Ok(Expr::None(start_span)),
             Token::Ok => {
-                if matches!(self.peek(), Token::LParen) {
+                let parenthesized = matches!(self.peek(), Token::LParen);
+                if parenthesized {
                     self.advance();
                 }
                 let value = self.parse_expr()?;
-                if matches!(self.peek(), Token::RParen) {
-                    self.advance();
+                if parenthesized {
+                    self.expect_token(Token::RParen, "')'")?;
                 }
                 Ok(Expr::Ok {
                     value: Box::new(value),
@@ -307,12 +307,13 @@ impl Parser {
                 })
             }
             Token::Error => {
-                if matches!(self.peek(), Token::LParen) {
+                let parenthesized = matches!(self.peek(), Token::LParen);
+                if parenthesized {
                     self.advance();
                 }
                 let value = self.parse_expr()?;
-                if matches!(self.peek(), Token::RParen) {
-                    self.advance();
+                if parenthesized {
+                    self.expect_token(Token::RParen, "')'")?;
                 }
                 Ok(Expr::Error {
                     value: Box::new(value),

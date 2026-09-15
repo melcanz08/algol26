@@ -195,3 +195,35 @@ function main() -> Float
         msg
     );
 }
+
+#[test]
+fn test_mixed_parens_on_some_is_rejected() {
+    // `Some(5` (missing close paren) must error, not silently accept
+    // the value as if the paren were optional.
+    let source = "\
+function main() -> Float
+    val x := Some(5
+    return 0.0";
+    let err = parse_source(source).expect_err("unbalanced parens should fail");
+    // Either an "Expected ')'" from expect_token or an error further
+    // downstream. The exact message depends on which token follows.
+    let _ = err.to_string(); // ensure it's a CompileError
+}
+
+#[test]
+fn test_do_at_statement_position_is_rejected() {
+    // `do` after a complete statement must be an error, not a silent
+    // no-op. Previously `parse_stmt` consumed the `do` and parsed the
+    // next statement, which hid typos.
+    let source = "\
+function main() -> Float
+    do val x := 5
+    return 0.0";
+    let err = parse_source(source).expect_err("`do` at statement position should fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Unexpected expression"),
+        "expected 'Unexpected expression' error, got: {}",
+        msg
+    );
+}

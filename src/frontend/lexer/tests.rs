@@ -145,3 +145,34 @@ fn test_non_ascii_identifier_position_tracking() {
         int_token.span.start_column
     );
 }
+
+#[test]
+fn test_mut_is_a_keyword() {
+    // `mut` must lex to Token::Mut, not Identifier("mut"). This is
+    // required for `&mut x` and `&mut T` to parse via token match
+    // instead of the fragile identifier-string compare.
+    let source = "&mut x";
+    let lexer = Lexer::new(source.to_string()).expect("ICE");
+    assert!(has_token(&lexer, &Token::Ampersand));
+    assert!(has_token(&lexer, &Token::Mut));
+    assert!(!has_token(&lexer, &Token::Identifier("mut".to_string())));
+}
+
+#[test]
+fn test_mut_in_signature_lexes_as_keyword() {
+    // Regression for a coupled-tokenizer bug: `mut` in a function
+    // *signature* must lex to Token::Mut (not Identifier("mut")),
+    // otherwise `&mut T` in a type annotation fails to parse as
+    // MutBorrow.
+    let source = "function f(x: &mut Float) -> Float\n    return x";
+    let lexer = Lexer::new(source.to_string()).expect("ICE");
+    assert!(
+        has_token(&lexer, &Token::Mut),
+        "expected Token::Mut in signature tokens, got: {:?}",
+        token_kinds(&lexer)
+    );
+    assert!(
+        !has_token(&lexer, &Token::Identifier("mut".to_string())),
+        "`mut` must not appear as Identifier in signature tokens"
+    );
+}

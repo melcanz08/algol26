@@ -71,15 +71,6 @@ impl Parser {
             Token::Try => self.parse_try_catch(),
             Token::Import => self.parse_import(),
             Token::Identifier(name) => self.parse_identifier_stmt(name),
-            Token::Do | Token::In => {
-                self.advance();
-                self.parse_stmt()
-            }
-            Token::End => {
-                let span = self.current_span();
-                self.advance();
-                Ok(Stmt::Expression(Expr::Bool(true, span)))
-            }
             _other => {
                 let expr = self.parse_expr()?;
                 Ok(Stmt::Expression(expr))

@@ -30,6 +30,7 @@ pub enum Token {
     True,
     False,
     NullPtr,
+    Mut,
 
     // Literals
     Identifier(String),
@@ -205,7 +206,9 @@ lazy_static::lazy_static! {
         m.insert("trait", Token::Trait);
         m.insert("impl", Token::Impl);
         m.insert("Self", Token::SelfType);
-        m.insert("case", Token::Case);  // NEW
+        m.insert("case", Token::Case);
+        m.insert("null", Token::NullPtr);
+        m.insert("mut", Token::Mut);
         m
     };
 }

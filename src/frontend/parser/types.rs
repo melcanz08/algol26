@@ -7,15 +7,13 @@ impl Parser {
         if matches!(self.peek(), Token::Ampersand) {
             self.advance(); // consume &
 
-            if let Token::Identifier(ref s) = self.peek() {
-                if s == "mut" {
-                    self.advance(); // consume mut
-                    let inner = self.parse_type_syntax()?;
-                    return Ok(TypeSyntax::Generic {
-                        name: "MutBorrow".to_string(),
-                        args: vec![inner],
-                    });
-                }
+            if matches!(self.peek(), Token::Mut) {
+                self.advance(); // consume mut
+                let inner = self.parse_type_syntax()?;
+                return Ok(TypeSyntax::Generic {
+                    name: "MutBorrow".to_string(),
+                    args: vec![inner],
+                });
             }
 
             let inner = self.parse_type_syntax()?;

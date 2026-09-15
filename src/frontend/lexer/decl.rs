@@ -133,8 +133,11 @@ impl Lexer {
                             break;
                         }
                     }
-                    if ident == "where" {
-                        tokens.push(Token::Where);
+                    // Use the same keyword table as the main tokenizer
+                    // so `mut`, `where`, and any future keyword are
+                    // classified identically in signatures and bodies.
+                    if let Some(token) = KEYWORDS.get(ident.as_str()) {
+                        tokens.push(token.clone());
                     } else {
                         tokens.push(Token::Identifier(ident));
                     }

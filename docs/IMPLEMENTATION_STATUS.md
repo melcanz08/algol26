@@ -52,6 +52,39 @@ is at least one corpus program exercising it end-to-end.
 Gaps are documented by `tests/corpus/*.gol` programs marked
 `// KNOWN_FAILURE:` or `// BACKEND: interpreter`.
 
+### Analyzer soundness gaps (accepted, not yet fixed)
+
+These are cases where the analyzer accepts programs that a stricter
+borrow system would reject. They are documented rather than silently
+patched because fixing each one correctly requires design decisions
+that belong in their own ADR, and past attempts have regressed real
+programs.
+
+- **`&mut x` in a call argument is not registered as a borrow.**
+  Writing `f(&mut x)` does not mark `x` as mut-borrowed, so
+  `f(&mut x); g(&mut x)` in the same scope compiles even though both
+  functions may write through the same reference. A naive fix
+  (marking the borrow in `Expr::MutBorrow`) makes
+  `increment(&mut value); print(value);` fail, because the current
+  borrow model is fully lexical and has no way to release a borrow
+  when the statement that created it completes. A proper fix needs
+  statement-scoped release (small, ~2 days) or full non-lexical
+  lifetimes (large). Not a memory-safety hole in the current
+  runtime — references are addresses, not aliased Rust-style
+  references — but looser than Rust.
+
+- **`escape.rs` is not wired into the pipeline.** The module
+  implements a reference-outlives-scope analysis, but no pass
+  constructs an `EscapeAnalyzer` or consumes its output. Escape
+  detection is therefore not part of the compiler's safety story
+  yet, despite being referenced by ADR-0005. Either wire it up or
+  delete it; right now it is unused.
+
+- **`flow_analyzer.rs` is a stub.** Definite-assignment analysis,
+  reachability of variable uses, and borrow-state joins at CFG
+  merge points are not implemented. See the module doc comment for
+  the explicit statement of scope.
+
 ### LLVM backend gaps (interpreter works)
 
 - **`match` with pattern bindings** (`corpus_13`). LLVM refuses with a

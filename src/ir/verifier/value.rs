@@ -300,10 +300,35 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             let _obj = verify_value(object, env)?;
             field_type.clone()
         }
-        // Any remaining variant falls through with its self-described
-        // type. This is a safety valve; every variant should eventually
-        // be handled explicitly.
-        _ => value.type_of(),
+                TypedIRValue::Some(inner) => {
+            let inner_ty = verify_value(inner, env)?;
+            Type::option(inner_ty)
+        }
+        TypedIRValue::None { option_type } => option_type.clone(),
+        TypedIRValue::Ok { value, result_type } => {
+            let inner_ty = verify_value(value, env)?;
+            if let Type::Result { ok, .. } = result_type {
+                if !inner_ty.is_unknown() && !ok.is_unknown() && inner_ty != **ok {
+                    return Err(format!(
+                        "Ok inner value has type {:?} but result_type claims ok type {:?}",
+                        inner_ty, ok
+                    ));
+                }
+            }
+            result_type.clone()
+        }
+        TypedIRValue::Error { value, result_type } => {
+            let inner_ty = verify_value(value, env)?;
+            if let Type::Result { error, .. } = result_type {
+                if !inner_ty.is_unknown() && !error.is_unknown() && inner_ty != **error {
+                    return Err(format!(
+                        "Error inner value has type {:?} but result_type claims error type {:?}",
+                        inner_ty, error
+                    ));
+                }
+            }
+            result_type.clone()
+        }
     })
 }
 

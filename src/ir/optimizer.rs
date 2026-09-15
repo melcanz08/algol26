@@ -303,6 +303,23 @@ impl Optimizer {
         let mut constants: HashMap<String, TypedIRValue> = HashMap::new();
 
         for block in &mut func.blocks {
+            // Constants defined in one basic block are NOT visible to
+            // sibling or join blocks. Before the fix, the pass walked
+            // blocks in storage order and let a constant defined in
+            // one branch leak into the join, miscompiling programs
+            // like:
+            //
+            //     var x := 5.0
+            //     if cond
+            //         x := 10.0
+            //     y := x    -- wrongly folded to y := 10.0
+            //
+            // Clearing per block keeps the pass trivially correct
+            // without needing a dominator tree. Cross-block
+            // propagation is a future improvement that requires
+            // proper dominance analysis.
+            constants.clear();
+
             for instr in &mut block.instructions {
                 match instr {
                     Instruction::Declare { name, value, .. } => {
@@ -559,4 +576,124 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
 
 pub fn optimize(program: &mut SemanticProgram) {
     Optimizer::new().optimize(program);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::types::Type;
+    use crate::ir::semantic_ir::{
+        Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
+    };
+
+    fn block(id: usize, instrs: Vec<Instruction>, term: Terminator) -> SemanticBlock {
+        SemanticBlock {
+            id,
+            instructions: instrs,
+            terminator: Some(term),
+        }
+    }
+
+    #[test]
+    fn constant_propagation_does_not_leak_across_branches() {
+        // Program shape (matching the IR the builder emits):
+        //
+        //   entry: Declare(y, 0.0); Declare(x, 5.0);
+        //          Branch(cond, then, else)
+        //   then:  Assign(x, 10.0); Jump merge
+        //   else:  Jump merge
+        //   merge: Assign(y, Var(x)); Return(y)
+        //
+        // With the bug, the pass sees `then` (block 1) before `merge`
+        // (block 3) in storage order, records x = 10.0, and rewrites
+        // the merge's `Assign(y, Var(x))` to `Assign(y, 10.0)`. The
+        // correct result at runtime when `cond` is false is 5.0.
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        let then_id = program.new_block_id();
+        let else_id = program.new_block_id();
+        let merge_id = program.new_block_id();
+
+        let func = SemanticFunction {
+            name: "f".to_string(),
+            params: vec![("cond".to_string(), Type::Bool)],
+            return_type: Type::Float,
+            blocks: vec![
+                block(
+                    entry,
+                    vec![
+                        Instruction::Declare {
+                            name: "y".to_string(),
+                            mutable: true,
+                            type_: Type::Float,
+                            value: TypedIRValue::Float(0.0),
+                        },
+                        Instruction::Declare {
+                            name: "x".to_string(),
+                            mutable: true,
+                            type_: Type::Float,
+                            value: TypedIRValue::Float(5.0),
+                        },
+                    ],
+                    Terminator::Branch {
+                        condition: TypedIRValue::Variable("cond".to_string(), Type::Bool),
+                        then_block: then_id,
+                        else_block: else_id,
+                    },
+                ),
+                block(
+                    then_id,
+                    vec![Instruction::Assign {
+                        target: "x".to_string(),
+                        value: TypedIRValue::Float(10.0),
+                    }],
+                    Terminator::Jump { block: merge_id },
+                ),
+                block(
+                    else_id,
+                    vec![],
+                    Terminator::Jump { block: merge_id },
+                ),
+                block(
+                    merge_id,
+                    vec![Instruction::Assign {
+                        target: "y".to_string(),
+                        value: TypedIRValue::Variable("x".to_string(), Type::Float),
+                    }],
+                    Terminator::Return {
+                        value: Some(TypedIRValue::Variable("y".to_string(), Type::Float)),
+                        type_: Type::Float,
+                    },
+                ),
+            ],
+            entry_block: entry,
+            is_extern: false,
+        };
+
+        program.functions.push(func);
+
+        let mut opt = Optimizer::new();
+        opt.optimize(&mut program);
+
+        let merge = program.functions[0]
+            .blocks
+            .iter()
+            .find(|b| b.id == merge_id)
+            .expect("merge block was removed");
+
+        let assign = merge
+            .instructions
+            .iter()
+            .find_map(|i| match i {
+                Instruction::Assign { target, value } if target == "y" => Some(value),
+                _ => None,
+            })
+            .expect("Assign to `y` was removed");
+
+        assert!(
+            matches!(assign, TypedIRValue::Variable(name, _) if name == "x"),
+            "constant propagation leaked across branches: got {:?}",
+            assign
+        );
+    }
 }

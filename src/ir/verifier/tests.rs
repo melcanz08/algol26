@@ -330,3 +330,56 @@ fn verifier_accepts_iterator_over_list() {
     );
     assert!(verify(&program).is_ok());
 }
+
+#[test]
+fn some_of_undefined_variable_is_rejected() {
+    // `Some(Var("undefined_var", Int))` must fail verification because
+    // the inner variable reference is checked. Before the fix, the
+    // catch-all arm returned the value's self-claimed type without
+    // recursing into the inner value, so the missing variable was
+    // silently accepted.
+    use crate::common::types::Type;
+    use crate::ir::semantic_ir::{
+        Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
+    };
+
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+
+    let func = SemanticFunction {
+        name: "f".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![Instruction::Declare {
+                name: "wrapped".to_string(),
+                mutable: false,
+                type_: Type::option(Type::Int),
+                value: TypedIRValue::Some(Box::new(TypedIRValue::Variable(
+                    "undefined_var".to_string(),
+                    Type::Int,
+                ))),
+            }],
+            terminator: Some(Terminator::Return {
+                value: None,
+                type_: Type::Void,
+            }),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    };
+    program.functions.push(func);
+
+    let result = crate::ir::verifier::verify(&program);
+    assert!(
+        result.is_err(),
+        "verifier accepted `Some(Var(undefined_var))`"
+    );
+    let msg = result.unwrap_err();
+    assert!(
+        msg.contains("undefined_var"),
+        "expected an error mentioning the missing variable, got: {}",
+        msg
+    );
+}

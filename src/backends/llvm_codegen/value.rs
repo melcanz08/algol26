@@ -356,14 +356,44 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.compile_value(expr)?
                 }
             }
-            TypedIRValue::Some(v) => self.compile_value(v)?,
-            TypedIRValue::None { .. } => self
-                .context
-                .ptr_type(AddressSpace::default())
-                .const_null()
-                .into(),
-            TypedIRValue::Ok { value, .. } => self.compile_value(value)?,
-            TypedIRValue::Error { value, .. } => self.compile_value(value)?,
+            // These four variants have no LLVM lowering — the
+            // LLVM backend does not model Option<T> or Result<T,E>
+            // as tagged unions. The capability scan refuses
+            // programs that would produce them, so reaching this
+            // code means the scan was bypassed or the IR builder
+            // emitted something the capability system missed.
+            //
+            // Error out defensively instead of silently unwrapping
+            // (which is what the code did before PR-13c and was the
+            // source of a real wrong-code bug).
+            TypedIRValue::Some(_) => {
+                return Err(CompileError::simple(
+                    "LLVM codegen: Some(...) has no LLVM lowering; \
+                     the capability scan should have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ));
+            }
+            TypedIRValue::None { .. } => {
+                return Err(CompileError::simple(
+                    "LLVM codegen: None has no LLVM lowering; \
+                     the capability scan should have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ));
+            }
+            TypedIRValue::Ok { .. } => {
+                return Err(CompileError::simple(
+                    "LLVM codegen: Ok(...) has no LLVM lowering; \
+                     the capability scan should have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ));
+            }
+            TypedIRValue::Error { .. } => {
+                return Err(CompileError::simple(
+                    "LLVM codegen: Error(...) has no LLVM lowering; \
+                     the capability scan should have refused this program",
+                    0, 0, "", ErrorCode::E0002,
+                ));
+            }
 
             // These variants have no LLVM lowering. The capability
             // matrix refuses programs that would produce them, so

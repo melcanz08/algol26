@@ -58,6 +58,59 @@ fn llvm_rejects_result_values() {
 }
 
 #[test]
+fn llvm_rejects_option_values() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "m".to_string(),
+            mutable: false,
+            type_: Type::option(Type::Int),
+            value: TypedIRValue::Some(Box::new(TypedIRValue::Int(1))),
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+    assert!(err.message.contains("Option"), "{}", err.message);
+}
+
+#[test]
+fn interpreter_accepts_option_values() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "m".to_string(),
+            mutable: false,
+            type_: Type::option(Type::Int),
+            value: TypedIRValue::Some(Box::new(TypedIRValue::Int(1))),
+        },
+        simple_return(),
+    );
+    assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
+}
+
+#[test]
+fn llvm_rejects_raw_memory() {
+    let program = program_with(
+        Instruction::Allocate {
+            target: "p".to_string(),
+            size: TypedIRValue::Int(8),
+            type_: Type::pointer(Type::Unknown),
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+    assert!(err.message.contains("raw memory"), "{}", err.message);
+}
+
+#[test]
+fn interpreter_rejects_raw_memory() {
+    let program = program_with(
+        Instruction::Free { ptr: TypedIRValue::NullPtr },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
+    assert!(err.message.contains("raw memory"), "{}", err.message);
+}
+
+#[test]
 fn interpreter_accepts_result_values() {
     let program = program_with(
         Instruction::Declare {

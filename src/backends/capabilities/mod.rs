@@ -48,6 +48,16 @@ pub enum Feature {
     /// lists as `[a, b, c]`; the LLVM backend has no lowering for it
     /// (it would need a per-element printf loop).
     ListPrint,
+    /// `Option<T>` values: `Some(x)` and `None`. The LLVM backend
+    /// has no tag+payload representation, so it silently unwrapped
+    /// `Some(x)` to `x` and `None` to null — producing wrong code
+    /// for any program that stored or tested an Option value. The
+    /// interpreter handles both correctly.
+    Option,
+    /// `alloc(n)` / `free(p)`. Neither backend has a heap model;
+    /// both were silently no-op'ing these instructions. Refuse
+    /// rather than pretend.
+    RawMemory,
 }
 
 impl Feature {
@@ -64,6 +74,8 @@ impl Feature {
             Feature::FileFunctions,
             Feature::ListAggregates,
             Feature::ListPrint,
+            Feature::Option,
+            Feature::RawMemory,
         ]
     }
 
@@ -79,6 +91,8 @@ impl Feature {
             Feature::FileFunctions => "file.*",
             Feature::ListAggregates => "list.agg",
             Feature::ListPrint => "print(list)",
+            Feature::Option => "option",
+            Feature::RawMemory => "raw-memory",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -92,6 +106,8 @@ impl Feature {
             Feature::FileFunctions => "File.* operations (read, write, append)",
             Feature::ListAggregates => "List.* aggregates (sum, max, min)",
             Feature::ListPrint => "printing a list value",
+            Feature::Option => "Option<T>: Some(x) and None",
+            Feature::RawMemory => "alloc / free (raw memory)",
         }
     }
 }
@@ -135,7 +151,8 @@ impl BackendCapabilities {
         supported.insert(Feature::FileFunctions);
         supported.insert(Feature::ListAggregates);
         supported.insert(Feature::ListPrint);
-        // FFI is not supported by the interpreter.
+        supported.insert(Feature::Option);
+        // FFI and raw memory are not supported by the interpreter.
         BackendCapabilities {
             name: "interpreter",
             supported,

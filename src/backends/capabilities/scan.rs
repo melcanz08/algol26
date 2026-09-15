@@ -120,8 +120,14 @@ pub(super) fn scan_instruction(
         Instruction::Receive { .. } | Instruction::ChannelReceive { .. } => {
             used.insert(Feature::Channels);
         }
-        Instruction::Allocate { size, .. } => scan_value(size, extern_fns, used),
-        Instruction::Free { ptr } => scan_value(ptr, extern_fns, used),
+        Instruction::Allocate { size, .. } => {
+            used.insert(Feature::RawMemory);
+            scan_value(size, extern_fns, used);
+        }
+        Instruction::Free { ptr } => {
+            used.insert(Feature::RawMemory);
+            scan_value(ptr, extern_fns, used);
+        }
         Instruction::Nop => {}
     }
 }
@@ -141,7 +147,13 @@ pub(super) fn scan_value(
                 scan_value(e, extern_fns, used);
             }
         }
-        TypedIRValue::Some(inner) => scan_value(inner, extern_fns, used),
+        TypedIRValue::Some(inner) => {
+            used.insert(Feature::Option);
+            scan_value(inner, extern_fns, used);
+        }
+        TypedIRValue::None { .. } => {
+            used.insert(Feature::Option);
+        }
         TypedIRValue::Cast { value, .. } => scan_value(value, extern_fns, used),
         TypedIRValue::BinaryOp { left, right, .. } => {
             scan_value(left, extern_fns, used);

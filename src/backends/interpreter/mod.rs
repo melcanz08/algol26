@@ -56,6 +56,14 @@ impl Interpreter {
     pub(super) fn execute_function(&mut self, func: &SemanticFunction) -> Result<(), String> {
         let mut current = func.entry_block;
         let mut iterations = 0;
+        // Pending branches after a Fork. Each entry is
+        // (remaining_branch_blocks, join_block). When a Jump targets
+        // the top entry's join_block and there are more branches
+        // queued, we run the next branch instead of the join.
+        //
+        // This models sequential execution of `parallel` blocks: the
+        // interpreter does not spawn OS threads (see module doc).
+        let mut pending_forks: Vec<(Vec<usize>, usize)> = Vec::new();
 
         loop {
             if iterations > 100_000_000 {
@@ -82,7 +90,27 @@ impl Interpreter {
                     return Ok(());
                 }
                 Some(Terminator::Jump { block: target }) => {
-                    current = *target;
+                    // If this Jump targets the join of an in-progress
+                    // Fork and there are more branches queued, run the
+                    // next branch sequentially instead of falling
+                    // through to the join.
+                    let mut jumped_to_next_branch = false;
+                    if let Some((remaining, fork_join)) = pending_forks.last_mut() {
+                        if target == fork_join {
+                            if !remaining.is_empty() {
+                                let next = remaining.remove(0);
+                                current = next;
+                                jumped_to_next_branch = true;
+                            } else {
+                                // All branches completed; consume this
+                                // fork and fall through to the join.
+                                pending_forks.pop();
+                            }
+                        }
+                    }
+                    if !jumped_to_next_branch {
+                        current = *target;
+                    }
                 }
                 Some(Terminator::Branch {
                     condition,
@@ -97,7 +125,7 @@ impl Interpreter {
                     target,
                     body_block,
                     exit_block,
-                }) => { 
+                }) => {
                     let idx_key = format!("{}_idx", iterator);
                     let current_idx = match self.variables.get(&idx_key) {
                         Some(RuntimeValue::Int(i)) => *i as usize,
@@ -128,7 +156,14 @@ impl Interpreter {
                     current = *entry_block;
                 }
                 Some(Terminator::Fork { blocks, join_block }) => {
-                    if let Some(first) = blocks.first() {
+                    // Sequential execution of every parallel branch, in
+                    // source order. If there are more branches after the
+                    // first, remember them plus the join target so the
+                    // first `Jump(join)` can chain into the next branch.
+                    if let Some((first, rest)) = blocks.split_first() {
+                        if !rest.is_empty() {
+                            pending_forks.push((rest.to_vec(), *join_block));
+                        }
                         current = *first;
                     } else {
                         current = *join_block;

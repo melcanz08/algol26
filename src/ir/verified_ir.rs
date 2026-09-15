@@ -26,15 +26,24 @@ impl VerifiedIR {
 
     /// Wrap a program that has *just* been checked by `VerifyIrPass`.
     ///
-    /// Unlike `new`, this does not re-run the verifier. It exists so
-    /// `Compiler::run_verify_pass` and `Compiler::run_optimize_pass`
-    /// can share the type-level guarantee without double-verifying:
-    /// both have already run `VerifyIrPass` on this exact program in
-    /// the same call.
+    /// # Safety discipline (not `unsafe`, but a contract)
     ///
-    /// `pub(crate)` and named to be unappealing: public API should
-    /// always use `new`.
+    /// This bypasses verification. It must only be called on a program
+    /// the caller has verified in the *same* call, with no intervening
+    /// mutation.
+    ///
+    /// Permitted call sites (all in `compiler.rs`):
+    ///   - `run_verify_pass` — after `VerifyIrPass` runs
+    ///   - `run_optimize_pass` — after `OptimizePass` + `VerifyIrPass`
+    ///
+    /// Adding a new caller requires justifying the "already verified"
+    /// claim. In debug builds, the contract is enforced by re-running
+    /// the verifier; in release, we trust the caller.
     pub(crate) fn from_verify_pass(program: SemanticProgram) -> Self {
+        debug_assert!(
+            crate::ir::verifier::verify(&program).is_ok(),
+            "VerifiedIR::from_verify_pass called on a program that fails verification"
+        );
         VerifiedIR { program }
     }
 
@@ -42,6 +51,17 @@ impl VerifiedIR {
         &self.program
     }
 
+    /// Consume this wrapper and return the inner program.
+    ///
+    /// This fully unwraps the typestate — the returned `SemanticProgram`
+    /// is no longer guaranteed to be verified. The single legitimate use
+    /// is the optimize sandwich in `Compiler::run_optimize_pass`:
+    /// `verified.into_program()` is immediately followed by mutation,
+    /// then re-verification, then re-wrapping via
+    /// `VerifiedIR::from_verify_pass`.
+    ///
+    /// Any other call site is a bug. Use `program()` (which borrows) or
+    /// `verify()` (which re-checks) instead.
     pub fn into_program(self) -> SemanticProgram {
         self.program
     }

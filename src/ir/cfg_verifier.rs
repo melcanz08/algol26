@@ -126,21 +126,11 @@ impl CFGVerifier {
             ));
         }
 
-        // Check switch exhaustiveness
+        // Check for duplicate switch case targets. Switch exhaustiveness
+        // is not checked here — that requires type information, and the
+        // analyzer's `check_match_exhaustiveness` is where it belongs.
         for block in &func.blocks {
-            if let Some(Terminator::Switch {
-                cases,
-                default_block,
-                ..
-            }) = &block.terminator
-            {
-                if default_block.is_none() {
-                    // Check if all possible values are covered
-                    // For now, just warn about missing default
-                    // Full exhaustiveness checking requires type information
-                }
-
-                // Check for duplicate case targets
+            if let Some(Terminator::Switch { cases, .. }) = &block.terminator {
                 let mut case_targets = HashSet::new();
                 for (_, target) in cases {
                     if !case_targets.insert(*target) {

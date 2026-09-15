@@ -404,3 +404,112 @@ fn float_arg_does_not_satisfy_int_param() {
         "same-type Float arguments must be accepted"
     );
 }
+
+#[test]
+fn builtin_signatures_match_analyzer_table() {
+    // The analyzer (`SemanticAnalyzer::register_builtin_functions`) and
+    // the IR verifier (`verifier::builtins::builtin_signatures`) each
+    // maintain a built-in signature table. They must agree on names,
+    // param counts, param types, and return types. If they diverge,
+    // a call the analyzer accepts will be rejected at verify time with
+    // "Call to undefined function" or a param-count mismatch — the
+    // failure surfaces far from the actual change.
+    //
+    // This test pins the full expected table. Adding a new built-in
+    // requires updating three places: the analyzer's registration, the
+    // verifier's `builtin_signatures`, and this test.
+    use crate::common::types::Type;
+
+    let sigs = super::builtins::builtin_signatures();
+
+    let expected: Vec<(&str, Vec<Type>, Type)> = vec![
+        // Math
+        ("Math.sqrt", vec![Type::Float], Type::Float),
+        ("Math.pow", vec![Type::Float, Type::Float], Type::Float),
+        ("Math.sin", vec![Type::Float], Type::Float),
+        ("Math.cos", vec![Type::Float], Type::Float),
+        ("Math.abs", vec![Type::Float], Type::Float),
+        ("Math.floor", vec![Type::Float], Type::Float),
+        ("Math.ceil", vec![Type::Float], Type::Float),
+        ("Math.exp", vec![Type::Float], Type::Float),
+        ("Math.log", vec![Type::Float], Type::Float),
+        ("Math.tan", vec![Type::Float], Type::Float),
+        // String
+        ("String.length", vec![Type::String], Type::Int),
+        ("String.concat", vec![Type::String, Type::String], Type::String),
+        (
+            "String.substring",
+            vec![Type::String, Type::Int, Type::Int],
+            Type::String,
+        ),
+        ("String.to_upper", vec![Type::String], Type::String),
+        ("String.to_lower", vec![Type::String], Type::String),
+        // File
+        ("File.read", vec![Type::String], Type::String),
+        (
+            "File.write",
+            vec![Type::String, Type::String],
+            Type::Int,
+        ),
+        (
+            "File.append",
+            vec![Type::String, Type::String],
+            Type::Int,
+        ),
+        // List
+        ("List.length", vec![Type::list(Type::Unknown)], Type::Int),
+        ("List.sum", vec![Type::list(Type::Unknown)], Type::Float),
+        ("List.max", vec![Type::list(Type::Unknown)], Type::Float),
+        ("List.min", vec![Type::list(Type::Unknown)], Type::Float),
+        // Raw memory
+        ("alloc", vec![Type::Int], Type::pointer(Type::Unknown)),
+        ("free", vec![Type::pointer(Type::Unknown)], Type::Void),
+    ];
+
+    for (name, expected_params, expected_ret) in &expected {
+        let sig = sigs.get(*name).unwrap_or_else(|| {
+            panic!(
+                "builtin `{}` is in the expected table but missing from \
+                 `builtin_signatures()` — add it to `verifier/builtins.rs`",
+                name
+            )
+        });
+
+        assert_eq!(
+            sig.params.len(),
+            expected_params.len(),
+            "builtin `{}`: param count mismatch (expected {}, got {})",
+            name,
+            expected_params.len(),
+            sig.params.len()
+        );
+
+        for (i, (expected_ty, (_, actual_ty))) in
+            expected_params.iter().zip(&sig.params).enumerate()
+        {
+            assert_eq!(
+                actual_ty, expected_ty,
+                "builtin `{}`: param {} type mismatch (expected {:?}, got {:?})",
+                name, i, expected_ty, actual_ty
+            );
+        }
+
+        assert_eq!(
+            sig.return_type, *expected_ret,
+            "builtin `{}`: return type mismatch (expected {:?}, got {:?})",
+            name, expected_ret, sig.return_type
+        );
+    }
+
+    // Catch the reverse direction: a built-in in the verifier's table
+    // that isn't in the expected list — probably a new built-in whose
+    // analyzer registration didn't land, or a leftover from a removal.
+    for name in sigs.keys() {
+        assert!(
+            expected.iter().any(|(n, _, _)| *n == name.as_str()),
+            "verifier's signature table has `{}` but the expected list \
+             does not — update this test if the built-in is intentional",
+            name
+        );
+    }
+}

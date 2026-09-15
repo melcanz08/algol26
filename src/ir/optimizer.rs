@@ -492,8 +492,19 @@ impl Optimizer {
             block.instructions.retain(|instr| {
                 match instr {
                     Instruction::Declare { name, mutable, .. } => {
-                        // ALGOL26: Mutable variables are ALWAYS kept
-                        // (they may participate in loop-carried state)
+                        // Mutable variables are always kept — they may
+                        // participate in loop-carried state, and this
+                        // pass is not loop-aware.
+                        //
+                        // Immutable declarations are removed when the
+                        // variable is unused. This is safe *only* because
+                        // the builder emits any initializer side effects
+                        // (e.g. a Call) as a separate instruction
+                        // immediately before the Declare; DCE never
+                        // removes a Call. If the builder ever inlines
+                        // side effects into Declare values, this pass
+                        // must be revisited. See
+                        // `dce_preserves_call_side_effects_even_when_result_unused`.
                         if *mutable {
                             true
                         } else {
@@ -834,6 +845,75 @@ mod tests {
             matches!(declare, TypedIRValue::Int(5)),
             "small Int arithmetic should still fold to a literal, got: {:?}",
             declare
+        );
+    }
+
+        #[test]
+    fn dce_preserves_call_side_effects_even_when_result_unused() {
+        // The IR builder emits a `Call` instruction with
+        // `result: Some(name)` immediately before a `Declare` for
+        // statements like `val unused := Math.abs(-1.0)`. DCE removes
+        // the unused Declare but must keep the Call — otherwise the
+        // call's side effect would disappear. This test pins that
+        // coupling.
+        use crate::common::types::Type;
+        use crate::ir::semantic_ir::{
+            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
+            TypedIRValue,
+        };
+
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+
+        let func = SemanticFunction {
+            name: "f".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![SemanticBlock {
+                id: entry,
+                instructions: vec![
+                    Instruction::Call {
+                        func: "Math.abs".to_string(),
+                        args: vec![TypedIRValue::Float(-1.0)],
+                        result: Some("unused".to_string()),
+                    },
+                    Instruction::Declare {
+                        name: "unused".to_string(),
+                        mutable: false,
+                        type_: Type::Float,
+                        value: TypedIRValue::Void,
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: None,
+                    type_: Type::Void,
+                }),
+            }],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+
+        let mut opt = Optimizer::new();
+        opt.optimize(&mut program);
+
+        let block = &program.functions[0].blocks[0];
+
+        let call_still_there = block.instructions.iter().any(|i| {
+            matches!(i, Instruction::Call { result: Some(name), .. } if name == "unused")
+        });
+        let declare_removed = !block
+            .instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::Declare { name, .. } if name == "unused"));
+
+        assert!(
+            call_still_there,
+            "DCE removed the Call instruction; side effects were lost"
+        );
+        assert!(
+            declare_removed,
+            "DCE should have removed the unused immutable Declare"
         );
     }
 }

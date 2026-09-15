@@ -216,6 +216,25 @@ impl Optimizer {
                 self.fold_value(left);
                 self.fold_value(right);
 
+                // Skip folding when both operands are `Int` and either is
+                // outside the range where f64 represents every integer
+                // exactly (2^53). Integer arithmetic above that bound
+                // loses precision when routed through f64, producing a
+                // wrong compile-time constant. Leaving the node alone
+                // is safe — the runtime computes the correct i64 result.
+                if let (TypedIRValue::Int(l), TypedIRValue::Int(r)) =
+                    (left.as_ref(), right.as_ref())
+                {
+                    const SAFE_BOUND: i64 = 1i64 << 53;
+                    // `checked_abs` returns `None` for `i64::MIN`, which
+                    // is out of the safe range by definition.
+                    let l_big = l.checked_abs().map_or(true, |a| a > SAFE_BOUND);
+                    let r_big = r.checked_abs().map_or(true, |a| a > SAFE_BOUND);
+                    if l_big || r_big {
+                        return false;
+                    }
+                }
+
                 // Try to fold if both are constants
                 if let (Some(l), Some(r)) = (left.as_constant_f64(), right.as_constant_f64()) {
                     let result = match op {
@@ -694,6 +713,127 @@ mod tests {
             matches!(assign, TypedIRValue::Variable(name, _) if name == "x"),
             "constant propagation leaked across branches: got {:?}",
             assign
+        );
+    }
+        #[test]
+    fn folding_skips_large_int_literals() {
+        // A BinaryOp over two `Int` operands whose values exceed 2^53
+        // must not be folded to a Float. The pass should leave the
+        // node alone; the runtime computes the correct i64 result.
+        use crate::common::types::Type;
+        use crate::ir::semantic_ir::{
+            Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticProgram,
+            Terminator, TypedIRValue,
+        };
+
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+
+        // 2^53 + 1 — not exactly representable in f64.
+        let big: i64 = 9_007_199_254_740_993;
+
+        let func = SemanticFunction {
+            name: "f".to_string(),
+            params: vec![],
+            return_type: Type::Int,
+            blocks: vec![SemanticBlock {
+                id: entry,
+                instructions: vec![Instruction::Declare {
+                    name: "r".to_string(),
+                    mutable: false,
+                    type_: Type::Int,
+                    value: TypedIRValue::BinaryOp {
+                        op: SemanticBinOp::Add,
+                        left: Box::new(TypedIRValue::Int(big)),
+                        right: Box::new(TypedIRValue::Int(1)),
+                        result_type: Type::Int,
+                    },
+                }],
+                terminator: Some(Terminator::Return {
+                    value: Some(TypedIRValue::Variable("r".to_string(), Type::Int)),
+                    type_: Type::Int,
+                }),
+            }],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+
+        let mut opt = Optimizer::new();
+        opt.optimize(&mut program);
+
+        let declare = program.functions[0].blocks[0]
+            .instructions
+            .iter()
+            .find_map(|i| match i {
+                Instruction::Declare { name, value, .. } if name == "r" => Some(value),
+                _ => None,
+            })
+            .expect("Declare for `r` not found");
+
+        assert!(
+            matches!(declare, TypedIRValue::BinaryOp { .. }),
+            "large Int arithmetic must not be folded, got: {:?}",
+            declare
+        );
+    }
+
+    #[test]
+    fn folding_still_works_for_small_ints() {
+        // Sanity check: folding is not disabled wholesale — small
+        // ints still fold.
+        use crate::common::types::Type;
+        use crate::ir::semantic_ir::{
+            Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticProgram,
+            Terminator, TypedIRValue,
+        };
+
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+
+        let func = SemanticFunction {
+            name: "f".to_string(),
+            params: vec![],
+            return_type: Type::Int,
+            blocks: vec![SemanticBlock {
+                id: entry,
+                instructions: vec![Instruction::Declare {
+                    name: "r".to_string(),
+                    mutable: false,
+                    type_: Type::Int,
+                    value: TypedIRValue::BinaryOp {
+                        op: SemanticBinOp::Add,
+                        left: Box::new(TypedIRValue::Int(2)),
+                        right: Box::new(TypedIRValue::Int(3)),
+                        result_type: Type::Int,
+                    },
+                }],
+                terminator: Some(Terminator::Return {
+                    value: Some(TypedIRValue::Variable("r".to_string(), Type::Int)),
+                    type_: Type::Int,
+                }),
+            }],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+
+        let mut opt = Optimizer::new();
+        opt.optimize(&mut program);
+
+        let declare = program.functions[0].blocks[0]
+            .instructions
+            .iter()
+            .find_map(|i| match i {
+                Instruction::Declare { name, value, .. } if name == "r" => Some(value),
+                _ => None,
+            })
+            .expect("Declare for `r` not found");
+
+        assert!(
+            matches!(declare, TypedIRValue::Int(5)),
+            "small Int arithmetic should still fold to a literal, got: {:?}",
+            declare
         );
     }
 }

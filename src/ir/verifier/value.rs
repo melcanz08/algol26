@@ -386,9 +386,14 @@ pub(super) fn compute_binop_type(op: &SemanticBinOp, lt: &Type, rt: &Type) -> Re
 ///    a built-in signature) matches any concrete instantiation.
 /// 2. Numeric coercions (Int→Float) are permitted as before.
 pub(super) fn types_compatible_for_call(arg_ty: &Type, param_ty: &Type) -> bool {
-    // Numeric coercion.
+    // Numeric coercion: Int → Float is allowed, Float → Int is not.
+    // This mirrors `Type::can_coerce_to`, which the analyzer uses.
+    // Before the fix, the verifier accepted any numeric pair, so
+    // `Float` arguments for `Int` parameters were silently allowed —
+    // a mismatch the analyzer would have rejected, but the verifier
+    // is the second line of defense and must agree with the analyzer.
     if arg_ty.is_numeric() && param_ty.is_numeric() {
-        return true;
+        return arg_ty.can_coerce_to(param_ty);
     }
 
     // Exact match.

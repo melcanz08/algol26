@@ -383,3 +383,24 @@ fn some_of_undefined_variable_is_rejected() {
         msg
     );
 }
+
+#[test]
+fn float_arg_does_not_satisfy_int_param() {
+    use crate::common::types::Type;
+    assert!(
+        !super::value::types_compatible_for_call(&Type::Float, &Type::Int),
+        "verifier must reject Float arguments for Int parameters"
+    );
+    assert!(
+        super::value::types_compatible_for_call(&Type::Int, &Type::Float),
+        "verifier must accept Int arguments for Float parameters"
+    );
+    assert!(
+        super::value::types_compatible_for_call(&Type::Int, &Type::Int),
+        "same-type Int arguments must be accepted"
+    );
+    assert!(
+        super::value::types_compatible_for_call(&Type::Float, &Type::Float),
+        "same-type Float arguments must be accepted"
+    );
+}

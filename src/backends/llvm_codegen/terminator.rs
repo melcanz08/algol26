@@ -108,8 +108,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                     let default_bb = if let Some(default_id) = default_block {
                         self.blocks.get(default_id).cloned().unwrap()
                     } else {
-                        // create dummy unreachable? use current block's next? fallback to entry
-                        self.blocks.values().next().cloned().unwrap()
+                        // No default. Emit an unreachable block for
+                        // unmatched values instead of jumping to an
+                        // arbitrary block. The analyzer's match
+                        // exhaustiveness check should have caught
+                        // this at compile time.
+                        let saved_bb = self.builder.get_insert_block().unwrap();
+                        let un_bb = self.context.append_basic_block(
+                            self.current_function.unwrap(),
+                            "switch_unmatched",
+                        );
+                        self.builder.position_at_end(un_bb);
+                        self.builder.build_unreachable().unwrap();
+                        self.builder.position_at_end(saved_bb);
+                        un_bb
                     };
                     let mut case_pairs: Vec<(
                         inkwell::values::IntValue<'ctx>,

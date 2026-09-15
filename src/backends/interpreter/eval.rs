@@ -185,12 +185,37 @@ impl Interpreter {
                     RuntimeValue::Float(0.0)
                 }
             }
-            "Math.sqrt" => {
-                if let Some(RuntimeValue::Float(f)) = arg_vals.first() {
-                    RuntimeValue::Float(f.sqrt())
-                } else {
-                    RuntimeValue::Void
-                }
+            "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan"
+            | "Math.exp" | "Math.log" | "Math.floor" | "Math.ceil"
+            | "Math.abs" => {
+                let x = match arg_vals.first() {
+                    Some(RuntimeValue::Float(f)) => *f,
+                    Some(RuntimeValue::Int(i)) => *i as f64,
+                    _ => return RuntimeValue::Void,
+                };
+                let r = match func {
+                    "Math.sqrt" => x.sqrt(),
+                    "Math.sin" => x.sin(),
+                    "Math.cos" => x.cos(),
+                    "Math.tan" => x.tan(),
+                    "Math.exp" => x.exp(),
+                    "Math.log" => x.ln(),
+                    "Math.floor" => x.floor(),
+                    "Math.ceil" => x.ceil(),
+                    "Math.abs" => x.abs(),
+                    _ => unreachable!(),
+                };
+                RuntimeValue::Float(r)
+            }
+            "Math.pow" => {
+                let (a, b) = match (arg_vals.first(), arg_vals.get(1)) {
+                    (Some(RuntimeValue::Float(a)), Some(RuntimeValue::Float(b))) => (*a, *b),
+                    (Some(RuntimeValue::Int(a)), Some(RuntimeValue::Float(b))) => (*a as f64, *b),
+                    (Some(RuntimeValue::Float(a)), Some(RuntimeValue::Int(b))) => (*a, *b as f64),
+                    (Some(RuntimeValue::Int(a)), Some(RuntimeValue::Int(b))) => (*a as f64, *b as f64),
+                    _ => return RuntimeValue::Void,
+                };
+                RuntimeValue::Float(a.powf(b))
             }
             "String.concat" | "String_concat" => {
                 if arg_vals.len() == 2 {

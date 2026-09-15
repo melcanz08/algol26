@@ -58,7 +58,7 @@ impl Interpreter {
         let mut iterations = 0;
 
         loop {
-            if iterations > 10000 {
+            if iterations > 100_000_000 {
                 return Err("Infinite loop detected".to_string());
             }
             iterations += 1;

@@ -407,7 +407,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .build_ptr_to_int(right.into_pointer_value(), self.context.i64_type(), "eq_r_ptr")
                         .unwrap();
                     self.builder
-                        .build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "ptr_eq")
+                        .build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ptr_ne")
                         .unwrap()
                         .into()
                 } else {

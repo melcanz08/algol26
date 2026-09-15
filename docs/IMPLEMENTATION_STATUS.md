@@ -85,6 +85,33 @@ programs.
   merge points are not implemented. See the module doc comment for
   the explicit statement of scope.
 
+### IR correctness (audited and fixed)
+
+Fixed in the Phase 3 audit:
+
+- Constant propagation no longer leaks constants across branch
+  blocks. Before the fix, a conditional assignment in one branch
+  could rewrite a join-block use with the wrong value.
+- Verifier recursively checks `Some`/`None`/`Ok`/`Error` payloads.
+  Before the fix, an ill-typed payload inside an `Option` or
+  `Result` constructor was silently accepted.
+- Verifier rejects `Float` arguments for `Int` parameters. Now
+  matches the analyzer's `can_coerce_to` rules.
+- Optimizer skips folding large `Int` arithmetic where `f64`
+  intermediates would lose precision (above 2^53).
+
+Deferred (design/cleanup, not correctness bugs):
+
+- `VerifiedIR::from_verify_pass` is a `pub(crate)` typestate hole;
+  relies on caller discipline.
+- `builtins.rs` signature table is hand-synced with
+  `builder/build.rs`; no test enforces the sync.
+- Dominance-aware constant propagation would allow cross-block
+  folding (currently disabled to preserve correctness).
+- Data-flow joins at CFG merges use first-visited-wins, not a
+  proper fixed-point.
+- `Spawn`/`Fork` capture semantics are not verified.
+
 ### LLVM backend gaps (interpreter works)
 
 - **`match` with pattern bindings** (`corpus_13`). LLVM refuses with a

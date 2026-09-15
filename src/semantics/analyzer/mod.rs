@@ -53,7 +53,9 @@ use crate::frontend::ast::{
     BinOp, Expr, FunctionDecl, ImplBlock, Pattern, Stmt, TraitDecl, WhereClause,
 };
 use crate::semantics::trait_registry::TraitRegistry;
+use crate::common::span::Span;
 use std::collections::{HashMap, HashSet};
+
 
 mod scopes;
 mod ownership;
@@ -111,6 +113,10 @@ pub struct SemanticAnalyzer {
     // Addresses are stable because the analyzer and IR builder walk the *same*
     // AST without cloning.
     pub type_table: HashMap<usize, Type>,
+    /// Span of the node currently being analyzed. Updated at the top
+    /// of `analyze_expr_with_context` and `analyze_stmt`. Used by
+    /// error sites that don't have direct access to the node.
+    current_span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +152,7 @@ impl SemanticAnalyzer {
             null_bindings: vec![HashSet::new()],
             // ─── UNIFY TYPES ───
             type_table: HashMap::new(),
+            current_span: Span::default(),
         }
     }
 

@@ -14,6 +14,11 @@ impl SemanticAnalyzer {
         expr: &Expr,
         expected_type: Option<&Type>,
     ) -> Result<Type> {
+        // Record the current node's span for error sites that don't
+        // have the node in hand. No save/restore — the innermost
+        // error site should use the innermost node's span.
+        self.current_span = expr.span();
+
         let ty = self.analyze_expr_inner(expr, expected_type)?;
 
         self.type_table
@@ -61,7 +66,7 @@ impl SemanticAnalyzer {
                 if matches!(expr.as_ref(), Expr::NullPtr(_)) {
                     return Err(CompileError::simple(
                         "Cannot dereference a null pointer",
-                        0, 0, "", ErrorCode::E0007,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
                     ).with_suggestion(
                         "Check the pointer for null before dereferencing, \
                          e.g. with `if p != null then ...`",
@@ -79,7 +84,7 @@ impl SemanticAnalyzer {
                                 "Cannot dereference '{}': it is statically known to be null",
                                 name
                             ),
-                            0, 0, "", ErrorCode::E0007,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
                         ).with_suggestion(&format!(
                             "Check '{}' for null before dereferencing",
                             name
@@ -173,7 +178,7 @@ impl SemanticAnalyzer {
                 let cond_type = self.analyze_expr(condition)?;
                 if cond_type != Type::Bool && cond_type != Type::Unknown && cond_type != Type::Void {
                     return Err(CompileError::simple(
-                        "If condition must be Bool", 0, 0, "", ErrorCode::E0002,
+                        "If condition must be Bool", self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ));
                 }
                 self.push_scope();
@@ -194,7 +199,7 @@ impl SemanticAnalyzer {
                     if then_is_void != else_is_void {
                         return Err(CompileError::simple(
                             "if branches produce inconsistent results: one branch yields a value, the other does not",
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ).with_suggestion(
                             "Ensure both branches end with an expression, or neither does",
                         ));
@@ -215,7 +220,7 @@ impl SemanticAnalyzer {
                         let cond_type = self.analyze_expr(condition)?;
                         if cond_type != Type::Bool && cond_type != Type::Unknown {
                             return Err(CompileError::simple(
-                                "Pattern guard must be boolean", 0, 0, "", ErrorCode::E0002,
+                                "Pattern guard must be boolean", self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ));
                         }
                     }
@@ -232,7 +237,7 @@ impl SemanticAnalyzer {
                             let cond_type = self.analyze_expr(condition)?;
                             if cond_type != Type::Bool && cond_type != Type::Unknown {
                                 return Err(CompileError::simple(
-                                    "Pattern guard must be boolean", 0, 0, "", ErrorCode::E0002,
+                                    "Pattern guard must be boolean", self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                                 ));
                             }
                         }
@@ -246,7 +251,7 @@ impl SemanticAnalyzer {
                         if case_is_void != first_is_void {
                             return Err(CompileError::simple(
                                 "match arms produce inconsistent results: some arms yield a value, others do not",
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion(
                                 "Ensure all arms end with an expression, or none do",
                             ));
@@ -257,7 +262,7 @@ impl SemanticAnalyzer {
                     Ok(result_type)
                 } else {
                     Err(CompileError::simple(
-                        "Match expression must have at least one case", 0, 0, "", ErrorCode::E0002,
+                        "Match expression must have at least one case", self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ))
                 }
             }
@@ -280,7 +285,7 @@ impl SemanticAnalyzer {
                                 "try body must produce a Result<T, E>, found {}",
                                 other
                             ),
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ).with_suggestion(
                             "Wrap the try body's final expression in Ok(...), \
                              or have it call a function that returns Result",
@@ -308,7 +313,7 @@ impl SemanticAnalyzer {
                             "try/catch type mismatch: try body yields {}, catch yields {}",
                             ok_type, catch_type
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ).with_suggestion(
                         "The catch branch must produce a value of the same type as Ok(...)",
                     ));
@@ -381,7 +386,7 @@ impl SemanticAnalyzer {
                     let moved_var = new_moves[0].clone();
                     return Err(CompileError::simple(
                         &format!("Cannot move '{}' in loop body", moved_var),
-                        0, 0, "", ErrorCode::E0008,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0008,
                     ));
                 }
                 Ok(result_type)
@@ -472,7 +477,7 @@ impl SemanticAnalyzer {
                     _ => {
                         return Err(CompileError::simple(
                             &format!("Array access requires list, found {}", array_type),
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ));
                     }
                 };
@@ -506,7 +511,7 @@ impl SemanticAnalyzer {
                             "Array index out of bounds: index {} is out of bounds for '{}' with length {}",
                             idx_val, var_name, len
                         ),
-                        0, 0, "", ErrorCode::E0004,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0004,
                     ).with_suggestion(&format!(
                         "Valid indices are 0..{} for array of length {}", len - 1, len
                     )));
@@ -514,7 +519,7 @@ impl SemanticAnalyzer {
                 if index_type != Type::Int && index_type != Type::Unknown {
                     return Err(CompileError::simple(
                         &format!("Array index must be Int, found {}", index_type),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ).with_suggestion(&format!(
                         "Use an Int index or convert {} with int({})", index_type, index_type
                     )));
@@ -555,7 +560,7 @@ impl SemanticAnalyzer {
                                     "Addition requires matching types, found {} and {}",
                                     left_type, right_type
                                 ),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion("Use matching types or add type conversion"))
                         }
                     }
@@ -568,7 +573,7 @@ impl SemanticAnalyzer {
                                     "Arithmetic requires numeric types, found {} and {}",
                                     left_type, right_type
                                 ),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion("Both operands must be numeric (Int or Float)"))
                         }
                     }
@@ -581,7 +586,7 @@ impl SemanticAnalyzer {
                                     "Comparison requires numeric types, found {} and {}",
                                     left_type, right_type
                                 ),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion("Use numeric types for comparison"))
                         }
                     }
@@ -596,7 +601,7 @@ impl SemanticAnalyzer {
                                     "Equality requires matching types, found {} and {}",
                                     left_type, right_type
                                 ),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion("Use matching types for equality comparison"))
                         }
                     }
@@ -609,7 +614,7 @@ impl SemanticAnalyzer {
                                     "Logical operators require boolean operands, found {} and {}",
                                     left_type, right_type
                                 ),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion("Use 'and' and 'or' only with boolean values"))
                         }
                     }
@@ -650,7 +655,7 @@ impl SemanticAnalyzer {
                                                 "Method '{}' expects {} argument(s) after the receiver, got {}",
                                                 method_name, expected_extra, args.len()
                                             ),
-                                            0, 0, "", ErrorCode::E0002,
+                                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                                         ));
                                     }
                                     return Ok(func_info.return_type);
@@ -669,7 +674,7 @@ impl SemanticAnalyzer {
                                             method.params.len(),
                                             args.len()
                                         ),
-                                        0, 0, "", ErrorCode::E0002,
+                                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                                     ));
                                 }
                                 for (arg, (param_name, param_type)) in
@@ -688,7 +693,7 @@ impl SemanticAnalyzer {
                                                 "Argument '{}' type mismatch: expected {}, found {}",
                                                 param_name, expected_type, arg_type
                                             ),
-                                            0, 0, "", ErrorCode::E0002,
+                                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                                         ));
                                     }
                                 }
@@ -705,7 +710,7 @@ impl SemanticAnalyzer {
                                     "Type {} does not have method '{}'",
                                     receiver_type, method_name
                                 ),
-                                0, 0, "", ErrorCode::E0004,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0004,
                             ).with_suggestion(&format!(
                                 "Implement a trait for {} that provides method '{}', \
                                  or check if '{}' is a built-in",
@@ -718,7 +723,7 @@ impl SemanticAnalyzer {
                 let func_info = self.functions.get(clean_name).cloned().ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined function '{}'", name),
-                        0, 0, "", ErrorCode::E0004,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0004,
                     ).with_suggestion(&format!(
                         "Check if function '{}' is defined or imported", name
                     ))
@@ -730,7 +735,7 @@ impl SemanticAnalyzer {
                             "Function '{}' expects {} arguments, got {}",
                             name, func_info.params.len(), args.len()
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ).with_suggestion(&format!(
                         "Provide exactly {} argument(s) to '{}'",
                         func_info.params.len(), name
@@ -749,7 +754,7 @@ impl SemanticAnalyzer {
                                         "Type mismatch for generic parameter '{}': expected {}, found {}",
                                         tv, existing_binding, arg_type
                                     ),
-                                    0, 0, "", ErrorCode::E0002,
+                                    self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                                 ));
                             }
                         } else {
@@ -764,7 +769,7 @@ impl SemanticAnalyzer {
                                 "Argument '{}' type mismatch: expected {}, found {}",
                                 param_name, resolved_param_type, arg_type
                             ),
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ).with_suggestion(&format!(
                             "Convert the argument to {} or change the function signature",
                             resolved_param_type
@@ -784,7 +789,7 @@ impl SemanticAnalyzer {
                         } else {
                             Err(CompileError::simple(
                                 &format!("Cannot negate non-numeric type {}", operand_type),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion("Negation requires Int or Float operand"))
                         }
                     }
@@ -794,7 +799,7 @@ impl SemanticAnalyzer {
                         } else {
                             Err(CompileError::simple(
                                 &format!("Logical not requires Bool, found {}", operand_type),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion("Use 'not' only with boolean values"))
                         }
                     }
@@ -820,7 +825,7 @@ impl SemanticAnalyzer {
                 let _obj_type = self.analyze_expr(object)?;
                 Err(CompileError::simple(
                     &format!("Field access '.{}' is not supported yet", field),
-                    0, 0, "", ErrorCode::E0002,
+                    self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                 ).with_suggestion(
                     "Field access requires struct support, which is not yet implemented",
                 ))
@@ -872,7 +877,7 @@ impl SemanticAnalyzer {
                 } else {
                     Err(CompileError::simple(
                         &format!("Cannot match None against {}", value_type),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ))
                 }
             }
@@ -882,7 +887,7 @@ impl SemanticAnalyzer {
                 } else {
                     Err(CompileError::simple(
                         &format!("Cannot match Some against {}", value_type),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ))
                 }
             }
@@ -892,7 +897,7 @@ impl SemanticAnalyzer {
                 } else {
                     Err(CompileError::simple(
                         &format!("Cannot match Ok against {}", value_type),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ))
                 }
             }
@@ -902,7 +907,7 @@ impl SemanticAnalyzer {
                 } else {
                     Err(CompileError::simple(
                         &format!("Cannot match Error against {}", value_type),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ))
                 }
             }
@@ -922,7 +927,7 @@ impl SemanticAnalyzer {
                             "Cannot match literal of type {} against {}",
                             lit_type, value_type
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ))
                 }
             }

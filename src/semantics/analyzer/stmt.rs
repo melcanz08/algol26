@@ -4,6 +4,7 @@ use super::*;
 
 impl SemanticAnalyzer {
     pub(super) fn analyze_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+        self.current_span = stmt.span();
         self.in_mut_borrow = false;
         match stmt {
             Stmt::VarDecl {
@@ -72,7 +73,7 @@ impl SemanticAnalyzer {
                                 "Type mismatch: variable '{}' declared as {} but assigned {}",
                                 name, expected, value_type
                             ),
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ).with_suggestion(&format!(
                             "Change the type annotation to {} or change the value to {}",
                             value_type, expected
@@ -99,7 +100,7 @@ impl SemanticAnalyzer {
                                     "Cannot move '{}' after it was captured by defer",
                                     source
                                 ),
-                                0, 0, "", ErrorCode::E0007,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
                             ).with_suggestion(
                                 "Deferred statements capture variables at declaration time",
                             ));
@@ -114,7 +115,7 @@ impl SemanticAnalyzer {
                 let (var_type, _mutable) = self.lookup_variable(name).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined variable '{}'", name),
-                        0, 0, "", ErrorCode::E0003,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
                     ).with_suggestion(&format!(
                         "Declare '{}' with 'var {} := ...' or 'val {} := ...'",
                         name, name, name
@@ -137,7 +138,7 @@ impl SemanticAnalyzer {
                             "Type mismatch: cannot assign {} to variable of type {}",
                             value_type, target_type
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ).with_suggestion(&format!(
                         "Change the value to {} or declare variable as {}",
                         target_type, value_type
@@ -159,7 +160,7 @@ impl SemanticAnalyzer {
                         if cond_type != Type::Bool && cond_type != Type::Unknown {
                             return Err(CompileError::simple(
                                 "If condition must be Bool",
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ));
                         }
                         let moved_before =
@@ -218,7 +219,7 @@ impl SemanticAnalyzer {
                     (Some(_expr), Type::Void) => {
                         return Err(CompileError::simple(
                             "Cannot return a value from a void function",
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ).with_suggestion(
                             "Remove the return value or change the function return type",
                         ));
@@ -242,7 +243,7 @@ impl SemanticAnalyzer {
                                     "Return type mismatch: expected {}, found {}",
                                     expected, actual_type
                                 ),
-                                0, 0, "", ErrorCode::E0002,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                             ).with_suggestion(&format!(
                                 "Change the return statement to match {} or change the function signature",
                                 expected
@@ -255,7 +256,7 @@ impl SemanticAnalyzer {
                                 "Missing return value: function should return {}",
                                 expected
                             ),
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ).with_suggestion(
                             "Add a return statement with the appropriate value",
                         ));
@@ -299,7 +300,7 @@ impl SemanticAnalyzer {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined channel '{}'", channel),
-                        0, 0, "", ErrorCode::E0003,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
                     )
                 })?;
                 self.analyze_expr(value)?;
@@ -310,7 +311,7 @@ impl SemanticAnalyzer {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined channel '{}'", channel),
-                        0, 0, "", ErrorCode::E0003,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
                     )
                 })?;
                 if !target.is_empty() {
@@ -349,7 +350,7 @@ impl SemanticAnalyzer {
                 let (array_type, _) = self.lookup_variable(array).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined array '{}'", array),
-                        0, 0, "", ErrorCode::E0003,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
                     )
                 })?;
 
@@ -362,7 +363,7 @@ impl SemanticAnalyzer {
                                 "Array assignment requires list, found {}",
                                 other
                             ),
-                            0, 0, "", ErrorCode::E0002,
+                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                         ));
                     }
                 };
@@ -373,7 +374,7 @@ impl SemanticAnalyzer {
                 if index_type != Type::Int && index_type != Type::Unknown {
                     return Err(CompileError::simple(
                         &format!("Array index must be Int, found {}", index_type),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ).with_suggestion(&format!(
                         "Use an Int index or convert {} with int({})",
                         index_type, index_type
@@ -394,7 +395,7 @@ impl SemanticAnalyzer {
                                     "Array index out of bounds: index {} is out of bounds for '{}' with length {}",
                                     idx_val, array, list_len
                                 ),
-                                0, 0, "", ErrorCode::E0004,
+                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0004,
                             ).with_suggestion(&format!(
                                 "Valid indices are 0..{} for array of length {}",
                                 list_len - 1, list_len
@@ -414,7 +415,7 @@ impl SemanticAnalyzer {
                             "Array assignment type mismatch: '{}' has element type {}, but value is {}",
                             array, element_type, value_type
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ).with_suggestion(&format!(
                         "Assign a value of type {} to elements of '{}'",
                         element_type, array

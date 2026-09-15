@@ -83,7 +83,7 @@ impl SemanticAnalyzer {
             Some((_, false)) => {
                 return Err(CompileError::simple(
                     &format!("Cannot mutably borrow immutable variable '{}'", source),
-                    0, 0, "", ErrorCode::E0007,
+                    self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
                 ).with_suggestion(&format!(
                     "Declare '{}' with 'var' instead of 'val'", source
                 )));
@@ -97,19 +97,19 @@ impl SemanticAnalyzer {
         if self.is_moved(source) {
             return Err(CompileError::simple(
                 &format!("Cannot mutably borrow moved variable '{}'", source),
-                0, 0, "", ErrorCode::E0007,
+                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
             ).with_suggestion("The variable has already been moved"));
         }
         if self.is_mutably_borrowed(source) {
             return Err(CompileError::simple(
                 &format!("Cannot mutably borrow '{}' more than once", source),
-                0, 0, "", ErrorCode::E0007,
+                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
             ).with_suggestion("Only one mutable borrow is allowed at a time"));
         }
         if self.is_borrowed(source) {
             return Err(CompileError::simple(
                 &format!("Cannot mutably borrow '{}' while immutably borrowed", source),
-                0, 0, "", ErrorCode::E0007,
+                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
             ).with_suggestion("Wait for the immutable borrow to end"));
         }
         self.mark_mutably_borrowed(source);
@@ -128,32 +128,32 @@ impl SemanticAnalyzer {
             if scope.contains(name) {
                 return Err(CompileError::simple(
                     &format!("Cannot use '{}' after it was captured by defer", name),
-                    0, 0, "", ErrorCode::E0007,
+                    self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
                 ).with_suggestion("Deferred statements capture variables at declaration time"));
             }
         }
         if self.is_moved(name) {
             return Err(CompileError::simple(
                 &format!("Cannot borrow moved variable '{}'", name),
-                0, 0, "", ErrorCode::E0007,
+                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
             ).with_suggestion("The variable has been moved and is no longer available"));
         }
         if mutable && self.is_mutably_borrowed(name) {
             return Err(CompileError::simple(
                 &format!("Cannot mutably borrow '{}' more than once", name),
-                0, 0, "", ErrorCode::E0007,
+                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
             ).with_suggestion("Only one mutable borrow is allowed at a time"));
         }
         if mutable && self.is_borrowed(name) {
             return Err(CompileError::simple(
                 &format!("Cannot mutably borrow '{}' while immutably borrowed", name),
-                0, 0, "", ErrorCode::E0007,
+                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
             ).with_suggestion("Wait for the immutable borrow to end"));
         }
         if !mutable && self.is_mutably_borrowed(name) {
             return Err(CompileError::simple(
                 &format!("Cannot read '{}' while it is mutably borrowed", name),
-                0, 0, "", ErrorCode::E0007,
+                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
             ).with_suggestion("Wait for the mutable borrow to end before reading"));
         }
         Ok(())

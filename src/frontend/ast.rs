@@ -211,6 +211,67 @@ pub enum Stmt {
     Expression(Expr),
 }
 
+impl Expr {
+    /// Source span of this expression node.
+    pub fn span(&self) -> Span {
+        match self {
+            Expr::Number(_, s) => *s,
+            Expr::Int(_, s) => *s,
+            Expr::String(_, s) => *s,
+            Expr::Bool(_, s) => *s,
+            Expr::NullPtr(s) => *s,
+            Expr::PtrLiteral(_, s) => *s,
+            Expr::Var(_, s) => *s,
+            Expr::Block { span, .. } => *span,
+            Expr::If { span, .. } => *span,
+            Expr::Match { span, .. } => *span,
+            Expr::Borrow { span, .. } => *span,
+            Expr::MutBorrow { span, .. } => *span,
+            Expr::Deref { span, .. } => *span,
+            Expr::AddrOf { span, .. } => *span,
+            Expr::List(_, s) => *s,
+            Expr::ArrayAccess { span, .. } => *span,
+            Expr::Binary { span, .. } => *span,
+            Expr::Unary { span, .. } => *span,
+            Expr::FunctionCall { span, .. } => *span,
+            Expr::Some { span, .. } => *span,
+            Expr::None(s) => *s,
+            Expr::Ok { span, .. } => *span,
+            Expr::Error { span, .. } => *span,
+            Expr::TryCatch { span, .. } => *span,
+            Expr::For { span, .. } => *span,
+            Expr::While { span, .. } => *span,
+            Expr::Range { span, .. } => *span,
+            Expr::FieldAccess { span, .. } => *span,
+        }
+    }
+}
+
+impl Stmt {
+    /// Source span of this statement node.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::VarDecl { span, .. } => *span,
+            Stmt::Import { span, .. } => *span,
+            Stmt::RegionBlock { span, .. } => *span,
+            Stmt::UnsafeBlock { span, .. } => *span,
+            Stmt::Assign { span, .. } => *span,
+            Stmt::ArrayAssign { span, .. } => *span,
+            Stmt::Return { span, .. } => *span,
+            Stmt::Print { span, .. } => *span,
+            Stmt::Defer { span, .. } => *span,
+            Stmt::Break(s) => *s,
+            Stmt::Continue(s) => *s,
+            Stmt::Spawn { span, .. } => *span,
+            Stmt::Parallel { span, .. } => *span,
+            Stmt::ChannelDecl { span, .. } => *span,
+            Stmt::Send { span, .. } => *span,
+            Stmt::Receive { span, .. } => *span,
+            Stmt::Expression(e) => e.span(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct WhereClause {
     pub type_param: String,

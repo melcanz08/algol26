@@ -5,7 +5,14 @@ use super::*;
 impl SemanticAnalyzer {
     // cut from mod.rs, change `fn` -> `pub(super) fn`:
     pub(super) fn push_scope(&mut self) {
-        self.deferred_captures.push(HashSet::new());
+        // Deferred captures inherit from the enclosing scope. A `defer`
+        // registered in an outer scope runs at *that* scope's exit —
+        // after any nested block has been entered and left — so its
+        // captures are in effect inside every nested scope. New
+        // captures made inside the child scope are discarded when the
+        // child pops, which is correct: they die with the child.
+        let inherited_captures = self.deferred_captures.last().cloned().unwrap_or_default();
+        self.deferred_captures.push(inherited_captures);
         self.mutable_borrows.push(HashMap::new());
         self.scopes.push(HashMap::new());
         self.moved_vars.push(Vec::new());

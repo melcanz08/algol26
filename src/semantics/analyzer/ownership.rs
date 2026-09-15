@@ -161,16 +161,62 @@ impl SemanticAnalyzer {
 
     pub(super) fn collect_deferred_captures(&self, stmt: &Stmt, captured: &mut HashSet<String>) {
         match stmt {
-            Stmt::Print { expr, .. } => self.collect_expr_captures(expr, captured),
+            Stmt::VarDecl { value, .. } => {
+                self.collect_expr_captures(value, captured);
+            }
+            Stmt::Import { .. } => {}
+            Stmt::RegionBlock { body, .. } | Stmt::UnsafeBlock { body, .. } => {
+                for s in body {
+                    self.collect_deferred_captures(s, captured);
+                }
+            }
             Stmt::Assign { name, value, .. } => {
+                // A deferred assignment captures the target: the defer
+                // will write to `name` at scope exit, so any move of
+                // `name` after the defer would change what the defer
+                // observes.
                 captured.insert(name.clone());
                 self.collect_expr_captures(value, captured);
             }
-            Stmt::Expression(expr) => self.collect_expr_captures(expr, captured),
-            Stmt::VarDecl { name: _, value, .. } => {
+            Stmt::ArrayAssign { index, value, .. } => {
+                self.collect_expr_captures(index, captured);
                 self.collect_expr_captures(value, captured);
             }
-            _ => {}
+            Stmt::Return { value, .. } => {
+                if let Some(e) = value {
+                    self.collect_expr_captures(e, captured);
+                }
+            }
+            Stmt::Print { expr, .. } => {
+                self.collect_expr_captures(expr, captured);
+            }
+            Stmt::Defer { stmt, .. } => {
+                // A defer inside a defer: the inner body's captures
+                // become the outer defer's captures too, since both
+                // run at scope exit.
+                self.collect_deferred_captures(stmt, captured);
+            }
+            Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Spawn { body, .. } => {
+                for s in body {
+                    self.collect_deferred_captures(s, captured);
+                }
+            }
+            Stmt::Parallel { blocks, .. } => {
+                for block in blocks {
+                    for s in block {
+                        self.collect_deferred_captures(s, captured);
+                    }
+                }
+            }
+            Stmt::ChannelDecl { .. } => {}
+            Stmt::Send { value, .. } => {
+                self.collect_expr_captures(value, captured);
+            }
+            Stmt::Receive { .. } => {}
+            Stmt::Expression(expr) => {
+                self.collect_expr_captures(expr, captured);
+            }
         }
     }
 
@@ -179,9 +225,27 @@ impl SemanticAnalyzer {
             Expr::Var(name, _) => {
                 captured.insert(name.clone());
             }
+            Expr::Number(_, _)
+            | Expr::Int(_, _)
+            | Expr::String(_, _)
+            | Expr::Bool(_, _)
+            | Expr::NullPtr(_)
+            | Expr::PtrLiteral(_, _)
+            | Expr::None(_) => {}
             Expr::Binary { left, right, .. } => {
                 self.collect_expr_captures(left, captured);
                 self.collect_expr_captures(right, captured);
+            }
+            Expr::Unary { expr, .. }
+            | Expr::Deref { expr, .. }
+            | Expr::AddrOf { expr, .. }
+            | Expr::Borrow { expr, .. }
+            | Expr::MutBorrow { expr, .. }
+            | Expr::Some { value: expr, .. }
+            | Expr::Ok { value: expr, .. }
+            | Expr::Error { value: expr, .. }
+            | Expr::FieldAccess { object: expr, .. } => {
+                self.collect_expr_captures(expr, captured);
             }
             Expr::FunctionCall { args, .. } => {
                 for arg in args {
@@ -192,7 +256,91 @@ impl SemanticAnalyzer {
                 self.collect_expr_captures(array, captured);
                 self.collect_expr_captures(index, captured);
             }
-            _ => {}
+            Expr::List(items, _) => {
+                for item in items {
+                    self.collect_expr_captures(item, captured);
+                }
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.collect_expr_captures(condition, captured);
+                self.collect_expr_captures(then_branch, captured);
+                if let Some(e) = else_branch {
+                    self.collect_expr_captures(e, captured);
+                }
+            }
+            Expr::Match { value, cases, .. } => {
+                self.collect_expr_captures(value, captured);
+                for case in cases {
+                    self.collect_expr_captures(&case.body, captured);
+                }
+            }
+            Expr::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                for s in statements {
+                    self.collect_deferred_captures(s, captured);
+                }
+                if let Some(e) = trailing_expr {
+                    self.collect_expr_captures(e, captured);
+                }
+            }
+            Expr::TryCatch {
+                try_branch,
+                catch_branch,
+                finally_body,
+                ..
+            } => {
+                self.collect_expr_captures(try_branch, captured);
+                self.collect_expr_captures(catch_branch, captured);
+                if let Some(body) = finally_body {
+                    for s in body {
+                        self.collect_deferred_captures(s, captured);
+                    }
+                }
+            }
+            Expr::For {
+                iterable,
+                body,
+                trailing_expr,
+                ..
+            } => {
+                self.collect_expr_captures(iterable, captured);
+                for s in body {
+                    self.collect_deferred_captures(s, captured);
+                }
+                if let Some(e) = trailing_expr {
+                    self.collect_expr_captures(e, captured);
+                }
+            }
+            Expr::While {
+                condition,
+                body,
+                trailing_expr,
+                ..
+            } => {
+                self.collect_expr_captures(condition, captured);
+                for s in body {
+                    self.collect_deferred_captures(s, captured);
+                }
+                if let Some(e) = trailing_expr {
+                    self.collect_expr_captures(e, captured);
+                }
+            }
+            Expr::Range { start, end, .. } => {
+                if let Some(e) = start {
+                    self.collect_expr_captures(e, captured);
+                }
+                if let Some(e) = end {
+                    self.collect_expr_captures(e, captured);
+                }
+            }
         }
     }
 }

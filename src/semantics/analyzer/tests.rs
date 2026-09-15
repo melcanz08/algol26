@@ -217,3 +217,39 @@ procedure bump(x: &mut float)
         "assignment to a function parameter must be accepted"
     );
 }
+
+#[test]
+fn test_uncaptured_move_in_nested_scope_accepted() {
+    // Without a defer, moving a variable into a nested scope is fine.
+    // `y` is used inside the region, where it's in scope.
+    let source = "\
+procedure main
+    val x := \"hello\"
+    region r
+        val y := x
+        print(y)
+";
+    assert!(
+        analyze(source).is_ok(),
+        "moving an uncaptured variable in a nested scope must be accepted"
+    );
+}
+
+#[test]
+fn test_defer_capture_blocks_move_in_nested_scope() {
+    // `defer print(x)` captures `x`. Moving `x` inside a nested
+    // scope must be rejected — the defer runs at the *outer* scope's
+    // exit and would observe a moved-from value.
+    let source = "\
+procedure main
+    val x := \"hello\"
+    defer print(x)
+    region r
+        val y := x
+        print(y)
+";
+    assert!(
+        analyze(source).is_err(),
+        "moving a defer-captured variable in a nested scope must be rejected"
+    );
+}

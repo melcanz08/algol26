@@ -51,15 +51,20 @@ impl Backend for InterpreterBackend {
             )
         })?;
 
-        // Store output
-        let mut buffer = self.output_buffer.lock().expect("interpreter output lock poisoned");
-        if output.is_empty() {
-            buffer.clear();
+        let stdout = if output.is_empty() {
+            String::new()
         } else {
-            *buffer = format!("{}\n", output).into_bytes();
-        }
+            format!("{}\n", output)
+        };
 
-        Ok(BackendOutput::InterpreterOutput)
+        // Keep the legacy buffer in sync so existing callers
+        // using `get_output()` continue to work; the returned
+        // enum now also carries the same string for new callers.
+        let mut buffer = self.output_buffer.lock().expect("interpreter output lock poisoned");
+        buffer.clear();
+        buffer.extend_from_slice(stdout.as_bytes());
+
+        Ok(BackendOutput::InterpreterOutput { stdout })
     }
 
     fn name(&self) -> &str {

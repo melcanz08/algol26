@@ -123,7 +123,9 @@ impl Backend for WasmBackend {
 
         println!("[Generated WASM: {}]", wasm_path);
 
-        Ok(BackendOutput::WasmModule)
+        Ok(BackendOutput::WasmModule {
+            path: std::path::PathBuf::from(wasm_path),
+        })
     }
 
     fn name(&self) -> &str {

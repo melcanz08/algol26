@@ -4,18 +4,26 @@
 
 use crate::common::diagnostics::Result;
 use crate::ir::verified_ir::VerifiedIR;
+use std::path::PathBuf;
 
-/// Represents the output of a backend compilation
+/// Represents the output of a backend compilation.
+///
+/// Each variant carries the data the compiler driver needs to
+/// continue: the path to the emitted `.ll` or `.wasm` file,
+/// the interpreter's captured stdout, and so on. Before PR-13e
+/// these were unit variants and callers reconstructed the path
+/// or output out-of-band — which is why the trait was not the
+/// real integration point.
 #[derive(Debug, Clone)]
 pub enum BackendOutput {
-    /// LLVM IR was generated
-    LlvmIr,
-    /// Native executable was produced
-    NativeExecutable,
-    /// Interpreter execution completed
-    InterpreterOutput,
-    /// WASM module was generated
-    WasmModule,
+    /// LLVM IR was written to `path`.
+    LlvmIr { path: PathBuf },
+    /// Native executable was produced at `path`.
+    NativeExecutable { path: PathBuf },
+    /// Interpreter execution completed with this stdout.
+    InterpreterOutput { stdout: String },
+    /// WASM module was written to `path`.
+    WasmModule { path: PathBuf },
 }
 
 /// The Backend trait — all backends consume VerifiedIR

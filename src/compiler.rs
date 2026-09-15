@@ -12,11 +12,8 @@ use crate::frontend::parser::Parser;
 use crate::ir::monomorphize::Monomorphizer;
 use crate::ir::semantic_ir::SemanticProgram;
 use crate::ir::verified_ir::VerifiedIR;
-use crate::backends::llvm_codegen::IRCodeGen;
 use crate::semantics::race::RaceDetector;
 use crate::semantics::analyzer::SemanticAnalyzer;
-use inkwell::context::Context;
-use std::path::PathBuf;
 use std::rc::Rc;
 
 // Pass infrastructure (Phase 1)
@@ -728,37 +725,33 @@ impl Compiler {
     fn lower_to_llvm(
         &self,
         verified: &VerifiedIR,
-        filename: &str,
+        _filename: &str,
         output_name: &str,
         emit_llvm: bool,
         run_after_compile: bool,
     ) -> Result<()> {
-        let program = verified.program();
+        use crate::backends::backend::{Backend, BackendOutput};
+        use crate::backends::llvm_backend::LlvmBackend;
 
-        crate::backends::capabilities::check_backend(
-            program,
-            &crate::backends::capabilities::BackendCapabilities::llvm(),
-        )?;
-
-        let context = Context::create();
-        let mut codegen = IRCodeGen::new(&context, "algol26_module");
-
-        codegen.compile(program).map_err(|e| {
-            e.display();
-            CompileError::simple("Code generation failed", 0, 0, "", ErrorCode::E0002)
-        })?;
-
-        let ir_path = PathBuf::from(output_name).with_extension("ll");
-        codegen.module.print_to_file(&ir_path).map_err(|e| {
-            let err = CompileError::simple(
-                &format!("Failed to emit LLVM IR: {}", e),
-                0, 0, "", ErrorCode::E0001,
-            );
-            err.display();
-            err
-        })?;
-
-        println!("[Generated LLVM IR: {}]", ir_path.display());
+        // Delegate LLVM emission to the backend trait. The same
+        // code path is exercised by `tests/backends/`, so
+        // `module.verify()` and the capability check both run on
+        // the production path. Before PR-13e this function
+        // reimplemented the codegen inline and never called
+        // `verify()`.
+        let backend = LlvmBackend::new();
+        let ir_path = match backend.compile(verified, output_name)? {
+            BackendOutput::LlvmIr { path } => path,
+            other => {
+                return Err(CompileError::simple(
+                    &format!("LlvmBackend returned unexpected output: {:?}", other),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0009,
+                ));
+            }
+        };
 
         if emit_llvm {
             return Ok(());

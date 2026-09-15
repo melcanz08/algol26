@@ -6,9 +6,9 @@ use std::fmt;
 #[derive(Debug, Clone)]
 pub struct CompileError {
     pub message: String,
-    pub span: Option<Span>,
-    pub line: usize,
-    pub column: usize,
+    /// Source location. `Span::default()` (all zeros) means "no
+    /// location known" — the renderer treats it as such.
+    pub span: Span,
     pub source_line: String,
     pub error_code: ErrorCode,
     pub suggestion: Option<String>,
@@ -59,8 +59,9 @@ impl ErrorCode {
 }
 
 impl CompileError {
-    // KEEP the 5-arg constructor (most code uses this)
-    pub fn new(
+    /// Construct with a single-point location. Kept for the ~150
+    /// existing call sites that pass `(line, column)` separately.
+    pub fn simple(
         message: &str,
         line: usize,
         column: usize,
@@ -69,30 +70,39 @@ impl CompileError {
     ) -> Self {
         CompileError {
             message: message.to_string(),
-            span: Some(Span::point(line, column)),
-            line,
-            column,
+            span: Span::point(line, column),
             source_line: source_line.to_string(),
             error_code,
             suggestion: None,
         }
     }
 
-    // ADD simple constructor (for new code)
-    pub fn simple(
+    /// Construct with a full span. Preferred for new code — preserves
+    /// start and end so the renderer can underline multi-column ranges.
+    pub fn at(span: Span, message: &str, error_code: ErrorCode) -> Self {
+        CompileError {
+            message: message.to_string(),
+            span,
+            source_line: String::new(),
+            error_code,
+            suggestion: None,
+        }
+    }
+
+    /// Legacy alias for `simple` — kept so existing call sites don't
+    /// need to change in this PR.
+    pub fn new(
         message: &str,
         line: usize,
         column: usize,
         source_line: &str,
         error_code: ErrorCode,
     ) -> Self {
-        CompileError::new(message, line, column, source_line, error_code)
+        CompileError::simple(message, line, column, source_line, error_code)
     }
 
     pub fn with_span(mut self, span: Span) -> Self {
-        self.span = Some(span);
-        self.line = span.start_line;
-        self.column = span.start_column;
+        self.span = span;
         self
     }
 
@@ -116,6 +126,16 @@ impl CompileError {
     pub fn display(&self) {
         eprint!("{}", crate::diagnostics::renderer::render_one(self));
     }
+
+    /// Start line of the error location. `0` means "unknown".
+    pub fn line(&self) -> usize {
+        self.span.start_line
+    }
+
+    /// Start column of the error location. `0` means "unknown".
+    pub fn column(&self) -> usize {
+        self.span.start_column
+    }
 }
 
 impl fmt::Display for CompileError {
@@ -130,12 +150,12 @@ pub type Result<T> = std::result::Result<T, CompileError>;
 
 impl From<String> for CompileError {
     fn from(msg: String) -> Self {
-        CompileError::new(&msg, 0, 0, "", ErrorCode::E0001)
+        CompileError::simple(&msg, 0, 0, "", ErrorCode::E0001)
     }
 }
 
 impl From<&str> for CompileError {
     fn from(msg: &str) -> Self {
-        CompileError::new(msg, 0, 0, "", ErrorCode::E0001)
+        CompileError::simple(msg, 0, 0, "", ErrorCode::E0001)
     }
 }

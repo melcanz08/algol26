@@ -32,11 +32,11 @@ pub fn render_one(err: &CompileError) -> String {
     ));
 
     // Location + source excerpt
-    if err.line > 0 {
-        out.push_str(&format!("  --> {}:{}\n", err.line, err.column));
+    if err.line() > 0 {
+        out.push_str(&format!("  --> {}:{}\n", err.line(), err.column()));
 
         if !err.source_line.is_empty() {
-            let line_num = err.line.to_string();
+            let line_num = err.line().to_string();
             let gutter = " ".repeat(line_num.len());
 
             out.push_str(&format!("{} |\n", gutter));
@@ -69,20 +69,17 @@ pub fn render_one(err: &CompileError) -> String {
 /// to a single caret at the start column — underlining across line
 /// breaks in a single-line snippet isn't meaningful.
 fn caret_for(err: &CompileError) -> (usize, usize) {
-    if let Some(span) = &err.span {
-        if span.start_line == span.end_line && span.start_column > 0 {
-            let start = span.start_column;
-            let end = span.end_column.max(start);
-            return (start, end - start + 1);
-        }
-        if span.start_column > 0 {
-            return (span.start_column, 1);
-        }
+    let span = &err.span;
+    if span.start_line == span.end_line && span.start_column > 0 {
+        let start = span.start_column;
+        let end = span.end_column.max(start);
+        return (start, end - start + 1);
     }
-    // Fall back to the deprecated `line`/`column` fields — kept on
-    // `CompileError` for callers that construct without a span.
-    let col = if err.column > 0 { err.column } else { 1 };
-    (col, 1)
+    if span.start_column > 0 {
+        return (span.start_column, 1);
+    }
+    // No usable span: default to column 1, width 1.
+    (1, 1)
 }
 
 /// Render a batch of diagnostics with a summary footer.

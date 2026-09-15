@@ -55,6 +55,42 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Ok(())
             }
             Instruction::Assign { target, value } => {
+                // A list assignment must mirror `Declare`'s list
+                // path: allocate a fresh array, populate it, and
+                // update `list_arrays`, `list_array_types`, and
+                // `list_lengths` together. Updating only
+                // `list_lengths` left `list_arrays[target]`
+                // pointing at the *old* array — subsequent
+                // indexing read from stale memory.
+                if let TypedIRValue::List(elems, elem_ty) = value {
+                    let len = elems.len();
+                    let elem_llvm_ty = self.map_type(elem_ty);
+                    let array_ty = elem_llvm_ty.array_type(len as u32);
+                    let arr_alloca = self.create_entry_alloca(
+                        &format!("{}_data", target),
+                        &Type::Array(Box::new(elem_ty.clone()), len),
+                    );
+                    for (i, elem) in elems.iter().enumerate() {
+                        let ev = self.compile_value(elem)?;
+                        let idx = self.context.i32_type().const_int(i as u64, false);
+                        let ptr = unsafe {
+                            self.builder
+                                .build_gep(
+                                    array_ty,
+                                    arr_alloca,
+                                    &[self.context.i32_type().const_zero(), idx],
+                                    &format!("{}_assign_gep_{}", target, i),
+                                )
+                                .unwrap()
+                        };
+                        self.builder.build_store(ptr, ev).unwrap();
+                    }
+                    self.list_arrays.insert(target.clone(), arr_alloca);
+                    self.list_array_types.insert(target.clone(), array_ty.into());
+                    self.list_lengths.insert(target.clone(), len);
+                    self.variables.insert(target.clone(), arr_alloca);
+                    return Ok(());
+                }
                 let ptr = self.variables.get(target).cloned().ok_or_else(|| {
                     CompileError::simple(
                         &format!("var {} not found", target),
@@ -66,9 +102,6 @@ impl<'ctx> IRCodeGen<'ctx> {
                 })?;
                 let val = self.compile_value(value)?;
                 self.builder.build_store(ptr, val).unwrap();
-                if let TypedIRValue::List(elems, _) = value {
-                    self.list_lengths.insert(target.clone(), elems.len());
-                }
                 Ok(())
             }
             Instruction::ArrayAssign {

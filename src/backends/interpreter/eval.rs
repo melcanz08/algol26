@@ -185,6 +185,57 @@ impl Interpreter {
                     RuntimeValue::Float(0.0)
                 }
             }
+            "List.max" => {
+                if let Some(RuntimeValue::List(list)) = arg_vals.first() {
+                    let max = list
+                        .iter()
+                        .filter_map(|v| match v {
+                            RuntimeValue::Int(i) => Some(*i as f64),
+                            RuntimeValue::Float(f) => Some(*f),
+                            _ => None,
+                        })
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    RuntimeValue::Float(max)
+                } else {
+                    RuntimeValue::Float(0.0)
+                }
+            }
+            "List.min" => {
+                if let Some(RuntimeValue::List(list)) = arg_vals.first() {
+                    let min = list
+                        .iter()
+                        .filter_map(|v| match v {
+                            RuntimeValue::Int(i) => Some(*i as f64),
+                            RuntimeValue::Float(f) => Some(*f),
+                            _ => None,
+                        })
+                        .fold(f64::INFINITY, f64::min);
+                    RuntimeValue::Float(min)
+                } else {
+                    RuntimeValue::Float(0.0)
+                }
+            }
+            "String.substring" => {
+                let s = match arg_vals.first() {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    _ => return RuntimeValue::Void,
+                };
+                let start = match arg_vals.get(1) {
+                    Some(RuntimeValue::Int(i)) => (*i).max(0) as usize,
+                    _ => return RuntimeValue::Void,
+                };
+                let length = match arg_vals.get(2) {
+                    Some(RuntimeValue::Int(i)) => (*i).max(0) as usize,
+                    _ => return RuntimeValue::Void,
+                };
+                let chars: Vec<char> = s.chars().collect();
+                let end = (start + length).min(chars.len());
+                if start >= chars.len() {
+                    RuntimeValue::String(String::new())
+                } else {
+                    RuntimeValue::String(chars[start..end].iter().collect())
+                }
+            }
             "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan"
             | "Math.exp" | "Math.log" | "Math.floor" | "Math.ceil"
             | "Math.abs" => {

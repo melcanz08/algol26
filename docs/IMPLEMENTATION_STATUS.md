@@ -112,6 +112,48 @@ Deferred (design/cleanup, not correctness bugs):
   proper fixed-point.
 - `Spawn`/`Fork` capture semantics are not verified.
 
+### Backend audit (Phase 4)
+
+Fixed:
+
+- LLVM codegen: `NotEqual` on pointers now emits `NE` (was `EQ`).
+- LLVM codegen: switch with no default emits `unreachable` (was an
+  arbitrary block).
+- LLVM codegen: list reassignment rebuilds the array instead of
+  leaving `list_arrays` pointing at the old allocation.
+- LLVM codegen: `Some`/`Ok`/`Error`/`None` are refused at capability
+  check instead of silently unwrapped. The interpreter handles them.
+- LLVM codegen: `alloc`/`free` are refused (neither backend has a
+  heap model).
+- Production LLVM path now goes through `Backend::compile`, so
+  `module.verify()` and the capability check run on the same path
+  users exercise.
+- Interpreter: iteration limit raised from 10_000 to 100_000_000;
+  `Fork` runs every branch sequentially (was: only the first);
+  Math builtins complete; `List.max`/`min`, `String.substring`
+  added; Math builtins accept `Int` inputs.
+- WASM: dead `validate_wasm_compatibility` replaced by the
+  capability system; `module.verify()` runs before write.
+- Capability: `scan_call_name` uses `builtin_signatures()` instead
+  of a prefix match — user-defined `String.helper` is no longer
+  misclassified.
+- `BackendOutput` now carries real data (paths, stdout).
+
+Open (not fixed):
+
+- `IteratorNext` fallback guesses arrays when `IteratorInit` did
+  not record the iterator. Root cause: list-typed function
+  parameters are not handled by `IteratorInit`. Two corpus
+  programs hit this. Fix requires extending `IteratorInit`.
+- Interpreter `eval_call` swallows user-function errors — the
+  caller sees `Void` after an `eprintln!`. Requires `eval_*` to
+  return `Result`.
+- WASM output has unresolved C library imports (`printf`, `exit`,
+  `sqrt`, `strlen`, `strcat`). Module is not executable without a
+  host shim. Needs a design decision.
+- `InterpreterBackend` clones the program per compile.
+- Interpreter runtime errors are `Debug`-formatted.
+
 ### LLVM backend gaps (interpreter works)
 
 - **`match` with pattern bindings** (`corpus_13`). LLVM refuses with a

@@ -212,6 +212,7 @@ impl SemanticAnalyzer {
             }
             Expr::Match { value, cases, .. } => {
                 let value_type = self.analyze_expr(value)?;
+                self.check_match_exhaustiveness(&value_type, cases)?;
                 if let Some(first_case) = cases.first() {
                     self.check_pattern_type(&first_case.pattern, &value_type)?;
                     self.push_scope();
@@ -943,5 +944,100 @@ impl SemanticAnalyzer {
             }
             _ => Ok(()),
         }
+    }
+    /// Verify that a `match` on a finite-domain type covers every
+    /// variant, unless a wildcard or binding arm provides a fallback.
+    ///
+    /// Only `Option`, `Result`, and `Bool` are checked — they have
+    /// small, well-defined domains. `Int`, `Float`, and `String` are
+    /// effectively infinite, so exhaustiveness cannot be decided
+    /// statically; those require a fallback to be useful but the
+    /// analyzer does not currently enforce it.
+    ///
+    /// Guarded patterns (`case x if cond`) do not count as covering
+    /// anything — the guard may fail, so the arm might not fire.
+    #[allow(clippy::collapsible_match)]
+    pub(super) fn check_match_exhaustiveness(
+        &self,
+        value_type: &Type,
+        cases: &[MatchCaseExpr],
+    ) -> Result<()> {
+        let mut has_some = false;
+        let mut has_none = false;
+        let mut has_ok = false;
+        let mut has_error = false;
+        let mut has_true = false;
+        let mut has_false = false;
+        let mut has_fallback = false;
+
+        for case in cases {
+            // A guarded arm's coverage depends on its guard, which we
+            // cannot decide here. Skip.
+            let pattern = match &case.pattern {
+                Pattern::Guarded { .. } => continue,
+                p => p,
+            };
+            match pattern {
+                Pattern::Some(_) | Pattern::SomeNested(_) => has_some = true,
+                Pattern::None => has_none = true,
+                Pattern::Ok(_) | Pattern::OkNested(_) => has_ok = true,
+                Pattern::Error(_) | Pattern::ErrorNested(_) => has_error = true,
+                Pattern::Literal(crate::frontend::ast::Expr::Bool(true, _)) => has_true = true,
+                Pattern::Literal(crate::frontend::ast::Expr::Bool(false, _)) => has_false = true,
+                Pattern::Wildcard | Pattern::Binding(_) => has_fallback = true,
+                _ => {}
+            }
+        }
+
+        if has_fallback {
+            return Ok(());
+        }
+
+        match value_type {
+            Type::Option(_) => {
+                if !(has_some && has_none) {
+                    return Err(CompileError::simple(
+                        "match on Option must handle both Some and None, or have a `case _` fallback",
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "Add a `case None` arm, or a `case _` arm for the unmatched variant",
+                    ));
+                }
+            }
+            Type::Result { .. } => {
+                if !(has_ok && has_error) {
+                    return Err(CompileError::simple(
+                        "match on Result must handle both Ok and Error, or have a `case _` fallback",
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "Add an `case Error(e)` arm, or a `case _` arm for the unmatched variant",
+                    ));
+                }
+            }
+            Type::Bool => {
+                if !(has_true && has_false) {
+                    return Err(CompileError::simple(
+                        "match on Bool must handle both true and false, or have a `case _` fallback",
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "Add both `case true` and `case false`, or a `case _` arm",
+                    ));
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }

@@ -50,7 +50,8 @@
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::frontend::ast::{
-    BinOp, Expr, FunctionDecl, ImplBlock, Pattern, Stmt, TraitDecl, WhereClause,
+    BinOp, Expr, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt,
+    TraitDecl, WhereClause,
 };
 use crate::semantics::trait_registry::TraitRegistry;
 use crate::common::span::Span;

@@ -175,24 +175,91 @@ impl SemanticAnalyzer {
         }
         ty
     }
+        /// True if every control-flow path through `stmts` ends in a
+    /// `return`, `break`, or other diverging statement.
+    ///
+    /// This is a heuristic, not a real CFG reachability analysis. It
+    /// handles the constructs that appear in practice:
+    ///
+    /// - A bare `return` returns `true` immediately (subsequent
+    ///   statements are unreachable).
+    /// - `if cond ... else ...` requires both branches to return.
+    /// - `match` requires every arm to return.
+    /// - `try { ... } catch { ... }` requires both branches to return.
+    /// - A nested `block` returns if its statements do.
+    ///
+    /// It does NOT handle `while true { ... }` (needs a break check)
+    /// or `for` (may run zero times), so those are conservatively
+    /// treated as "not guaranteed to return." A function that relies
+    /// on a loop to return must have an explicit `return` after it.
     pub(super) fn check_all_paths_return(&self, stmts: &[Stmt]) -> bool {
         for stmt in stmts {
             match stmt {
                 Stmt::Return { .. } => return true,
-                Stmt::Expression(Expr::If { then_branch, else_branch: Some(else_expr), .. }) => {
-                    let then_returns = matches!(then_branch.as_ref(), Expr::Block { statements, .. }
-                        if self.check_all_paths_return(statements));
-                    let else_returns = matches!(else_expr.as_ref(), Expr::Block { statements, .. }
-                        if self.check_all_paths_return(statements));
+                Stmt::Expression(Expr::If {
+                    then_branch,
+                    else_branch: Some(else_expr),
+                    ..
+                }) => {
+                    let then_returns = matches!(
+                        then_branch.as_ref(),
+                        Expr::Block { statements, .. }
+                            if self.check_all_paths_return(statements)
+                    );
+                    let else_returns = matches!(
+                        else_expr.as_ref(),
+                        Expr::Block { statements, .. }
+                            if self.check_all_paths_return(statements)
+                    );
                     if then_returns && else_returns {
                         return true;
                     }
-                    
                 }
-                Stmt::Expression(Expr::Block { statements, .. })
-                    if self.check_all_paths_return(statements) => {
+                Stmt::Expression(Expr::Match { cases, .. }) => {
+                    // Every arm must return. An empty match cannot
+                    // guarantee a return (the scrutinee might not
+                    // match any case). Cases must be non-empty and
+                    // each body must be a Block whose statements
+                    // always return.
+                    if !cases.is_empty()
+                        && cases.iter().all(|c| {
+                            matches!(
+                                &c.body,
+                                Expr::Block { statements, .. }
+                                    if self.check_all_paths_return(statements)
+                            )
+                        })
+                    {
                         return true;
                     }
+                }
+                Stmt::Expression(Expr::TryCatch {
+                    try_branch,
+                    catch_branch,
+                    ..
+                }) => {
+                    // Both try and catch must return. The finally
+                    // block is optional and runs after either branch,
+                    // so it doesn't affect whether a return happens.
+                    let try_returns = matches!(
+                        try_branch.as_ref(),
+                        Expr::Block { statements, .. }
+                            if self.check_all_paths_return(statements)
+                    );
+                    let catch_returns = matches!(
+                        catch_branch.as_ref(),
+                        Expr::Block { statements, .. }
+                            if self.check_all_paths_return(statements)
+                    );
+                    if try_returns && catch_returns {
+                        return true;
+                    }
+                }
+                Stmt::Expression(Expr::Block { statements, .. })
+                    if self.check_all_paths_return(statements) =>
+                {
+                    return true;
+                }
                 _ => {}
             }
         }

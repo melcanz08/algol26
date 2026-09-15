@@ -253,3 +253,106 @@ procedure main
         "moving a defer-captured variable in a nested scope must be rejected"
     );
 }
+
+// ─── PR-9d: match exhaustiveness ────────────────────────────────────────
+
+#[test]
+fn test_match_option_with_both_arms_accepted() {
+    let source = "\
+function unwrap_or(m: Option<Float>, d: Float) -> Float
+    return match m
+        case Some(v)
+            v
+        case None
+            d
+";
+    assert!(
+        analyze(source).is_ok(),
+        "exhaustive Option match must be accepted"
+    );
+}
+
+#[test]
+fn test_match_option_missing_none_rejected() {
+    let source = "\
+function unwrap(m: Option<Float>) -> Float
+    return match m
+        case Some(v)
+            v
+";
+    let result = analyze(source);
+    assert!(
+        result.is_err(),
+        "match on Option without None or _ must be rejected"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("Option"),
+        "expected Option exhaustiveness error, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_match_option_with_wildcard_accepted() {
+    let source = "\
+function unwrap(m: Option<Float>) -> Float
+    return match m
+        case Some(v)
+            v
+        case _
+            0.0
+";
+    assert!(
+        analyze(source).is_ok(),
+        "Option match with `_` fallback must be accepted"
+    );
+}
+
+#[test]
+fn test_match_result_missing_error_rejected() {
+    let source = "\
+function unwrap(r: Result<Float, String>) -> Float
+    return match r
+        case Ok(v)
+            v
+";
+    let result = analyze(source);
+    assert!(
+        result.is_err(),
+        "match on Result without Error or _ must be rejected"
+    );
+}
+
+#[test]
+fn test_match_bool_missing_false_rejected() {
+    let source = "\
+function f(b: Bool) -> Float
+    return match b
+        case true
+            1.0
+";
+    let result = analyze(source);
+    assert!(
+        result.is_err(),
+        "match on Bool without false or _ must be rejected"
+    );
+}
+
+// ─── PR-9d: path-return analysis ────────────────────────────────────────
+
+#[test]
+fn test_path_return_through_match_accepted() {
+    let source = "\
+function f(m: Option<Float>) -> Float
+    match m
+        case Some(v)
+            return v
+        case None
+            return 0.0
+";
+    assert!(
+        analyze(source).is_ok(),
+        "function whose match arms all return must be accepted"
+    );
+}

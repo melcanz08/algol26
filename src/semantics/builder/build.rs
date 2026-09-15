@@ -241,7 +241,7 @@ impl SemanticIRBuilder {
                         name, func.name
                     ));
                 } else {
-                    self.declare_var(name, param_type, false);
+                    self.declare_var(name, param_type, true);
                 }
             }
 

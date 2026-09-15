@@ -1,4 +1,4 @@
-// src/ir/semantic_verifier.rs
+// src/ir/verifier/mod.rs
 //
 // Instruction-level semantic verification of a SemanticProgram. Runs
 // after the structural CFG check (cfg_verifier.rs) and rejects IR that

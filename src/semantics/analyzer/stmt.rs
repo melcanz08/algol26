@@ -111,16 +111,25 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Stmt::Assign { name, value, .. } => {
-                let (var_type, _mutable) = self.lookup_variable(name).ok_or_else(|| {
+            Stmt::Assign { name, value, span } => {
+                let (var_type, mutable) = self.lookup_variable(name).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined variable '{}'", name),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
+                        span.start_line, span.start_column, "", ErrorCode::E0003,
                     ).with_suggestion(&format!(
                         "Declare '{}' with 'var {} := ...' or 'val {} := ...'",
                         name, name, name
                     ))
                 })?;
+
+                if !mutable {
+                    return Err(CompileError::simple(
+                        &format!("Cannot assign to immutable variable '{}'", name),
+                        span.start_line, span.start_column, "", ErrorCode::E0007,
+                    ).with_suggestion(&format!(
+                        "Declare '{}' with 'var' instead of 'val'", name
+                    )));
+                }
 
                 let target_type = match &var_type {
                     Type::MutBorrow(inner) => (**inner).clone(),

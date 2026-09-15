@@ -354,6 +354,16 @@ impl SemanticAnalyzer {
                 let outer_mutably_borrowed =
                     self.mutably_borrowed.last().cloned().unwrap_or_default();
 
+                // Snapshot the names visible *before* entering the loop
+                // body. Only moves of these names are "move in loop
+                // body" — a variable declared inside the body is
+                // recreated each iteration and can be moved freely.
+                let outer_vars: HashSet<String> = self
+                    .scopes
+                    .iter()
+                    .flat_map(|s| s.keys().cloned())
+                    .collect();
+
                 self.push_scope();
                 self.declare_variable(var, elem_type, false)?;
                 let moves_before = self.all_moved_vars();
@@ -363,7 +373,7 @@ impl SemanticAnalyzer {
                 let moves_after = self.all_moved_vars();
                 let new_moves: Vec<String> = moves_after
                     .iter()
-                    .filter(|v| !moves_before.contains(v))
+                    .filter(|v| !moves_before.contains(v) && outer_vars.contains(*v))
                     .cloned()
                     .collect();
 
@@ -386,7 +396,7 @@ impl SemanticAnalyzer {
                     let moved_var = new_moves[0].clone();
                     return Err(CompileError::simple(
                         &format!("Cannot move '{}' in loop body", moved_var),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0008,
+                        span.start_line, span.start_column, "", ErrorCode::E0008,
                     ));
                 }
                 Ok(result_type)

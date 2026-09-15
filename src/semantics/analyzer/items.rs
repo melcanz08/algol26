@@ -144,7 +144,7 @@ impl SemanticAnalyzer {
             } else {
                 Type::Unknown
             };
-            self.declare_variable(name, param_type, false)?;
+            self.declare_variable(name, param_type, true)?;
         }
 
         for stmt in &func.body {

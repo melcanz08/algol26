@@ -135,3 +135,85 @@ procedure main
         "match with mixed Void and value arms should be rejected"
     );
 }
+
+#[test]
+fn test_assign_to_val_rejected() {
+    let source = "\
+procedure main
+    val x := 5.0
+    x := 10.0
+";
+    let result = analyze(source);
+    assert!(
+        result.is_err(),
+        "assigning to a `val` must be rejected by the analyzer"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("immutable"),
+        "expected immutability message, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_assign_to_var_accepted() {
+    let source = "\
+procedure main
+    var x := 5.0
+    x := 10.0
+";
+    assert!(
+        analyze(source).is_ok(),
+        "assigning to a `var` must be accepted"
+    );
+}
+
+#[test]
+fn test_for_loop_local_move_accepted() {
+    // A variable declared inside a loop body is recreated each
+    // iteration. Moving it must not be flagged as a loop-body move.
+    let source = "\
+procedure main
+    for i in [1.0, 2.0]
+        val local := \"hello\"
+        val other := local
+";
+    assert!(
+        analyze(source).is_ok(),
+        "moving a locally-declared var inside a loop must be accepted"
+    );
+}
+
+#[test]
+fn test_for_loop_outer_move_rejected() {
+    // Moving an outer variable inside a loop body is a genuine problem:
+    // iteration 2 would re-move an already-moved value.
+    let source = "\
+procedure main
+    val x := \"hello\"
+    for i in [1.0, 2.0]
+        val y := x
+";
+    let result = analyze(source);
+    assert!(
+        result.is_err(),
+        "moving an outer var in a loop body must be rejected"
+    );
+}
+
+#[test]
+fn test_param_is_assignable() {
+    // Parameters are local bindings; assigning to them must be allowed.
+    // This mirrors the verifier's `mutability: true` for params, and
+    // is required for functions like `increment(x: &mut float)` that
+    // write through their parameter.
+    let source = "\
+procedure bump(x: &mut float)
+    x := x + 1.0
+";
+    assert!(
+        analyze(source).is_ok(),
+        "assignment to a function parameter must be accepted"
+    );
+}

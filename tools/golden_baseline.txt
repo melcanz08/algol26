@@ -1,0 +1,1000 @@
+# baseline captured at 2026-09-15T02:59:10Z
+# git HEAD: 99d7270
+
+======================================================================
+FILE: tests/corpus/corpus_01_sum_list.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_01_sum_list.gol]
+[Generated LLVM IR: tests/corpus/corpus_01_sum_list.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_01_sum_list]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_01_sum_list.gol]
+[Output: tests/corpus/corpus_01_sum_list]
+[Interpreting tests/corpus/corpus_01_sum_list.gol]
+15.0
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_01_sum_list.gol]
+[Output: tests/corpus/corpus_01_sum_list]
+[Generated LLVM IR: tests/corpus/corpus_01_sum_list.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_01_sum_list]
+15.0
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_02_nested_if.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_02_nested_if.gol]
+[Generated LLVM IR: tests/corpus/corpus_02_nested_if.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_02_nested_if]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_02_nested_if.gol]
+[Output: tests/corpus/corpus_02_nested_if]
+[Interpreting tests/corpus/corpus_02_nested_if.gol]
+9.0
+15.0
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_02_nested_if.gol]
+[Output: tests/corpus/corpus_02_nested_if]
+[Generated LLVM IR: tests/corpus/corpus_02_nested_if.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_02_nested_if]
+9.0
+15.0
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_03_fn_args.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_03_fn_args.gol]
+[Generated LLVM IR: tests/corpus/corpus_03_fn_args.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_03_fn_args]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_03_fn_args.gol]
+[Output: tests/corpus/corpus_03_fn_args]
+[Interpreting tests/corpus/corpus_03_fn_args.gol]
+14.0
+6.0
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_03_fn_args.gol]
+[Output: tests/corpus/corpus_03_fn_args]
+[Generated LLVM IR: tests/corpus/corpus_03_fn_args.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_03_fn_args]
+14.0
+6.0
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_04_recursion.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_04_recursion.gol]
+[Generated LLVM IR: tests/corpus/corpus_04_recursion.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_04_recursion]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_04_recursion.gol]
+[Output: tests/corpus/corpus_04_recursion]
+[Interpreting tests/corpus/corpus_04_recursion.gol]
+120
+1
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_04_recursion.gol]
+[Output: tests/corpus/corpus_04_recursion]
+[Generated LLVM IR: tests/corpus/corpus_04_recursion.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_04_recursion]
+120
+1
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_05_chain.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_05_chain.gol]
+[Generated LLVM IR: tests/corpus/corpus_05_chain.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_05_chain]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_05_chain.gol]
+[Output: tests/corpus/corpus_05_chain]
+[Interpreting tests/corpus/corpus_05_chain.gol]
+7
+49
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_05_chain.gol]
+[Output: tests/corpus/corpus_05_chain]
+[Generated LLVM IR: tests/corpus/corpus_05_chain.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_05_chain]
+7
+49
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_06_defer_order.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_06_defer_order.gol]
+[Generated LLVM IR: tests/corpus/corpus_06_defer_order.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_06_defer_order]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_06_defer_order.gol]
+[Output: tests/corpus/corpus_06_defer_order]
+[Interpreting tests/corpus/corpus_06_defer_order.gol]
+inner
+result
+outer
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_06_defer_order.gol]
+[Output: tests/corpus/corpus_06_defer_order]
+[Generated LLVM IR: tests/corpus/corpus_06_defer_order.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_06_defer_order]
+inner
+result
+outer
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_07_loop_math.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_07_loop_math.gol]
+[Generated LLVM IR: tests/corpus/corpus_07_loop_math.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_07_loop_math]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_07_loop_math.gol]
+[Output: tests/corpus/corpus_07_loop_math]
+[Interpreting tests/corpus/corpus_07_loop_math.gol]
+15.0
+55.0
+5
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_07_loop_math.gol]
+[Output: tests/corpus/corpus_07_loop_math]
+[Generated LLVM IR: tests/corpus/corpus_07_loop_math.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_07_loop_math]
+15.0
+55.0
+5
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_08_string_len.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_08_string_len.gol]
+[Generated LLVM IR: tests/corpus/corpus_08_string_len.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_08_string_len]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_08_string_len.gol]
+[Output: tests/corpus/corpus_08_string_len]
+[Interpreting tests/corpus/corpus_08_string_len.gol]
+10
+6
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_08_string_len.gol]
+[Output: tests/corpus/corpus_08_string_len]
+[Generated LLVM IR: tests/corpus/corpus_08_string_len.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_08_string_len]
+10
+6
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_09_multi_function_mixed.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_09_multi_function_mixed.gol]
+[Generated LLVM IR: tests/corpus/corpus_09_multi_function_mixed.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_09_multi_function_mixed]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_09_multi_function_mixed.gol]
+[Output: tests/corpus/corpus_09_multi_function_mixed]
+[Interpreting tests/corpus/corpus_09_multi_function_mixed.gol]
+37.5
+42
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_09_multi_function_mixed.gol]
+[Output: tests/corpus/corpus_09_multi_function_mixed]
+[Generated LLVM IR: tests/corpus/corpus_09_multi_function_mixed.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_09_multi_function_mixed]
+37.5
+42
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_10_deep_control.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_10_deep_control.gol]
+error[E0004]: iterator idx not found for '__iter_x_1' - available: [] lists:[]
+error[E0002]: Code generation failed
+check_exit=1
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_10_deep_control.gol]
+[Output: tests/corpus/corpus_10_deep_control]
+[Interpreting tests/corpus/corpus_10_deep_control.gol]
+55.0
+4
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_10_deep_control.gol]
+[Output: tests/corpus/corpus_10_deep_control]
+error[E0004]: iterator idx not found for '__iter_x_1' - available: [] lists:[]
+error[E0002]: Code generation failed
+llvm_exit=1
+
+======================================================================
+FILE: tests/corpus/corpus_11_nested_fn.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_11_nested_fn.gol]
+[Generated LLVM IR: tests/corpus/corpus_11_nested_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_11_nested_fn]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_11_nested_fn.gol]
+[Output: tests/corpus/corpus_11_nested_fn]
+[Interpreting tests/corpus/corpus_11_nested_fn.gol]
+95
+190
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_11_nested_fn.gol]
+[Output: tests/corpus/corpus_11_nested_fn]
+[Generated LLVM IR: tests/corpus/corpus_11_nested_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_11_nested_fn]
+95
+190
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_12_defer_in_loop.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_12_defer_in_loop.gol]
+[Generated LLVM IR: tests/corpus/corpus_12_defer_in_loop.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_12_defer_in_loop]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_12_defer_in_loop.gol]
+[Output: tests/corpus/corpus_12_defer_in_loop]
+[Interpreting tests/corpus/corpus_12_defer_in_loop.gol]
+iter
+1
+iter
+2
+iter
+3
+done
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_12_defer_in_loop.gol]
+[Output: tests/corpus/corpus_12_defer_in_loop]
+[Generated LLVM IR: tests/corpus/corpus_12_defer_in_loop.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_12_defer_in_loop]
+iter
+1
+iter
+2
+iter
+3
+done
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_13_match_option.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_13_match_option.gol]
+error[E0002]: The LLVM backend does not support match with pattern bindings. Run through the interpreter instead: `algol26 run --interpreter <file.gol>`
+error[E0002]: Code generation failed
+check_exit=1
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_13_match_option.gol]
+[Output: tests/corpus/corpus_13_match_option]
+[Interpreting tests/corpus/corpus_13_match_option.gol]
+has value
+7
+empty
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_13_match_option.gol]
+[Output: tests/corpus/corpus_13_match_option]
+error[E0002]: The LLVM backend does not support match with pattern bindings. Run through the interpreter instead: `algol26 run --interpreter <file.gol>`
+error[E0002]: Code generation failed
+llvm_exit=1
+
+======================================================================
+FILE: tests/corpus/corpus_14_try_catch.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_14_try_catch.gol]
+error[E0002]: The LLVM backend does not support: Result<T, E> and try/catch.
+
+Run through the interpreter instead:
+
+    algol26 run --interpreter <file.gol>
+
+The interpreter exercises the same semantic layer and supports these features.
+check_exit=1
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_14_try_catch.gol]
+[Output: tests/corpus/corpus_14_try_catch]
+[Interpreting tests/corpus/corpus_14_try_catch.gol]
+5
+99
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_14_try_catch.gol]
+[Output: tests/corpus/corpus_14_try_catch]
+error[E0002]: The LLVM backend does not support: Result<T, E> and try/catch.
+
+Run through the interpreter instead:
+
+    algol26 run --interpreter <file.gol>
+
+The interpreter exercises the same semantic layer and supports these features.
+llvm_exit=1
+
+======================================================================
+FILE: tests/corpus/corpus_15_list_of_strings.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_15_list_of_strings.gol]
+[Generated LLVM IR: tests/corpus/corpus_15_list_of_strings.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_15_list_of_strings]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_15_list_of_strings.gol]
+[Output: tests/corpus/corpus_15_list_of_strings]
+[Interpreting tests/corpus/corpus_15_list_of_strings.gol]
+3
+hello
+world
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_15_list_of_strings.gol]
+[Output: tests/corpus/corpus_15_list_of_strings]
+[Generated LLVM IR: tests/corpus/corpus_15_list_of_strings.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_15_list_of_strings]
+3
+hello
+world
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_16_mixed_fn_calls.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_16_mixed_fn_calls.gol]
+[Generated LLVM IR: tests/corpus/corpus_16_mixed_fn_calls.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_16_mixed_fn_calls]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_16_mixed_fn_calls.gol]
+[Output: tests/corpus/corpus_16_mixed_fn_calls]
+[Interpreting tests/corpus/corpus_16_mixed_fn_calls.gol]
+6
+120
+8
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_16_mixed_fn_calls.gol]
+[Output: tests/corpus/corpus_16_mixed_fn_calls]
+[Generated LLVM IR: tests/corpus/corpus_16_mixed_fn_calls.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_16_mixed_fn_calls]
+6
+120
+8
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_17_deep_nesting.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_17_deep_nesting.gol]
+[Generated LLVM IR: tests/corpus/corpus_17_deep_nesting.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_17_deep_nesting]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_17_deep_nesting.gol]
+[Output: tests/corpus/corpus_17_deep_nesting]
+[Interpreting tests/corpus/corpus_17_deep_nesting.gol]
+7
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_17_deep_nesting.gol]
+[Output: tests/corpus/corpus_17_deep_nesting]
+[Generated LLVM IR: tests/corpus/corpus_17_deep_nesting.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_17_deep_nesting]
+7
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_18_while_count.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_18_while_count.gol]
+[Generated LLVM IR: tests/corpus/corpus_18_while_count.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_18_while_count]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_18_while_count.gol]
+[Output: tests/corpus/corpus_18_while_count]
+[Interpreting tests/corpus/corpus_18_while_count.gol]
+0
+1
+2
+3
+4
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_18_while_count.gol]
+[Output: tests/corpus/corpus_18_while_count]
+[Generated LLVM IR: tests/corpus/corpus_18_while_count.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_18_while_count]
+0
+1
+2
+3
+4
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_19_while_break.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_19_while_break.gol]
+[Generated LLVM IR: tests/corpus/corpus_19_while_break.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_19_while_break]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_19_while_break.gol]
+[Output: tests/corpus/corpus_19_while_break]
+[Interpreting tests/corpus/corpus_19_while_break.gol]
+0
+1
+2
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_19_while_break.gol]
+[Output: tests/corpus/corpus_19_while_break]
+[Generated LLVM IR: tests/corpus/corpus_19_while_break.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_19_while_break]
+0
+1
+2
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_20_while_nested.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_20_while_nested.gol]
+[Generated LLVM IR: tests/corpus/corpus_20_while_nested.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_20_while_nested]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_20_while_nested.gol]
+[Output: tests/corpus/corpus_20_while_nested]
+[Interpreting tests/corpus/corpus_20_while_nested.gol]
+9
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_20_while_nested.gol]
+[Output: tests/corpus/corpus_20_while_nested]
+[Generated LLVM IR: tests/corpus/corpus_20_while_nested.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_20_while_nested]
+9
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_21_while_sum.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_21_while_sum.gol]
+[Generated LLVM IR: tests/corpus/corpus_21_while_sum.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_21_while_sum]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_21_while_sum.gol]
+[Output: tests/corpus/corpus_21_while_sum]
+[Interpreting tests/corpus/corpus_21_while_sum.gol]
+55
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_21_while_sum.gol]
+[Output: tests/corpus/corpus_21_while_sum]
+[Generated LLVM IR: tests/corpus/corpus_21_while_sum.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_21_while_sum]
+55
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_22_while_continue.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_22_while_continue.gol]
+[Generated LLVM IR: tests/corpus/corpus_22_while_continue.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_22_while_continue]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_22_while_continue.gol]
+[Output: tests/corpus/corpus_22_while_continue]
+[Interpreting tests/corpus/corpus_22_while_continue.gol]
+1
+3
+5
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_22_while_continue.gol]
+[Output: tests/corpus/corpus_22_while_continue]
+[Generated LLVM IR: tests/corpus/corpus_22_while_continue.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_22_while_continue]
+1
+3
+5
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_23_channel_int.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_23_channel_int.gol]
+error[E0003]: Undefined variable 'Int'
+  --> 5:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+check_exit=1
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_23_channel_int.gol]
+[Output: tests/corpus/corpus_23_channel_int]
+[Interpreting tests/corpus/corpus_23_channel_int.gol]
+error[E0003]: Undefined variable 'Int'
+  --> 5:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+interp_exit=1
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_23_channel_int.gol]
+[Output: tests/corpus/corpus_23_channel_int]
+error[E0003]: Undefined variable 'Int'
+  --> 5:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+llvm_exit=1
+
+======================================================================
+FILE: tests/corpus/corpus_24_channel_string.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_24_channel_string.gol]
+error[E0003]: Undefined variable 'String'
+  --> 5:15
+  = help: Declare 'String' with 'var String := ...' or 'val String := ...' in this scope
+error[E0002]: Type checking failed
+check_exit=1
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_24_channel_string.gol]
+[Output: tests/corpus/corpus_24_channel_string]
+[Interpreting tests/corpus/corpus_24_channel_string.gol]
+error[E0003]: Undefined variable 'String'
+  --> 5:15
+  = help: Declare 'String' with 'var String := ...' or 'val String := ...' in this scope
+error[E0002]: Type checking failed
+interp_exit=1
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_24_channel_string.gol]
+[Output: tests/corpus/corpus_24_channel_string]
+error[E0003]: Undefined variable 'String'
+  --> 5:15
+  = help: Declare 'String' with 'var String := ...' or 'val String := ...' in this scope
+error[E0002]: Type checking failed
+llvm_exit=1
+
+======================================================================
+FILE: tests/corpus/corpus_25_two_channels.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_25_two_channels.gol]
+error[E0003]: Undefined variable 'Int'
+  --> 6:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+check_exit=1
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_25_two_channels.gol]
+[Output: tests/corpus/corpus_25_two_channels]
+[Interpreting tests/corpus/corpus_25_two_channels.gol]
+error[E0003]: Undefined variable 'Int'
+  --> 6:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+interp_exit=1
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_25_two_channels.gol]
+[Output: tests/corpus/corpus_25_two_channels]
+error[E0003]: Undefined variable 'Int'
+  --> 6:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+llvm_exit=1
+
+======================================================================
+FILE: tests/corpus/corpus_26_spawn_channel.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_26_spawn_channel.gol]
+error[E0003]: Undefined variable 'Int'
+  --> 5:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+check_exit=1
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_26_spawn_channel.gol]
+[Output: tests/corpus/corpus_26_spawn_channel]
+[Interpreting tests/corpus/corpus_26_spawn_channel.gol]
+error[E0003]: Undefined variable 'Int'
+  --> 5:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+interp_exit=1
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_26_spawn_channel.gol]
+[Output: tests/corpus/corpus_26_spawn_channel]
+error[E0003]: Undefined variable 'Int'
+  --> 5:15
+  = help: Declare 'Int' with 'var Int := ...' or 'val Int := ...' in this scope
+error[E0002]: Type checking failed
+llvm_exit=1
+
+======================================================================
+FILE: tests/corpus/corpus_27_trait_basic.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_27_trait_basic.gol]
+[Generated LLVM IR: tests/corpus/corpus_27_trait_basic.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_27_trait_basic]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_27_trait_basic.gol]
+[Output: tests/corpus/corpus_27_trait_basic]
+[Interpreting tests/corpus/corpus_27_trait_basic.gol]
+1
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_27_trait_basic.gol]
+[Output: tests/corpus/corpus_27_trait_basic]
+[Generated LLVM IR: tests/corpus/corpus_27_trait_basic.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_27_trait_basic]
+1
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_28_trait_impl.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_28_trait_impl.gol]
+[Generated LLVM IR: tests/corpus/corpus_28_trait_impl.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_28_trait_impl]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_28_trait_impl.gol]
+[Output: tests/corpus/corpus_28_trait_impl]
+[Interpreting tests/corpus/corpus_28_trait_impl.gol]
+20
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_28_trait_impl.gol]
+[Output: tests/corpus/corpus_28_trait_impl]
+[Generated LLVM IR: tests/corpus/corpus_28_trait_impl.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_28_trait_impl]
+20
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_29_trait_two_impls.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_29_trait_two_impls.gol]
+[Generated LLVM IR: tests/corpus/corpus_29_trait_two_impls.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_29_trait_two_impls]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_29_trait_two_impls.gol]
+[Output: tests/corpus/corpus_29_trait_two_impls]
+[Interpreting tests/corpus/corpus_29_trait_two_impls.gol]
+6
+3
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_29_trait_two_impls.gol]
+[Output: tests/corpus/corpus_29_trait_two_impls]
+[Generated LLVM IR: tests/corpus/corpus_29_trait_two_impls.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_29_trait_two_impls]
+6
+3
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_30_region_simple.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_30_region_simple.gol]
+[Generated LLVM IR: tests/corpus/corpus_30_region_simple.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_30_region_simple]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_30_region_simple.gol]
+[Output: tests/corpus/corpus_30_region_simple]
+[Interpreting tests/corpus/corpus_30_region_simple.gol]
+42
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_30_region_simple.gol]
+[Output: tests/corpus/corpus_30_region_simple]
+[Generated LLVM IR: tests/corpus/corpus_30_region_simple.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_30_region_simple]
+42
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_31_region_var.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_31_region_var.gol]
+[Generated LLVM IR: tests/corpus/corpus_31_region_var.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_31_region_var]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_31_region_var.gol]
+[Output: tests/corpus/corpus_31_region_var]
+[Interpreting tests/corpus/corpus_31_region_var.gol]
+10
+20
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_31_region_var.gol]
+[Output: tests/corpus/corpus_31_region_var]
+[Generated LLVM IR: tests/corpus/corpus_31_region_var.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_31_region_var]
+10
+20
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_32_unsafe_simple.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_32_unsafe_simple.gol]
+[Generated LLVM IR: tests/corpus/corpus_32_unsafe_simple.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_32_unsafe_simple]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_32_unsafe_simple.gol]
+[Output: tests/corpus/corpus_32_unsafe_simple]
+[Interpreting tests/corpus/corpus_32_unsafe_simple.gol]
+inside
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_32_unsafe_simple.gol]
+[Output: tests/corpus/corpus_32_unsafe_simple]
+[Generated LLVM IR: tests/corpus/corpus_32_unsafe_simple.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_32_unsafe_simple]
+inside
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_33_unsafe_in_fn.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_33_unsafe_in_fn.gol]
+[Generated LLVM IR: tests/corpus/corpus_33_unsafe_in_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_33_unsafe_in_fn]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_33_unsafe_in_fn.gol]
+[Output: tests/corpus/corpus_33_unsafe_in_fn]
+[Interpreting tests/corpus/corpus_33_unsafe_in_fn.gol]
+before
+unsafely
+after
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_33_unsafe_in_fn.gol]
+[Output: tests/corpus/corpus_33_unsafe_in_fn]
+[Generated LLVM IR: tests/corpus/corpus_33_unsafe_in_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_33_unsafe_in_fn]
+before
+unsafely
+after
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_34_while_fn.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_34_while_fn.gol]
+[Generated LLVM IR: tests/corpus/corpus_34_while_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_34_while_fn]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_34_while_fn.gol]
+[Output: tests/corpus/corpus_34_while_fn]
+[Interpreting tests/corpus/corpus_34_while_fn.gol]
+0
+2
+4
+6
+8
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_34_while_fn.gol]
+[Output: tests/corpus/corpus_34_while_fn]
+[Generated LLVM IR: tests/corpus/corpus_34_while_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_34_while_fn]
+0
+2
+4
+6
+8
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_35_while_accumulate_fn.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_35_while_accumulate_fn.gol]
+[Generated LLVM IR: tests/corpus/corpus_35_while_accumulate_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_35_while_accumulate_fn]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_35_while_accumulate_fn.gol]
+[Output: tests/corpus/corpus_35_while_accumulate_fn]
+[Interpreting tests/corpus/corpus_35_while_accumulate_fn.gol]
+15
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_35_while_accumulate_fn.gol]
+[Output: tests/corpus/corpus_35_while_accumulate_fn]
+[Generated LLVM IR: tests/corpus/corpus_35_while_accumulate_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_35_while_accumulate_fn]
+15
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_36_while_nested_fn.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_36_while_nested_fn.gol]
+[Generated LLVM IR: tests/corpus/corpus_36_while_nested_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_36_while_nested_fn]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_36_while_nested_fn.gol]
+[Output: tests/corpus/corpus_36_while_nested_fn]
+[Interpreting tests/corpus/corpus_36_while_nested_fn.gol]
+6
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_36_while_nested_fn.gol]
+[Output: tests/corpus/corpus_36_while_nested_fn]
+[Generated LLVM IR: tests/corpus/corpus_36_while_nested_fn.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_36_while_nested_fn]
+6
+llvm_exit=0
+
+======================================================================
+FILE: tests/corpus/corpus_37_trait_no_arg.gol
+======================================================================
+--- check ---
+[Checking tests/corpus/corpus_37_trait_no_arg.gol]
+[Generated LLVM IR: tests/corpus/corpus_37_trait_no_arg.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_37_trait_no_arg]
+check_exit=0
+
+--- run --interpreter ---
+[Compiling and running tests/corpus/corpus_37_trait_no_arg.gol]
+[Output: tests/corpus/corpus_37_trait_no_arg]
+[Interpreting tests/corpus/corpus_37_trait_no_arg.gol]
+1
+interp_exit=0
+
+--- run (llvm) ---
+[Compiling and running tests/corpus/corpus_37_trait_no_arg.gol]
+[Output: tests/corpus/corpus_37_trait_no_arg]
+[Generated LLVM IR: tests/corpus/corpus_37_trait_no_arg.ll]
+[Successfully compiled to REPO/tests/corpus/corpus_37_trait_no_arg]
+1
+llvm_exit=0
+

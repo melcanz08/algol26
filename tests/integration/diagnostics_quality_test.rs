@@ -103,3 +103,30 @@ fn test_all_negative_corpus_produce_structured_errors() {
         }
     }
 }
+
+#[test]
+fn diag_position_points_at_condition() {
+    // PR-7 verification: an analyzer error must carry a real
+    // line:column, not 0:0.
+    use algol26::frontend::lexer::Lexer;
+    use algol26::frontend::parser::Parser;
+    use algol26::semantics::analyzer::SemanticAnalyzer;
+
+    let source = "\
+procedure main
+    var x := 5
+    if x
+        print \"hello\"
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let mut analyzer = SemanticAnalyzer::new();
+    let err = analyzer
+        .analyze(&program.functions)
+        .expect_err("expected 'If condition must be Bool' error");
+
+    // The condition `x` is at line 3, column 8 (4-indent + "if ").
+    assert_eq!(err.line(), 3, "error should point at line 3");
+    assert_eq!(err.column(), 8, "error should point at column 8");
+}

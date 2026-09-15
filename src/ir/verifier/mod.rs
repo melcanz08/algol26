@@ -78,7 +78,7 @@ use terminator::verify_terminator;
 mod instruction;
 mod value;
 mod terminator;
-mod builtins;
+pub mod builtins;
 #[cfg(test)]
 mod tests;
 

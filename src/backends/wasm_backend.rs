@@ -21,45 +21,18 @@ impl WasmBackend {
     pub fn new() -> Self {
         WasmBackend
     }
-
-    fn validate_wasm_compatibility(ir: &VerifiedIR) -> Result<()> {
-        // Check for unsupported operations
-        for func in &ir.program().functions {
-            for block in &func.blocks {
-                for instr in &block.instructions {
-                    match instr {
-                        // Send and Receive are not supported in WASM
-                        crate::ir::semantic_ir::Instruction::Send { .. } => {
-                            return Err(CompileError::new(
-                                "Channel send is not supported in WASM backend",
-                                0,
-                                0,
-                                "",
-                                ErrorCode::E0002,
-                            ));
-                        }
-                        crate::ir::semantic_ir::Instruction::Receive { .. } => {
-                            return Err(CompileError::new(
-                                "Channel receive is not supported in WASM backend",
-                                0,
-                                0,
-                                "",
-                                ErrorCode::E0002,
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 impl Backend for WasmBackend {
     fn compile(&self, ir: &VerifiedIR, output_name: &str) -> Result<BackendOutput> {
-        // Validate WASM compatibility
-        Self::validate_wasm_compatibility(ir)?;
+        // Capability check — the backend supports nothing, so any
+        // non-trivial program is refused here with a clear message.
+        // (The old `validate_wasm_compatibility` only checked
+        // Send/Receive and missed everything else.)
+        crate::backends::capabilities::check_backend(
+            ir.program(),
+            &crate::backends::capabilities::BackendCapabilities::wasm(),
+        )?;
 
         // Initialize WebAssembly target
         Target::initialize_webassembly(&InitializationConfig::default());
@@ -103,6 +76,19 @@ impl Backend for WasmBackend {
                     ErrorCode::E0001,
                 )
             })?;
+
+        // Verify the generated LLVM IR before handing it to the
+        // target machine. Matches the LLVM backend and catches
+        // codegen bugs before they reach the writer.
+        if let Err(e) = codegen.module.verify() {
+            return Err(CompileError::simple(
+                &format!("Generated WASM IR is invalid: {}", e),
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
+        }
 
         let wasm_path = format!("{}.wasm", output_name);
         machine

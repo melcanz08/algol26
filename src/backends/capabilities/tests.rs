@@ -156,6 +156,59 @@ fn llvm_rejects_spawn() {
 }
 
 #[test]
+fn llvm_accepts_ffi() {
+    // Ffi is a supported feature for LLVM. Pin the positive case
+    // so a future change to BackendCapabilities::llvm() cannot
+    // silently route FFI-using programs to the interpreter.
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "puts".to_string(),
+        params: vec![("s".to_string(), Type::String)],
+        return_type: Type::Int,
+        blocks: vec![],
+        entry_block: 0,
+        is_extern: true,
+    });
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![Instruction::Call {
+                func: "puts".to_string(),
+                args: vec![TypedIRValue::String("hi".to_string())],
+                result: None,
+            }],
+            terminator: Some(simple_return()),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    });
+    assert!(check_backend(&program, &BackendCapabilities::llvm()).is_ok());
+}
+
+#[test]
+fn wasm_rejects_result_values() {
+    // WASM supports nothing today. Result must be refused.
+    let program = program_with(
+        Instruction::Declare {
+            name: "r".to_string(),
+            mutable: false,
+            type_: Type::result(Type::Int, Type::String),
+            value: TypedIRValue::Ok {
+                value: Box::new(TypedIRValue::Int(42)),
+                result_type: Type::result(Type::Int, Type::String),
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(err.message.contains("Result"), "{}", err.message);
+}
+
+#[test]
 fn wasm_rejects_channels() {
     let program = program_with(
         Instruction::ChannelDecl {

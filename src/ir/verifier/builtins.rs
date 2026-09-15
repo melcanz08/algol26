@@ -24,6 +24,14 @@ pub(super) fn contains_type_var(t: &Type) -> bool {
     }
 }
 
+/// True if `name` is one of the compiler's built-in functions.
+/// Used by the capability scan to distinguish built-ins from user
+/// functions that happen to share a namespace prefix (e.g. a
+/// user-defined `String.helper`).
+pub fn is_builtin_name(name: &str) -> bool {
+    builtin_signatures().contains_key(name)
+}
+
 /// Signatures for built-in functions that the IR builder registers
 /// but that do not appear as `SemanticFunction` entries in the program.
 /// Keep this in sync with `SemanticIRBuilder::build_impl`.

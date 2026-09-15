@@ -60,6 +60,14 @@ use std::collections::HashSet;
 /// When adding a new `Feature` variant, add its display string in
 /// `Feature::description` and its name pattern here in the same commit.
 pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
+    // Only names that appear in the analyzer/verifier builtin table
+    // are candidates. A user-defined function named `String.helper`
+    // does not need LLVM's String lowering (it has its own body)
+    // and must not be classified as `StringFunctions`.
+    if !crate::ir::verifier::builtins::is_builtin_name(name) {
+        return;
+    }
+
     // `String.length` / `String.len` have an LLVM lowering via strlen;
     // skip them so programs that only need string length still compile
     // through LLVM. See "Exclusions" in the doc-comment above.

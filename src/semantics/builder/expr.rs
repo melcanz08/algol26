@@ -222,6 +222,40 @@ impl SemanticIRBuilder {
                         .push(format!("Cannot assign to immutable variable '{}'", name));
                 }
 
+                // `p := alloc(n)` is a memory operation, not a generic
+                // assignment. Emit `Instruction::Allocate` (which
+                // stores the fresh pointer into `p`'s alloca) so the
+                // codegen goes through the malloc lowering and the
+                // region tracker sees the pointer. This mirrors what
+                // `Stmt::VarDecl` does for `var p := alloc(n)`.
+                // Without this interception, `alloc` on an Assign RHS
+                // reaches LLVM codegen as a generic Call and fails
+                // with "unhandled builtin 'alloc'".
+                if let Expr::FunctionCall { name: fn_name, args, .. } = value {
+                    if fn_name == "alloc" && args.len() == 1 {
+                        let size = self.translate_expr(
+                            program,
+                            func,
+                            current_block,
+                            &args[0],
+                        );
+                        let ptr_ty = Type::pointer(Type::Unknown);
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            SemanticInstruction::Allocate {
+                                target: name.clone(),
+                                size,
+                                type_: ptr_ty,
+                            },
+                        );
+                        if let Some(merge) = self.pending_merge.take() {
+                            return FlowResult::Reachable(merge);
+                        }
+                        return FlowResult::Reachable(current_block);
+                    }
+                }
+
                 let expected_type = var_info.type_;
                 let typed_value = self.translate_expr(program, func, current_block, value);
                 let actual_type = typed_value.type_of();

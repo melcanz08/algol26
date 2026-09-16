@@ -393,12 +393,59 @@ impl<'ctx> IRCodeGen<'ctx> {
                         a
                     }
                 };
+                // Before overwriting, check the region state.
+                // If this is a *reassignment* of a variable
+                // already tracked by the innermost region, the
+                // old value must be snapshotted so region exit
+                // can free it too. Otherwise the first
+                // allocation leaks.
+                let is_reassignment = self
+                    .region_frames
+                    .last()
+                    .is_some_and(|f| f.tracked_vars.iter().any(|v| v == target));
+                let in_region = !self.region_frames.is_empty();
+
+                let snapshot: Option<inkwell::values::PointerValue<'ctx>> =
+                    if in_region && is_reassignment {
+                        if let Some(existing_alloca) =
+                            self.variables.get(target).copied()
+                        {
+                            let ptr_ty = self
+                                .context
+                                .ptr_type(inkwell::AddressSpace::default());
+                            let old_val = self
+                                .builder
+                                .build_load(ptr_ty, existing_alloca, "region_saved_load")
+                                .unwrap();
+                            self.iter_counter += 1;
+                            let slot_name =
+                                format!("__region_saved_{}", self.iter_counter);
+                            let slot = self.create_entry_alloca(
+                                &slot_name,
+                                &Type::Pointer(Box::new(Type::Unknown)),
+                            );
+                            self.builder.build_store(slot, old_val).unwrap();
+                            Some(slot)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                 self.builder.build_store(alloca, ptr_val).unwrap();
-                // Record the variable in the innermost active
-                // region so its allocation is freed on exit.
-                if let Some(frame) = self.region_frames.last_mut() {
-                    if !frame.allocations.contains(target) {
-                        frame.allocations.push(target.clone());
+
+                // Update the region frame with the new tracking
+                // state.
+                if in_region {
+                    if let Some(slot) = snapshot {
+                        if let Some(frame) = self.region_frames.last_mut() {
+                            frame.saved_slots.push(slot);
+                        }
+                    } else if !is_reassignment {
+                        if let Some(frame) = self.region_frames.last_mut() {
+                            frame.tracked_vars.push(target.clone());
+                        }
                     }
                 }
                 Ok(())
@@ -435,7 +482,8 @@ impl<'ctx> IRCodeGen<'ctx> {
             Instruction::RegionEnter { name } => {
                 self.region_frames.push(LRegionFrame {
                     name: name.clone(),
-                    allocations: Vec::new(),
+                    tracked_vars: Vec::new(),
+                    saved_slots: Vec::new(),
                 });
                 Ok(())
             }
@@ -446,14 +494,26 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // order matches the interpreter.
                 match self.region_frames.pop() {
                     Some(frame) if frame.name == *name => {
-                        let names: Vec<String> =
-                            frame.allocations.iter().rev().cloned().collect();
-                        for var_name in names {
+                        // Collect all pointers to free, then emit
+                        // the frees. Order: snapshots first
+                        // (LIFO), then currently-tracked vars
+                        // (LIFO). The `frame` is owned (from
+                        // pop()), so no borrow conflict.
+                        let mut cleanups: Vec<
+                            inkwell::values::PointerValue<'ctx>,
+                        > = Vec::new();
+                        for slot in frame.saved_slots.iter().rev() {
+                            cleanups.push(*slot);
+                        }
+                        for var_name in frame.tracked_vars.iter().rev() {
                             if let Some(alloca) =
-                                self.variables.get(&var_name).copied()
+                                self.variables.get(var_name).copied()
                             {
-                                self.emit_free_if_non_null(alloca)?;
+                                cleanups.push(alloca);
                             }
+                        }
+                        for alloca in cleanups {
+                            self.emit_free_if_non_null(alloca)?;
                         }
                         Ok(())
                     }

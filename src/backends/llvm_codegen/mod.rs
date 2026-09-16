@@ -56,19 +56,27 @@ pub struct IRCodeGen<'ctx> {
     /// compiled. `RegionEnter` pushes, `RegionExit` pops and
     /// emits a guarded `free` for each allocation. Early
     /// returns clean up every remaining frame. (Step 6.)
-    pub(super) region_frames: Vec<LRegionFrame>,
+    pub(super) region_frames: Vec<LRegionFrame<'ctx>>,
+    /// Monotonic counter for generating unique names (region
+    /// snapshot slots). Distinct from the semantic IR builder's
+    /// counter — this one is LLVM-codegen-local.
+    pub(super) iter_counter: usize,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct LRegionFrame {
+pub(super) struct LRegionFrame<'ctx> {
     pub name: String,
     /// Variable names holding region-scoped allocations. On
     /// region exit each is loaded; if non-null, `free`d and
-    /// nulled. Duplicate names are stored once per region —
-    /// reassigning a `var` inside a region to a new allocation
-    /// leaks the earlier value (documented divergence from the
-    /// interpreter, whose heap-remove is idempotent).
-    pub allocations: Vec<String>,
+    /// nulled. A name is added the first time `alloc` writes
+    /// to it inside this region.
+    pub tracked_vars: Vec<String>,
+    /// Snapshot slots for values overwritten by a subsequent
+    /// `alloc` to the same variable. Each holds an `i8*` that
+    /// must be freed at region exit. This is what makes
+    /// `p := alloc(8); p := alloc(16)` inside a region release
+    /// both allocations instead of just the second.
+    pub saved_slots: Vec<inkwell::values::PointerValue<'ctx>>,
 }
 
 /// Map an IR-level `Math.*` function name to the corresponding name
@@ -116,6 +124,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             ffi_symbols: HashMap::new(),
             variadic_functions: std::collections::HashSet::new(),
             region_frames: Vec::new(),
+            iter_counter: 0,
         }
     }
 

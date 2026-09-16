@@ -18,15 +18,24 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // RegionExit instructions are in unreachable
                 // blocks — the second cleanup sees nulls and
                 // skips.
-                let frames: Vec<_> = self.region_frames.iter().rev().cloned().collect();
-                for frame in &frames {
-                    let names: Vec<String> =
-                        frame.allocations.iter().rev().cloned().collect();
-                    for var_name in names {
-                        if let Some(alloca) = self.variables.get(&var_name).copied() {
-                            self.emit_free_if_non_null(alloca)?;
+                // Collect everything to free first, then emit the
+                // frees. Order: for each frame (innermost first),
+                // snapshots then tracked vars, both LIFO.
+                let mut cleanups: Vec<
+                    inkwell::values::PointerValue<'ctx>,
+                > = Vec::new();
+                for frame in self.region_frames.iter().rev() {
+                    for slot in frame.saved_slots.iter().rev() {
+                        cleanups.push(*slot);
+                    }
+                    for var_name in frame.tracked_vars.iter().rev() {
+                        if let Some(alloca) = self.variables.get(var_name).copied() {
+                            cleanups.push(alloca);
                         }
                     }
+                }
+                for alloca in cleanups {
+                    self.emit_free_if_non_null(alloca)?;
                 }
                 if let Some(v) = value {
                     let compiled = self.compile_value(v)?;

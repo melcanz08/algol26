@@ -12,19 +12,12 @@ The interpreter and LLVM backends agree on observable behavior for
 all corpus programs. The following non-corpus divergences are
 documented so future work can close them:
 
-- **Region `var` reassignment leaks in LLVM.** If a `var p` inside a
-"
-  "  `region r` is reassigned from one `alloc` result to another
-"
-  "  (`p := alloc(8); p := alloc(16)`), the LLVM backend frees only
-"
-  "  the value visible at region exit. The interpreter tracks the
-"
-  "  allocation handle and frees both. Programs that reassign a
-"
-  "  pointer variable inside a region should free explicitly before
-"
-  "  reassigning, or run through the interpreter.
+- **Region auto-free does not track outer-pointer overwrite.**
+  If a `region` block reassigns a `var` whose pointer was allocated
+  *outside* the region, the outer allocation is not freed at
+  region exit. Workaround: do not reuse an outer pointer variable
+  as region-local scratch storage — declare a fresh `var` inside
+  the block.
 - **Variadic FFI argument *types* are not validated.** `extern "C"
   function printf(fmt: String, ...)` accepts any number of arguments
   at or above the fixed count, and the analyzer records every

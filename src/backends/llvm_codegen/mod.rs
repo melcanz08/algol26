@@ -48,6 +48,23 @@ pub struct IRCodeGen<'ctx> {
     /// `declare_function` so a call to `print_line` emits
     /// `@puts` when the declaration was `as "puts"`.
     pub(super) ffi_symbols: HashMap<String, String>,
+    /// Stack of active `region` frames for the function being
+    /// compiled. `RegionEnter` pushes, `RegionExit` pops and
+    /// emits a guarded `free` for each allocation. Early
+    /// returns clean up every remaining frame. (Step 6.)
+    pub(super) region_frames: Vec<LRegionFrame>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct LRegionFrame {
+    pub name: String,
+    /// Variable names holding region-scoped allocations. On
+    /// region exit each is loaded; if non-null, `free`d and
+    /// nulled. Duplicate names are stored once per region —
+    /// reassigning a `var` inside a region to a new allocation
+    /// leaks the earlier value (documented divergence from the
+    /// interpreter, whose heap-remove is idempotent).
+    pub allocations: Vec<String>,
 }
 
 /// Map an IR-level `Math.*` function name to the corresponding name
@@ -93,6 +110,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             iterator_indices: HashMap::new(),
             iterator_lengths: HashMap::new(),
             ffi_symbols: HashMap::new(),
+            region_frames: Vec::new(),
         }
     }
 
@@ -170,6 +188,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.iterator_array_types.clear();
         self.iterator_indices.clear();
         self.iterator_lengths.clear();
+        self.region_frames.clear();
 
         for block in &func.blocks {
             let bb = self
@@ -216,6 +235,55 @@ impl<'ctx> IRCodeGen<'ctx> {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Emit a guarded `free` on the pointer stored in `alloca`.
+    ///
+    /// If the loaded pointer is null, no free is emitted. If it
+    /// is non-null, `free(ptr)` runs and the alloca is nulled so a
+    /// second call to `emit_free_if_non_null` on the same alloca
+    /// is a no-op. This is how region auto-free stays idempotent
+    /// with respect to explicit `free(p)` calls in the region
+    /// body.
+    pub(super) fn emit_free_if_non_null(
+        &self,
+        alloca: PointerValue<'ctx>,
+    ) -> Result<()> {
+        use inkwell::AddressSpace;
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+        let loaded = self
+            .builder
+            .build_load(ptr_ty, alloca, "region_free_load")
+            .unwrap();
+        let is_null = self
+            .builder
+            .build_is_null(loaded.into_pointer_value(), "region_free_isnull")
+            .unwrap();
+        let free_fn = self.module.get_function("free").ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: free not registered in stdlib",
+                0, 0, "", ErrorCode::E0009,
+            )
+        })?;
+        let current_fn = self.current_function.unwrap();
+        let do_free_bb = self
+            .context
+            .append_basic_block(current_fn, "region_free_do");
+        let skip_bb = self
+            .context
+            .append_basic_block(current_fn, "region_free_skip");
+        self.builder
+            .build_conditional_branch(is_null, skip_bb, do_free_bb)
+            .unwrap();
+        self.builder.position_at_end(do_free_bb);
+        self.builder
+            .build_call(free_fn, &[loaded.into()], "region_free_call")
+            .unwrap();
+        let null_ptr = ptr_ty.const_null();
+        self.builder.build_store(alloca, null_ptr).unwrap();
+        self.builder.build_unconditional_branch(skip_bb).unwrap();
+        self.builder.position_at_end(skip_bb);
         Ok(())
     }
 

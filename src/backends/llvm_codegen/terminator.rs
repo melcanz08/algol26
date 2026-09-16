@@ -11,6 +11,23 @@ impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_terminator(&mut self, term: &Terminator, ret_type: &Type) -> Result<()> {
         match term {
             Terminator::Return { value, type_ } => {
+                // If a `return` happened inside one or more
+                // `region` blocks, its allocations need cleanup
+                // before the actual return instruction. The
+                // guards make this safe to run even if the
+                // RegionExit instructions are in unreachable
+                // blocks — the second cleanup sees nulls and
+                // skips.
+                let frames: Vec<_> = self.region_frames.iter().rev().cloned().collect();
+                for frame in &frames {
+                    let names: Vec<String> =
+                        frame.allocations.iter().rev().cloned().collect();
+                    for var_name in names {
+                        if let Some(alloca) = self.variables.get(&var_name).copied() {
+                            self.emit_free_if_non_null(alloca)?;
+                        }
+                    }
+                }
                 if let Some(v) = value {
                     let compiled = self.compile_value(v)?;
                     self.builder.build_return(Some(&compiled)).unwrap();

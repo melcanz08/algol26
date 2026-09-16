@@ -1,6 +1,7 @@
 // src/backends/llvm_codegen/instruction.rs
 
 use super::IRCodeGen;
+use super::LRegionFrame;
 use super::resolve_math_name;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
@@ -393,14 +394,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 };
                 self.builder.build_store(alloca, ptr_val).unwrap();
+                // Record the variable in the innermost active
+                // region so its allocation is freed on exit.
+                if let Some(frame) = self.region_frames.last_mut() {
+                    if !frame.allocations.contains(target) {
+                        frame.allocations.push(target.clone());
+                    }
+                }
                 Ok(())
             }
             Instruction::Free { ptr } => {
                 // `free(p)` lowers to a call to libc `free`.
-                // `compile_value` on a pointer-typed variable
-                // loads the pointer; passing the loaded pointer
-                // to `free` matches the semantic of the
-                // interpreter's handle-based free.
+                // After the call, if the pointer is held in a
+                // variable, null its alloca. This makes a later
+                // region auto-free on the same variable a no-op
+                // (free(null) is defined as doing nothing), so
+                // `free(p)` inside a region and its auto-free on
+                // region exit do not double-free.
                 let ptr_val = self.compile_value(ptr)?;
                 let free_fn = self.module.get_function("free").ok_or_else(|| {
                     CompileError::simple(
@@ -411,16 +421,58 @@ impl<'ctx> IRCodeGen<'ctx> {
                 self.builder
                     .build_call(free_fn, &[ptr_val.into()], "free_call")
                     .unwrap();
+                if let TypedIRValue::Variable(name, _) = ptr {
+                    if let Some(alloca) = self.variables.get(name).copied() {
+                        let ptr_ty = self
+                            .context
+                            .ptr_type(inkwell::AddressSpace::default());
+                        let null_ptr = ptr_ty.const_null();
+                        self.builder.build_store(alloca, null_ptr).unwrap();
+                    }
+                }
                 Ok(())
             }
-            // Region enter/exit are no-ops for LLVM: allocations
-            // are heap-managed by malloc/free, and there is no
-            // region-scoped auto-free in the LLVM backend. A
-            // program that relies on `region` auto-free must run
-            // through the interpreter, or free its allocations
-            // explicitly. Region without alloc is a pure lexical
-            // hint, zero cost.
-            Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => Ok(()),
+            Instruction::RegionEnter { name } => {
+                self.region_frames.push(LRegionFrame {
+                    name: name.clone(),
+                    allocations: Vec::new(),
+                });
+                Ok(())
+            }
+            Instruction::RegionExit { name } => {
+                // Pop the top frame and emit a guarded free for
+                // every allocation recorded in it. Allocation
+                // names are stored in reverse (LIFO) so cleanup
+                // order matches the interpreter.
+                match self.region_frames.pop() {
+                    Some(frame) if frame.name == *name => {
+                        let names: Vec<String> =
+                            frame.allocations.iter().rev().cloned().collect();
+                        for var_name in names {
+                            if let Some(alloca) =
+                                self.variables.get(&var_name).copied()
+                            {
+                                self.emit_free_if_non_null(alloca)?;
+                            }
+                        }
+                        Ok(())
+                    }
+                    Some(frame) => Err(CompileError::simple(
+                        &format!(
+                            "LLVM codegen: region exit '{}' but top frame is '{}'",
+                            name, frame.name
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    )),
+                    None => Err(CompileError::simple(
+                        &format!(
+                            "LLVM codegen: region exit '{}' with no matching enter",
+                            name
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    )),
+                }
+            }
         }
     }
 }

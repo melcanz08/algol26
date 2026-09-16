@@ -59,6 +59,27 @@ procedure main
 - **`spawn`** and **`parallel`** blocks for structured concurrency
 - **`region`** blocks and `alloc` / `free` for manual memory
 
+> **Note:** three features in the list above are **parse-and-analyze
+> only** — the syntax parses, the analyzer checks it, but no backend
+> currently executes it:
+>
+> - **`region` blocks** — `region r` introduces a lexical scope in the
+>   analyzer. A working region allocator exists at
+>   `src/runtime/region*.rs` but is not driven by the compiler
+>   pipeline yet.
+> - **`alloc` / `free`** — refused at the capability layer for both
+>   LLVM and the interpreter (no runtime heap exists). Earlier
+>   versions silently no-op'd them.
+> - **`extern "C"` FFI** — `extern` declarations parse and reach the
+>   LLVM backend through the AST's `ExternDecl`; the richer FFI
+>   registry at `src/ffi/*` is not consulted by the driver.
+>
+> The WASM backend produces a module, but the module has unresolved
+> C-library imports (`printf`, `exit`, `sqrt`, `strlen`, `strcat`)
+> and is not directly executable. See
+> `docs/IMPLEMENTATION_STATUS.md` for the corpus-verified state of
+> every feature.
+
 ## Backends
 
 | Backend | Output | Status |

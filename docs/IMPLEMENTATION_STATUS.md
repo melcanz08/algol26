@@ -6,12 +6,38 @@ This document records what actually works, verified by the differential
 corpus in `tests/corpus/`. A feature is only listed as "works" if there
 is at least one corpus program exercising it end-to-end.
 
+## Deferred subsystems (built, not wired in)
+
+The following modules exist, are unit-tested, and compile — but
+nothing in the pipeline drives them. They are documented here so a
+reader does not assume they are active.
+
+- **`src/runtime/region.rs` and `src/runtime/region_memory.rs`** —
+  a working region allocator using `std::alloc::alloc` / `dealloc`
+  with parent/child cascade on free, LIFO stack discipline, and
+  pointer validity tracking. The `region` keyword parses and the
+  analyzer treats it as a lexical scope, but neither backend
+  actually allocates or frees through these types.
+
+- **`src/ffi/c.rs` and `src/ffi/lowering.rs`** — a C ABI type
+  model (`CType`, `CFunctionSignature`), an FFI registry
+  (`FFIRegistry`), and a type-compatibility validator. The
+  compiler does not construct an `FFIRegistry` or consult one
+  during compilation. `extern` declarations currently reach
+  codegen through the AST's `ExternDecl`; the richer registry is
+  not wired in.
+
+Wiring these in is a roadmap item, not a bug fix. Both subsystems
+are complete in isolation; what is missing is the driver code that
+constructs them from source and routes through them.
+
 ## Legend
 
 - ✅ **Works** — verified by corpus program(s)
 - ⚠️ **Interpreter only** — works in the interpreter, LLVM refuses or miscompiles
 - ❌ **Parser only** — parser and analyzer accept it, no backend runtime
 - ⛔ **Not supported** — explicitly refused with a clear error
+- 🔶 **Syntax only** — parses and analyzes; no backend executes it
 - ❓ **Untested** — no corpus coverage yet
 
 ## Feature Matrix

@@ -1,3 +1,5 @@
+// src/compiler/passes/mod.rs
+
 pub mod build_ir;
 pub mod optimize;
 pub mod type_check;

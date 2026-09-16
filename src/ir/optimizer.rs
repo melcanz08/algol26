@@ -609,6 +609,18 @@ pub fn optimize(program: &mut SemanticProgram) {
 }
 
 #[cfg(test)]
+mod tests_ffi_symbols {
+    // Sanity: program.ffi_symbols defaults empty.
+    use crate::ir::semantic_ir::SemanticProgram;
+    #[test]
+    fn new_program_has_empty_ffi_tables() {
+        let p = SemanticProgram::new();
+        assert!(p.ffi_symbols.is_empty());
+        assert!(p.ffi_libraries.is_empty());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::types::Type;

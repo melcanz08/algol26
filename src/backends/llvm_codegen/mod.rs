@@ -43,6 +43,11 @@ pub struct IRCodeGen<'ctx> {
     pub(super) iterator_array_types: HashMap<String, BasicTypeEnum<'ctx>>,
     pub(super) iterator_indices: HashMap<String, PointerValue<'ctx>>,
     pub(super) iterator_lengths: HashMap<String, usize>,
+    /// ALGOL26 extern name -> C symbol. Populated by
+    /// `compile()` from the program's FFI metadata. Used in
+    /// `declare_function` so a call to `print_line` emits
+    /// `@puts` when the declaration was `as "puts"`.
+    pub(super) ffi_symbols: HashMap<String, String>,
 }
 
 /// Map an IR-level `Math.*` function name to the corresponding name
@@ -87,10 +92,14 @@ impl<'ctx> IRCodeGen<'ctx> {
             iterator_array_types: HashMap::new(),
             iterator_indices: HashMap::new(),
             iterator_lengths: HashMap::new(),
+            ffi_symbols: HashMap::new(),
         }
     }
 
     pub fn compile(&mut self, program: &SemanticProgram) -> Result<()> {
+        // Copy the FFI symbol map so declaration can use the C
+        // name for extern functions.
+        self.ffi_symbols = program.ffi_symbols.clone();
         self.register_stdlib();
         for func in &program.functions {
             self.declare_function(func)?;
@@ -106,6 +115,15 @@ impl<'ctx> IRCodeGen<'ctx> {
         if self.functions.contains_key(&clean_name) {
             return Ok(());
         }
+        // If the extern declared `as "sym"`, the LLVM symbol is
+        // the C name; the ALGOL26 name is preserved as the
+        // lookup key in `self.functions` so call sites continue
+        // to reference the ALGOL26 name. (Step 4b wiring.)
+        let llvm_name = self
+            .ffi_symbols
+            .get(&clean_name)
+            .cloned()
+            .unwrap_or_else(|| clean_name.clone());
         let param_types: Vec<BasicMetadataTypeEnum> = func
             .params
             .iter()
@@ -121,7 +139,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 .fn_type(&param_types, false),
             _ => self.context.f64_type().fn_type(&param_types, false),
         };
-        let function = self.module.add_function(&clean_name, fn_type, None);
+        let function = self.module.add_function(&llvm_name, fn_type, None);
         self.functions.insert(clean_name, function);
         Ok(())
     }

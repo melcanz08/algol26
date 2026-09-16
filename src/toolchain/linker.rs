@@ -20,16 +20,27 @@ fn resolve_output_path(output_name: &str) -> PathBuf {
 /// `output_name` using the host `clang`.
 ///
 /// Returns the resolved absolute path of the produced binary.
-pub fn link_llvm_ir(ir_path: &Path, output_name: &str) -> Result<PathBuf> {
+pub fn link_llvm_ir(
+    ir_path: &Path,
+    output_name: &str,
+    libraries: &[String],
+) -> Result<PathBuf> {
     let output_path = resolve_output_path(output_name);
 
-    let output = Command::new("clang")
-        .arg(ir_path)
+    let mut cmd = Command::new("clang");
+    cmd.arg(ir_path)
         .arg("-o")
         .arg(&output_path)
         .arg("-O2")
         .arg("-lm")
-        .arg("-lpthread")
+        .arg("-lpthread");
+    // Each extern declaration that used `from "lib"` becomes a
+    // `-l<lib>` flag. The linker searches the standard library
+    // paths plus anything the user added to LIBRARY_PATH.
+    for lib in libraries {
+        cmd.arg(format!("-l{}", lib));
+    }
+    let output = cmd
         .output()
         .map_err(|e| {
             let err = CompileError::simple(

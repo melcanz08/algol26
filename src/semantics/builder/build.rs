@@ -360,6 +360,26 @@ impl SemanticIRBuilder {
             }
 
             self.pop_scope();
+
+            // Extern declarations carry link metadata that the
+            // LLVM codegen and linker need. Record it on the
+            // program before the function is moved into the
+            // functions vec. (Step 4b wiring.)
+            if func.is_extern {
+                if let Some(ffi) = &func.ffi_info {
+                    if let Some(sym) = &ffi.symbol_name {
+                        program
+                            .ffi_symbols
+                            .insert(func.name.clone(), sym.clone());
+                    }
+                    if let Some(lib) = &ffi.library {
+                        if !program.ffi_libraries.contains(lib) {
+                            program.ffi_libraries.push(lib.clone());
+                        }
+                    }
+                }
+            }
+
             program.functions.push(semantic_func);
         }
 

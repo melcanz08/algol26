@@ -9,6 +9,7 @@
 // job of verifier. Downstream consumers should treat the
 // claimed type as authoritative only after verification passes.
 use crate::common::types::Type;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SemanticBinOp {
@@ -326,6 +327,16 @@ pub struct SemanticFunction {
 pub struct SemanticProgram {
     pub functions: Vec<SemanticFunction>,
     pub block_counter: usize,
+    /// Map from an extern function's ALGOL26 name to its C symbol
+    /// name, when `extern ... as "sym"` was declared. Populated
+    /// by the IR builder; consumed by LLVM codegen so the
+    /// emitted call uses the C symbol rather than the ALGOL26
+    /// name.
+    pub ffi_symbols: HashMap<String, String>,
+    /// Library names (without `lib` prefix or extension) that
+    /// any extern declaration requested via `from "lib"`.
+    /// Consumed by the linker driver as `-l<name>` flags.
+    pub ffi_libraries: Vec<String>,
 }
 impl Default for SemanticProgram {
     fn default() -> Self {
@@ -338,6 +349,8 @@ impl SemanticProgram {
         Self {
             functions: vec![],
             block_counter: 0,
+            ffi_symbols: HashMap::new(),
+            ffi_libraries: Vec::new(),
         }
     }
     pub fn new_block_id(&mut self) -> usize {

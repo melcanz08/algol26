@@ -757,7 +757,11 @@ impl Compiler {
             return Ok(());
         }
 
-        let output_path = crate::toolchain::link_llvm_ir(&ir_path, output_name)?;
+        // FFI libraries requested by extern declarations are
+        // forwarded to clang as -l flags.
+        let libraries = &verified.program().ffi_libraries;
+        let output_path =
+            crate::toolchain::link_llvm_ir(&ir_path, output_name, libraries)?;
         println!("[Successfully compiled to {}]", output_path.display());
 
         if run_after_compile {

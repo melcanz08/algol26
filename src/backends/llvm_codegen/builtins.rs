@@ -66,6 +66,19 @@ impl<'ctx> IRCodeGen<'ctx> {
         let strcat_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
         let strcat_fn = self.module.add_function("strcat", strcat_ty, None);
         self.functions.insert("strcat".to_string(), strcat_fn);
+
+        // Raw memory: `alloc(n)` lowers to `malloc(n)`;
+        // `free(p)` lowers to `free(p)`. (Step 5 wiring.)
+        let malloc_ty = i8_ptr.fn_type(&[self.context.i64_type().into()], false);
+        let malloc_fn = self.module.add_function("malloc", malloc_ty, None);
+        self.functions.insert("malloc".to_string(), malloc_fn);
+
+        let free_ty = self
+            .context
+            .void_type()
+            .fn_type(&[i8_ptr.into()], false);
+        let free_fn = self.module.add_function("free", free_ty, None);
+        self.functions.insert("free".to_string(), free_fn);
     }
 
     pub(super) fn compile_builtin_value(

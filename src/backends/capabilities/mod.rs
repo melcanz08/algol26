@@ -126,6 +126,9 @@ impl BackendCapabilities {
     pub fn llvm() -> Self {
         let mut supported = HashSet::new();
         supported.insert(Feature::Ffi);
+        // Step 5: alloc/free lower to malloc/free; LLVM now
+        // accepts programs that use them.
+        supported.insert(Feature::RawMemory);
         BackendCapabilities {
             name: "LLVM",
             supported,

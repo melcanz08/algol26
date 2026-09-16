@@ -344,13 +344,82 @@ impl<'ctx> IRCodeGen<'ctx> {
             Instruction::Receive { .. } => Ok(()),
             Instruction::ChannelSend { .. } => Ok(()),
             Instruction::ChannelReceive { .. } => Ok(()),
-            Instruction::Allocate { .. } => Ok(()),
-            Instruction::Free { .. } => Ok(()),
-            // Region enter/exit are no-ops for LLVM: the backend
-            // has no runtime memory manager, and any region that
-            // actually allocates is refused by the capability
-            // check. A region containing only non-memory code
-            // becomes a lexical hint with zero cost.
+            Instruction::Allocate { target, size, type_ } => {
+                // `alloc(n)` lowers to a call to libc `malloc`.
+                // The result is stored into a per-variable alloca
+                // so `p` behaves like any other pointer-typed
+                // local.
+                let size_val = self.compile_value(size)?;
+                let size_i64 = if size_val.is_int_value() {
+                    let iv = size_val.into_int_value();
+                    if iv.get_type().get_bit_width() != 64 {
+                        self.builder
+                            .build_int_cast(iv, self.context.i64_type(), "sz64")
+                            .unwrap()
+                    } else {
+                        iv
+                    }
+                } else {
+                    self.context.i64_type().const_zero()
+                };
+                let malloc_fn = self.module.get_function("malloc").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: malloc not registered in stdlib",
+                        0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+                let call = self
+                    .builder
+                    .build_call(malloc_fn, &[size_i64.into()], "malloc_call")
+                    .unwrap();
+                let ptr_val = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v,
+                    _ => self
+                        .context
+                        .ptr_type(inkwell::AddressSpace::default())
+                        .const_null()
+                        .into(),
+                };
+                // Reuse the alloca if the target already exists
+                // (e.g. an Allocate inside a loop); otherwise
+                // create one at function entry.
+                let alloca = match self.variables.get(target).cloned() {
+                    Some(p) => p,
+                    None => {
+                        let a = self.create_entry_alloca(target, type_);
+                        self.variables.insert(target.clone(), a);
+                        self.var_types.insert(target.clone(), type_.clone());
+                        a
+                    }
+                };
+                self.builder.build_store(alloca, ptr_val).unwrap();
+                Ok(())
+            }
+            Instruction::Free { ptr } => {
+                // `free(p)` lowers to a call to libc `free`.
+                // `compile_value` on a pointer-typed variable
+                // loads the pointer; passing the loaded pointer
+                // to `free` matches the semantic of the
+                // interpreter's handle-based free.
+                let ptr_val = self.compile_value(ptr)?;
+                let free_fn = self.module.get_function("free").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: free not registered in stdlib",
+                        0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+                self.builder
+                    .build_call(free_fn, &[ptr_val.into()], "free_call")
+                    .unwrap();
+                Ok(())
+            }
+            // Region enter/exit are no-ops for LLVM: allocations
+            // are heap-managed by malloc/free, and there is no
+            // region-scoped auto-free in the LLVM backend. A
+            // program that relies on `region` auto-free must run
+            // through the interpreter, or free its allocations
+            // explicitly. Region without alloc is a pure lexical
+            // hint, zero cost.
             Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => Ok(()),
         }
     }

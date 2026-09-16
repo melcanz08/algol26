@@ -87,7 +87,8 @@ fn interpreter_accepts_option_values() {
 }
 
 #[test]
-fn llvm_rejects_raw_memory() {
+fn llvm_accepts_raw_memory() {
+    // Step 5 wiring: alloc/free lower to malloc/free.
     let program = program_with(
         Instruction::Allocate {
             target: "p".to_string(),
@@ -96,8 +97,7 @@ fn llvm_rejects_raw_memory() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
-    assert!(err.message.contains("raw memory"), "{}", err.message);
+    assert!(check_backend(&program, &BackendCapabilities::llvm()).is_ok());
 }
 
 #[test]

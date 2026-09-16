@@ -1,5 +1,12 @@
 # D007: Region Memory
 
+> **Status note (2026-09-16)**: Regions are implemented
+> end-to-end. `RegionExit` auto-frees region-scoped
+> allocations on both the interpreter and LLVM backends
+> (tags `step3-done`, `step6-done`). The syntax shown below
+> predates the current parser: use `region r` + indented
+> body, and `alloc(n)` (not `allocate(n)`).
+
 ## Status
 🔲 Planned (module created, not integrated)
 

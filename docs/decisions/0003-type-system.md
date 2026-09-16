@@ -1,5 +1,12 @@
 # D003: Type System
 
+> **Status note (2026-09-16)**: All items in the "Planned"
+> list below (algebraic data types, Option, Result, generics,
+> pattern matching) are implemented. "No implicit conversions"
+> is not accurate — `Int` coerces to `Float` at call sites
+> and in arithmetic. See `IMPLEMENTATION_STATUS.md` for the
+> current feature matrix.
+
 ## Status
 🟨 Partial (basic types implemented, full checking in progress)
 

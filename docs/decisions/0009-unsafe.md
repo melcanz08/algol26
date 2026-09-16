@@ -1,5 +1,12 @@
 # D009: Unsafe Boundary
 
+> **Status note (2026-09-16)**: `unsafe` blocks and FFI are
+> both implemented. `extern "C"` supports `as "symbol"`
+> renaming and `from "library"` linking (tag
+> `step4b-done`). The syntax shown below predates the current
+> parser: `unsafe` takes an indented body (no `do`/`end
+> unsafe`).
+
 ## Status
 🔲 Planned
 

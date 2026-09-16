@@ -90,22 +90,72 @@ impl Backend for WasmBackend {
             ));
         }
 
-        let wasm_path = format!("{}.wasm", output_name);
+        // wasm-ld expects a relocatable object, so write LLVM's
+        // output to a `.wasm.o` intermediate first, then link it
+        // into a runnable module.
+        let obj_path = format!("{}.wasm.o", output_name);
         machine
             .write_to_file(
                 &codegen.module,
                 FileType::Object,
-                std::path::Path::new(&wasm_path),
+                std::path::Path::new(&obj_path),
             )
             .map_err(|e| {
                 CompileError::simple(
-                    &format!("Failed to write WASM to {}: {}", wasm_path, e),
+                    &format!("Failed to write WASM object to {}: {}", obj_path, e),
                     0,
                     0,
                     "",
                     ErrorCode::E0001,
                 )
             })?;
+
+        // Link the object into a runnable module. Undefined
+        // C-library symbols (printf, exit, malloc, free, sqrt,
+        // strlen, ...) become imports from `env`; the Node host
+        // in `runtime/wasm/host.js` provides them.
+        //   --no-entry        : no CLI `_start` entry; host calls main
+        //   --allow-undefined : unresolved symbols become imports
+        //   --export=main     : expose main to the host
+        //   --export=memory   : expose linear memory to the host
+        let wasm_path = format!("{}.wasm", output_name);
+        let link = std::process::Command::new("wasm-ld")
+            .arg("--no-entry")
+            .arg("--allow-undefined")
+            .arg("--export=main")
+            .arg("--export=memory")
+            .arg("-o")
+            .arg(&wasm_path)
+            .arg(&obj_path)
+            .output()
+            .map_err(|e| {
+                CompileError::simple(
+                    &format!(
+                        "Failed to run wasm-ld: {} \
+                         (install with `sudo apt install lld`)",
+                        e
+                    ),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0001,
+                )
+            })?;
+
+        if !link.status.success() {
+            return Err(CompileError::simple(
+                &format!(
+                    "wasm-ld linking failed:\n{}",
+                    String::from_utf8_lossy(&link.stderr)
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0001,
+            ));
+        }
+
+        let _ = std::fs::remove_file(&obj_path);
 
         println!("[Generated WASM: {}]", wasm_path);
 

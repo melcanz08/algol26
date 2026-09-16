@@ -107,6 +107,29 @@ impl SemanticIRBuilder {
                     return FlowResult::Reachable(current_block);
                 }
 
+                // `val p := alloc(n)` is a memory operation, not a
+                // generic call. Emit an `Allocate` instruction and
+                // declare the pointer in one step. (Step 2 wiring.)
+                if let Expr::FunctionCall { name: fn_name, args, .. } = value {
+                    if fn_name == "alloc" && args.len() == 1 {
+                        let size = self.translate_expr(
+                            program, func, current_block, &args[0],
+                        );
+                        let ptr_ty = Type::pointer(Type::Unknown);
+                        self.declare_var(name, ptr_ty.clone(), *mutable);
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            SemanticInstruction::Allocate {
+                                target: name.clone(),
+                                size,
+                                type_: ptr_ty,
+                            },
+                        );
+                        return FlowResult::Reachable(current_block);
+                    }
+                }
+
                 if let Expr::List(elements, _) = value {
                     self.list_values.insert(name.clone(), elements.clone());
                 }
@@ -336,6 +359,48 @@ impl SemanticIRBuilder {
             }
             Stmt::Import { .. } => SemanticInstruction::Nop,
             Stmt::Expression(expr) => {
+                // alloc(n) / free(p) in statement position are memory
+                // operations, not generic calls. Intercept before the
+                // discarded-call path below. (Step 2 wiring.)
+                if let Expr::FunctionCall { name: fn_name, args, .. } = expr {
+                    if fn_name == "alloc" && args.len() == 1 {
+                        let size = self.translate_expr(
+                            program, func, current_block, &args[0],
+                        );
+                        let temp = format!("__alloc_{}", self.iter_counter);
+                        self.iter_counter += 1;
+                        let ptr_ty = Type::pointer(Type::Unknown);
+                        self.declare_var(&temp, ptr_ty.clone(), false);
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            SemanticInstruction::Allocate {
+                                target: temp,
+                                size,
+                                type_: ptr_ty,
+                            },
+                        );
+                        if let Some(merge) = self.pending_merge.take() {
+                            return FlowResult::Reachable(merge);
+                        }
+                        return FlowResult::Reachable(current_block);
+                    }
+                    if fn_name == "free" && args.len() == 1 {
+                        let ptr = self.translate_expr(
+                            program, func, current_block, &args[0],
+                        );
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            SemanticInstruction::Free { ptr },
+                        );
+                        if let Some(merge) = self.pending_merge.take() {
+                            return FlowResult::Reachable(merge);
+                        }
+                        return FlowResult::Reachable(current_block);
+                    }
+                }
+
                 // A discarded function call must still execute its side
                 // effects. `translate_expr` for FunctionCall returns the
                 // value without pushing an instruction — the caller pushes

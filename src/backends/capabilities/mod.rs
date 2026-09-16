@@ -152,7 +152,9 @@ impl BackendCapabilities {
         supported.insert(Feature::ListAggregates);
         supported.insert(Feature::ListPrint);
         supported.insert(Feature::Option);
-        // FFI and raw memory are not supported by the interpreter.
+        supported.insert(Feature::RawMemory);
+        // FFI is not supported by the interpreter (a tree-walker
+        // cannot call into C).
         BackendCapabilities {
             name: "interpreter",
             supported,

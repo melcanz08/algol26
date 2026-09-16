@@ -101,13 +101,14 @@ fn llvm_rejects_raw_memory() {
 }
 
 #[test]
-fn interpreter_rejects_raw_memory() {
+fn interpreter_accepts_raw_memory() {
+    // The interpreter has a simulated heap for alloc/free
+    // (added in Step 2 wiring). Refusal is only for LLVM.
     let program = program_with(
         Instruction::Free { ptr: TypedIRValue::NullPtr },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
-    assert!(err.message.contains("raw memory"), "{}", err.message);
+    assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
 }
 
 #[test]

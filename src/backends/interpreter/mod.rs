@@ -28,6 +28,14 @@ pub struct Interpreter {
     pub(super) output: Vec<String>,
     pub(super) program: SemanticProgram,
     pub(super) return_value: Option<RuntimeValue>,
+    /// Simulated heap for `alloc` / `free`. The key is an opaque
+    /// pointer handle (exposed to the program as
+    /// `RuntimeValue::Int`); the value is the allocated byte
+    /// buffer. Real pointers are not meaningful in a tree-walker,
+    /// so the handle indirection gives the runtime the same
+    /// observable behavior without FFI.
+    pub(super) heap: HashMap<usize, Vec<u8>>,
+    pub(super) next_ptr: usize,
 }
 
 impl Interpreter {
@@ -37,6 +45,8 @@ impl Interpreter {
             output: Vec::new(),
             program,
             return_value: None,
+            heap: HashMap::new(),
+            next_ptr: 1, // start at 1 so 0 means "null"
         }
     }
 
@@ -256,6 +266,27 @@ impl Interpreter {
                     format!("{}_idx", iterator),
                     RuntimeValue::Int(0),
                 );
+            }
+            Instruction::Allocate { target, size, .. } => {
+                let requested = match self.eval_value(size) {
+                    RuntimeValue::Int(i) if i > 0 => i as usize,
+                    RuntimeValue::Float(f) if f > 0.0 => f as usize,
+                    _ => 0,
+                };
+                let handle = self.next_ptr;
+                self.next_ptr += 1;
+                self.heap.insert(handle, vec![0u8; requested]);
+                self.variables
+                    .insert(target.clone(), RuntimeValue::Int(handle as i64));
+            }
+            Instruction::Free { ptr } => {
+                let handle = match self.eval_value(ptr) {
+                    RuntimeValue::Int(h) if h > 0 => Some(h as usize),
+                    _ => None,
+                };
+                if let Some(h) = handle {
+                    self.heap.remove(&h);
+                }
             }
             _=> {}
         }

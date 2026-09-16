@@ -88,6 +88,60 @@ mod tests {
     use crate::ir::verified_ir::VerifiedIR;
 
     #[test]
+    fn test_interpreter_allocate_and_free() {
+        // Step 2 wiring: the interpreter now handles
+        // `Instruction::Allocate` and `Instruction::Free`
+        // against a simulated heap.
+        use crate::common::types::Type;
+        use crate::ir::semantic_ir::{
+            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
+            TypedIRValue,
+        };
+        use crate::ir::verified_ir::VerifiedIR;
+
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+
+        let func = SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![SemanticBlock {
+                id: entry,
+                instructions: vec![
+                    Instruction::Allocate {
+                        target: "p".to_string(),
+                        size: TypedIRValue::Int(8),
+                        type_: Type::pointer(Type::Unknown),
+                    },
+                    Instruction::Free {
+                        ptr: TypedIRValue::Variable(
+                            "p".to_string(),
+                            Type::pointer(Type::Unknown),
+                        ),
+                    },
+                    Instruction::Print {
+                        value: TypedIRValue::String("ok".to_string()),
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: None,
+                    type_: Type::Void,
+                }),
+            }],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+
+        let verified = VerifiedIR::new(program).expect("IR verification failed");
+        let backend = InterpreterBackend::new();
+        let result = backend.compile(&verified, "test");
+        assert!(result.is_ok(), "interpreter should handle alloc/free: {:?}", result);
+        assert_eq!(backend.get_output(), "ok\n");
+    }
+
+    #[test]
     fn test_interpreter_captures_output() {
         let mut program = SemanticProgram::new();
         let entry = program.new_block_id();

@@ -64,12 +64,15 @@ procedure main
 > - **`alloc` / `free`** work end-to-end through both backends.
 >   The interpreter uses a simulated heap; LLVM lowers to libc
 >   `malloc` / `free` (Step 5 wiring, tag `step5-done`).
-> - **`region` blocks** work end-to-end. The interpreter auto-frees
->   a region's allocations on `RegionExit` (Step 3 wiring); the
->   LLVM backend treats `region` as a lexical hint with no
->   auto-free — programs relying on auto-free must run through the
->   interpreter, or free their allocations explicitly. This
->   asymmetry is documented in `docs/IMPLEMENTATION_STATUS.md`.
+> - **`region` blocks** work end-to-end with auto-free on both
+>   backends. `RegionExit` frees the region's allocations in the
+>   interpreter (Step 3 wiring) and in the LLVM backend (Step 6
+>   wiring, tag `step6-done`). Explicit `free(p)` inside a region
+>   is idempotent — LLVM nulls the pointer after freeing so
+>   auto-free skips it. The one remaining asymmetry (reassigning a
+>   `var` pointer inside a region leaks the earlier allocation in
+>   LLVM but not in the interpreter) is documented in
+>   `docs/IMPLEMENTATION_STATUS.md`.
 > - **`extern "C"` FFI** works through LLVM. `as "symbol"` renaming
 >   and `from "library"` linking are honored (Step 4b wiring, tag
 >   `step4b-done`). Variadic externs (`...`) parse but do not

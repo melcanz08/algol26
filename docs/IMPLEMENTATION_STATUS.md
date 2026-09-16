@@ -12,12 +12,19 @@ The interpreter and LLVM backends agree on observable behavior for
 all corpus programs. The following non-corpus divergences are
 documented so future work can close them:
 
-- **Region auto-free is interpreter-only.** A `region r` block
-  frees its allocations on exit in the interpreter. The LLVM
-  backend treats `region` as a lexical hint and does not free
-  region-scoped allocations implicitly — programs relying on
-  auto-free must call `free(p)` explicitly or run through the
-  interpreter.
+- **Region `var` reassignment leaks in LLVM.** If a `var p` inside a
+"
+  "  `region r` is reassigned from one `alloc` result to another
+"
+  "  (`p := alloc(8); p := alloc(16)`), the LLVM backend frees only
+"
+  "  the value visible at region exit. The interpreter tracks the
+"
+  "  allocation handle and frees both. Programs that reassign a
+"
+  "  pointer variable inside a region should free explicitly before
+"
+  "  reassigning, or run through the interpreter.
 - **Variadic FFI arguments are not validated.** `extern "C"
   function printf(...)` parses, registers, and calls through to
   libc, but the analyzer does not check the argument count or

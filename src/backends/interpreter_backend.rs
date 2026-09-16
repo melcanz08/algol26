@@ -142,6 +142,64 @@ mod tests {
     }
 
     #[test]
+    fn test_interpreter_region_frees_allocation_on_exit() {
+        // Step 3 wiring: `region r` opens a frame; `alloc(n)`
+        // inside records its handle; `RegionExit` frees it.
+        // The program prints inside the region, then outside,
+        // and both prints succeed.
+        use crate::common::types::Type;
+        use crate::ir::semantic_ir::{
+            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
+            TypedIRValue,
+        };
+        use crate::ir::verified_ir::VerifiedIR;
+
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+
+        let func = SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![SemanticBlock {
+                id: entry,
+                instructions: vec![
+                    Instruction::RegionEnter {
+                        name: "r".to_string(),
+                    },
+                    Instruction::Allocate {
+                        target: "p".to_string(),
+                        size: TypedIRValue::Int(8),
+                        type_: Type::pointer(Type::Unknown),
+                    },
+                    Instruction::Print {
+                        value: TypedIRValue::String("inside".to_string()),
+                    },
+                    Instruction::RegionExit {
+                        name: "r".to_string(),
+                    },
+                    Instruction::Print {
+                        value: TypedIRValue::String("outside".to_string()),
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: None,
+                    type_: Type::Void,
+                }),
+            }],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+
+        let verified = VerifiedIR::new(program).expect("IR verification failed");
+        let backend = InterpreterBackend::new();
+        let result = backend.compile(&verified, "test");
+        assert!(result.is_ok(), "region test failed: {:?}", result);
+        assert_eq!(backend.get_output(), "inside\noutside\n");
+    }
+
+    #[test]
     fn test_interpreter_captures_output() {
         let mut program = SemanticProgram::new();
         let entry = program.new_block_id();

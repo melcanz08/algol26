@@ -104,10 +104,35 @@ impl SemanticIRBuilder {
                 Stmt::Defer { stmt, .. } => {
                     self.translate_defer(program, func, current_block, stmt)
                 }
-                Stmt::RegionBlock { name: _, body, .. } => {
+                Stmt::RegionBlock { name, body, .. } => {
+                    // Region blocks now emit RegionEnter before the
+                    // body and RegionExit after, so the interpreter
+                    // can free every allocation made between them.
+                    // (Step 3 wiring.)
                     self.push_scope();
-                    let flow = self.translate_block(program, func, current_block, body);
+                    self.safe_push_instruction(
+                        func,
+                        current_block,
+                        SemanticInstruction::RegionEnter {
+                            name: name.clone(),
+                        },
+                    );
+                    let flow =
+                        self.translate_block(program, func, current_block, body);
                     self.pop_scope();
+                    // If the body terminated (e.g. `return` inside
+                    // the region), RegionExit is unreachable and
+                    // shouldn't be emitted — the interpreter's
+                    // Return handler cleans up any open frames.
+                    if let FlowResult::Reachable(id) = flow {
+                        self.safe_push_instruction(
+                            func,
+                            id,
+                            SemanticInstruction::RegionExit {
+                                name: name.clone(),
+                            },
+                        );
+                    }
                     flow
                 }
                 Stmt::UnsafeBlock { body, .. } => {

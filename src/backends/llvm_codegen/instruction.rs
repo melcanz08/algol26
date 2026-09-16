@@ -346,6 +346,12 @@ impl<'ctx> IRCodeGen<'ctx> {
             Instruction::ChannelReceive { .. } => Ok(()),
             Instruction::Allocate { .. } => Ok(()),
             Instruction::Free { .. } => Ok(()),
+            // Region enter/exit are no-ops for LLVM: the backend
+            // has no runtime memory manager, and any region that
+            // actually allocates is refused by the capability
+            // check. A region containing only non-memory code
+            // becomes a lexical hint with zero cost.
+            Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => Ok(()),
         }
     }
 }

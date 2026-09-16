@@ -322,6 +322,11 @@ impl Interpreter {
 
             let saved_vars = std::mem::take(&mut self.variables);
             let saved_ret = self.return_value.take();
+            // Region frames are function-local. A callee must
+            // start with an empty region stack — otherwise it
+            // could free the caller's active region allocations
+            // by accident.
+            let saved_regions = std::mem::take(&mut self.region_stack);
 
             for ((param_name, _), val) in callee.params.iter().zip(arg_vals) {
                 self.variables.insert(param_name.clone(), val);
@@ -332,6 +337,7 @@ impl Interpreter {
 
             self.variables = saved_vars;
             self.return_value = saved_ret;
+            self.region_stack = saved_regions;
 
             if let Err(e) = result {
                 eprintln!("[interpreter] error in {}: {}", callee.name, e);

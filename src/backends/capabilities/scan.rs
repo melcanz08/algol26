@@ -136,6 +136,11 @@ pub(super) fn scan_instruction(
             used.insert(Feature::RawMemory);
             scan_value(ptr, extern_fns, used);
         }
+        // Region enter/exit are scoping hints. If the body
+        // contains alloc/free, those instructions insert
+        // `Feature::RawMemory` on their own — regions themselves
+        // do not need a feature gate.
+        Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => {}
         Instruction::Nop => {}
     }
 }

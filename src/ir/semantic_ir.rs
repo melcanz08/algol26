@@ -203,6 +203,16 @@ pub enum Instruction {
     Free {
         ptr: TypedIRValue,
     },
+
+    /// Enter a `region NAME` block. The interpreter pushes a new
+    /// region frame; allocations between `RegionEnter` and the
+    /// matching `RegionExit` are attributed to it and freed
+    /// automatically on exit. LLVM treats both as no-ops — the
+    /// capability check refuses any program that actually allocs,
+    /// so a region without alloc has no runtime meaning.
+    RegionEnter { name: String },
+    /// Exit a `region NAME` block.
+    RegionExit { name: String },
 }
 
 #[derive(Debug, Clone)]

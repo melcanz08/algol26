@@ -23,6 +23,18 @@ mod pattern;
 mod eval;
 pub use runtime::RuntimeValue;
 
+/// A single active `region NAME` block. Allocations made inside
+/// the block are recorded here by `Instruction::Allocate` and
+/// freed when the region exits (either via `RegionExit` or via
+/// an early `return` from the enclosing function).
+#[derive(Debug)]
+pub(super) struct RegionFrame {
+    pub name: String,
+    /// Handles into `Interpreter::heap` for allocations made
+    /// while this frame was the innermost active region.
+    pub allocations: Vec<usize>,
+}
+
 pub struct Interpreter {
     pub(super) variables: HashMap<String, RuntimeValue>,
     pub(super) output: Vec<String>,
@@ -36,6 +48,11 @@ pub struct Interpreter {
     /// observable behavior without FFI.
     pub(super) heap: HashMap<usize, Vec<u8>>,
     pub(super) next_ptr: usize,
+    /// Stack of active `region` blocks in the current function.
+    /// Cleared on function exit; saved and restored across
+    /// user-function calls so a callee cannot accidentally free
+    /// its caller's region allocations.
+    pub(super) region_stack: Vec<RegionFrame>,
 }
 
 impl Interpreter {
@@ -47,6 +64,7 @@ impl Interpreter {
             return_value: None,
             heap: HashMap::new(),
             next_ptr: 1, // start at 1 so 0 means "null"
+            region_stack: Vec::new(),
         }
     }
 
@@ -96,6 +114,15 @@ impl Interpreter {
                 Some(Terminator::Return { value, .. }) => {
                     if let Some(v) = value {
                         self.return_value = Some(self.eval_value(v));
+                    }
+                    // Any `region` blocks still open at return
+                    // (from early-return paths) get cleaned up
+                    // here. Region frames are function-local, so
+                    // the caller's frame stack is untouched.
+                    while let Some(frame) = self.region_stack.pop() {
+                        for handle in frame.allocations {
+                            self.heap.remove(&handle);
+                        }
                     }
                     return Ok(());
                 }
@@ -276,6 +303,14 @@ impl Interpreter {
                 let handle = self.next_ptr;
                 self.next_ptr += 1;
                 self.heap.insert(handle, vec![0u8; requested]);
+                // Attribute to the innermost active region, if
+                // any. A region exit will free every handle
+                // recorded here, so an explicit `free(p)` inside
+                // a region is safe (removing an already-freed
+                // handle is a no-op).
+                if let Some(frame) = self.region_stack.last_mut() {
+                    frame.allocations.push(handle);
+                }
                 self.variables
                     .insert(target.clone(), RuntimeValue::Int(handle as i64));
             }
@@ -286,6 +321,38 @@ impl Interpreter {
                 };
                 if let Some(h) = handle {
                     self.heap.remove(&h);
+                }
+            }
+            Instruction::RegionEnter { name } => {
+                self.region_stack.push(RegionFrame {
+                    name: name.clone(),
+                    allocations: Vec::new(),
+                });
+            }
+            Instruction::RegionExit { name } => {
+                // The frame's name must match the exit's name.
+                // A mismatch means the IR builder emitted an
+                // enter/exit pair out of sync — a compiler bug,
+                // not a user error. Report it loudly rather than
+                // silently freeing the wrong region's heap.
+                match self.region_stack.pop() {
+                    Some(frame) if frame.name == *name => {
+                        for handle in frame.allocations {
+                            self.heap.remove(&handle);
+                        }
+                    }
+                    Some(frame) => {
+                        return Err(format!(
+                            "region exit mismatch: expected '{}', found '{}'",
+                            name, frame.name
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "region exit '{}' with no matching enter",
+                            name
+                        ));
+                    }
                 }
             }
             _=> {}

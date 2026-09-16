@@ -67,7 +67,7 @@ constructs them from source and routes through them.
 | `unsafe` | ✅ | ✅ | ✅ | ⚠️ | 32, 33 |
 | `spawn` / `parallel` | ✅ | ✅ | ✅ | ⛔ | — |
 | `channel` / `send` / `receive` | ✅ | ✅ | ❌ | ❌ | 23–26 |
-| `alloc` in `var` position | ❌ | — | — | — | — |
+|  `alloc` in `var` position | ❌ | — | — | — | — |
 | `alloc(x)` as statement | ✅ | ✅ | ✅ | ❓ | — |
 | `free` | ✅ | ✅ | ✅ | ❓ | — |
 | `extern` (FFI) | ✅ | ✅ | ⛔ | ✅ | — |

@@ -263,5 +263,10 @@ pub(super) fn verify_instruction(
                 )),
             }
         }
+        // Region enter/exit carry no operands to verify. The
+        // name is metadata; scope discipline is enforced by the
+        // interpreter at runtime (or by the LLVM codegen treating
+        // both as no-ops).
+        Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => Ok(()),
     }
 }

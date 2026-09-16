@@ -13,11 +13,13 @@ nothing in the pipeline drives them. They are documented here so a
 reader does not assume they are active.
 
 - **`src/runtime/region.rs` and `src/runtime/region_memory.rs`** —
-  a working region allocator using `std::alloc::alloc` / `dealloc`
-  with parent/child cascade on free, LIFO stack discipline, and
-  pointer validity tracking. The `region` keyword parses and the
-  analyzer treats it as a lexical scope, but neither backend
-  actually allocates or frees through these types.
+  a region allocator using `std::alloc::alloc` / `dealloc`. **Not
+  yet used by the compiler.** The `region` keyword works
+  end-to-end through the interpreter via the interpreter's own
+  simulated heap (Step 3 wiring, tag `step3-done`); this module
+  is a separate implementation that will replace the interpreter's
+  heap if/when a single runtime is shared between interpreter and
+  LLVM.
 
 - **`src/ffi/c.rs` and `src/ffi/lowering.rs`** — a C ABI type
   model (`CType`, `CFunctionSignature`), an FFI registry

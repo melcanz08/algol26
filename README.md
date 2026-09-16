@@ -63,13 +63,12 @@ procedure main
 > only** — the syntax parses, the analyzer checks it, but no backend
 > currently executes it:
 >
-> - **`region` blocks** — `region r` introduces a lexical scope in the
->   analyzer. A working region allocator exists at
->   `src/runtime/region*.rs` but is not driven by the compiler
->   pipeline yet.
-> - **`alloc` / `free`** — refused at the capability layer for both
->   LLVM and the interpreter (no runtime heap exists). Earlier
->   versions silently no-op'd them.
+> - **`region` blocks** — work end-to-end through the interpreter
+>   (Step 3 wiring, tag `step3-done`). Refused by LLVM when the body
+>   contains `alloc`/`free`; a region containing only non-memory
+>   code compiles through LLVM as a no-op.
+> - **`alloc` / `free`** — work through the interpreter (Step 2
+>   wiring, tag `step2-done`). Refused by LLVM.
 > - **`extern "C"` FFI** — `extern` declarations parse and reach the
 >   LLVM backend through the AST's `ExternDecl`; the richer FFI
 >   registry at `src/ffi/*` is not consulted by the driver.

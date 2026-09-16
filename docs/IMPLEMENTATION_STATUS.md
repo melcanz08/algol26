@@ -6,32 +6,35 @@ This document records what actually works, verified by the differential
 corpus in `tests/corpus/`. A feature is only listed as "works" if there
 is at least one corpus program exercising it end-to-end.
 
-## Deferred subsystems (built, not wired in)
+## Known divergences between backends
 
-The following modules exist, are unit-tested, and compile — but
-nothing in the pipeline drives them. They are documented here so a
-reader does not assume they are active.
+The interpreter and LLVM backends agree on observable behavior for
+all corpus programs. The following non-corpus divergences are
+documented so future work can close them:
 
-- **`src/runtime/region.rs` and `src/runtime/region_memory.rs`** —
-  a region allocator using `std::alloc::alloc` / `dealloc`. **Not
-  yet used by the compiler.** The `region` keyword works
-  end-to-end through the interpreter via the interpreter's own
-  simulated heap (Step 3 wiring, tag `step3-done`); this module
-  is a separate implementation that will replace the interpreter's
-  heap if/when a single runtime is shared between interpreter and
-  LLVM.
+- **Region auto-free is interpreter-only.** A `region r` block
+  frees its allocations on exit in the interpreter. The LLVM
+  backend treats `region` as a lexical hint and does not free
+  region-scoped allocations implicitly — programs relying on
+  auto-free must call `free(p)` explicitly or run through the
+  interpreter.
+- **Variadic FFI arguments are not validated.** `extern "C"
+  function printf(...)` parses, registers, and calls through to
+  libc, but the analyzer does not check the argument count or
+  types against a variadic signature.
+- **WASM output requires a host shim.** The generated `.wasm`
+  module imports `printf`, `exit`, `malloc`, `free`, and the C
+  math library; it cannot execute without a host that provides
+  those symbols.
 
-- **`src/ffi/c.rs` and `src/ffi/lowering.rs`** — a C ABI type
-  model (`CType`, `CFunctionSignature`), an FFI registry
-  (`FFIRegistry`), and a type-compatibility validator. The
-  compiler does not construct an `FFIRegistry` or consult one
-  during compilation. `extern` declarations currently reach
-  codegen through the AST's `ExternDecl`; the richer registry is
-  not wired in.
+## Deferred runtime modules (wired but not shared)
 
-Wiring these in is a roadmap item, not a bug fix. Both subsystems
-are complete in isolation; what is missing is the driver code that
-constructs them from source and routes through them.
+The modules `src/runtime/region.rs` and `src/runtime/region_memory.rs`
+implement a `std::alloc`-based region allocator with parent/child
+cascade on free. They are not used by the current pipeline: the
+interpreter has its own heap and the LLVM backend relies on libc.
+These modules are the seed of a shared runtime that a future
+backend could consume.
 
 ## Legend
 

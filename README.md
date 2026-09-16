@@ -59,25 +59,26 @@ procedure main
 - **`spawn`** and **`parallel`** blocks for structured concurrency
 - **`region`** blocks and `alloc` / `free` for manual memory
 
-> **Note:** three features in the list above are **parse-and-analyze
-> only** — the syntax parses, the analyzer checks it, but no backend
-> currently executes it:
+> **Note on execution coverage:**
 >
-> - **`region` blocks** — work end-to-end through the interpreter
->   (Step 3 wiring, tag `step3-done`). Refused by LLVM when the body
->   contains `alloc`/`free`; a region containing only non-memory
->   code compiles through LLVM as a no-op.
-> - **`alloc` / `free`** — work through the interpreter (Step 2
->   wiring, tag `step2-done`). Refused by LLVM.
-> - **`extern "C"` FFI** — `extern` declarations parse and reach the
->   LLVM backend through the AST's `ExternDecl`; the richer FFI
->   registry at `src/ffi/*` is not consulted by the driver.
->
-> The WASM backend produces a module, but the module has unresolved
-> C-library imports (`printf`, `exit`, `sqrt`, `strlen`, `strcat`)
-> and is not directly executable. See
-> `docs/IMPLEMENTATION_STATUS.md` for the corpus-verified state of
-> every feature.
+> - **`alloc` / `free`** work end-to-end through both backends.
+>   The interpreter uses a simulated heap; LLVM lowers to libc
+>   `malloc` / `free` (Step 5 wiring, tag `step5-done`).
+> - **`region` blocks** work end-to-end. The interpreter auto-frees
+>   a region's allocations on `RegionExit` (Step 3 wiring); the
+>   LLVM backend treats `region` as a lexical hint with no
+>   auto-free — programs relying on auto-free must run through the
+>   interpreter, or free their allocations explicitly. This
+>   asymmetry is documented in `docs/IMPLEMENTATION_STATUS.md`.
+> - **`extern "C"` FFI** works through LLVM. `as "symbol"` renaming
+>   and `from "library"` linking are honored (Step 4b wiring, tag
+>   `step4b-done`). Variadic externs (`...`) parse but do not
+>   validate argument types — a known gap.
+> - The WASM backend produces a module, but the module has
+>   unresolved C-library imports (`printf`, `exit`, `sqrt`,
+>   `strlen`, `strcat`, `malloc`, `free`) and is not directly
+>   executable. See `docs/IMPLEMENTATION_STATUS.md` for the
+>   corpus-verified state of every feature.
 
 ## Backends
 

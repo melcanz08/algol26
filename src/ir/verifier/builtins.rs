@@ -44,6 +44,7 @@ pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
             FunctionSignature {
                 params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
                 return_type: ret,
+                variadic: false,
             },
         );
     };

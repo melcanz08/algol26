@@ -131,10 +131,20 @@ pub(super) fn verify_instruction(
                 )
             })?;
 
-            if arg_types.len() != sig.params.len() {
+            let arity_ok = if sig.variadic {
+                arg_types.len() >= sig.params.len()
+            } else {
+                arg_types.len() == sig.params.len()
+            };
+            if !arity_ok {
+                let expected = if sig.variadic {
+                    format!("at least {}", sig.params.len())
+                } else {
+                    format!("{}", sig.params.len())
+                };
                 return Err(format!(
                     "Function '{}': Call to '{}' expects {} args, found {}",
-                    func.name, callee, sig.params.len(), arg_types.len()
+                    func.name, callee, expected, arg_types.len()
                 ));
             }
 

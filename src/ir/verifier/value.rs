@@ -180,12 +180,20 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
                 format!("Call to undefined function '{}' in verified IR", function)
             })?;
 
-            if arg_types.len() != sig.params.len() {
+            let arity_ok = if sig.variadic {
+                arg_types.len() >= sig.params.len()
+            } else {
+                arg_types.len() == sig.params.len()
+            };
+            if !arity_ok {
+                let expected = if sig.variadic {
+                    format!("at least {}", sig.params.len())
+                } else {
+                    format!("{}", sig.params.len())
+                };
                 return Err(format!(
                     "Call to '{}' expects {} args, found {}",
-                    function,
-                    sig.params.len(),
-                    arg_types.len()
+                    function, expected, arg_types.len()
                 ));
             }
 

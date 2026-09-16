@@ -106,6 +106,9 @@ impl SemanticAnalyzer {
                 .unwrap_or(Type::Void);
 
             let clean_name = func.name.trim_end_matches("()").to_string();
+            if func.ffi_info.as_ref().is_some_and(|f| f.variadic) {
+                self.variadic_functions.insert(clean_name.clone());
+            }
             self.functions.insert(clean_name, FunctionInfo { params, return_type });
         }
     }

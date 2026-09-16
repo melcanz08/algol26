@@ -740,17 +740,45 @@ impl SemanticAnalyzer {
                     ))
                 })?;
 
-                if args.len() != func_info.params.len() {
+                // Variadic extern functions accept any number of
+                // arguments at or above the fixed count. Extra
+                // arguments are the variadic tail — their types
+                // are not checked (matching C). Non-variadic
+                // functions still require exact arity.
+                let is_variadic = self.variadic_functions.contains(clean_name);
+                let arity_ok = if is_variadic {
+                    args.len() >= func_info.params.len()
+                } else {
+                    args.len() == func_info.params.len()
+                };
+                if !arity_ok {
+                    let expected_msg = if is_variadic {
+                        format!("at least {} argument(s)", func_info.params.len())
+                    } else {
+                        format!("exactly {} argument(s)", func_info.params.len())
+                    };
                     return Err(CompileError::simple(
                         &format!(
-                            "Function '{}' expects {} arguments, got {}",
-                            name, func_info.params.len(), args.len()
+                            "Function '{}' expects {}, got {}",
+                            name, expected_msg, args.len()
                         ),
                         self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
                     ).with_suggestion(&format!(
-                        "Provide exactly {} argument(s) to '{}'",
-                        func_info.params.len(), name
+                        "Provide {} to '{}'", expected_msg, name
                     )));
+                }
+
+                // Variadic tail: any args past `params.len()` have no
+                // declared type. Analyze them in an uncontexted way so
+                // their types land in `type_table` (otherwise
+                // TypeTableCompletePass warns about every extra arg).
+                // Their types are not checked — this matches C's
+                // variadic ABI where extra arg types are the caller's
+                // responsibility.
+                if is_variadic {
+                    for arg in args.iter().skip(func_info.params.len()) {
+                        self.analyze_expr(arg)?;
+                    }
                 }
 
                 let mut type_bindings: HashMap<String, Type> = HashMap::new();

@@ -48,6 +48,10 @@ pub struct IRCodeGen<'ctx> {
     /// `declare_function` so a call to `print_line` emits
     /// `@puts` when the declaration was `as "puts"`.
     pub(super) ffi_symbols: HashMap<String, String>,
+    /// Names of variadic extern functions. Used in
+    /// `declare_function` so the LLVM function type is variadic
+    /// and accepts the call's extra arguments.
+    pub(super) variadic_functions: std::collections::HashSet<String>,
     /// Stack of active `region` frames for the function being
     /// compiled. `RegionEnter` pushes, `RegionExit` pops and
     /// emits a guarded `free` for each allocation. Early
@@ -110,6 +114,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             iterator_indices: HashMap::new(),
             iterator_lengths: HashMap::new(),
             ffi_symbols: HashMap::new(),
+            variadic_functions: std::collections::HashSet::new(),
             region_frames: Vec::new(),
         }
     }
@@ -118,6 +123,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         // Copy the FFI symbol map so declaration can use the C
         // name for extern functions.
         self.ffi_symbols = program.ffi_symbols.clone();
+        self.variadic_functions = program.variadic_functions.clone();
         self.register_stdlib();
         for func in &program.functions {
             self.declare_function(func)?;
@@ -142,20 +148,23 @@ impl<'ctx> IRCodeGen<'ctx> {
             .get(&clean_name)
             .cloned()
             .unwrap_or_else(|| clean_name.clone());
+        // Variadic externs must be declared with LLVM's variadic
+        // bit set, otherwise LLVM rejects the extra call args.
+        let is_variadic = self.variadic_functions.contains(&clean_name);
         let param_types: Vec<BasicMetadataTypeEnum> = func
             .params
             .iter()
             .map(|(_, t)| self.map_type(t).into())
             .collect();
         let fn_type = match func.return_type {
-            Type::Void => self.context.void_type().fn_type(&param_types, false),
-            Type::Int => self.context.i64_type().fn_type(&param_types, false),
-            Type::Bool => self.context.bool_type().fn_type(&param_types, false),
+            Type::Void => self.context.void_type().fn_type(&param_types, is_variadic),
+            Type::Int => self.context.i64_type().fn_type(&param_types, is_variadic),
+            Type::Bool => self.context.bool_type().fn_type(&param_types, is_variadic),
             Type::String => self
                 .context
                 .ptr_type(AddressSpace::default())
-                .fn_type(&param_types, false),
-            _ => self.context.f64_type().fn_type(&param_types, false),
+                .fn_type(&param_types, is_variadic),
+            _ => self.context.f64_type().fn_type(&param_types, is_variadic),
         };
         let function = self.module.add_function(&llvm_name, fn_type, None);
         self.functions.insert(clean_name, function);

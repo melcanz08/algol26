@@ -109,6 +109,10 @@ pub struct SemanticAnalyzer {
     type_constraints: Vec<HashMap<String, Vec<String>>>,
     trait_registry: TraitRegistry,
     deferred_captures: Vec<HashSet<String>>,
+    /// Function names declared variadic via `extern "C" ...(...)`.
+    /// Used to relax the arity check from "exactly N" to "at
+    /// least N" for those functions.
+    variadic_functions: HashSet<String>,
 
     // ─── UNIFY TYPES ─── New: inferred type of each expression, keyed by address.
     // Addresses are stable because the analyzer and IR builder walk the *same*
@@ -151,6 +155,7 @@ impl SemanticAnalyzer {
             trait_registry: TraitRegistry::new(),
             deferred_captures: vec![HashSet::new()],
             null_bindings: vec![HashSet::new()],
+            variadic_functions: HashSet::new(),
             // ─── UNIFY TYPES ───
             type_table: HashMap::new(),
             current_span: Span::default(),

@@ -337,6 +337,11 @@ pub struct SemanticProgram {
     /// any extern declaration requested via `from "lib"`.
     /// Consumed by the linker driver as `-l<name>` flags.
     pub ffi_libraries: Vec<String>,
+    /// Names of extern functions declared variadic
+    /// (`extern "C" function f(a: T, ...)`). Consumed by LLVM
+    /// codegen so the declared function type is variadic, and
+    /// by the IR verifier to relax its arity check.
+    pub variadic_functions: std::collections::HashSet<String>,
 }
 impl Default for SemanticProgram {
     fn default() -> Self {
@@ -351,6 +356,7 @@ impl SemanticProgram {
             block_counter: 0,
             ffi_symbols: HashMap::new(),
             ffi_libraries: Vec::new(),
+            variadic_functions: std::collections::HashSet::new(),
         }
     }
     pub fn new_block_id(&mut self) -> usize {

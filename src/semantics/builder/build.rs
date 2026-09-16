@@ -377,6 +377,9 @@ impl SemanticIRBuilder {
                             program.ffi_libraries.push(lib.clone());
                         }
                     }
+                    if ffi.variadic {
+                        program.variadic_functions.insert(func.name.clone());
+                    }
                 }
             }
 

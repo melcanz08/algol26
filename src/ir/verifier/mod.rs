@@ -103,6 +103,7 @@ pub fn verify(program: &SemanticProgram) -> Result<(), String> {
             FunctionSignature {
                 params: func.params.clone(),
                 return_type: func.return_type.clone(),
+                variadic: program.variadic_functions.contains(&func.name),
             },
         );
     }
@@ -123,6 +124,10 @@ pub fn verify(program: &SemanticProgram) -> Result<(), String> {
 pub(super) struct FunctionSignature {
     params: Vec<(String, Type)>,
     return_type: Type,
+    /// True for `extern "C"` functions declared with `...`.
+    /// Callers may pass more arguments than `params.len()`;
+    /// the extra args are untyped (matching C's variadic ABI).
+    variadic: bool,
 }
 
 #[derive(Clone)]

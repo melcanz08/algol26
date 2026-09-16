@@ -73,10 +73,10 @@ procedure main
 >   `var` pointer inside a region leaks the earlier allocation in
 >   LLVM but not in the interpreter) is documented in
 >   `docs/IMPLEMENTATION_STATUS.md`.
-> - **`extern "C"` FFI** works through LLVM. `as "symbol"` renaming
->   and `from "library"` linking are honored (Step 4b wiring, tag
->   `step4b-done`). Variadic externs (`...`) parse but do not
->   validate argument types — a known gap.
+> - **`extern "C"` FFI** works through LLVM. `as "symbol"` renaming,
+>   `from "library"` linking, and variadic arity checking are all
+>   implemented. Variadic argument *types* are not validated against
+>   the format string — that is C-level UB.
 > - The WASM backend produces a module, but the module has
 >   unresolved C-library imports (`printf`, `exit`, `sqrt`,
 >   `strlen`, `strcat`, `malloc`, `free`) and is not directly

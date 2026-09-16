@@ -25,10 +25,13 @@ documented so future work can close them:
   "  pointer variable inside a region should free explicitly before
 "
   "  reassigning, or run through the interpreter.
-- **Variadic FFI arguments are not validated.** `extern "C"
-  function printf(...)` parses, registers, and calls through to
-  libc, but the analyzer does not check the argument count or
-  types against a variadic signature.
+- **Variadic FFI argument *types* are not validated.** `extern "C"
+  function printf(fmt: String, ...)` accepts any number of arguments
+  at or above the fixed count, and the analyzer records every
+  argument's type in the type table. The extra arguments' types are
+  not checked against the format string — that is C-level undefined
+  behavior, and no compiler catches it. Callers must match the
+  format specifiers to the argument types themselves.
 - **WASM output requires a host shim.** The generated `.wasm`
   module imports `printf`, `exit`, `malloc`, `free`, and the C
   math library; it cannot execute without a host that provides

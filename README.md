@@ -77,11 +77,13 @@ procedure main
 >   `from "library"` linking, and variadic arity checking are all
 >   implemented. Variadic argument *types* are not validated against
 >   the format string — that is C-level UB.
-> - The WASM backend produces a module, but the module has
->   unresolved C-library imports (`printf`, `exit`, `sqrt`,
->   `strlen`, `strcat`, `malloc`, `free`) and is not directly
->   executable. See `docs/IMPLEMENTATION_STATUS.md` for the
->   corpus-verified state of every feature.
+> - The WASM backend produces a runnable module. After linking
+>   via `wasm-ld`, the module is executed through a small Node
+>   host shim at `runtime/wasm/host.js` that provides the C
+>   library imports (`printf`, `exit`, `malloc`, `free`, math
+>   functions). Run a WASM build with
+>   `runtime/wasm/run.sh <file.gol>`. See
+>   `docs/IMPLEMENTATION_STATUS.md` for details.
 
 ## Backends
 

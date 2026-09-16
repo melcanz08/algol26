@@ -25,10 +25,13 @@ documented so future work can close them:
   not checked against the format string — that is C-level undefined
   behavior, and no compiler catches it. Callers must match the
   format specifiers to the argument types themselves.
-- **WASM output requires a host shim.** The generated `.wasm`
-  module imports `printf`, `exit`, `malloc`, `free`, and the C
-  math library; it cannot execute without a host that provides
-  those symbols.
+- **WASM execution requires the Node host shim.** The compiler
+  links `.wasm` output via `wasm-ld`; the resulting module is
+  runnable through `runtime/wasm/host.js`, which provides the C
+  library imports. The shim's `malloc` is a bump allocator
+  (no `free`); the C varargs ABI requires dereferencing by slot
+  on the shim side, which is handled for the built-in `printf`
+  format specifiers. A WASM-specific libc is out of scope.
 
 ## Deferred runtime modules (wired but not shared)
 

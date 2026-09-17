@@ -1,0 +1,9 @@
+// EXPECT: REJECT E-INIT-001
+procedure main
+    var y := 5
+    var x
+    if y > 3
+        x := 10
+    end
+    print x
+end

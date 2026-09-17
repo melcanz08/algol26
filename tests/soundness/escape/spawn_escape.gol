@@ -1,0 +1,11 @@
+// EXPECT: REJECT E-ESCAPE-002
+procedure main
+    var outer := 0
+    region r1
+        var x := 5
+        spawn
+            outer := &x
+        end
+    end
+    print outer
+end

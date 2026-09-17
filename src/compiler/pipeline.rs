@@ -160,6 +160,7 @@ mod tests {
     use crate::compiler::context::CompilerContext;
     use crate::compiler::pass::{PassContract, PassId, PassResult};
     use crate::compiler::program::Program;
+    use crate::compiler::scheduler::Scheduler;
 
     macro_rules! dummy_pass {
         ($name:ident, $id:expr, $kind:expr, $in:expr, $out:expr) => {
@@ -239,5 +240,27 @@ mod tests {
             .add(AnalysisAtAst)
             .build()
             .expect("analysis at current level should be accepted");
+    }
+
+    #[test]
+    fn transform_without_verify_is_refused() {
+        use crate::compiler::context::{CompilerConfig, CompilerContext};
+        use crate::compiler::passes::optimize::OptimizePass;
+        use crate::compiler::pipeline::Pipeline;
+        use crate::compiler::program::Program;
+
+        // Build a pipeline with Transform but NO following Verification
+        let pipeline = Pipeline::builder()
+           .add(OptimizePass) // Transform kind, requires following Verify
+           .build()
+           .expect("pipeline builds");
+
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut program = Program::new("", "");
+
+        let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
+
+        assert!(outcome.failure.is_some(), "scheduler should refuse Transform without following Verify");
+        assert!(outcome.failure.unwrap().message.contains("not followed by a verification"));
     }
 }

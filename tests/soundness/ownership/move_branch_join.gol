@@ -1,0 +1,11 @@
+// EXPECT: REJECT E-MOVE-001
+procedure main
+    var x := 5
+    var y := 0
+    if y == 0
+        free x
+    else
+        y := 10
+    end
+    print x
+end

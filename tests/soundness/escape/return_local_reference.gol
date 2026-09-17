@@ -1,0 +1,10 @@
+// EXPECT: REJECT E-ESCAPE-001
+function get_ref() -> &Int
+    var x := 5
+    return &x
+end
+
+procedure main
+    val r := get_ref()
+    print r
+end

@@ -1,0 +1,7 @@
+// EXPECT: REJECT E-BORROW-001
+procedure main
+    var x := 5
+    val r := &mut x
+    x := 10
+    print r
+end

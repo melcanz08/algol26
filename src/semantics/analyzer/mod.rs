@@ -54,6 +54,7 @@ use crate::frontend::ast::{
     TraitDecl, WhereClause,
 };
 use crate::semantics::trait_registry::TraitRegistry;
+use crate::semantics::state::{SemanticState, VarState, NodeId};
 use crate::common::span::Span;
 use std::collections::{HashMap, HashSet};
 
@@ -118,6 +119,11 @@ pub struct SemanticAnalyzer {
     // Addresses are stable because the analyzer and IR builder walk the *same*
     // AST without cloning.
     pub type_table: HashMap<usize, Type>,
+    // ─── v0.9-D UNIFICATION ─── New: NodeId table + single SemanticState
+    // NodeId is the migration path from *const as usize (outsider item: type_table pointer identity)
+    pub type_table_nid: HashMap<NodeId, Type>,
+    // Single source of truth - unified with dataflow engine
+    pub(crate) state: SemanticState,
     /// Span of the node currently being analyzed. Updated at the top
     /// of `analyze_expr_with_context` and `analyze_stmt`. Used by
     /// error sites that don't have direct access to the node.
@@ -158,6 +164,9 @@ impl SemanticAnalyzer {
             variadic_functions: HashSet::new(),
             // ─── UNIFY TYPES ───
             type_table: HashMap::new(),
+            // ─── v0.9-D ───
+            type_table_nid: HashMap::new(),
+            state: SemanticState::new(),
             current_span: Span::default(),
         }
     }
@@ -167,10 +176,20 @@ impl SemanticAnalyzer {
     pub fn type_of(&self, expr: &Expr) -> Option<&Type> {
         self.type_table.get(&(expr as *const Expr as usize))
     }
+    /// New NodeId-based lookup (migration from pointer identity)
+    pub fn type_of_nid(&self, nid: NodeId) -> Option<&Type> {
+        self.type_table_nid.get(&nid)
+    }
     /// Take ownership of the type table so it can be handed to the IR builder.
     pub fn take_type_table(&mut self) -> HashMap<usize, Type> {
         std::mem::take(&mut self.type_table)
     }
+    pub fn take_type_table_nid(&mut self) -> HashMap<NodeId, Type> {
+        std::mem::take(&mut self.type_table_nid)
+    }
+    /// Access unified state (for dataflow integration)
+    pub fn state(&self) -> &SemanticState { &self.state }
+    pub fn state_mut(&mut self) -> &mut SemanticState { &mut self.state }
 
     fn lookup_list_length(&self, name: &str) -> Option<usize> {
         for scope in self.list_lengths.iter().rev() {
@@ -270,4 +289,3 @@ impl SemanticAnalyzer {
             .cloned()
     }
 }
-

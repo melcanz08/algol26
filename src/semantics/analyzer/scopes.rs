@@ -23,8 +23,26 @@ impl SemanticAnalyzer {
         self.type_params.push(HashMap::new());
         self.type_constraints.push(HashMap::new());
         self.null_bindings.push(HashSet::new());
+        // v0.9-D: also push a region in unified state - scope = region for lexical model
+        let region_name = format!("scope_{}", self.scopes.len());
+        self.state.enter_region(region_name);
     }
     pub(super) fn pop_scope(&mut self) {
+        // v0.9-D FIX: capture exiting scope vars BEFORE popping old vectors
+        let exiting_vars: Vec<String> = self.scopes.last()
+            .map(|s| s.keys().cloned().collect())
+            .unwrap_or_default();
+        let exiting_region = self.state.region_stack.last().cloned();
+        // Capture moves that happened in this scope for outer vars
+        // For conditional branches, moves of outer vars should not persist into sibling branches
+        // They will be joined after if via explicit state join in stmt.rs
+        // So we snapshot which outer vars were moved in this inner scope
+        let inner_moved: Vec<String> = self.moved_vars.last().cloned().unwrap_or_default();
+        let outer_vars_moved_in_inner: Vec<String> = inner_moved.iter()
+            .filter(|v| !exiting_vars.contains(v))
+            .cloned()
+            .collect();
+
         self.deferred_captures.pop();
         self.scopes.pop();
         self.moved_vars.pop();
@@ -36,6 +54,33 @@ impl SemanticAnalyzer {
         self.type_params.pop();
         self.type_constraints.pop();
         self.null_bindings.pop();
+
+        // v0.9-D FIX: release borrows tied to this scope
+        if let Some(region) = exiting_region {
+            self.state.borrows.retain(|borrower, b_state| {
+                let borrower_exits = exiting_vars.contains(borrower);
+                let lifetime_exits = matches!(&b_state.lifetime, crate::semantics::state::BorrowLifetime::Region(r) if r == &region);
+                !(borrower_exits || lifetime_exits)
+            });
+            for v in &exiting_vars {
+                self.state.var_region.remove(v);
+                let still_present = self.scopes.iter().any(|s| s.contains_key(v));
+                if !still_present {
+                    self.state.vars.remove(v);
+                }
+            }
+            // FIX for conditional moves: revert outer var moves that happened inside this inner scope
+            // They should not be visible to sibling branches; they will be joined explicitly after if
+            // We revert them to Available so second branch sees Available
+            for outer_var in outer_vars_moved_in_inner {
+                // Only revert if var still exists in outer scope (not shadowed and deleted)
+                if self.scopes.iter().any(|s| s.contains_key(&outer_var)) {
+                    // Revert to Available - the move was scoped to inner branch
+                    self.state.vars.insert(outer_var.clone(), VarState::Available);
+                }
+            }
+            let _outliving = self.state.exit_region(&region);
+        }
     }
     pub(super) fn declare_variable(&mut self, name: &str, type_: Type, mutable: bool) -> Result<()> {
         if let Some(scope) = self.scopes.last_mut() {
@@ -45,8 +90,10 @@ impl SemanticAnalyzer {
                     0, 0, "", ErrorCode::E0003,
                 ));
             }
-            scope.insert(name.to_string(), (type_, mutable));
+            scope.insert(name.to_string(), (type_.clone(), mutable));
         }
+        // v0.9-D: mirror into unified state
+        self.state.declare(name.to_string(), VarState::Available);
         Ok(())
     }
     pub(super) fn lookup_variable(&self, name: &str) -> Option<(Type, bool)> {

@@ -1,0 +1,9 @@
+// EXPECT: REJECT E-REGION-001
+procedure main
+    var outer := 0
+    region inner
+        var x := 5
+        outer := &x
+    end
+    print outer
+end

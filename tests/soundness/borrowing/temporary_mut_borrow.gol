@@ -1,0 +1,9 @@
+// EXPECT: COMPILE
+function increment(x: &mut Int)
+end
+
+procedure main
+    var x := 5
+    increment(&mut x)
+    print x
+end

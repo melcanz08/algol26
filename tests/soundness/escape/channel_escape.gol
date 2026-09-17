@@ -1,0 +1,8 @@
+// EXPECT: REJECT E-ESCAPE-003
+procedure main
+    region r1
+        var x := 5
+        var ch := channel
+        send ch, &x
+    end
+end

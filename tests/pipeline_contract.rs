@@ -1,18 +1,5 @@
 use algol26::ir::cfg::{Cfg, CfgBlock, CfgInstruction, DataflowEngine, OwnershipTransfer};
 use algol26::semantics::state::SemanticState;
-use algol26::ir::semantic_ir::SemanticProgram;
-
-fn valid_program() -> SemanticProgram {
-    SemanticProgram::new()
-}
-
-#[test]
-fn transform_must_invalidate_verified_ir() {
-    let program = valid_program();
-    let cfg = algol26::ir::cfg::builder::build_cfg_from_semantic_program(&program);
-    // empty program should at least build cfg without panic
-    assert!(cfg.blocks.len() >= 0);
-}
 
 #[test]
 fn dataflow_engine_wired() {

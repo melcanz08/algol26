@@ -28,8 +28,8 @@ fn parse_expect(source: &str) -> Option<Expect> {
         if rest.starts_with("COMPILE") {
             return Some(Expect::Compile);
         }
-        if rest.starts_with("REJECT") {
-            let code = rest["REJECT".len()..].trim();
+        if let Some(stripped) = rest.strip_prefix("REJECT") {
+            let code = stripped.trim();
             let code = if code.is_empty() { None } else { Some(code.to_string()) };
             return Some(Expect::Reject { code });
         }

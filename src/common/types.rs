@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-// src/common/types.rs 
+// src/common/types.rs
 
 use std::fmt;
 
@@ -686,11 +686,11 @@ pub mod print {
         /// future edit to one side has to notice the other.
         #[test]
         fn llvm_specs_match_interpreter_formats() {
-            assert_eq!(llvm_format(&Type::Int),    Some("%lld\n"));
-            assert_eq!(llvm_format(&Type::Float),  Some("%.1f\n"));
+            assert_eq!(llvm_format(&Type::Int), Some("%lld\n"));
+            assert_eq!(llvm_format(&Type::Float), Some("%.1f\n"));
             assert_eq!(llvm_format(&Type::String), Some("%s\n"));
-            assert_eq!(llvm_format(&Type::Bool),   None);
-            assert_eq!(llvm_format(&Type::Void),   None);
+            assert_eq!(llvm_format(&Type::Bool), None);
+            assert_eq!(llvm_format(&Type::Void), None);
         }
     }
 }

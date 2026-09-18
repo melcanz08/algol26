@@ -125,12 +125,22 @@ mod tests {
         let s = render_one(&err);
         assert!(s.contains("error[E0002]: oops"), "missing header:\n{}", s);
         assert!(s.contains("--> 12:5"), "missing location:\n{}", s);
-        assert!(s.contains("12 |     let x = foo()"), "missing snippet:\n{}", s);
+        assert!(
+            s.contains("12 |     let x = foo()"),
+            "missing snippet:\n{}",
+            s
+        );
     }
 
     #[test]
     fn caret_width_from_single_line_span() {
-        let mut err = CompileError::new("call arity mismatch", 12, 5, "    let x = foo(1,2,3)", ErrorCode::E0002);
+        let mut err = CompileError::new(
+            "call arity mismatch",
+            12,
+            5,
+            "    let x = foo(1,2,3)",
+            ErrorCode::E0002,
+        );
         err = err.with_span(Span::new(12, 13, 12, 21));
         let s = render_one(&err);
         // 12 chars of gutter + 1 space, then 12 spaces before `^`
@@ -143,7 +153,11 @@ mod tests {
         let err = CompileError::new("bad", 1, 1, "", ErrorCode::E0001)
             .with_suggestion("try something else");
         let s = render_one(&err);
-        assert!(s.contains("= help: try something else"), "missing help:\n{}", s);
+        assert!(
+            s.contains("= help: try something else"),
+            "missing help:\n{}",
+            s
+        );
     }
 
     #[test]
@@ -151,7 +165,11 @@ mod tests {
         let e1 = Diagnostic::Error(CompileError::new("a", 1, 1, "", ErrorCode::E0001));
         let e2 = Diagnostic::Warning("b".to_string());
         let s = render_all(&[e1, e2]);
-        assert!(s.contains("1 error(s), 1 warning(s) generated"), "no summary:\n{}", s);
+        assert!(
+            s.contains("1 error(s), 1 warning(s) generated"),
+            "no summary:\n{}",
+            s
+        );
     }
 
     #[test]

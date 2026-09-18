@@ -47,12 +47,10 @@ impl Span {
     /// on line 1.
     pub fn contains(&self, other: &Span) -> bool {
         let start_ok = self.start_line < other.start_line
-            || (self.start_line == other.start_line
-                && self.start_column <= other.start_column);
+            || (self.start_line == other.start_line && self.start_column <= other.start_column);
 
         let end_ok = self.end_line > other.end_line
-            || (self.end_line == other.end_line
-                && self.end_column >= other.end_column);
+            || (self.end_line == other.end_line && self.end_column >= other.end_column);
 
         start_ok && end_ok
     }
@@ -118,7 +116,7 @@ mod tests {
         assert!(outer.contains(&inner));
         assert!(!inner.contains(&outer));
     }
-        #[test]
+    #[test]
     fn test_span_contains_multiline_inner() {
         // Regression for the case where the inner span lives on a line
         // strictly between the outer's start and end lines. The old

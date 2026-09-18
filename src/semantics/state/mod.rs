@@ -241,13 +241,16 @@ impl SemanticState {
         self.borrows.retain(|_, b| b.place != name);
     }
 
+    /// Record that `borrower` holds a borrow of `place`.
+    ///
+    /// The borrower's region is *not* set here — a borrow expression
+    /// does not relocate the borrower into the current region. The
+    /// borrower's region is fixed by `declare` when the variable is
+    /// first introduced. Setting it here would incorrectly attribute
+    /// a local declared outside a region to that region if the local
+    /// happened to be borrowed inside it.
     pub fn borrow(&mut self, borrower: String, place: String, kind: BorrowKind, lifetime: BorrowLifetime) {
         let node = self.fresh_node_id();
-        // Track borrower region too
-        if let Some(cur) = self.current_region().cloned() {
-            // Only track if not already tracked (first declaration wins for simplicity)
-            self.var_region.entry(borrower.clone()).or_insert(cur);
-        }
         self.borrows.insert(borrower, BorrowState { place, kind, lifetime, created_at: node });
     }
 
@@ -286,10 +289,10 @@ impl SemanticState {
             
             // If storage is in the region being freed and borrow lives longer -> error
             if let StorageLifetime::Region(storage_reg) = &storage_lifetime {
-                if storage_reg == name || self.is_ancestor(name, storage_reg) {
-                    if borrow_lifetime.outlives_region(&storage_lifetime, self) {
-                        outliving.push(format!("{} (borrowed by {} lives in {:?} but storage in {} freed)", bstate.place, borrower, borrow_lifetime, name));
-                    }
+                if (storage_reg == name || self.is_ancestor(name, storage_reg))
+                    && borrow_lifetime.outlives_region(&storage_lifetime, self)
+                {
+                    outliving.push(format!("{} (borrowed by {} lives in {:?} but storage in {} freed)", bstate.place, borrower, borrow_lifetime, name));
                 }
             }
         }
@@ -319,7 +322,7 @@ impl SemanticState {
 }
 
 impl BorrowLifetime {
-    pub fn outlives(&self, storage: &StorageLifetime) -> bool {
+    pub fn outlives(&self, _storage: &StorageLifetime) -> bool {
         // Legacy simple version - kept for backward compat tests
         match self {
             BorrowLifetime::Temporary(_) => false,
@@ -464,7 +467,7 @@ mod tests {
         s.declare("x".into(), VarState::Available);
         s.mark_escape("x".into(), "return".into());
         assert!(s.escapes.escapes("x"));
-        assert_eq!(s.escapes.get_escapes("x").unwrap().contains("return"), true);
+        assert!(s.escapes.get_escapes("x").unwrap().contains("return"));
     }
 
     #[test]

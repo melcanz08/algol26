@@ -131,10 +131,41 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                         }
                         instrs.push(CfgInstruction::Use { name: channel.clone() });
                     }
+                    // Iterating a variable: use the iterable, declare
+                    // the loop variable. Neither participates in
+                    // ownership transfer in the current model.
+                    I::IteratorInit { iterator, iterable } => {
+                        if let Some(var_name) = extract_var_name(iterable) {
+                            instrs.push(CfgInstruction::Use { name: var_name });
+                        } else {
+                            let mut vars = Vec::new();
+                            collect_all_vars(iterable, &mut vars);
+                            for v in vars { instrs.push(CfgInstruction::Use { name: v }); }
+                        }
+                        instrs.push(CfgInstruction::Declare { name: iterator.clone() });
+                    }
+
+                    // Channel declaration: channels are disjoint from
+                    // the ownership domain (they cannot hold references),
+                    // so no dataflow instruction is emitted. Tracked as
+                    // a declared name anyway so uses of the channel
+                    // don't trip E-INIT-001.
+                    I::ChannelDecl { name, .. } => {
+                        instrs.push(CfgInstruction::Declare { name: name.clone() });
+                    }
+
+                    // Receive: binds `target` to a value read from the
+                    // channel. Like ChannelDecl, no ownership transfer
+                    // crosses this boundary.
+                    I::Receive { channel, target } | I::ChannelReceive { channel, target } => {
+                        instrs.push(CfgInstruction::Use { name: channel.clone() });
+                        instrs.push(CfgInstruction::Declare { name: target.clone() });
+                    }
                     I::Print { value } => {
                         if let Some(var_name) = extract_var_name(value) { instrs.push(CfgInstruction::Use { name: var_name }); }
                         else { let mut vars = Vec::new(); collect_all_vars(value, &mut vars); for v in vars { instrs.push(CfgInstruction::Use { name: v }); } }
                     }
+                    I::Nop => instrs.push(CfgInstruction::Nop),
                     _ => {
                         let op_name = format!("{:?}", instr);
                         instrs.push(CfgInstruction::Unsupported { op: op_name.chars().take(120).collect() });

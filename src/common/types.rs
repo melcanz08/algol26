@@ -311,6 +311,18 @@ impl Type {
         matches!(self, Type::Unknown)
     }
 
+    /// Returns `true` for types that are copied on assignment or
+    /// move rather than transferred. The `Copy` set is:
+    ///
+    /// - `Int`, `Float`, `Bool` — primitive scalars.
+    /// - `Ptr` — the *raw* pointer type. Raw pointers carry no
+    ///   region or ownership obligation, so copying them is safe.
+    ///
+    /// **`Pointer(_)` is deliberately not `Copy`.** A typed pointer
+    /// like `*Int` is bound to the region that allocated it; copying
+    /// it would duplicate region ownership and defeat the
+    /// region-memory model. See
+    /// `docs/decisions/0007-region-memory.md`.
     pub fn is_copy(&self) -> bool {
         matches!(self, Type::Int | Type::Float | Type::Bool | Type::Ptr)
     }

@@ -70,6 +70,34 @@ impl VerifiedIR {
         crate::ir::verifier::verify(&self.program)
     }
 
+    /// Consume this `VerifiedIR`, apply `f` to the inner program, and
+    /// re-run the verifier on the result.
+    ///
+    /// Takes `self` by value and returns a fresh `VerifiedIR` on
+    /// success. On failure, the invalid program is dropped with the
+    /// consumed `self`; the caller never sees a `VerifiedIR` that has
+    /// not passed verification.
+    ///
+    /// This is the only sanctioned way to mutate a `VerifiedIR`. It
+    /// replaces the earlier `into_program` escape hatch: the caller
+    /// supplies a mutation function and gets back a re-verified
+    /// wrapper, rather than peeling the wrapper off, mutating, and
+    /// hoping to remember to re-wrap.
+    ///
+    /// # Errors
+    ///
+    /// Returns the verifier's error message if `f` produced IR that
+    /// fails verification. The consumed `self` is dropped; the caller
+    /// must construct a fresh `VerifiedIR` if it wants to continue.
+    pub fn mutate<F>(mut self, f: F) -> Result<Self, String>
+    where
+        F: FnOnce(&mut SemanticProgram),
+    {
+        f(&mut self.program);
+        crate::ir::verifier::verify(&self.program)?;
+        Ok(self)
+    }
+
     pub fn function_count(&self) -> usize {
         self.program.functions.len()
     }

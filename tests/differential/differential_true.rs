@@ -822,6 +822,27 @@ procedure main
     assert_eq!(llvm_output.trim(), "null");
 }
 
+#[test]
+fn test_differential_string_length_unicode() {
+    let source = r#"
+procedure main
+    val s := "héllo"
+    print(String.length(s))
+"#;
+    let llvm_output = run_llvm(source);
+    let interp_output = run_interpreter(source);
+    assert_eq!(
+        interp_output.trim(),
+        llvm_output.trim(),
+        "Interpreter and LLVM disagree on Unicode string length"
+    );
+    assert_eq!(
+        llvm_output.trim(),
+        "5",
+        "\"héllo\" has 5 Unicode codepoints (and 6 UTF-8 bytes)"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

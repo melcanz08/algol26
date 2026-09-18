@@ -97,9 +97,7 @@ fn unsupported_ir_must_be_compiler_error() {
 fn transform_preserves_verification() {
     use algol26::common::types::Type;
     use algol26::ir::optimizer::Optimizer;
-    use algol26::ir::semantic_ir::{
-        SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
-    };
+    use algol26::ir::semantic_ir::{SemanticBlock, SemanticFunction, SemanticProgram, Terminator};
     use algol26::ir::verified_ir::VerifiedIR;
 
     let mut program = SemanticProgram::new();
@@ -136,9 +134,7 @@ fn transform_preserves_verification() {
 #[test]
 fn mutate_rejects_invalid_ir() {
     use algol26::common::types::Type;
-    use algol26::ir::semantic_ir::{
-        SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
-    };
+    use algol26::ir::semantic_ir::{SemanticBlock, SemanticFunction, SemanticProgram, Terminator};
     use algol26::ir::verified_ir::VerifiedIR;
 
     let mut program = SemanticProgram::new();

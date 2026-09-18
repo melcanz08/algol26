@@ -99,10 +99,7 @@ impl<'ctx> IRCodeGen<'ctx> {
 
         // loop: load idx, compute ptr, load byte, check for NUL.
         self.builder.position_at_end(loop_bb);
-        let s_ptr = utf8_len_fn
-            .get_nth_param(0)
-            .unwrap()
-            .into_pointer_value();
+        let s_ptr = utf8_len_fn.get_nth_param(0).unwrap().into_pointer_value();
         let idx = self
             .builder
             .build_load(i64_ty, idx_ptr, "idx")
@@ -114,11 +111,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         // caller of `algol26_strlen_utf8`. GEP cannot produce UB
         // here; the unsafe marker is inkwell's conservative
         // requirement.
-        let ptr = unsafe {
-            self.builder
-                .build_gep(i8_ty, s_ptr, &[idx], "ptr")
-                .unwrap()
-        };
+        let ptr = unsafe { self.builder.build_gep(i8_ty, s_ptr, &[idx], "ptr").unwrap() };
         let byte = self
             .builder
             .build_load(i8_ty, ptr, "byte")
@@ -164,10 +157,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             )
             .unwrap()
             .into_int_value();
-        let count_new = self
-            .builder
-            .build_int_add(count, inc, "count_new")
-            .unwrap();
+        let count_new = self.builder.build_int_add(count, inc, "count_new").unwrap();
         self.builder.build_store(count_ptr, count_new).unwrap();
         let idx_new = self
             .builder
@@ -271,18 +261,18 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ErrorCode::E0002,
                     ));
                 }
-                let utf8_len_fn = self
-                    .module
-                    .get_function("algol26_strlen_utf8")
-                    .ok_or_else(|| {
-                        CompileError::simple(
-                            "LLVM codegen: algol26_strlen_utf8 not registered in stdlib",
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0009,
-                        )
-                    })?;
+                let utf8_len_fn =
+                    self.module
+                        .get_function("algol26_strlen_utf8")
+                        .ok_or_else(|| {
+                            CompileError::simple(
+                                "LLVM codegen: algol26_strlen_utf8 not registered in stdlib",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                 let call = self
                     .builder
                     .build_call(utf8_len_fn, &[s_val.into()], "utf8_strlen_call")

@@ -18,12 +18,16 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// at runtime instead of failing at compile time.
     pub(super) fn compile_reference(&self, expr: &TypedIRValue) -> Result<BasicValueEnum<'ctx>> {
         match expr {
-            TypedIRValue::Variable(name, _) => self.variables.get(name).map(|p| (*p).into()).ok_or_else(|| {
-                CompileError::unsupported_operation(
-                    &format!("reference to undefined variable `{}`", name),
-                    "llvm",
-                )
-            }),
+            TypedIRValue::Variable(name, _) => self
+                .variables
+                .get(name)
+                .map(|p| (*p).into())
+                .ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!("reference to undefined variable `{}`", name),
+                        "llvm",
+                    )
+                }),
             // A reference-to-reference yields the inner reference.
             TypedIRValue::Borrow { expr, .. } | TypedIRValue::MutBorrow { expr, .. } => {
                 self.compile_value(expr)
@@ -371,10 +375,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // rather than returning the non-pointer value (which
                     // would silently be the wrong value).
                     return Err(CompileError::unsupported_operation(
-                        &format!(
-                            "deref of non-pointer value (kind {:?})",
-                            ptr
-                        ),
+                        &format!("deref of non-pointer value (kind {:?})", ptr),
                         "llvm",
                     ));
                 }
@@ -385,12 +386,15 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
             TypedIRValue::AddrOf { expr, .. } => {
                 if let TypedIRValue::Variable(name, _) = expr.as_ref() {
-                    self.variables.get(name).map(|p| (*p).into()).ok_or_else(|| {
-                        CompileError::unsupported_operation(
-                            &format!("address-of undefined variable `{}`", name),
-                            "llvm",
-                        )
-                    })?
+                    self.variables
+                        .get(name)
+                        .map(|p| (*p).into())
+                        .ok_or_else(|| {
+                            CompileError::unsupported_operation(
+                                &format!("address-of undefined variable `{}`", name),
+                                "llvm",
+                            )
+                        })?
                 } else {
                     self.compile_value(expr)?
                 }
@@ -442,10 +446,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 ));
             }
             TypedIRValue::Range(_, _) => {
-                return Err(CompileError::unsupported_operation(
-                    "range value",
-                    "llvm",
-                ));
+                return Err(CompileError::unsupported_operation("range value", "llvm"));
             }
             TypedIRValue::FieldAccess { .. } => {
                 return Err(CompileError::unsupported_operation(

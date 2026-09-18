@@ -460,6 +460,36 @@ procedure main
 }
 
 #[test]
+fn test_differential_int_float_equality() {
+    // The interpreter used to compare via `display()`, so `1 == 1.0`
+    // became `"1" == "1.0"` → false, while LLVM coerced and returned
+    // true. This test pins the coerced semantics.
+    let source = r#"
+procedure main
+    print(1 == 1.0)
+    print(1.0 == 1)
+    print(2 == 2.5)
+    print(2.5 == 2)
+    print(2.0 != 3)
+    print(2.0 != 2)
+"#;
+    let llvm_output = run_llvm(source);
+    let interp_output = run_interpreter(source);
+    assert_eq!(
+        interp_output.trim(),
+        llvm_output.trim(),
+        "Interpreter and LLVM disagree on Int/Float equality"
+    );
+    let lines: Vec<&str> = llvm_output.lines().collect();
+    assert_eq!(lines[0], "true",  "1 == 1.0");
+    assert_eq!(lines[1], "true",  "1.0 == 1");
+    assert_eq!(lines[2], "false", "2 == 2.5");
+    assert_eq!(lines[3], "false", "2.5 == 2");
+    assert_eq!(lines[4], "true",  "2.0 != 3");
+    assert_eq!(lines[5], "false", "2.0 != 2");
+}
+
+#[test]
 fn test_differential_int_div_by_zero_literal() {
     let source = r#"
 procedure main

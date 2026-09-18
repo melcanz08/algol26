@@ -198,11 +198,11 @@ impl Interpreter {
                 _ => Err(mismatch("Divide")),
             },
 
-            // NOTE: uses `display()` — this is a bug deferred to PR-B,
-            // where `runtime_eq` will replace it. Leaving it here so PR-A
-            // is a pure "totality" change.
-            SemanticBinOp::Equal => Ok(RuntimeValue::Bool(l.display() == r.display())),
-            SemanticBinOp::NotEqual => Ok(RuntimeValue::Bool(l.display() != r.display())),
+            // Structural equality. Uses `runtime_eq`, which handles
+            // mixed Int/Float comparison so `1 == 1.0` is `true`
+            // here, matching LLVM.
+            SemanticBinOp::Equal => Ok(RuntimeValue::Bool(l.runtime_eq(&r))),
+            SemanticBinOp::NotEqual => Ok(RuntimeValue::Bool(!l.runtime_eq(&r))),
 
             SemanticBinOp::Greater => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(a > b)),

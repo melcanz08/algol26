@@ -93,6 +93,40 @@ impl RuntimeValue {
             RuntimeValue::Void => String::new(),
         }
     }
+
+    /// Structural equality between runtime values.
+    ///
+    /// This is what `Equal`/`NotEqual` dispatch to. It handles
+    /// mixed Int/Float comparison (1 == 1.0 is true) so the
+    /// interpreter agrees with the LLVM backend on numeric equality.
+    ///
+    /// Cross-kind comparisons (`1 == "hello"`) return `false`. The
+    /// type checker should have prevented them from reaching runtime;
+    /// if one does, `false` is the least surprising answer.
+    pub fn runtime_eq(&self, other: &RuntimeValue) -> bool {
+        use RuntimeValue::*;
+        match (self, other) {
+            (Int(a), Int(b)) => a == b,
+            (Float(a), Float(b)) => a == b,
+            // Cross-type numeric: coerce Int to Float. Matches LLVM
+            // codegen, which emits an `sitofp` before comparing.
+            (Int(a), Float(b)) => (*a as f64) == *b,
+            (Float(a), Int(b)) => *a == (*b as f64),
+            (Bool(a), Bool(b)) => a == b,
+            (String(a), String(b)) => a == b,
+            (List(a), List(b)) => {
+                a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.runtime_eq(y))
+            }
+            (Option(Some(a)), Option(Some(b))) => a.runtime_eq(b),
+            (Option(None), Option(None)) => true,
+            (
+                Result { is_ok: k1, value: v1 },
+                Result { is_ok: k2, value: v2 },
+            ) => k1 == k2 && v1.runtime_eq(v2),
+            (Void, Void) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Human-readable name for a `RuntimeValue` variant, used only for

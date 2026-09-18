@@ -843,12 +843,27 @@ procedure main
     );
 }
 
+#[test]
+fn test_find_compiler_prefers_debug() {
+    let path = find_compiler();
+    assert_eq!(
+        path,
+        PathBuf::from("target/debug/algol26"),
+        "find_compiler must prefer the freshly-built debug binary; \
+         otherwise differential tests silently run against a stale release"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 fn find_compiler() -> PathBuf {
-    let candidates = ["target/release/algol26", "target/debug/algol26"];
+    // Prefer `target/debug` because `cargo test` rebuilds it. If
+    // `target/release` is checked first, tests silently run against
+    // a stale binary unless the user remembered to
+    // `cargo build --release` first.
+    let candidates = ["target/debug/algol26", "target/release/algol26"];
 
     for candidate in candidates {
         if std::path::Path::new(candidate).exists() {
@@ -856,7 +871,7 @@ fn find_compiler() -> PathBuf {
         }
     }
 
-    panic!("Compiler binary not found. Run cargo build --release first.");
+    panic!("Compiler binary not found. Run `cargo build` first.");
 }
 
 /// Compile + run via LLVM, returning `(stdout, success)`.

@@ -111,6 +111,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ErrorCode::E0004,
                 )),
             },
+            // TODO(unicode-length): this lowers to C `strlen`, which
+            // returns UTF-8 byte count. The interpreter reports
+            // Unicode codepoints. For ASCII they agree; for non-ASCII
+            // they do not. See Tier 0.2b: replace with a UTF-8
+            // codepoint-counting helper emitted at codegen time.
             "String.length" | "String.len" => {
                 let arg = args.first().ok_or_else(|| {
                     CompileError::simple(

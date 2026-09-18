@@ -1,8 +1,16 @@
+// src/backends/llvm_codegen/mod.rs
+
+// NOTE: This module has blanket allows for `dead_code`,
+// `unused_variables`, and `clippy::unwrap_used`. The first two are
+// housekeeping. The third is **known technical debt**: the module
+// contains many `.unwrap()` calls on LLVM builder results, which
+// cannot practically fail but do violate the crate-level
+// `#![deny(clippy::unwrap_used)]`. Removing the allow requires
+// auditing every builder call and either handling the error or
+// documenting why the call cannot fail. Tracked as a Tier 2 follow-up.
 #![allow(dead_code)]
 #![allow(unused_variables)]
 #![allow(clippy::unwrap_used)]
-
-// src/backends/llvm_codegen/mod.rs
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
@@ -165,15 +173,29 @@ impl<'ctx> IRCodeGen<'ctx> {
             .iter()
             .map(|(_, t)| self.map_type(t).into())
             .collect();
+        // Match every return type that LLVM can express. Before
+        // this fix, a `_ => f64` fallback silently declared pointer-,
+        // list-, and Option-returning functions as returning `f64`,
+        // producing wrong call signatures. Now: explicit arms for
+        // supported types, error for the rest.
         let fn_type = match func.return_type {
             Type::Void => self.context.void_type().fn_type(&param_types, is_variadic),
             Type::Int => self.context.i64_type().fn_type(&param_types, is_variadic),
+            Type::Float => self.context.f64_type().fn_type(&param_types, is_variadic),
             Type::Bool => self.context.bool_type().fn_type(&param_types, is_variadic),
-            Type::String => self
+            Type::String | Type::Ptr | Type::Pointer(_) => self
                 .context
                 .ptr_type(AddressSpace::default())
                 .fn_type(&param_types, is_variadic),
-            _ => self.context.f64_type().fn_type(&param_types, is_variadic),
+            ref other => {
+                return Err(CompileError::unsupported_operation(
+                    &format!(
+                        "function `{}` has return type `{}` which has no LLVM lowering",
+                        func.name, other
+                    ),
+                    "llvm",
+                ));
+            }
         };
         let function = self.module.add_function(&llvm_name, fn_type, None);
         self.functions.insert(clean_name, function);
@@ -234,25 +256,31 @@ impl<'ctx> IRCodeGen<'ctx> {
                 if let Some(term) = &block.terminator {
                     self.compile_terminator(term, &func.return_type)?;
                 } else if bb.get_terminator().is_none() {
-                    if func.return_type == Type::Void {
-                        self.builder.build_return(None).unwrap();
-                    } else {
-                        let default_val = self.default_value_for_type(&func.return_type);
-                        self.builder.build_return(Some(&default_val)).unwrap();
-                    }
+                    // The source block has no terminator, and no
+                    // instruction (e.g. a bounds check) added one to
+                    // the LLVM block. The IR verifier rejects
+                    // unterminated blocks, so reaching this point
+                    // means the IR is malformed. Failing closed
+                    // rather than synthesizing an implicit return,
+                    // which would silently produce wrong control flow
+                    // if the block was supposed to fall through.
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "block {} in function `{}` has no terminator",
+                            block.id, func.name
+                        ),
+                        "llvm",
+                    ));
                 }
             }
         }
-        if let Some(curr) = self.builder.get_insert_block() {
-            if curr.get_terminator().is_none() {
-                if func.return_type == Type::Void {
-                    self.builder.build_return(None).unwrap();
-                } else {
-                    let default_val = self.default_value_for_type(&func.return_type);
-                    self.builder.build_return(Some(&default_val)).unwrap();
-                }
-            }
-        }
+        // Note: the previous version had a final "safety net" here
+        // that added an implicit return to any function whose last
+        // LLVM block had no terminator. It synthesized a default
+        // value for non-Void functions. Both were silent fallbacks;
+        // the IR verifier guarantees every block has a terminator,
+        // so any code path that relied on that fallback was reached
+        // via malformed IR. Removed.
         Ok(())
     }
 

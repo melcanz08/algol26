@@ -42,20 +42,25 @@ impl<'ctx> IRCodeGen<'ctx> {
                     if *ret_type == Type::Void {
                         self.builder.build_return(None).unwrap();
                     } else {
-                        let def = self.default_value_for_type(ret_type);
-                        self.builder.build_return(Some(&def)).unwrap();
+                        // A non-Void function returning without a
+                        // value is a verifier failure. Failing closed
+                        // rather than synthesizing a default.
+                        return Err(CompileError::unsupported_operation(
+                            &format!(
+                                "return with no value in a function returning `{}`",
+                                ret_type
+                            ),
+                            "llvm",
+                        ));
                     }
                 }
                 Ok(())
             }
             Terminator::Jump { block } => {
                 let bb = self.blocks.get(block).cloned().ok_or_else(|| {
-                    CompileError::simple(
-                        &format!("block {} not found", block),
-                        0,
-                        0,
-                        "",
-                        ErrorCode::E0004,
+                    CompileError::unsupported_operation(
+                        &format!("jump to unknown block {}", block),
+                        "llvm",
                     )
                 })?;
                 self.builder.build_unconditional_branch(bb).unwrap();
@@ -92,10 +97,30 @@ impl<'ctx> IRCodeGen<'ctx> {
                         )
                         .unwrap()
                 } else {
-                    self.context.bool_type().const_int(1, false)
+                    // The branch condition must be a value the LLVM
+                    // backend can lower to i1. The type checker should
+                    // have rejected non-bool conditions; failing
+                    // closed rather than silently treating as `true`.
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "branch condition lowered to non-scalar value {:?}",
+                            cond_val
+                        ),
+                        "llvm",
+                    ));
                 };
-                let then_bb = self.blocks.get(then_block).cloned().unwrap();
-                let else_bb = self.blocks.get(else_block).cloned().unwrap();
+                let then_bb = self.blocks.get(then_block).cloned().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!("branch to unknown then-block {}", then_block),
+                        "llvm",
+                    )
+                })?;
+                let else_bb = self.blocks.get(else_block).cloned().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!("branch to unknown else-block {}", else_block),
+                        "llvm",
+                    )
+                })?;
                 self.builder
                     .build_conditional_branch(bool_val, then_bb, else_bb)
                     .unwrap();
@@ -130,7 +155,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                 if val.is_int_value() {
                     let iv = val.into_int_value();
                     let default_bb = if let Some(default_id) = default_block {
-                        self.blocks.get(default_id).cloned().unwrap()
+                        self.blocks.get(default_id).cloned().ok_or_else(|| {
+                            CompileError::unsupported_operation(
+                                &format!("switch to unknown default block {}", default_id),
+                                "llvm",
+                            )
+                        })?
                     } else {
                         // No default. Emit an unreachable block for
                         // unmatched values instead of jumping to an
@@ -151,7 +181,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                         inkwell::basic_block::BasicBlock<'ctx>,
                     )> = Vec::new();
                     for (pat, block_id) in cases {
-                        let target_bb = self.blocks.get(block_id).cloned().unwrap();
+                        let target_bb = self.blocks.get(block_id).cloned().ok_or_else(|| {
+                            CompileError::unsupported_operation(
+                                &format!("switch case to unknown block {}", block_id),
+                                "llvm",
+                            )
+                        })?;
                         let const_val = match pat {
                             SemanticPattern::Literal(lit) => match lit {
                                 TypedIRValue::Int(i) => {
@@ -161,9 +196,28 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     .context
                                     .bool_type()
                                     .const_int(if *b { 1 } else { 0 }, false),
-                                _ => self.context.i64_type().const_int(0, false),
+                                other => {
+                                    // Only Int and Bool literals lower to
+                                    // integer switch cases. A Float or
+                                    // String literal here would silently
+                                    // match case 0. Fail closed instead.
+                                    return Err(CompileError::unsupported_operation(
+                                        &format!(
+                                            "switch literal pattern of unsupported kind: {:?}",
+                                            other
+                                        ),
+                                        "llvm",
+                                    ));
+                                }
                             },
-                            _ => self.context.i64_type().const_int(0, false),
+                            // has_non_literal was already checked above,
+                            // so this arm is unreachable.
+                            _ => {
+                                return Err(CompileError::unsupported_operation(
+                                    "non-literal switch pattern (internal invariant violated)",
+                                    "llvm",
+                                ));
+                            }
                         };
                         // need to cast const_val to iv type if needed
                         let casted = if const_val.get_type() != iv.get_type() {
@@ -188,11 +242,27 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.builder
                         .build_switch(iv, default_bb, &case_pairs)
                         .unwrap();
+                } else if let Some(default_id) = default_block {
+                    // Non-integer switch value (e.g. String): we cannot
+                    // build an LLVM switch on it, so branch to the
+                    // default. This is valid only if the analyzer's
+                    // exhaustiveness check has ensured that every case
+                    // is handled by the default.
+                    let default_bb = self.blocks.get(default_id).cloned().ok_or_else(|| {
+                        CompileError::unsupported_operation(
+                            &format!("switch to unknown default block {}", default_id),
+                            "llvm",
+                        )
+                    })?;
+                    self.builder.build_unconditional_branch(default_bb).unwrap();
                 } else {
-                    if let Some(default_id) = default_block {
-                        let default_bb = self.blocks.get(default_id).cloned().unwrap();
-                        self.builder.build_unconditional_branch(default_bb).unwrap();
-                    }
+                    // Non-integer switch value with no default. The
+                    // analyzer should have rejected this. Failing
+                    // closed rather than silently dropping the switch.
+                    return Err(CompileError::unsupported_operation(
+                        "switch on non-integer value with no default block",
+                        "llvm",
+                    ));
                 }
                 Ok(())
             }
@@ -202,101 +272,46 @@ impl<'ctx> IRCodeGen<'ctx> {
                 body_block,
                 exit_block,
             } => {
-                // Try to find idx, if not found, try alternative lookup (iterator may be stored under different key due to temp naming)
-                let idx_ptr = if let Some(p) = self.iterator_indices.get(iterator).cloned() {
-                    p
-                } else {
-                    // fallback: search for any idx that contains iterator name or try to recover
-                    // For for_scope_hardened, iterator is often the loop variable 't', but idx is stored under '__iter_t_1' or similar
-                    // Look for keys that end with iterator or iterator is substring
-                    let mut found = None;
-                    for (k, v) in &self.iterator_indices {
-                        if k.contains(iterator) || iterator.contains(k) {
-                            found = Some(*v);
-                            break;
-                        }
-                    }
-                    // Also try to find iterator array and create idx if missing
-                    if found.is_none() {
-                        if let Some(arr_ptr) =
-                            self.iterator_arrays.get(iterator).cloned().or_else(|| {
-                                // try to find array that matches loop var
-                                for (k, v) in &self.iterator_arrays {
-                                    if k.contains(iterator) || iterator.contains(k) {
-                                        return Some(*v);
-                                    }
-                                }
-                                None
-                            })
-                        {
-                            // create idx alloca now
-                            let idx_alloca = self.create_entry_alloca(
-                                &format!("{}_idx_fallback", iterator),
-                                &Type::Int,
-                            );
-                            self.builder
-                                .build_store(idx_alloca, self.context.i64_type().const_zero())
-                                .unwrap();
-                            self.iterator_indices.insert(iterator.clone(), idx_alloca);
-                            found = Some(idx_alloca);
-                            // also ensure iterator_arrays contains it
-                            if !self.iterator_arrays.contains_key(iterator) {
-                                self.iterator_arrays.insert(iterator.clone(), arr_ptr);
-                                let arr_ty = self
-                                    .iterator_array_types
-                                    .values()
-                                    .next()
-                                    .cloned()
-                                    .unwrap_or_else(|| {
-                                        self.context.f64_type().array_type(0).into()
-                                    });
-                                self.iterator_array_types.insert(iterator.clone(), arr_ty);
-                                self.iterator_lengths.insert(iterator.clone(), 4);
-                                // fallback length, will be updated if possible
-                            }
-                        }
-                    }
-                    // If still not found, try to recover by using any existing list as iterable (for_scope_hardened fallback)
-                    if found.is_none() {
-                        // Try to find a list variable that looks like the source (e.g., temps)
-                        if let Some((list_name, arr_ptr)) =
-                            self.list_arrays.iter().next().map(|(k, v)| (k.clone(), *v))
-                        {
-                            let arr_ty = self
-                                .list_array_types
-                                .get(&list_name)
-                                .cloned()
-                                .unwrap_or_else(|| self.context.f64_type().array_type(4).into());
-                            let len = self.list_lengths.get(&list_name).cloned().unwrap_or(4);
-                            let idx_alloca = self.create_entry_alloca(
-                                &format!("{}_idx_recovered", iterator),
-                                &Type::Int,
-                            );
-                            self.builder
-                                .build_store(idx_alloca, self.context.i64_type().const_zero())
-                                .unwrap();
-                            self.iterator_indices.insert(iterator.clone(), idx_alloca);
-                            self.iterator_arrays.insert(iterator.clone(), arr_ptr);
-                            self.iterator_array_types.insert(iterator.clone(), arr_ty);
-                            self.iterator_lengths.insert(iterator.clone(), len);
-                            found = Some(idx_alloca);
-                        }
-                    }
-                    found.ok_or_else(|| {
-                        CompileError::simple(
+                // The IR builder should have registered this iterator
+                // during IteratorInit. If it is not present, the IR is
+                // inconsistent — this is a compiler bug, not a user
+                // error, and the backend cannot guess which array was
+                // meant. Fail closed.
+                let idx_ptr = self
+                    .iterator_indices
+                    .get(iterator)
+                    .cloned()
+                    .ok_or_else(|| {
+                        CompileError::unsupported_operation(
                             &format!(
-                                "iterator idx not found for '{}' - available: {:?} lists:{:?}",
+                                "iterator `{}` has no index slot (registered iterators: {:?})",
                                 iterator,
-                                self.iterator_indices.keys().collect::<Vec<_>>(),
-                                self.list_arrays.keys().collect::<Vec<_>>()
+                                self.iterator_indices.keys().collect::<Vec<_>>()
                             ),
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0004,
+                            "llvm",
                         )
-                    })?
-                };
+                    })?;
+                let arr_ptr = self.iterator_arrays.get(iterator).cloned().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!(
+                            "iterator `{}` has no backing array (registered iterators: {:?})",
+                            iterator,
+                            self.iterator_arrays.keys().collect::<Vec<_>>()
+                        ),
+                        "llvm",
+                    )
+                })?;
+                let arr_ty = self
+                    .iterator_array_types
+                    .get(iterator)
+                    .cloned()
+                    .ok_or_else(|| {
+                        CompileError::unsupported_operation(
+                            &format!("iterator `{}` has no array type", iterator),
+                            "llvm",
+                        )
+                    })?;
+
                 let idx_val = self
                     .builder
                     .build_load(
@@ -312,104 +327,112 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .builder
                     .build_int_compare(inkwell::IntPredicate::ULT, idx_val, len_val, "iter_cond")
                     .unwrap();
-                let body_bb = self.blocks.get(body_block).cloned().unwrap();
-                let exit_bb = self.blocks.get(exit_block).cloned().unwrap();
+                let body_bb = self.blocks.get(body_block).cloned().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!("iterator body block {} not found", body_block),
+                        "llvm",
+                    )
+                })?;
+                let exit_bb = self.blocks.get(exit_block).cloned().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!("iterator exit block {} not found", exit_block),
+                        "llvm",
+                    )
+                })?;
                 self.builder
                     .build_conditional_branch(cond, body_bb, exit_bb)
                     .unwrap();
 
                 let cur_bb = self.builder.get_insert_block().unwrap();
                 self.builder.position_at_end(body_bb);
-                if let Some(arr_ptr) = self.iterator_arrays.get(iterator).cloned() {
-                    let arr_ty = self
-                        .iterator_array_types
-                        .get(iterator)
-                        .cloned()
-                        .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
 
-                    // Derive the element type from the array we're iterating over, rather
-                    // than hardcoding Float. An Int list iterated by `for n in nums` must
-                    // produce an Int loop variable — otherwise every op on `n` sees a
-                    // mixed-type pair and the hardened codegen rejects it.
-                    let elem_llvm_ty: BasicTypeEnum = match arr_ty {
-                        BasicTypeEnum::ArrayType(at) => at.get_element_type(),
-                        _ => self.context.f64_type().into(),
-                    };
-                    let elem_ir_ty = match elem_llvm_ty {
-                        BasicTypeEnum::IntType(_) => Type::Int,
-                        BasicTypeEnum::FloatType(_) => Type::Float,
-                        BasicTypeEnum::PointerType(_) => Type::Ptr,
-                        _ => Type::Float,
-                    };
+                // Derive the element type from the array we're iterating over, rather
+                // than hardcoding Float. An Int list iterated by `for n in nums` must
+                // produce an Int loop variable — otherwise every op on `n` sees a
+                // mixed-type pair and the hardened codegen rejects it.
+                let elem_llvm_ty: BasicTypeEnum = match arr_ty {
+                    BasicTypeEnum::ArrayType(at) => at.get_element_type(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("iterator `{}` backing type is not an array", iterator),
+                            "llvm",
+                        ));
+                    }
+                };
+                let elem_ir_ty = match elem_llvm_ty {
+                    BasicTypeEnum::IntType(_) => Type::Int,
+                    BasicTypeEnum::FloatType(_) => Type::Float,
+                    BasicTypeEnum::PointerType(_) => Type::Ptr,
+                    other => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!(
+                                "iterator `{}` element type {:?} has no ALGOL26 equivalent",
+                                iterator, other
+                            ),
+                            "llvm",
+                        ));
+                    }
+                };
 
-                    let idx_i32 = self
-                        .builder
-                        .build_int_cast(idx_val, self.context.i32_type(), "idx32")
-                        .unwrap();
+                let idx_i32 = self
+                    .builder
+                    .build_int_cast(idx_val, self.context.i32_type(), "idx32")
+                    .unwrap();
 
-                    let elem_ptr = unsafe {
-                        self.builder
-                            .build_gep(
-                                arr_ty,
-                                arr_ptr,
-                                &[self.context.i32_type().const_zero(), idx_i32],
-                                "iter_elem_ptr",
-                            )
-                            .unwrap()
-                    };
-
-                    let loaded = self
-                        .builder
-                        .build_load(elem_llvm_ty, elem_ptr, target)
-                        .unwrap();
-
-                    let target_ptr = if let Some(p) = self.variables.get(target).cloned() {
-                        p
-                    } else {
-                        let alloca = self.create_entry_alloca(target, &elem_ir_ty);
-                        self.variables.insert(target.clone(), alloca);
-                        self.var_types.insert(target.clone(), elem_ir_ty.clone());
-                        alloca
-                    };
-
-                    self.builder.build_store(target_ptr, loaded).unwrap();
-
-                    let next_idx = self
-                        .builder
-                        .build_int_add(
-                            idx_val,
-                            self.context.i64_type().const_int(1, false),
-                            "next_idx",
+                let elem_ptr = unsafe {
+                    self.builder
+                        .build_gep(
+                            arr_ty,
+                            arr_ptr,
+                            &[self.context.i32_type().const_zero(), idx_i32],
+                            "iter_elem_ptr",
                         )
-                        .unwrap();
-                    self.builder.build_store(idx_ptr, next_idx).unwrap();
-                }
+                        .unwrap()
+                };
+
+                let loaded = self
+                    .builder
+                    .build_load(elem_llvm_ty, elem_ptr, target)
+                    .unwrap();
+
+                let target_ptr = if let Some(p) = self.variables.get(target).cloned() {
+                    p
+                } else {
+                    let alloca = self.create_entry_alloca(target, &elem_ir_ty);
+                    self.variables.insert(target.clone(), alloca);
+                    self.var_types.insert(target.clone(), elem_ir_ty.clone());
+                    alloca
+                };
+
+                self.builder.build_store(target_ptr, loaded).unwrap();
+
+                let next_idx = self
+                    .builder
+                    .build_int_add(
+                        idx_val,
+                        self.context.i64_type().const_int(1, false),
+                        "next_idx",
+                    )
+                    .unwrap();
+                self.builder.build_store(idx_ptr, next_idx).unwrap();
+
                 self.builder.position_at_end(cur_bb);
                 Ok(())
             }
-            Terminator::Spawn { entry_block } => {
-                // NOTE: LLVM backend doesn't support true parallelism yet
-                // This is a known limitation - we execute sequentially
-                // TODO: Use pthreads or similar for actual parallelism
-
-                // For now, emit a warning comment in IR
-                if let Some(bb) = self.blocks.get(entry_block).cloned() {
-                    self.builder.build_unconditional_branch(bb).unwrap();
-                }
-                Ok(())
-            }
-            Terminator::Fork { blocks, join_block } => {
-                // Sequential fallback: go to first parallel block, else join
-                let target = self
-                    .blocks
-                    .get(join_block)
-                    .or_else(|| blocks.first().and_then(|id| self.blocks.get(id)))
-                    .cloned();
-                if let Some(bb) = target {
-                    self.builder.build_unconditional_branch(bb).unwrap();
-                }
-                Ok(())
-            }
+            // The capability check refuses programs that use spawn or
+            // parallel on the LLVM backend. Reaching these arms means
+            // the capability check was bypassed or the IR is
+            // inconsistent. Failing closed rather than emitting
+            // sequential code that silently differs from the
+            // concurrent semantics the program requested.
+            Terminator::Spawn { .. } => Err(CompileError::unsupported_operation(
+                "spawn (LLVM backend has no threading model)",
+                "llvm",
+            )),
+            Terminator::Fork { .. } => Err(CompileError::unsupported_operation(
+                "parallel (LLVM backend has no threading model)",
+                "llvm",
+            )),
         }
     }
 }

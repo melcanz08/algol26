@@ -120,8 +120,15 @@ impl<'ctx> IRCodeGen<'ctx> {
             } => {
                 let arr_name = match array.as_ref() {
                     TypedIRValue::Variable(n, _) => n.clone(),
-                    _ => {
-                        return Ok(());
+                    other => {
+                        // A non-variable array in ArrayAssign means the
+                        // IR builder emitted an array write to something
+                        // that is not a place. Silently dropping the
+                        // write would produce wrong code; error instead.
+                        return Err(CompileError::unsupported_operation(
+                            &format!("ArrayAssign to non-variable array expression: {:?}", other),
+                            "llvm",
+                        ));
                     }
                 };
                 let idx_val = self.compile_value(index)?;
@@ -198,36 +205,45 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.builder.position_at_end(continue_bb);
                 }
                 let val = self.compile_value(value)?;
-                if let Some(arr_ptr) = self.list_arrays.get(&arr_name).cloned() {
-                    let array_ty = self
-                        .list_array_types
-                        .get(&arr_name)
-                        .cloned()
-                        .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
-                    let idx_i32 = if idx_val.is_int_value() {
-                        let iv = idx_val.into_int_value();
-                        if iv.get_type().get_bit_width() != 32 {
-                            self.builder
-                                .build_int_cast(iv, self.context.i32_type(), "idx32")
-                                .unwrap()
-                        } else {
-                            iv
-                        }
-                    } else {
-                        self.context.i32_type().const_zero()
-                    };
-                    let gep = unsafe {
+                let arr_ptr = self.list_arrays.get(&arr_name).cloned().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!(
+                            "ArrayAssign on `{}` which is not a tracked list \
+                             (known lists: {:?})",
+                            arr_name,
+                            self.list_arrays.keys().collect::<Vec<_>>()
+                        ),
+                        "llvm",
+                    )
+                })?;
+                let array_ty = self
+                    .list_array_types
+                    .get(&arr_name)
+                    .cloned()
+                    .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
+                let idx_i32 = if idx_val.is_int_value() {
+                    let iv = idx_val.into_int_value();
+                    if iv.get_type().get_bit_width() != 32 {
                         self.builder
-                            .build_gep(
-                                array_ty,
-                                arr_ptr,
-                                &[self.context.i32_type().const_zero(), idx_i32],
-                                "arr_gep",
-                            )
+                            .build_int_cast(iv, self.context.i32_type(), "idx32")
                             .unwrap()
-                    };
-                    self.builder.build_store(gep, val).unwrap();
-                }
+                    } else {
+                        iv
+                    }
+                } else {
+                    self.context.i32_type().const_zero()
+                };
+                let gep = unsafe {
+                    self.builder
+                        .build_gep(
+                            array_ty,
+                            arr_ptr,
+                            &[self.context.i32_type().const_zero(), idx_i32],
+                            "arr_gep",
+                        )
+                        .unwrap()
+                };
+                self.builder.build_store(gep, val).unwrap();
                 Ok(())
             }
             Instruction::Print { value } => {
@@ -236,10 +252,13 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Ok(())
             }
             Instruction::Call { func, args, result } => {
+                // Propagate errors from argument compilation — was
+                // previously `.unwrap()`, which panicked on any
+                // nested codegen failure instead of surfacing it.
                 let arg_vals: Vec<BasicValueEnum> = args
                     .iter()
-                    .map(|a| self.compile_value(a).unwrap())
-                    .collect();
+                    .map(|a| self.compile_value(a))
+                    .collect::<Result<Vec<_>>>()?;
                 let callee_name = func.trim_end_matches("()").to_string();
                 let llvm_name = resolve_math_name(&callee_name)
                     .map(|s| s.to_string())
@@ -257,18 +276,30 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .build_call(callee, &call_args, "calltmp")
                         .unwrap();
                     if let Some(res_name) = result {
-                        let __ret_opt = match call_site.try_as_basic_value() {
-                            inkwell::values::ValueKind::Basic(v) => Some(v),
-                            _ => None,
-                        };
-                        if let Some(ret) = __ret_opt {
-                            if let Some(ptr) = self.variables.get(res_name).cloned() {
-                                self.builder.build_store(ptr, ret).unwrap();
-                            } else {
-                                let alloca = self.create_entry_alloca(res_name, &Type::Float);
-                                self.builder.build_store(alloca, ret).unwrap();
-                                self.variables.insert(res_name.clone(), alloca);
-                                self.var_types.insert(res_name.clone(), Type::Float);
+                        match call_site.try_as_basic_value() {
+                            inkwell::values::ValueKind::Basic(ret) => {
+                                if let Some(ptr) = self.variables.get(res_name).cloned() {
+                                    self.builder.build_store(ptr, ret).unwrap();
+                                } else {
+                                    let alloca = self.create_entry_alloca(res_name, &Type::Float);
+                                    self.builder.build_store(alloca, ret).unwrap();
+                                    self.variables.insert(res_name.clone(), alloca);
+                                    self.var_types.insert(res_name.clone(), Type::Float);
+                                }
+                            }
+                            inkwell::values::ValueKind::Instruction(_) => {
+                                // The IR says this call produces a
+                                // value bound to `res_name`, but LLVM
+                                // says the callee returns void. A
+                                // mismatch; fail closed.
+                                return Err(CompileError::unsupported_operation(
+                                    &format!(
+                                        "call to `{}` bound to result `{}` but \
+                                         LLVM reports the call produces no value",
+                                        callee_name, res_name
+                                    ),
+                                    "llvm",
+                                ));
                             }
                         }
                     }
@@ -288,32 +319,41 @@ impl<'ctx> IRCodeGen<'ctx> {
                     _ => None,
                 };
                 if let Some(arr_name) = arr_name_opt {
-                    if let Some(arr_ptr) = self.list_arrays.get(&arr_name).cloned() {
-                        let arr_ty = self
-                            .list_array_types
-                            .get(&arr_name)
-                            .cloned()
-                            .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
-                        self.iterator_arrays.insert(iterator.clone(), arr_ptr);
-                        self.iterator_array_types.insert(iterator.clone(), arr_ty);
-                        if let Some(len) = self.list_lengths.get(&arr_name) {
-                            self.iterator_lengths.insert(iterator.clone(), *len);
-                        }
-                        let idx_alloca =
-                            self.create_entry_alloca(&format!("{}_idx", iterator), &Type::Int);
-                        self.builder
-                            .build_store(idx_alloca, self.context.i64_type().const_zero())
-                            .unwrap();
-                        self.iterator_indices.insert(iterator.clone(), idx_alloca);
-                        let it_alloca =
-                            self.create_entry_alloca(iterator, &Type::List(Box::new(Type::Float)));
-                        self.builder.build_store(it_alloca, arr_ptr).unwrap();
-                        self.variables.insert(iterator.clone(), it_alloca);
-                        self.var_types
-                            .insert(iterator.clone(), Type::List(Box::new(Type::Float)));
-                        self.list_arrays.insert(iterator.clone(), arr_ptr);
-                        self.list_array_types.insert(iterator.clone(), arr_ty);
+                    let arr_ptr = self.list_arrays.get(&arr_name).cloned().ok_or_else(|| {
+                        CompileError::unsupported_operation(
+                            &format!(
+                                "IteratorInit on `{}` which is not a tracked list \
+                                 (known lists: {:?})",
+                                arr_name,
+                                self.list_arrays.keys().collect::<Vec<_>>()
+                            ),
+                            "llvm",
+                        )
+                    })?;
+                    let arr_ty = self
+                        .list_array_types
+                        .get(&arr_name)
+                        .cloned()
+                        .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
+                    self.iterator_arrays.insert(iterator.clone(), arr_ptr);
+                    self.iterator_array_types.insert(iterator.clone(), arr_ty);
+                    if let Some(len) = self.list_lengths.get(&arr_name) {
+                        self.iterator_lengths.insert(iterator.clone(), *len);
                     }
+                    let idx_alloca =
+                        self.create_entry_alloca(&format!("{}_idx", iterator), &Type::Int);
+                    self.builder
+                        .build_store(idx_alloca, self.context.i64_type().const_zero())
+                        .unwrap();
+                    self.iterator_indices.insert(iterator.clone(), idx_alloca);
+                    let it_alloca =
+                        self.create_entry_alloca(iterator, &Type::List(Box::new(Type::Float)));
+                    self.builder.build_store(it_alloca, arr_ptr).unwrap();
+                    self.variables.insert(iterator.clone(), it_alloca);
+                    self.var_types
+                        .insert(iterator.clone(), Type::List(Box::new(Type::Float)));
+                    self.list_arrays.insert(iterator.clone(), arr_ptr);
+                    self.list_array_types.insert(iterator.clone(), arr_ty);
                 } else if let TypedIRValue::List(elems, elem_ty) = iterable {
                     let len = elems.len();
                     let elem_llvm_ty = self.map_type(elem_ty);
@@ -334,7 +374,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .build_alloca(array_ty, &format!("{}_arr_lit", iterator))
                         .unwrap();
                     for (i, elem) in elems.iter().enumerate() {
-                        let ev = self.compile_value(elem).unwrap();
+                        let ev = self.compile_value(elem)?;
                         let idx = self.context.i32_type().const_int(i as u64, false);
                         let ptr = unsafe {
                             b.build_gep(
@@ -365,19 +405,44 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.list_arrays.insert(iterator.clone(), arr_alloca);
                     self.list_array_types.insert(iterator.clone(), array_ty);
                     self.list_lengths.insert(iterator.clone(), len);
+                } else {
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "IteratorInit over iterable that is neither a variable \
+                             nor a list literal: {:?}",
+                            iterable
+                        ),
+                        "llvm",
+                    ));
                 }
                 Ok(())
             }
-            Instruction::ChannelDecl { name, type_ } => {
-                let alloca = self.create_entry_alloca(name, type_);
-                self.variables.insert(name.clone(), alloca);
-                self.var_types.insert(name.clone(), type_.clone());
-                Ok(())
-            }
-            Instruction::Send { .. } => Ok(()),
-            Instruction::Receive { .. } => Ok(()),
-            Instruction::ChannelSend { .. } => Ok(()),
-            Instruction::ChannelReceive { .. } => Ok(()),
+            // Channels have no LLVM lowering. The capability check
+            // should refuse any program that reaches these arms, so
+            // this code is defense in depth: if the check ever
+            // regresses, codegen errors instead of emitting wrong
+            // code. A silent no-op would leave a program that sends
+            // to a channel appearing to work but doing nothing.
+            Instruction::ChannelDecl { .. } => Err(CompileError::unsupported_operation(
+                "channel declaration (channels have no LLVM lowering)",
+                "llvm",
+            )),
+            Instruction::Send { .. } => Err(CompileError::unsupported_operation(
+                "channel send (channels have no LLVM lowering)",
+                "llvm",
+            )),
+            Instruction::Receive { .. } => Err(CompileError::unsupported_operation(
+                "channel receive (channels have no LLVM lowering)",
+                "llvm",
+            )),
+            Instruction::ChannelSend { .. } => Err(CompileError::unsupported_operation(
+                "channel send (channels have no LLVM lowering)",
+                "llvm",
+            )),
+            Instruction::ChannelReceive { .. } => Err(CompileError::unsupported_operation(
+                "channel receive (channels have no LLVM lowering)",
+                "llvm",
+            )),
             Instruction::Allocate {
                 target,
                 size,
@@ -398,7 +463,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                         iv
                     }
                 } else {
-                    self.context.i64_type().const_zero()
+                    return Err(CompileError::unsupported_operation(
+                        &format!("alloc size must be an integer, got {:?}", size_val),
+                        "llvm",
+                    ));
                 };
                 let malloc_fn = self.module.get_function("malloc").ok_or_else(|| {
                     CompileError::simple(
@@ -415,11 +483,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .unwrap();
                 let ptr_val = match call.try_as_basic_value() {
                     inkwell::values::ValueKind::Basic(v) => v,
-                    _ => self
-                        .context
-                        .ptr_type(inkwell::AddressSpace::default())
-                        .const_null()
-                        .into(),
+                    inkwell::values::ValueKind::Instruction(_) => {
+                        // malloc has a return type in C, so this
+                        // branch is unreachable in practice. Failing
+                        // closed rather than inserting a null.
+                        return Err(CompileError::unsupported_operation(
+                            "malloc returned no value (unexpected)",
+                            "llvm",
+                        ));
+                    }
                 };
                 // Reuse the alloca if the target already exists
                 // (e.g. an Allocate inside a loop); otherwise

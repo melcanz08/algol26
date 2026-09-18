@@ -236,9 +236,14 @@ impl Interpreter {
         }
 
         match func {
+            // `length` reports Unicode codepoints for strings, not
+            // UTF-8 bytes. `String.substring` already counts
+            // codepoints (via `chars()`), so the two agree on the
+            // same unit. The LLVM backend still uses C `strlen`
+            // (bytes) — see the TODO in `llvm_codegen/builtins.rs`.
             "List.length" | "len" | "length" => match arg_vals.first() {
                 Some(RuntimeValue::List(l)) => Ok(RuntimeValue::Int(l.len() as i64)),
-                Some(RuntimeValue::String(s)) => Ok(RuntimeValue::Int(s.len() as i64)),
+                Some(RuntimeValue::String(s)) => Ok(RuntimeValue::Int(s.chars().count() as i64)),
                 Some(other) => Err(EvalError::TypeMismatch {
                     op: "length",
                     left: runtime_kind(other),
@@ -443,7 +448,7 @@ impl Interpreter {
             },
 
             "String.length" | "String.len" | "strlen" => match arg_vals.first() {
-                Some(RuntimeValue::String(s)) => Ok(RuntimeValue::Int(s.len() as i64)),
+                Some(RuntimeValue::String(s)) => Ok(RuntimeValue::Int(s.chars().count() as i64)),
                 Some(other) => Err(EvalError::TypeMismatch {
                     op: "String.length",
                     left: runtime_kind(other),

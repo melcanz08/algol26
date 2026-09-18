@@ -101,6 +101,32 @@ impl CompileError {
         CompileError::simple(message, line, column, source_line, error_code)
     }
 
+    /// Construct a compile error for a backend that cannot lower
+    /// a specific operation.
+    ///
+    /// The message is self-describing — it names both the operation
+    /// and the backend — so a test can assert on the text without
+    /// pattern-matching a structured error type. This is the
+    /// standard constructor for fail-closed backend paths: any
+    /// operation the backend does not implement becomes a call to
+    /// this function, never a silent fallback.
+    ///
+    /// Uses `E0004`, the code the LLVM backend already uses for
+    /// "unhandled builtin" and "requires a specific argument shape."
+    /// The code is a coarse bucket; the message carries the detail.
+    pub fn unsupported_operation(operation: &str, backend: &str) -> Self {
+        Self::simple(
+            &format!(
+                "backend `{}` does not support operation `{}`",
+                backend, operation
+            ),
+            0,
+            0,
+            "",
+            ErrorCode::E0004,
+        )
+    }
+
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = span;
         self

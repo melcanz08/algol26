@@ -7,7 +7,10 @@ This directory contains documentation for the ALGOL26 compiler.
 - **[../README.md](../README.md)** — project overview, build, usage
 - **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** — what works today,
   corpus-verified, with known gaps listed
-- **[archive/](archive/)** — superseded docs, kept for history
+- **[architecture-direction.md](architecture-direction.md)** — how the
+  codebase is structured and why, plus the incremental path to less coupling
+- **[language-reference.md](language-reference.md)** — canonical language
+  specification (being audited against the parser + corpus section by section)
 
 ## Document categories
 
@@ -22,9 +25,31 @@ code changes.
 | File | Purpose |
 |------|---------|
 | `IMPLEMENTATION_STATUS.md` | Feature matrix + known gaps, corpus-verified |
+| `language-reference.md` | Canonical language specification |
+| `architecture-direction.md` | Structure of the codebase and why |
+| `ir-pass-contracts.md` | Contracts each compiler pass must satisfy |
+| `test-organization.md` | What lives in each `tests/` subdirectory |
+| `no-panic-policy.md` | Rules about panics, unwraps, and errors |
 
-Only one doc is currently in this category. As the language reference
-and architecture docs are rewritten from code, they will join it.
+Reference docs that drift are worse than no docs. If a Reference doc
+makes a claim that is not backed by code or a corpus program, remove
+the claim or back it.
+
+### Feature contracts
+
+One file per language feature, under `features/`. Each describes the
+feature's syntax, typing, ownership, IR representation, backend
+support, and test coverage. They are the checklist for adding or
+modifying a feature — see `architecture-direction.md` for the
+rationale.
+
+| File | Feature |
+|------|---------|
+| `features/option.md` | `Option<T>` |
+| `features/result.md` | `Result<T, E>` |
+
+Contract files are updated alongside the code they describe. A
+feature change that does not update its contract is incomplete.
 
 ### ADR — Architecture Decision Records
 
@@ -58,7 +83,8 @@ the old one.
 ### Archive — superseded
 
 **Frozen.** Kept for history. Do not read these as descriptions of the
-current code. They were accurate at some point in the past.
+current code. They were accurate at some point in the past. Every
+file under `archive/` carries a banner naming its replacement.
 
 Files in `archive/` include:
 
@@ -79,10 +105,11 @@ Files in `archive/` include:
    Release note.** Freeze it. Never edit it.
 3. **When a doc is superseded, move it to `archive/` — never delete.**
    Historical docs explain why past decisions were made.
-4. **When a feature ships, update two things:** `IMPLEMENTATION_STATUS.md`
-   and a corpus program in `tests/corpus/`. The status doc without a
-   corpus program is just a claim; the corpus program without an update
-   to the status doc is an undiscoverable feature.
+4. **When a feature ships, update three things:** its feature contract
+   under `features/`, a corpus program in `tests/corpus/`, and the
+   row for it in `IMPLEMENTATION_STATUS.md`. The contract without a
+   corpus program is a claim; the corpus program without an updated
+   contract is an undiscoverable feature.
 
 ## Adding a new doc
 
@@ -90,6 +117,8 @@ Before writing a new doc, ask:
 
 - Is this describing current behavior? → Reference. It joins the audit
   rotation.
+- Is this describing a single feature? → `features/<name>.md`, using
+  `features/option.md` as the template.
 - Is this recording a decision? → ADR. Number it `NNNN-title.md`.
 - Is this release notes? → `releases/`.
 - Is it explaining why, not what? → Design. Keep it short and timeless.
@@ -100,11 +129,10 @@ Before writing a new doc, ask:
 
 | Doc | Why it matters |
 |-----|---------------|
-| `language-reference.md` | The actual spec. Currently in `archive/` but
-  stale. Must be rewritten from the parser + corpus. |
-| `architecture.md` | High-level overview. Currently in `archive/` but
-  references deleted paths. Must be rewritten from `src/`. |
+| `features/*.md` (14 more) | Every feature besides `Option` and `Result` still needs a contract. `list.md` and `channel.md` are the next candidates. |
+| `stdlib.md` | Built-in functions (`String.*`, `Math.*`, `List.*`) have no reference doc. Currently discoverable only by reading `builtin_signatures()` in `src/ir/verifier/builtins.rs`. |
+| `errors.md` | The nine current diagnostic codes (`E-BORROW-004` through `E-UNSUPPORTED-001`) have no public documentation. Users only see them in compiler output. |
 
-Both are large projects. They will be written section by section
-against the code, and every claim will be backed by either a parser
-rule or a corpus program.
+Each of these is a small, self-contained writing project. The
+`features/option.md` file is the model for `features/*.md`.
+

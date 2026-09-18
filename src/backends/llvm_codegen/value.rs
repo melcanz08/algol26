@@ -12,19 +12,18 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// Compile an expression as a *reference* — i.e., produce the
     /// address of its inner value rather than loading from it. Used by
     /// `Borrow` and `MutBorrow` (and `AddrOf` could delegate here too).
+    ///
+    /// Fail-closed: an unknown variable is an error, not a null
+    /// pointer. A silent null would produce a program that segfaults
+    /// at runtime instead of failing at compile time.
     pub(super) fn compile_reference(&self, expr: &TypedIRValue) -> Result<BasicValueEnum<'ctx>> {
         match expr {
-            TypedIRValue::Variable(name, _) => {
-                if let Some(ptr) = self.variables.get(name) {
-                    Ok((*ptr).into())
-                } else {
-                    Ok(self
-                        .context
-                        .ptr_type(AddressSpace::default())
-                        .const_null()
-                        .into())
-                }
-            }
+            TypedIRValue::Variable(name, _) => self.variables.get(name).map(|p| (*p).into()).ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!("reference to undefined variable `{}`", name),
+                    "llvm",
+                )
+            }),
             // A reference-to-reference yields the inner reference.
             TypedIRValue::Borrow { expr, .. } | TypedIRValue::MutBorrow { expr, .. } => {
                 self.compile_value(expr)
@@ -55,14 +54,28 @@ impl<'ctx> IRCodeGen<'ctx> {
                 .ptr_type(AddressSpace::default())
                 .const_null()
                 .into(),
+            // `PtrLiteral(p)` carries an absolute pointer value as an
+            // integer. Lower it to a real pointer with `inttoptr` so
+            // the resulting LLVM value has pointer type, matching the
+            // IR type `Type::Ptr`.
             TypedIRValue::PtrLiteral(p) => {
-                self.context.i64_type().const_int(*p as u64, false).into()
+                let i64_ty = self.context.i64_type();
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let int_val = i64_ty.const_int(*p as u64, false);
+                self.builder
+                    .build_int_to_ptr(int_val, ptr_ty, "ptr_literal")
+                    .unwrap()
+                    .into()
             }
-            TypedIRValue::List(_, _) => self
-                .context
-                .ptr_type(AddressSpace::default())
-                .const_null()
-                .into(),
+            // List literals have no LLVM lowering in the current
+            // backend. Before this fix, the arm returned `null` — a
+            // silent wrong-code bug. Now it errors.
+            TypedIRValue::List(_, _) => {
+                return Err(CompileError::unsupported_operation(
+                    "list literal value (use List.length or iterate instead)",
+                    "llvm",
+                ));
+            }
             TypedIRValue::Variable(name, _) => {
                 // ALGOL26: UNDEFINED VARIABLE IS AN ERROR, not 0.0!
                 let ptr = self.variables.get(name).ok_or_else(|| {
@@ -94,10 +107,13 @@ impl<'ctx> IRCodeGen<'ctx> {
                 args,
                 return_type,
             } => {
+                // Propagate errors from argument compilation — was
+                // previously `.unwrap()`, which panicked on any nested
+                // codegen failure instead of surfacing it.
                 let arg_vals: Vec<BasicValueEnum> = args
                     .iter()
-                    .map(|a| self.compile_value(a).unwrap())
-                    .collect();
+                    .map(|a| self.compile_value(a))
+                    .collect::<Result<Vec<_>>>()?;
                 let callee_name = function.trim_end_matches("()").to_string();
                 // `Math.*` names are registered in the LLVM module
                 // under their unmangled C names (sqrt, pow, fabs, ...).
@@ -117,14 +133,24 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .builder
                         .build_call(callee, &call_args, "calltmp")
                         .unwrap();
-                    let __ret_opt = match call_site.try_as_basic_value() {
-                        inkwell::values::ValueKind::Basic(v) => Some(v),
-                        _ => None,
-                    };
-                    if let Some(ret) = __ret_opt {
-                        ret
-                    } else {
-                        self.context.f64_type().const_float(0.0).into()
+                    match call_site.try_as_basic_value() {
+                        inkwell::values::ValueKind::Basic(v) => v,
+                        // A call that returns void cannot be used as a
+                        // value. The IR should have used
+                        // `Instruction::Call` instead of
+                        // `TypedIRValue::Call` for such calls. Fail
+                        // closed rather than silently returning 0.0.
+                        inkwell::values::ValueKind::Instruction(_) => {
+                            return Err(CompileError::unsupported_operation(
+                                &format!(
+                                    "call to `{}` yields no value; use an \
+                                     `Instruction::Call` form instead of \
+                                     `TypedIRValue::Call`",
+                                    callee_name
+                                ),
+                                "llvm",
+                            ));
+                        }
                     }
                 } else {
                     self.compile_builtin_value(&callee_name, args)?
@@ -338,28 +364,33 @@ impl<'ctx> IRCodeGen<'ctx> {
             TypedIRValue::MutBorrow { expr, .. } => self.compile_reference(expr)?,
             TypedIRValue::Deref { expr, target_type } => {
                 let ptr = self.compile_value(expr)?;
-                if ptr.is_pointer_value() {
-                    let llvm_ty = self.map_type(target_type);
-                    self.builder
-                        .build_load(llvm_ty, ptr.into_pointer_value(), "deref_load")
-                        .unwrap()
-                } else {
-                    // Not a pointer — the IR is malformed but we don't
-                    // panic; returning the value as-is keeps codegen
-                    // running so the verifier can report the real issue.
-                    ptr
+                if !ptr.is_pointer_value() {
+                    // Reaching this arm means the IR has a Deref whose
+                    // operand was not lowered to a pointer. The verifier
+                    // should have rejected this; failing closed here
+                    // rather than returning the non-pointer value (which
+                    // would silently be the wrong value).
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "deref of non-pointer value (kind {:?})",
+                            ptr
+                        ),
+                        "llvm",
+                    ));
                 }
+                let llvm_ty = self.map_type(target_type);
+                self.builder
+                    .build_load(llvm_ty, ptr.into_pointer_value(), "deref_load")
+                    .unwrap()
             }
             TypedIRValue::AddrOf { expr, .. } => {
                 if let TypedIRValue::Variable(name, _) = expr.as_ref() {
-                    if let Some(ptr) = self.variables.get(name) {
-                        (*ptr).into()
-                    } else {
-                        self.context
-                            .ptr_type(AddressSpace::default())
-                            .const_null()
-                            .into()
-                    }
+                    self.variables.get(name).map(|p| (*p).into()).ok_or_else(|| {
+                        CompileError::unsupported_operation(
+                            &format!("address-of undefined variable `{}`", name),
+                            "llvm",
+                        )
+                    })?
                 } else {
                     self.compile_value(expr)?
                 }
@@ -375,43 +406,27 @@ impl<'ctx> IRCodeGen<'ctx> {
             // (which is what the code did before PR-13c and was the
             // source of a real wrong-code bug).
             TypedIRValue::Some(_) => {
-                return Err(CompileError::simple(
-                    "LLVM codegen: Some(...) has no LLVM lowering; \
-                     the capability scan should have refused this program",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
+                return Err(CompileError::unsupported_operation(
+                    "Some(...) (Option<T> has no LLVM lowering)",
+                    "llvm",
                 ));
             }
             TypedIRValue::None { .. } => {
-                return Err(CompileError::simple(
-                    "LLVM codegen: None has no LLVM lowering; \
-                     the capability scan should have refused this program",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
+                return Err(CompileError::unsupported_operation(
+                    "None (Option<T> has no LLVM lowering)",
+                    "llvm",
                 ));
             }
             TypedIRValue::Ok { .. } => {
-                return Err(CompileError::simple(
-                    "LLVM codegen: Ok(...) has no LLVM lowering; \
-                     the capability scan should have refused this program",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
+                return Err(CompileError::unsupported_operation(
+                    "Ok(...) (Result<T, E> has no LLVM lowering)",
+                    "llvm",
                 ));
             }
             TypedIRValue::Error { .. } => {
-                return Err(CompileError::simple(
-                    "LLVM codegen: Error(...) has no LLVM lowering; \
-                     the capability scan should have refused this program",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
+                return Err(CompileError::unsupported_operation(
+                    "Error(...) (Result<T, E> has no LLVM lowering)",
+                    "llvm",
                 ));
             }
 
@@ -421,34 +436,21 @@ impl<'ctx> IRCodeGen<'ctx> {
             // something the backend cannot handle — a compiler bug,
             // not a program the user should have written.
             TypedIRValue::Array(_, _, _) => {
-                return Err(CompileError::simple(
-                    "LLVM codegen: array literal value has no LLVM lowering; \
-                     the capability matrix should have refused this program",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
+                return Err(CompileError::unsupported_operation(
+                    "array literal value",
+                    "llvm",
                 ));
             }
             TypedIRValue::Range(_, _) => {
-                return Err(CompileError::simple(
-                    "LLVM codegen: range value has no LLVM lowering; \
-                     the capability matrix should have refused this program",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
+                return Err(CompileError::unsupported_operation(
+                    "range value",
+                    "llvm",
                 ));
             }
             TypedIRValue::FieldAccess { .. } => {
-                return Err(CompileError::simple(
-                    "LLVM codegen: field access has no LLVM lowering \
-                     (no struct support); the capability matrix should \
-                     have refused this program",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
+                return Err(CompileError::unsupported_operation(
+                    "field access (no struct support)",
+                    "llvm",
                 ));
             }
         })

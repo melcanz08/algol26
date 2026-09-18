@@ -13,15 +13,20 @@
 //     interpreter does not create OS threads.
 //   - foreign function calls.
 //   - channel send/receive (no-op instructions).
+//
+// Errors: `execute_function` returns `Result<(), EvalError>`.
+// `run()` is the public boundary and converts to `String` for
+// backward compatibility. See `runtime::EvalError` for the
+// three error categories (TypeMismatch, Runtime, Unsupported).
 use crate::ir::semantic_ir::{
     Instruction, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
 };
 use std::collections::HashMap;
 
-mod runtime;
-mod pattern;
 mod eval;
-pub use runtime::RuntimeValue;
+mod pattern;
+mod runtime;
+pub use runtime::{EvalError, RuntimeValue};
 
 /// A single active `region NAME` block. Allocations made inside
 /// the block are recorded here by `Instruction::Allocate` and
@@ -68,6 +73,9 @@ impl Interpreter {
         }
     }
 
+    /// Public boundary. Converts `EvalError` into the `String`
+    /// diagnostics the CLI expects. This is the *only* place in
+    /// the interpreter that should convert.
     pub fn run(&mut self) -> Result<String, String> {
         let main_func = self
             .program
@@ -75,13 +83,17 @@ impl Interpreter {
             .iter()
             .find(|f| f.name == "main")
             .cloned()
-            .ok_or("No main function found")?;
+            .ok_or_else(|| "No main function found".to_string())?;
 
-        self.execute_function(&main_func)?;
+        self.execute_function(&main_func)
+            .map_err(|e| e.to_string())?;
         Ok(self.output.join("\n"))
     }
 
-    pub(super) fn execute_function(&mut self, func: &SemanticFunction) -> Result<(), String> {
+    pub(super) fn execute_function(
+        &mut self,
+        func: &SemanticFunction,
+    ) -> Result<(), EvalError> {
         let mut current = func.entry_block;
         let mut iterations = 0;
         // Pending branches after a Fork. Each entry is
@@ -95,7 +107,7 @@ impl Interpreter {
 
         loop {
             if iterations > 100_000_000 {
-                return Err("Infinite loop detected".to_string());
+                return Err(EvalError::Runtime("infinite loop detected".into()));
             }
             iterations += 1;
 
@@ -103,7 +115,9 @@ impl Interpreter {
                 .blocks
                 .iter()
                 .find(|b| b.id == current)
-                .ok_or_else(|| format!("Block {} not found", current))?
+                .ok_or_else(|| {
+                    EvalError::Runtime(format!("block {} not found", current))
+                })?
                 .clone();
 
             for instr in &block.instructions {
@@ -113,7 +127,7 @@ impl Interpreter {
             match &block.terminator {
                 Some(Terminator::Return { value, .. }) => {
                     if let Some(v) = value {
-                        self.return_value = Some(self.eval_value(v));
+                        self.return_value = Some(self.eval_value(v)?);
                     }
                     // Any `region` blocks still open at return
                     // (from early-return paths) get cleaned up
@@ -127,10 +141,6 @@ impl Interpreter {
                     return Ok(());
                 }
                 Some(Terminator::Jump { block: target }) => {
-                    // If this Jump targets the join of an in-progress
-                    // Fork and there are more branches queued, run the
-                    // next branch sequentially instead of falling
-                    // through to the join.
                     let mut jumped_to_next_branch = false;
                     if let Some((remaining, fork_join)) = pending_forks.last_mut() {
                         if target == fork_join {
@@ -139,8 +149,6 @@ impl Interpreter {
                                 current = next;
                                 jumped_to_next_branch = true;
                             } else {
-                                // All branches completed; consume this
-                                // fork and fall through to the join.
                                 pending_forks.pop();
                             }
                         }
@@ -154,7 +162,10 @@ impl Interpreter {
                     then_block,
                     else_block,
                 }) => {
-                    let cond = self.eval_value(condition).as_bool();
+                    // NOTE: `as_bool` still coerces non-Bool silently.
+                    // TypeCheckPass should guarantee Bool here; see
+                    // PR-B for making `as_bool` fallible.
+                    let cond = self.eval_value(condition)?.as_bool();
                     current = if cond { *then_block } else { *else_block };
                 }
                 Some(Terminator::IteratorNext {
@@ -179,8 +190,10 @@ impl Interpreter {
                         if current_idx < list.len() {
                             let value = list[current_idx].clone();
                             self.variables.insert(target.clone(), value);
-                            self.variables
-                                .insert(idx_key, RuntimeValue::Int((current_idx + 1) as i64));
+                            self.variables.insert(
+                                idx_key,
+                                RuntimeValue::Int((current_idx + 1) as i64),
+                            );
                             current = *body_block;
                         } else {
                             current = *exit_block;
@@ -193,10 +206,6 @@ impl Interpreter {
                     current = *entry_block;
                 }
                 Some(Terminator::Fork { blocks, join_block }) => {
-                    // Sequential execution of every parallel branch, in
-                    // source order. If there are more branches after the
-                    // first, remember them plus the join target so the
-                    // first `Jump(join)` can chain into the next branch.
                     if let Some((first, rest)) = blocks.split_first() {
                         if !rest.is_empty() {
                             pending_forks.push((rest.to_vec(), *join_block));
@@ -211,12 +220,11 @@ impl Interpreter {
                     cases,
                     default_block,
                 }) => {
-                    let val = self.eval_value(value);
+                    let val = self.eval_value(value)?;
                     let mut matched = false;
 
                     for (pattern, target) in cases {
-                        if let Some(bindings) = self.try_pattern_match(pattern, &val) {
-                            // Bind the pattern's payload(s) before jumping.
+                        if let Some(bindings) = self.try_pattern_match(pattern, &val)? {
                             for (name, bound_val) in bindings {
                                 self.variables.insert(name, bound_val);
                             }
@@ -230,7 +238,9 @@ impl Interpreter {
                         if let Some(default) = default_block {
                             current = *default;
                         } else {
-                            return Err("No matching case".to_string());
+                            return Err(EvalError::Runtime(
+                                "switch has no matching case and no default".into(),
+                            ));
                         }
                     }
                 }
@@ -238,22 +248,25 @@ impl Interpreter {
             }
         }
     }
-    fn execute_instruction(&mut self, instr: &Instruction) -> Result<(), String> {
+
+    fn execute_instruction(&mut self, instr: &Instruction) -> Result<(), EvalError> {
         match instr {
+            Instruction::Nop => {}
+
             Instruction::Declare { name, value, .. } => {
-                let val = self.eval_value(value);
+                let val = self.eval_value(value)?;
                 self.variables.insert(name.clone(), val);
             }
             Instruction::Assign { target, value } => {
-                let val = self.eval_value(value);
+                let val = self.eval_value(value)?;
                 self.variables.insert(target.clone(), val);
             }
             Instruction::Print { value } => {
-                let val = self.eval_value(value);
+                let val = self.eval_value(value)?;
                 self.output.push(val.display());
             }
             Instruction::Call { func, args, result } => {
-                let val = self.eval_call(func, args);
+                let val = self.eval_call(func, args)?;
                 if let Some(res_name) = result {
                     self.variables.insert(res_name.clone(), val);
                 }
@@ -265,49 +278,73 @@ impl Interpreter {
             } => {
                 let arr_name = match array.as_ref() {
                     TypedIRValue::Variable(name, _) => name.clone(),
-                    _ => return Ok(()),
+                    _ => {
+                        return Err(EvalError::Unsupported {
+                            construct: "ArrayAssign on non-variable",
+                            hint: "array must be a plain variable name",
+                        });
+                    }
                 };
 
-                let idx = self.eval_value(index);
-                let val = self.eval_value(value);
+                let idx = self.eval_value(index)?;
+                let val = self.eval_value(value)?;
 
                 let idx_usize = match idx {
+                    RuntimeValue::Int(i) if i < 0 => {
+                        return Err(EvalError::Runtime(format!(
+                            "array assignment index {} is negative", i
+                        )));
+                    }
                     RuntimeValue::Int(i) => i as usize,
-                    RuntimeValue::Float(f) => f as usize,
-                    _ => 0,
+                    other => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "ArrayAssign.index",
+                            left: runtime::runtime_kind(&other),
+                            right: "Int",
+                        });
+                    }
                 };
 
                 if let Some(RuntimeValue::List(list)) = self.variables.get(&arr_name).cloned() {
                     let mut new_list = list;
                     if idx_usize < new_list.len() {
                         new_list[idx_usize] = val;
-                        self.variables
-                            .insert(arr_name, RuntimeValue::List(new_list));
+                        self.variables.insert(arr_name, RuntimeValue::List(new_list));
+                    } else {
+                        return Err(EvalError::Runtime(format!(
+                            "array assignment index {} out of bounds (length {})",
+                            idx_usize,
+                            new_list.len()
+                        )));
                     }
+                } else {
+                    return Err(EvalError::Runtime(format!(
+                        "ArrayAssign target `{}` is not a list",
+                        arr_name
+                    )));
                 }
             }
             Instruction::IteratorInit { iterator, iterable } => {
-                let val = self.eval_value(iterable);
+                let val = self.eval_value(iterable)?;
                 self.variables.insert(iterator.clone(), val);
-                self.variables.insert(
-                    format!("{}_idx", iterator),
-                    RuntimeValue::Int(0),
-                );
+                self.variables
+                    .insert(format!("{}_idx", iterator), RuntimeValue::Int(0));
             }
             Instruction::Allocate { target, size, .. } => {
-                let requested = match self.eval_value(size) {
+                let requested = match self.eval_value(size)? {
                     RuntimeValue::Int(i) if i > 0 => i as usize,
                     RuntimeValue::Float(f) if f > 0.0 => f as usize,
-                    _ => 0,
+                    other => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Allocate.size",
+                            left: runtime::runtime_kind(&other),
+                            right: "positive Int",
+                        });
+                    }
                 };
                 let handle = self.next_ptr;
                 self.next_ptr += 1;
                 self.heap.insert(handle, vec![0u8; requested]);
-                // Attribute to the innermost active region, if
-                // any. A region exit will free every handle
-                // recorded here, so an explicit `free(p)` inside
-                // a region is safe (removing an already-freed
-                // handle is a no-op).
                 if let Some(frame) = self.region_stack.last_mut() {
                     frame.allocations.push(handle);
                 }
@@ -315,9 +352,16 @@ impl Interpreter {
                     .insert(target.clone(), RuntimeValue::Int(handle as i64));
             }
             Instruction::Free { ptr } => {
-                let handle = match self.eval_value(ptr) {
+                let handle = match self.eval_value(ptr)? {
                     RuntimeValue::Int(h) if h > 0 => Some(h as usize),
-                    _ => None,
+                    RuntimeValue::Int(_) => None, // freeing null is a no-op
+                    other => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Free.ptr",
+                            left: runtime::runtime_kind(&other),
+                            right: "Int (pointer handle)",
+                        });
+                    }
                 };
                 if let Some(h) = handle {
                     self.heap.remove(&h);
@@ -330,11 +374,6 @@ impl Interpreter {
                 });
             }
             Instruction::RegionExit { name } => {
-                // The frame's name must match the exit's name.
-                // A mismatch means the IR builder emitted an
-                // enter/exit pair out of sync — a compiler bug,
-                // not a user error. Report it loudly rather than
-                // silently freeing the wrong region's heap.
                 match self.region_stack.pop() {
                     Some(frame) if frame.name == *name => {
                         for handle in frame.allocations {
@@ -342,20 +381,29 @@ impl Interpreter {
                         }
                     }
                     Some(frame) => {
-                        return Err(format!(
+                        return Err(EvalError::Runtime(format!(
                             "region exit mismatch: expected '{}', found '{}'",
                             name, frame.name
-                        ));
+                        )));
                     }
                     None => {
-                        return Err(format!(
+                        return Err(EvalError::Runtime(format!(
                             "region exit '{}' with no matching enter",
                             name
-                        ));
+                        )));
                     }
                 }
             }
-            _=> {}
+
+            // Channel operations are not modeled. The capability
+            // matrix should refuse any program that would reach
+            // here. Listed explicitly (rather than `_ =>`) so a
+            // future IR variant forces a decision at compile time.
+            Instruction::ChannelDecl { .. } => {}
+            Instruction::Send { .. } => {}
+            Instruction::Receive { .. } => {}
+            Instruction::ChannelSend { .. } => {}
+            Instruction::ChannelReceive { .. } => {}
         }
         Ok(())
     }

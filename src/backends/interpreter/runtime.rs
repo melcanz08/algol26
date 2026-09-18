@@ -1,5 +1,54 @@
 // src/backends/interpreter/runtime.rs
 
+
+use std::fmt;
+
+/// Errors produced by the interpreter while evaluating IR.
+///
+/// Three categories:
+///   - `TypeMismatch` — the IR was malformed for the interpreter.
+///     This is a compiler bug, not a user error: `TypeCheckPass`
+///     should have prevented it.
+///   - `Runtime` — the user's program did something illegal at
+///     runtime (division by zero, out-of-bounds index, etc.).
+///   - `Unsupported` — the IR uses a construct the interpreter
+///     does not model. The capability matrix should have refused
+///     this program before it reached the interpreter; this is a
+///     defense-in-depth error.
+#[derive(Debug, Clone)]
+pub enum EvalError {
+    TypeMismatch {
+        op: &'static str,
+        left: &'static str,
+        right: &'static str,
+    },
+    Runtime(String),
+    Unsupported {
+        construct: &'static str,
+        hint: &'static str,
+    },
+}
+
+impl fmt::Display for EvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TypeMismatch { op, left, right } => write!(
+                f,
+                "internal: `{}` received {} and {} — IR builder should have coerced",
+                op, left, right
+            ),
+            Self::Runtime(msg) => write!(f, "runtime error: {}", msg),
+            Self::Unsupported { construct, hint } => write!(
+                f,
+                "interpreter does not support `{}`: {}",
+                construct, hint
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EvalError {}
+
 #[derive(Debug, Clone)]
 pub enum RuntimeValue {
     Int(i64),

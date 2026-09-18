@@ -244,50 +244,29 @@ impl Compiler {
         Ok(VerifiedIR::from_verify_pass(verified))
     }
 
-    /// Runs `OptimizePass` followed by `VerifyIrPass` on the given
-    /// `VerifiedIR`, and returns a fresh `VerifiedIR`.
+    /// Runs the IR optimizer on a `VerifiedIR`, re-verifies the
+    /// result, and returns a fresh `VerifiedIR`.
     ///
     /// The signature is the point: unverified IR cannot enter the
-    /// optimizer, and unverified IR cannot leave it. The single
-    /// `into_program()` call in the middle is the one place the
-    /// wrapper is peeled — immediately followed by mutation, then
-    /// re-verification, then re-wrapping.
+    /// optimizer (only a `VerifiedIR` can be passed), and unverified
+    /// IR cannot leave it (the `mutate` call inside re-runs the
+    /// verifier before returning). Both properties are enforced by
+    /// the type system, not by convention.
     fn run_optimize_pass(&self, verified: VerifiedIR) -> Result<VerifiedIR> {
-        use crate::compiler::context::{CompilerConfig, CompilerContext};
-        use crate::compiler::passes::optimize::OptimizePass;
-        use crate::compiler::passes::verify_ir::VerifyIrPass;
-        use crate::compiler::pipeline::Pipeline;
-        use crate::compiler::program::Program;
-        use crate::compiler::scheduler::Scheduler;
+        use crate::ir::optimizer::Optimizer;
 
-        let pipeline = Pipeline::builder()
-            .add(OptimizePass)
-            .add(VerifyIrPass)
-            .build()
-            .expect("optimize-then-verify is a valid pass chain");
-
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
-        let mut program = Program::new("", "");
-        program.semantic_ir = Some(verified.into_program());
-
-        let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
-
-        if let Some(err) = outcome.failure {
-            return Err(CompileError::simple(
-                &format!("IR verification failed after optimization: {}", err.message),
-                0,
-                0,
-                "",
-                ErrorCode::E0002,
-            ));
-        }
-
-        let optimized = program
-            .semantic_ir
-            .take()
-            .expect("optimize+verify pipeline left IR in place");
-
-        Ok(VerifiedIR::from_verify_pass(optimized))
+        let mut optimizer = Optimizer::new();
+        verified
+            .mutate(|program| optimizer.optimize(program))
+            .map_err(|e| {
+                CompileError::simple(
+                    &format!("IR verification failed after optimization: {}", e),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
+                )
+            })
     }
 
     /// Runs `BuildSemanticIRPass` on the given typed AST.

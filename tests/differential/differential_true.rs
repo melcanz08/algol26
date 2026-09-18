@@ -269,7 +269,11 @@ procedure main
         llvm_output.trim(),
         "Interpreter and LLVM disagree"
     );
-    assert_eq!(llvm_output.trim(), "42.0", "double(10.0 + 11.0) should be 42.0");
+    assert_eq!(
+        llvm_output.trim(),
+        "42.0",
+        "double(10.0 + 11.0) should be 42.0"
+    );
 }
 
 #[test]
@@ -481,11 +485,11 @@ procedure main
         "Interpreter and LLVM disagree on Int/Float equality"
     );
     let lines: Vec<&str> = llvm_output.lines().collect();
-    assert_eq!(lines[0], "true",  "1 == 1.0");
-    assert_eq!(lines[1], "true",  "1.0 == 1");
+    assert_eq!(lines[0], "true", "1 == 1.0");
+    assert_eq!(lines[1], "true", "1.0 == 1");
     assert_eq!(lines[2], "false", "2 == 2.5");
     assert_eq!(lines[3], "false", "2.5 == 2");
-    assert_eq!(lines[4], "true",  "2.0 != 3");
+    assert_eq!(lines[4], "true", "2.0 != 3");
     assert_eq!(lines[5], "false", "2.0 != 2");
 }
 
@@ -569,7 +573,7 @@ procedure main
 "#;
     let llvm_output = run_llvm(source);
     let interp_output = run_interpreter(source);
-    assert_eq!(interp_output.trim(), llvm_output.trim(), "..." );
+    assert_eq!(interp_output.trim(), llvm_output.trim(), "...");
     assert_eq!(llvm_output.trim(), "5");
 }
 
@@ -587,7 +591,11 @@ procedure main
         llvm_output.trim(),
         "Interpreter and LLVM disagree on List.length"
     );
-    assert_eq!(llvm_output.trim(), "3", "List.length of [1.0, 2.0, 3.0] should be 3");
+    assert_eq!(
+        llvm_output.trim(),
+        "3",
+        "List.length of [1.0, 2.0, 3.0] should be 3"
+    );
 }
 
 #[test]
@@ -723,8 +731,11 @@ procedure main
 "#;
     let llvm_output = run_llvm(source);
     let interp_output = run_interpreter(source);
-    assert_eq!(interp_output.trim(), llvm_output.trim(),
-        "Interpreter and LLVM disagree on int-list for-loop");
+    assert_eq!(
+        interp_output.trim(),
+        llvm_output.trim(),
+        "Interpreter and LLVM disagree on int-list for-loop"
+    );
     assert_eq!(llvm_output.trim(), "60");
 }
 
@@ -741,8 +752,11 @@ procedure main
 "#;
     let llvm_output = run_llvm(source);
     let interp_output = run_interpreter(source);
-    assert_eq!(interp_output.trim(), llvm_output.trim(),
-        "Interpreter and LLVM disagree on int-list for-loop with if body");
+    assert_eq!(
+        interp_output.trim(),
+        llvm_output.trim(),
+        "Interpreter and LLVM disagree on int-list for-loop with if body"
+    );
     assert_eq!(llvm_output.trim(), "60");
 }
 
@@ -759,8 +773,11 @@ procedure main
 "#;
     let llvm_output = run_llvm(source);
     let interp_output = run_interpreter(source);
-    assert_eq!(interp_output.trim(), llvm_output.trim(),
-        "Interpreter and LLVM disagree on float-list for-loop with if body");
+    assert_eq!(
+        interp_output.trim(),
+        llvm_output.trim(),
+        "Interpreter and LLVM disagree on float-list for-loop with if body"
+    );
     assert_eq!(llvm_output.trim(), "60.0");
 }
 
@@ -777,8 +794,11 @@ procedure main
 "#;
     let llvm_output = run_llvm(source);
     let interp_output = run_interpreter(source);
-    assert_eq!(interp_output.trim(), llvm_output.trim(),
-        "Interpreter and LLVM disagree on int-list for-loop counting");
+    assert_eq!(
+        interp_output.trim(),
+        llvm_output.trim(),
+        "Interpreter and LLVM disagree on int-list for-loop counting"
+    );
     assert_eq!(llvm_output.trim(), "3");
 }
 

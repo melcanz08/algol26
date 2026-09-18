@@ -1,9 +1,9 @@
 // tests/differential/differential_test.rs - HARDENED
+use crate::differential::differential_true::{run_interpreter, run_llvm};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
-use crate::differential::differential_true::{run_interpreter, run_llvm};
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 

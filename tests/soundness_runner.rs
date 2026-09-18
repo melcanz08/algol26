@@ -30,7 +30,11 @@ fn parse_expect(source: &str) -> Option<Expect> {
         }
         if let Some(stripped) = rest.strip_prefix("REJECT") {
             let code = stripped.trim();
-            let code = if code.is_empty() { None } else { Some(code.to_string()) };
+            let code = if code.is_empty() {
+                None
+            } else {
+                Some(code.to_string())
+            };
             return Some(Expect::Reject { code });
         }
     }
@@ -89,7 +93,10 @@ fn check_file(path: &Path) -> Result<(Expect, bool, Vec<String>), String> {
 #[test]
 fn soundness_suite() {
     let files = collect_gol_files();
-    assert!(!files.is_empty(), "no .gol files in tests/soundness/ — copy the 12 files first");
+    assert!(
+        !files.is_empty(),
+        "no .gol files in tests/soundness/ — copy the 12 files first"
+    );
 
     let mut failures = Vec::new();
 
@@ -106,7 +113,11 @@ fn soundness_suite() {
                         path.display(),
                         expect,
                         has_errors,
-                        if messages.is_empty() { "(none)".to_string() } else { messages.join("\n    ") }
+                        if messages.is_empty() {
+                            "(none)".to_string()
+                        } else {
+                            messages.join("\n    ")
+                        }
                     ));
                 } else {
                     println!("✓ {} — {:?}", path.display(), expect);
@@ -124,7 +135,10 @@ fn soundness_suite() {
             failures.len()
         );
     }
-    println!("\nSoundness suite: {} files, all expectations met", files.len());
+    println!(
+        "\nSoundness suite: {} files, all expectations met",
+        files.len()
+    );
 }
 
 #[test]

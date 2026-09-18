@@ -56,9 +56,7 @@ fn compiler_binary() -> PathBuf {
             return p;
         }
     }
-    panic!(
-        "No compiler binary found. Run `cargo build` before `cargo test`."
-    );
+    panic!("No compiler binary found. Run `cargo build` before `cargo test`.");
 }
 
 fn run_compiler(
@@ -91,7 +89,10 @@ fn run_compiler(
 fn compile_only(binary: &PathBuf, program: &PathBuf) -> std::process::Output {
     let out_dir = std::env::temp_dir().join("algol26-conformance");
     let _ = std::fs::create_dir_all(&out_dir);
-    let stem = program.file_stem().and_then(|s| s.to_str()).unwrap_or("program");
+    let stem = program
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("program");
     let output = out_dir.join(stem);
     Command::new(binary)
         .arg("build")
@@ -105,10 +106,7 @@ fn compile_only(binary: &PathBuf, program: &PathBuf) -> std::process::Output {
 /// Filter the compiler's status lines out of stdout. Compiler lines
 /// are all bracketed (`[Compiling ...]`, `[Output: ...]`, etc.).
 fn program_stdout(raw: &str) -> String {
-    let mut lines: Vec<&str> = raw
-        .lines()
-        .filter(|l| !l.starts_with('['))
-        .collect();
+    let mut lines: Vec<&str> = raw.lines().filter(|l| !l.starts_with('[')).collect();
     while lines.last().is_some_and(|l| l.trim().is_empty()) {
         lines.pop();
     }

@@ -163,16 +163,19 @@ procedure main
             }
         }
     }
-    assert!(found, "Expected method call to desugar into Call(List.length)");
+    assert!(
+        found,
+        "Expected method call to desugar into Call(List.length)"
+    );
 }
 
 #[test]
 fn test_if_expr_in_vardecl_keeps_following_statements() {
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
+    use algol26::ir::semantic_ir::Instruction;
     use algol26::semantics::analyzer::SemanticAnalyzer;
     use algol26::semantics::builder::SemanticIRBuilder;
-    use algol26::ir::semantic_ir::Instruction;
 
     let source = "\
 procedure main
@@ -207,5 +210,8 @@ procedure main
                 .any(|i| matches!(i, Instruction::Print { .. }))
         })
     });
-    assert!(has_print, "print statement after if-expr VarDecl was dropped");
+    assert!(
+        has_print,
+        "print statement after if-expr VarDecl was dropped"
+    );
 }

@@ -22,12 +22,10 @@ pub fn run_one(path: &str) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("corpus file not found: {}", path.display()));
     }
-    let source = fs::read_to_string(path)
-        .map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
+    let source =
+        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
 
-    let known_failure = source
-        .lines()
-        .any(|l| l.starts_with("// KNOWN_FAILURE"));
+    let known_failure = source.lines().any(|l| l.starts_with("// KNOWN_FAILURE"));
 
     // `// BACKEND: interpreter` matches the conformance harness.
     // Default is LLVM.

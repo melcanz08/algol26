@@ -9,10 +9,14 @@ fn run(source: &str) -> String {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze_with_spans(
-        &program.functions, &program.traits, &program.impls,
-        &std::collections::HashMap::new(),
-    ).unwrap();
+    analyzer
+        .analyze_with_spans(
+            &program.functions,
+            &program.traits,
+            &program.impls,
+            &std::collections::HashMap::new(),
+        )
+        .unwrap();
     let type_table = analyzer.take_type_table();
     let (ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
     Interpreter::new(ir).run().unwrap()
@@ -31,7 +35,11 @@ procedure main
 ";
     let out = run(source);
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines, vec!["false"], "and should not evaluate right when left is false");
+    assert_eq!(
+        lines,
+        vec!["false"],
+        "and should not evaluate right when left is false"
+    );
 }
 
 #[test]
@@ -47,7 +55,11 @@ procedure main
 ";
     let out = run(source);
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines, vec!["true"], "or should not evaluate right when left is true");
+    assert_eq!(
+        lines,
+        vec!["true"],
+        "or should not evaluate right when left is true"
+    );
 }
 
 #[test]
@@ -80,7 +92,8 @@ procedure main
     let out = run(source);
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(
-        lines, vec!["evaluated", "true"],
+        lines,
+        vec!["evaluated", "true"],
         "`false or side_effect()` must call side_effect; got: {}",
         out
     );

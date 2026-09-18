@@ -25,7 +25,11 @@ fn check_expr_spans(expr: &Expr, path: &str) {
     );
 
     match expr {
-        Expr::Block { statements, trailing_expr, .. } => {
+        Expr::Block {
+            statements,
+            trailing_expr,
+            ..
+        } => {
             for (i, s) in statements.iter().enumerate() {
                 check_stmt_spans(s, &format!("{}/block[{}]", path, i));
             }
@@ -33,7 +37,12 @@ fn check_expr_spans(expr: &Expr, path: &str) {
                 check_expr_spans(e, &format!("{}/block.trailing", path));
             }
         }
-        Expr::If { condition, then_branch, else_branch, .. } => {
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
             check_expr_spans(condition, &format!("{}/if.cond", path));
             check_expr_spans(then_branch, &format!("{}/if.then", path));
             if let Some(e) = else_branch {
@@ -67,13 +76,21 @@ fn check_expr_spans(expr: &Expr, path: &str) {
                 check_expr_spans(&c.body, &format!("{}/match.case[{}]", path, i));
             }
         }
-        Expr::For { iterable, trailing_expr, .. } => {
+        Expr::For {
+            iterable,
+            trailing_expr,
+            ..
+        } => {
             check_expr_spans(iterable, &format!("{}/for.iter", path));
             if let Some(e) = trailing_expr {
                 check_expr_spans(e, &format!("{}/for.trailing", path));
             }
         }
-        Expr::While { condition, trailing_expr, .. } => {
+        Expr::While {
+            condition,
+            trailing_expr,
+            ..
+        } => {
             check_expr_spans(condition, &format!("{}/while.cond", path));
             if let Some(e) = trailing_expr {
                 check_expr_spans(e, &format!("{}/while.trailing", path));
@@ -88,7 +105,11 @@ fn check_expr_spans(expr: &Expr, path: &str) {
         | Expr::Error { value: expr, .. } => {
             check_expr_spans(expr, &format!("{}/wrap", path));
         }
-        Expr::TryCatch { try_branch, catch_branch, .. } => {
+        Expr::TryCatch {
+            try_branch,
+            catch_branch,
+            ..
+        } => {
             check_expr_spans(try_branch, &format!("{}/try.branch", path));
             check_expr_spans(catch_branch, &format!("{}/try.catch", path));
         }
@@ -108,7 +129,9 @@ fn check_stmt_spans(stmt: &Stmt, path: &str) {
         Stmt::VarDecl { value, .. }
         | Stmt::Assign { value, .. }
         | Stmt::Print { expr: value, .. }
-        | Stmt::Return { value: Some(value), .. } => {
+        | Stmt::Return {
+            value: Some(value), ..
+        } => {
             check_expr_spans(value, &format!("{}/value", path));
         }
         Stmt::ArrayAssign { index, value, .. } => {

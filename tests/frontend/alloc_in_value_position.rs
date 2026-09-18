@@ -16,8 +16,8 @@ procedure main
 ";
     let lexer = Lexer::new(source.to_string()).expect("lex");
     let mut parser = Parser::new(lexer.tokens);
-    let program = parser.parse_program().expect(
-        "`val p := alloc(8)` should parse — this was the PR-4 fix",
-    );
+    let program = parser
+        .parse_program()
+        .expect("`val p := alloc(8)` should parse — this was the PR-4 fix");
     assert_eq!(program.functions.len(), 1);
 }

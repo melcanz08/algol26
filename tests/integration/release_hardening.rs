@@ -143,7 +143,8 @@ fn test_negative_corpus_no_ice() {
                 return (true, true);
             }
             let prog = prog_res.unwrap();
-            let (_ir, diags) = SemanticIRBuilder::build(&prog.functions, std::collections::HashMap::new());
+            let (_ir, diags) =
+                SemanticIRBuilder::build(&prog.functions, std::collections::HashMap::new());
             let mut analyzer = algol26::semantics::analyzer::SemanticAnalyzer::new();
             let analyzer_invalid = analyzer.analyze(&prog.functions).is_err();
             let is_invalid = !diags.is_empty() || analyzer_invalid;

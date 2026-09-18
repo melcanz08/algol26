@@ -100,7 +100,10 @@ fn main() {
     let mut ctx = CompilerContext::new(config);
 
     // Sanity: capability matrix
-    println!("Capability matrix:\n{}", CapabilityMatrix::standard().render_table());
+    println!(
+        "Capability matrix:\n{}",
+        CapabilityMatrix::standard().render_table()
+    );
     use algol26::compiler::capabilities::Feature;
     assert!(ctx.capabilities.supports(Feature::Ffi, BackendKind::Llvm));
     assert!(!ctx.capabilities.supports(Feature::Spawn, BackendKind::Llvm));
@@ -120,7 +123,19 @@ fn main() {
     };
 
     let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
-    assert!(outcome.succeeded(), "pipeline failed: {:?}", outcome.failure);
-    println!("pipeline: {}/{} stages, {:?}", outcome.completed, outcome.total,
-             outcome.timings.iter().map(|t| (t.pass, t.duration)).collect::<Vec<_>>());
+    assert!(
+        outcome.succeeded(),
+        "pipeline failed: {:?}",
+        outcome.failure
+    );
+    println!(
+        "pipeline: {}/{} stages, {:?}",
+        outcome.completed,
+        outcome.total,
+        outcome
+            .timings
+            .iter()
+            .map(|t| (t.pass, t.duration))
+            .collect::<Vec<_>>()
+    );
 }

@@ -8,13 +8,13 @@
 //! is not a faithful adapter and something in the pipeline is wrong.
 use algol26::compiler::context::{CompilerConfig, CompilerContext};
 use algol26::compiler::pass::{Pass, PassKind};
+use algol26::compiler::passes::build_ir::BuildSemanticIRPass;
+use algol26::compiler::passes::optimize::OptimizePass;
 use algol26::compiler::passes::verify_ir::VerifyIrPass;
 use algol26::compiler::program::Program;
 use algol26::compiler::Compiler;
-use algol26::compiler::passes::optimize::OptimizePass;
-use algol26::compiler::passes::build_ir::BuildSemanticIRPass;
-use algol26::ir::semantic_ir::SemanticProgram;
 use algol26::ir::optimizer::Optimizer;
+use algol26::ir::semantic_ir::SemanticProgram;
 
 #[test]
 fn verify_pass_agrees_with_direct_call_on_conformance_valid() {
@@ -332,7 +332,10 @@ fn type_table_complete_passes_on_conformance_suite() {
             .run_type_table_complete_pass_public(typed)
             .expect("pass cannot fail");
         if warnings > 0 {
-            eprintln!("  {} file(s): {} warnings in {}", filename, warnings, filename);
+            eprintln!(
+                "  {} file(s): {} warnings in {}",
+                filename, warnings, filename
+            );
         }
         total_warnings += warnings;
         checked += 1;

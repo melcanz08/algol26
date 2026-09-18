@@ -69,27 +69,31 @@ fn main() {
     // Determine command + filename from the positional args.
     let (command, filename) = match positional.first().map(|s| s.as_str()) {
         Some("check") => {
-            let file = positional.get(1)
-                .cloned()
-                .unwrap_or_else(|| { eprintln!("Error: 'check' requires a filename"); std::process::exit(1); });
+            let file = positional.get(1).cloned().unwrap_or_else(|| {
+                eprintln!("Error: 'check' requires a filename");
+                std::process::exit(1);
+            });
             ("check", file)
         }
         Some("build") => {
-            let file = positional.get(1)
-                .cloned()
-                .unwrap_or_else(|| { eprintln!("Error: 'build' requires a filename"); std::process::exit(1); });
+            let file = positional.get(1).cloned().unwrap_or_else(|| {
+                eprintln!("Error: 'build' requires a filename");
+                std::process::exit(1);
+            });
             ("build", file)
         }
         Some("run") => {
-            let file = positional.get(1)
-                .cloned()
-                .unwrap_or_else(|| { eprintln!("Error: 'run' requires a filename"); std::process::exit(1); });
+            let file = positional.get(1).cloned().unwrap_or_else(|| {
+                eprintln!("Error: 'run' requires a filename");
+                std::process::exit(1);
+            });
             ("run", file)
         }
         Some("wasm") => {
-            let file = positional.get(1)
-                .cloned()
-                .unwrap_or_else(|| { eprintln!("Error: 'wasm' requires a filename"); std::process::exit(1); });
+            let file = positional.get(1).cloned().unwrap_or_else(|| {
+                eprintln!("Error: 'wasm' requires a filename");
+                std::process::exit(1);
+            });
             ("wasm", file)
         }
         Some(other) => ("build", other.to_string()),
@@ -119,13 +123,15 @@ fn main() {
         Err(e) => {
             let err = CompileError::simple(
                 &format!("Failed to read file '{}': {}", filename, e),
-                0, 0, "", ErrorCode::E0001,
+                0,
+                0,
+                "",
+                ErrorCode::E0001,
             );
             err.display();
             std::process::exit(1);
         }
     };
-
 
     match command {
         "check" => println!("[Checking {}]", filename),
@@ -299,26 +305,36 @@ fn inspect_passes() {
     println!("Registered passes:");
     for c in reg.contracts() {
         println!();
-        println!("  {} [{}]", c.id, match c.kind {
-            algol26::compiler::pass::PassKind::Analysis    => "analysis",
-            algol26::compiler::pass::PassKind::Transform   => "transform",
-            algol26::compiler::pass::PassKind::Verification => "verify",
-            algol26::compiler::pass::PassKind::Lowering    => "lowering",
-            algol26::compiler::pass::PassKind::Annotation  => "annotation",
-        });
+        println!(
+            "  {} [{}]",
+            c.id,
+            match c.kind {
+                algol26::compiler::pass::PassKind::Analysis => "analysis",
+                algol26::compiler::pass::PassKind::Transform => "transform",
+                algol26::compiler::pass::PassKind::Verification => "verify",
+                algol26::compiler::pass::PassKind::Lowering => "lowering",
+                algol26::compiler::pass::PassKind::Annotation => "annotation",
+            }
+        );
         println!("    level:         {} -> {}", c.input, c.output);
         println!("    may_fail:      {}", c.may_fail);
         if !c.requires.is_empty() {
             println!("    requires:");
-            for r in c.requires { println!("      - {}", r); }
+            for r in c.requires {
+                println!("      - {}", r);
+            }
         }
         if !c.guarantees.is_empty() {
             println!("    guarantees:");
-            for g in c.guarantees { println!("      - {}", g); }
+            for g in c.guarantees {
+                println!("      - {}", g);
+            }
         }
         if !c.must_preserve.is_empty() {
             println!("    must_preserve:");
-            for m in c.must_preserve { println!("      - {}", m); }
+            for m in c.must_preserve {
+                println!("      - {}", m);
+            }
         }
     }
 }
@@ -330,10 +346,7 @@ fn inspect_tokens(compiler: &Compiler, source: &str) {
             for (i, st) in lexed.tokens.iter().enumerate() {
                 println!(
                     "  {:>4}  {}:{}  {:?}",
-                    i,
-                    st.span.start_line,
-                    st.span.start_column,
-                    st.token
+                    i, st.span.start_line, st.span.start_column, st.token
                 );
             }
         }
@@ -354,11 +367,15 @@ fn inspect_ast(compiler: &mut Compiler, source: &str, filename: &str) {
             }
             if !parsed.traits.is_empty() {
                 println!("\n{} trait(s):", parsed.traits.len());
-                for t in &parsed.traits { println!("  {:?}", t); }
+                for t in &parsed.traits {
+                    println!("  {:?}", t);
+                }
             }
             if !parsed.impls.is_empty() {
                 println!("\n{} impl block(s):", parsed.impls.len());
-                for i in &parsed.impls { println!("  {:?}", i); }
+                for i in &parsed.impls {
+                    println!("  {:?}", i);
+                }
             }
         }
         Err(e) => {

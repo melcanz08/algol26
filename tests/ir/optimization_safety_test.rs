@@ -125,5 +125,8 @@ procedure main
             })
         })
     });
-    assert!(arr_still_declared, "DCE removed 'arr' despite it being indexed");
+    assert!(
+        arr_still_declared,
+        "DCE removed 'arr' despite it being indexed"
+    );
 }

@@ -55,15 +55,3 @@ procedure main
         .sum();
     assert_eq!(before, after, "optimizer must not delete Borrow");
 }
-
-#[test]
-fn test_56_interpreter_oracle() {
-    let src = r#"
-procedure main
-    val x := 2.0 + 3.0 * 4.0
-    print(x)
-"#;
-    let _ir = build_ir(src);
-    // just check IR builds; interpreter backend tested elsewhere
-    assert!(true);
-}

@@ -297,5 +297,9 @@ procedure main
     let result = analyze(source);
     assert!(result.is_err(), "mut-borrow of val should fail");
     let msg = format!("{:?}", result.unwrap_err());
-    assert!(msg.contains("immutable"), "expected 'immutable' in error, got: {}", msg);
+    assert!(
+        msg.contains("immutable"),
+        "expected 'immutable' in error, got: {}",
+        msg
+    );
 }

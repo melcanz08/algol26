@@ -38,3 +38,24 @@ Two problems made them worse than useless:
 ## If you need to know what a script did
 
 Look at its git history:
+```bash
+  git log --follow tools/attic/apply_<name>.py
+```
+
+The commit that added it usually names the PR or fix phase it
+belongs to, and the commit that *removed* it (this one) is
+where it was retired.
+
+## Rule going forward
+
+**Do not add new `apply_*.py` scripts to this repo.** If you
+need to apply the same edit to many files:
+
+- Use `cargo fmt` / `cargo fix` when applicable.
+- Use `sed` / `perl` inline in the terminal if it's a one-time
+  change — but delete the command when you're done, don't
+  commit it.
+- Otherwise, edit the files directly and commit. The commit is
+  the record.
+
+One-off scripts belong in `/tmp`, not in `tools/`.

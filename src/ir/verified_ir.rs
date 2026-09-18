@@ -51,21 +51,6 @@ impl VerifiedIR {
         &self.program
     }
 
-    /// Consume this wrapper and return the inner program.
-    ///
-    /// This fully unwraps the typestate — the returned `SemanticProgram`
-    /// is no longer guaranteed to be verified. The single legitimate use
-    /// is the optimize sandwich in `Compiler::run_optimize_pass`:
-    /// `verified.into_program()` is immediately followed by mutation,
-    /// then re-verification, then re-wrapping via
-    /// `VerifiedIR::from_verify_pass`.
-    ///
-    /// Any other call site is a bug. Use `program()` (which borrows) or
-    /// `verify()` (which re-checks) instead.
-    pub fn into_program(self) -> SemanticProgram {
-        self.program
-    }
-
     pub fn verify(&self) -> Result<(), String> {
         crate::ir::verifier::verify(&self.program)
     }

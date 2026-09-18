@@ -12,19 +12,19 @@ use crate::frontend::parser::Parser;
 use crate::ir::monomorphize::Monomorphizer;
 use crate::ir::semantic_ir::SemanticProgram;
 use crate::ir::verified_ir::VerifiedIR;
-use crate::semantics::race::RaceDetector;
 use crate::semantics::analyzer::SemanticAnalyzer;
+use crate::semantics::race::RaceDetector;
 use std::rc::Rc;
 
 // Pass infrastructure (Phase 1)
 pub mod capabilities;
 pub mod context;
 pub mod pass;
+pub mod passes;
 pub mod pipeline;
+pub mod program;
 pub mod registry;
 pub mod scheduler;
-pub mod passes;
-pub mod program;
 
 pub struct Compiler;
 
@@ -52,8 +52,8 @@ pub struct TypeInfo {
     pub total_variables: usize,
     pub types_checked: bool,
 }
-/// TODO: OptimizationReport is orphaned after removing 
-///SemanticIROptimized; either delete or reintroduce via 
+/// TODO: OptimizationReport is orphaned after removing
+///SemanticIROptimized; either delete or reintroduce via
 ///the optimizer's return value
 #[derive(Debug, Default)]
 pub struct OptimizationReport {
@@ -173,11 +173,7 @@ impl Compiler {
     /// The returned `ParsedProgram::functions` is the *final* allocation
     /// before type checking — the one the analyzer will key its type
     /// table against.
-    pub fn parse_source_for(
-        &mut self,
-        source: &str,
-        filename: &str,
-    ) -> Result<ParsedProgram> {
+    pub fn parse_source_for(&mut self, source: &str, filename: &str) -> Result<ParsedProgram> {
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
         let parsed = self.process_imports(&parsed, filename)?;
@@ -191,11 +187,7 @@ impl Compiler {
         self.lex(source)
     }
 
-    pub fn type_check_source_for(
-        &mut self,
-        source: &str,
-        filename: &str,
-    ) -> Result<TypedProgram> {
+    pub fn type_check_source_for(&mut self, source: &str, filename: &str) -> Result<TypedProgram> {
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
         let parsed = self.process_imports(&parsed, filename)?;
@@ -328,7 +320,13 @@ impl Compiler {
         let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
 
         if let Some(err) = outcome.failure {
-            return Err(CompileError::simple(&err.message, 0, 0, "", ErrorCode::E0002));
+            return Err(CompileError::simple(
+                &err.message,
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
         }
 
         Ok(program
@@ -340,11 +338,7 @@ impl Compiler {
     /// Compile through semantic IR, verify, then execute via the interpreter.
     /// Skips LLVM and WASM codegen — used for programs that exercise IR
     /// features the LLVM backend doesn't yet lower (Result, try/catch).
-    pub fn run_interpreter(
-        &mut self,
-        source: &str,
-        filename: &str,
-    ) -> Result<()> {
+    pub fn run_interpreter(&mut self, source: &str, filename: &str) -> Result<()> {
         use crate::backends::backend::Backend;
         use crate::backends::interpreter_backend::InterpreterBackend;
 
@@ -357,12 +351,14 @@ impl Compiler {
         let typed = self.type_check(&parsed)?;
 
         // Phase 9–10: IR + verification.
-        let semantic_ir =
-            self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
+        let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
         semantic_ir.verify().map_err(|e| {
             CompileError::simple(
                 &format!("IR verification failed: {}", e),
-                0, 0, "", ErrorCode::E0002,
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
             )
         })?;
 
@@ -420,7 +416,13 @@ impl Compiler {
             if let Some(cause) = err.cause {
                 return Err(*cause);
             }
-            return Err(CompileError::simple(&err.message, 0, 0, "", ErrorCode::E0002));
+            return Err(CompileError::simple(
+                &err.message,
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
         }
 
         Ok(program
@@ -526,8 +528,7 @@ impl Compiler {
 
         // Phase 9: BUILD SEMANTIC IR
         let phase_start = Instant::now();
-        let semantic_ir =
-            self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
+        let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
         let ir_build_time = phase_start.elapsed();
 
         // Phase 10: VERIFY IR (pre-optimization) → VerifiedIR
@@ -760,8 +761,7 @@ impl Compiler {
         // FFI libraries requested by extern declarations are
         // forwarded to clang as -l flags.
         let libraries = &verified.program().ffi_libraries;
-        let output_path =
-            crate::toolchain::link_llvm_ir(&ir_path, output_name, libraries)?;
+        let output_path = crate::toolchain::link_llvm_ir(&ir_path, output_name, libraries)?;
         println!("[Successfully compiled to {}]", output_path.display());
 
         if run_after_compile {

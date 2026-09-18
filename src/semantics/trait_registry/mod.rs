@@ -26,9 +26,9 @@ use std::collections::HashMap;
 
 mod register;
 mod resolve;
-mod validate;
 #[cfg(test)]
 mod tests;
+mod validate;
 
 #[derive(Debug, Clone)]
 pub struct TraitRegistry {
@@ -37,7 +37,7 @@ pub struct TraitRegistry {
     // NEW: Default methods
     pub(super) default_methods: HashMap<String, HashMap<String, FunctionDecl>>,
     // NEW: Generic impls
-    pub(super)generic_impls: Vec<GenericImpl>,
+    pub(super) generic_impls: Vec<GenericImpl>,
 }
 #[derive(Debug, Clone)]
 pub(super) struct GenericImpl {

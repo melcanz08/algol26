@@ -1,10 +1,10 @@
-// algol26/src/frontend/lexer/mod.rs 
+// algol26/src/frontend/lexer/mod.rs
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
+use crate::common::span::Span;
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;
-use crate::common::span::Span;
 
 mod decl;
 mod ident;
@@ -61,9 +61,9 @@ pub enum Token {
     RParen,
     Colon,
     Arrow,
-    Dot,           // NEW: for method calls and field access
-    DotDot,        // range exclusive (..)
-    DotDotEqual,   // range inclusive (..=)
+    Dot,         // NEW: for method calls and field access
+    DotDot,      // range exclusive (..)
+    DotDotEqual, // range inclusive (..=)
 
     // Concurrency
     Spawn,
@@ -122,7 +122,7 @@ pub enum Token {
     Trait,
     Impl,
     SelfType,
-    Case,        // NEW: case keyword for match arms
+    Case, // NEW: case keyword for match arms
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum CTypeName {
@@ -438,13 +438,7 @@ impl Lexer {
                 positions,
             );
         } else if trimmed.starts_with("proc") {
-            Lexer::parse_declaration(
-                Token::Procedure,
-                "proc".len(),
-                trimmed,
-                tokens,
-                positions,
-            );
+            Lexer::parse_declaration(Token::Procedure, "proc".len(), trimmed, tokens, positions);
         } else if trimmed.starts_with("function") {
             Lexer::parse_declaration(
                 Token::Function,

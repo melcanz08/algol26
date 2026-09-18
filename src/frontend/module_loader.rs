@@ -71,7 +71,10 @@ impl ModuleLoader {
         let canonical = path.canonicalize().map_err(|e| {
             CompileError::simple(
                 &format!("Failed to canonicalize path '{}': {}", path.display(), e),
-                0, 0, "", ErrorCode::E0001,
+                0,
+                0,
+                "",
+                ErrorCode::E0001,
             )
         })?;
 
@@ -85,7 +88,10 @@ impl ModuleLoader {
                 .collect();
             return Err(CompileError::simple(
                 &format!("Circular import detected: {}", cycle.join(" -> ")),
-                0, 0, "", ErrorCode::E0001,
+                0,
+                0,
+                "",
+                ErrorCode::E0001,
             )
             .with_suggestion("Break the import cycle by restructuring your modules"));
         }
@@ -97,7 +103,10 @@ impl ModuleLoader {
         let source = std::fs::read_to_string(&canonical).map_err(|e| {
             CompileError::simple(
                 &format!("Failed to read module '{}': {}", canonical.display(), e),
-                0, 0, "", ErrorCode::E0001,
+                0,
+                0,
+                "",
+                ErrorCode::E0001,
             )
         })?;
 

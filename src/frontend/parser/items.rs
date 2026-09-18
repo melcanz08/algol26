@@ -258,9 +258,7 @@ impl Parser {
         let path = match self.advance() {
             Token::StringLit(s) => s,
             Token::Identifier(s) => s,
-            other => {
-                return Err(self.error(&format!("Expected import path, found {:?}", other)))
-            }
+            other => return Err(self.error(&format!("Expected import path, found {:?}", other))),
         };
         Ok(Stmt::Import {
             path,

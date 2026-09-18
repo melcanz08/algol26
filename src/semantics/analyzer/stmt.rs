@@ -16,16 +16,16 @@ impl SemanticAnalyzer {
             } => {
                 // Detect mut-borrow before analyzing so we can set the "allow
                 // read during this declaration" flag.
-                let mut_borrow_source: Option<String> =
-                    if let Expr::MutBorrow { expr, .. } = value {
-                        if let Expr::Var(source_name, _) = expr.as_ref() {
-                            Some(source_name.clone())
-                        } else {
-                            None
-                        }
+                let mut_borrow_source: Option<String> = if let Expr::MutBorrow { expr, .. } = value
+                {
+                    if let Expr::Var(source_name, _) = expr.as_ref() {
+                        Some(source_name.clone())
                     } else {
                         None
-                    };
+                    }
+                } else {
+                    None
+                };
 
                 if mut_borrow_source.is_some() {
                     self.in_mut_borrow = true;
@@ -62,8 +62,7 @@ impl SemanticAnalyzer {
 
                 if let Some(annotated) = type_annotation {
                     let expected = annotated.to_type();
-                    let is_borrow =
-                        matches!(value, Expr::Borrow { .. } | Expr::MutBorrow { .. });
+                    let is_borrow = matches!(value, Expr::Borrow { .. } | Expr::MutBorrow { .. });
                     if !is_borrow
                         && expected != Type::Unknown
                         && !value_type.can_coerce_to(&expected)
@@ -73,8 +72,12 @@ impl SemanticAnalyzer {
                                 "Type mismatch: variable '{}' declared as {} but assigned {}",
                                 name, expected, value_type
                             ),
-                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                        ).with_suggestion(&format!(
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(&format!(
                             "Change the type annotation to {} or change the value to {}",
                             value_type, expected
                         )));
@@ -96,12 +99,13 @@ impl SemanticAnalyzer {
                     if let Some(scope) = self.deferred_captures.last() {
                         if scope.contains(source) {
                             return Err(CompileError::simple(
-                                &format!(
-                                    "Cannot move '{}' after it was captured by defer",
-                                    source
-                                ),
-                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0007,
-                            ).with_suggestion(
+                                &format!("Cannot move '{}' after it was captured by defer", source),
+                                self.current_span.start_line,
+                                self.current_span.start_column,
+                                "",
+                                ErrorCode::E0007,
+                            )
+                            .with_suggestion(
                                 "Deferred statements capture variables at declaration time",
                             ));
                         }
@@ -115,8 +119,12 @@ impl SemanticAnalyzer {
                 let (var_type, mutable) = self.lookup_variable(name).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined variable '{}'", name),
-                        span.start_line, span.start_column, "", ErrorCode::E0003,
-                    ).with_suggestion(&format!(
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0003,
+                    )
+                    .with_suggestion(&format!(
                         "Declare '{}' with 'var {} := ...' or 'val {} := ...'",
                         name, name, name
                     ))
@@ -125,10 +133,12 @@ impl SemanticAnalyzer {
                 if !mutable {
                     return Err(CompileError::simple(
                         &format!("Cannot assign to immutable variable '{}'", name),
-                        span.start_line, span.start_column, "", ErrorCode::E0007,
-                    ).with_suggestion(&format!(
-                        "Declare '{}' with 'var' instead of 'val'", name
-                    )));
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(&format!("Declare '{}' with 'var' instead of 'val'", name)));
                 }
 
                 let target_type = match &var_type {
@@ -136,8 +146,7 @@ impl SemanticAnalyzer {
                     _ => var_type.clone(),
                 };
 
-                let value_type =
-                    self.analyze_expr_with_context(value, Some(&target_type))?;
+                let value_type = self.analyze_expr_with_context(value, Some(&target_type))?;
                 if target_type != value_type
                     && target_type != Type::Unknown
                     && !value_type.can_coerce_to(&target_type)
@@ -147,8 +156,12 @@ impl SemanticAnalyzer {
                             "Type mismatch: cannot assign {} to variable of type {}",
                             value_type, target_type
                         ),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                    ).with_suggestion(&format!(
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(&format!(
                         "Change the value to {} or declare variable as {}",
                         target_type, value_type
                     )));
@@ -157,86 +170,86 @@ impl SemanticAnalyzer {
                     self.release_mutable_borrow(name);
                 }
             }
-            Stmt::Expression(expr) => {
-                match expr {
-                    Expr::If {
-                        then_branch,
-                        else_branch,
-                        condition,
-                        ..
-                    } => {
-                        let cond_type = self.analyze_expr(condition)?;
-                        if cond_type != Type::Bool && cond_type != Type::Unknown {
-                            return Err(CompileError::simple(
-                                "If condition must be Bool",
-                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                            ));
-                        }
-                        let moved_before =
-                            self.moved_vars.last().cloned().unwrap_or_default();
+            Stmt::Expression(expr) => match expr {
+                Expr::If {
+                    then_branch,
+                    else_branch,
+                    condition,
+                    ..
+                } => {
+                    let cond_type = self.analyze_expr(condition)?;
+                    if cond_type != Type::Bool && cond_type != Type::Unknown {
+                        return Err(CompileError::simple(
+                            "If condition must be Bool",
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    let moved_before = self.moved_vars.last().cloned().unwrap_or_default();
 
+                    self.push_scope();
+                    let then_result = self.analyze_expr(then_branch);
+                    let moved_after_then = self.moved_vars.last().cloned().unwrap_or_default();
+                    self.pop_scope();
+                    then_result?;
+
+                    let moved_after_else = if let Some(else_expr) = else_branch {
                         self.push_scope();
-                        let then_result = self.analyze_expr(then_branch);
-                        let moved_after_then =
-                            self.moved_vars.last().cloned().unwrap_or_default();
+                        let else_result = self.analyze_expr(else_expr);
+                        let moved_after = self.moved_vars.last().cloned().unwrap_or_default();
                         self.pop_scope();
-                        then_result?;
+                        else_result?;
+                        moved_after
+                    } else {
+                        moved_before.clone()
+                    };
 
-                        let moved_after_else = if let Some(else_expr) = else_branch {
-                            self.push_scope();
-                            let else_result = self.analyze_expr(else_expr);
-                            let moved_after =
-                                self.moved_vars.last().cloned().unwrap_or_default();
-                            self.pop_scope();
-                            else_result?;
-                            moved_after
-                        } else {
-                            moved_before.clone()
-                        };
-
-                        if let Some(current_scope) = self.moved_vars.last_mut() {
-                            for var in &moved_after_then {
-                                if !current_scope.contains(var) {
-                                    current_scope.push(var.clone());
-                                }
-                            }
-                            for var in &moved_after_else {
-                                if !current_scope.contains(var) {
-                                    current_scope.push(var.clone());
-                                }
+                    if let Some(current_scope) = self.moved_vars.last_mut() {
+                        for var in &moved_after_then {
+                            if !current_scope.contains(var) {
+                                current_scope.push(var.clone());
                             }
                         }
-                    }
-                    Expr::Match { .. } | Expr::TryCatch { .. } => {
-                        self.push_scope();
-                        let result = self.analyze_expr(expr);
-                        self.pop_scope();
-                        result?;
-                    }
-                    Expr::For { .. } | Expr::While { .. } => {
-                        self.analyze_expr(expr)?;
-                    }
-                    _ => {
-                        self.analyze_expr(expr)?;
+                        for var in &moved_after_else {
+                            if !current_scope.contains(var) {
+                                current_scope.push(var.clone());
+                            }
+                        }
                     }
                 }
-            }
+                Expr::Match { .. } | Expr::TryCatch { .. } => {
+                    self.push_scope();
+                    let result = self.analyze_expr(expr);
+                    self.pop_scope();
+                    result?;
+                }
+                Expr::For { .. } | Expr::While { .. } => {
+                    self.analyze_expr(expr)?;
+                }
+                _ => {
+                    self.analyze_expr(expr)?;
+                }
+            },
             Stmt::Return { value, .. } => {
-                let expected_type =
-                    self.current_return_type.clone().unwrap_or(Type::Void);
+                let expected_type = self.current_return_type.clone().unwrap_or(Type::Void);
                 match (value, &expected_type) {
                     (Some(_expr), Type::Void) => {
                         return Err(CompileError::simple(
                             "Cannot return a value from a void function",
-                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                        ).with_suggestion(
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(
                             "Remove the return value or change the function return type",
                         ));
                     }
                     (None, Type::Void) => {}
                     (Some(expr), expected) => {
-                        let actual_type =
-                            self.analyze_expr_with_context(expr, Some(expected))?;
+                        let actual_type = self.analyze_expr_with_context(expr, Some(expected))?;
                         let can_return = actual_type.can_coerce_to(expected)
                             || matches!(
                                 &actual_type,
@@ -261,14 +274,13 @@ impl SemanticAnalyzer {
                     }
                     (None, expected) => {
                         return Err(CompileError::simple(
-                            &format!(
-                                "Missing return value: function should return {}",
-                                expected
-                            ),
-                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                        ).with_suggestion(
-                            "Add a return statement with the appropriate value",
-                        ));
+                            &format!("Missing return value: function should return {}", expected),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion("Add a return statement with the appropriate value"));
                     }
                 }
             }
@@ -309,7 +321,10 @@ impl SemanticAnalyzer {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined channel '{}'", channel),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0003,
                     )
                 })?;
                 self.analyze_expr(value)?;
@@ -320,13 +335,14 @@ impl SemanticAnalyzer {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined channel '{}'", channel),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0003,
                     )
                 })?;
                 if !target.is_empty() {
-                    if let Some((Type::Channel(element_type), _)) =
-                        self.lookup_variable(channel)
-                    {
+                    if let Some((Type::Channel(element_type), _)) = self.lookup_variable(channel) {
                         self.declare_variable(target, *element_type, false)?;
                     }
                 }
@@ -359,7 +375,10 @@ impl SemanticAnalyzer {
                 let (array_type, _) = self.lookup_variable(array).ok_or_else(|| {
                     CompileError::simple(
                         &format!("Undefined array '{}'", array),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0003,
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0003,
                     )
                 })?;
 
@@ -368,11 +387,11 @@ impl SemanticAnalyzer {
                     Type::Unknown => Type::Unknown,
                     other => {
                         return Err(CompileError::simple(
-                            &format!(
-                                "Array assignment requires list, found {}",
-                                other
-                            ),
-                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
+                            &format!("Array assignment requires list, found {}", other),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
                         ));
                     }
                 };
@@ -383,8 +402,12 @@ impl SemanticAnalyzer {
                 if index_type != Type::Int && index_type != Type::Unknown {
                     return Err(CompileError::simple(
                         &format!("Array index must be Int, found {}", index_type),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                    ).with_suggestion(&format!(
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(&format!(
                         "Use an Int index or convert {} with int({})",
                         index_type, index_type
                     )));

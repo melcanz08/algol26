@@ -40,10 +40,11 @@ impl SemanticIRBuilder {
                         Expr::Block { statements, .. } => statements.as_slice(),
                         _ => &[],
                     };
-                    let else_stmts: Option<&[Stmt]> = else_branch.as_ref().map(|e| match e.as_ref() {
-                        Expr::Block { statements, .. } => statements.as_slice(),
-                        _ => &[],
-                    });
+                    let else_stmts: Option<&[Stmt]> =
+                        else_branch.as_ref().map(|e| match e.as_ref() {
+                            Expr::Block { statements, .. } => statements.as_slice(),
+                            _ => &[],
+                        });
                     self.translate_if(
                         program,
                         func,
@@ -113,12 +114,9 @@ impl SemanticIRBuilder {
                     self.safe_push_instruction(
                         func,
                         current_block,
-                        SemanticInstruction::RegionEnter {
-                            name: name.clone(),
-                        },
+                        SemanticInstruction::RegionEnter { name: name.clone() },
                     );
-                    let flow =
-                        self.translate_block(program, func, current_block, body);
+                    let flow = self.translate_block(program, func, current_block, body);
                     self.pop_scope();
                     // If the body terminated (e.g. `return` inside
                     // the region), RegionExit is unreachable and
@@ -128,9 +126,7 @@ impl SemanticIRBuilder {
                         self.safe_push_instruction(
                             func,
                             id,
-                            SemanticInstruction::RegionExit {
-                                name: name.clone(),
-                            },
+                            SemanticInstruction::RegionExit { name: name.clone() },
                         );
                     }
                     flow
@@ -982,9 +978,7 @@ impl SemanticIRBuilder {
                     SemanticPattern::Some { binding: v.clone() }
                 }
                 crate::frontend::ast::Pattern::None => SemanticPattern::None,
-                crate::frontend::ast::Pattern::Ok(v) => {
-                    SemanticPattern::Ok { binding: v.clone() }
-                }
+                crate::frontend::ast::Pattern::Ok(v) => SemanticPattern::Ok { binding: v.clone() },
                 crate::frontend::ast::Pattern::Error(v) => {
                     SemanticPattern::Error { binding: v.clone() }
                 }
@@ -1155,11 +1149,7 @@ impl SemanticIRBuilder {
             if let FlowResult::Reachable(id) = block_flow {
                 if let Some(block) = func.blocks.iter_mut().find(|b| b.id == id) {
                     if !Self::is_terminated(block) {
-                        self.safe_set_terminator(
-                            func,
-                            id,
-                            Terminator::Jump { block: merge_id },
-                        );
+                        self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                     }
                 }
             }

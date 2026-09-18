@@ -29,7 +29,9 @@ impl SemanticAnalyzer {
     }
     pub(super) fn pop_scope(&mut self) {
         // v0.9-D FIX: capture exiting scope vars BEFORE popping old vectors
-        let exiting_vars: Vec<String> = self.scopes.last()
+        let exiting_vars: Vec<String> = self
+            .scopes
+            .last()
             .map(|s| s.keys().cloned().collect())
             .unwrap_or_default();
         let exiting_region = self.state.region_stack.last().cloned();
@@ -38,7 +40,8 @@ impl SemanticAnalyzer {
         // They will be joined after if via explicit state join in stmt.rs
         // So we snapshot which outer vars were moved in this inner scope
         let inner_moved: Vec<String> = self.moved_vars.last().cloned().unwrap_or_default();
-        let outer_vars_moved_in_inner: Vec<String> = inner_moved.iter()
+        let outer_vars_moved_in_inner: Vec<String> = inner_moved
+            .iter()
             .filter(|v| !exiting_vars.contains(v))
             .cloned()
             .collect();
@@ -76,18 +79,28 @@ impl SemanticAnalyzer {
                 // Only revert if var still exists in outer scope (not shadowed and deleted)
                 if self.scopes.iter().any(|s| s.contains_key(&outer_var)) {
                     // Revert to Available - the move was scoped to inner branch
-                    self.state.vars.insert(outer_var.clone(), VarState::Available);
+                    self.state
+                        .vars
+                        .insert(outer_var.clone(), VarState::Available);
                 }
             }
             let _outliving = self.state.exit_region(&region);
         }
     }
-    pub(super) fn declare_variable(&mut self, name: &str, type_: Type, mutable: bool) -> Result<()> {
+    pub(super) fn declare_variable(
+        &mut self,
+        name: &str,
+        type_: Type,
+        mutable: bool,
+    ) -> Result<()> {
         if let Some(scope) = self.scopes.last_mut() {
             if scope.contains_key(name) {
                 return Err(CompileError::simple(
                     &format!("Variable '{}' already declared", name),
-                    0, 0, "", ErrorCode::E0003,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0003,
                 ));
             }
             scope.insert(name.to_string(), (type_.clone(), mutable));

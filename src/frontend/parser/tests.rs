@@ -103,7 +103,12 @@ fn test_parse_range() {
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::VarDecl { value, .. } => match value {
-            Expr::Range { start, end, inclusive, .. } => {
+            Expr::Range {
+                start,
+                end,
+                inclusive,
+                ..
+            } => {
                 assert!(!inclusive);
                 assert!(start.is_some());
                 assert!(end.is_some());
@@ -124,8 +129,13 @@ fn test_negation_produces_unary_negate() {
     let source = "function main() -> Float\n    return -5.0";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
-        Stmt::Return { value: Some(expr), .. } => match expr {
-            Expr::Unary { op: UnaryOp::Negate, .. } => {}
+        Stmt::Return {
+            value: Some(expr), ..
+        } => match expr {
+            Expr::Unary {
+                op: UnaryOp::Negate,
+                ..
+            } => {}
             other => panic!("expected Unary::Negate, got {:?}", other),
         },
         other => panic!("expected Return, got {:?}", other),

@@ -45,14 +45,20 @@ fn test_indentation() {
 fn test_comments_in_strings() {
     let source = "var s := \"hello // world\"";
     let lexer = Lexer::new(source.to_string()).expect("ICE");
-    assert!(has_token(&lexer, &Token::StringLit("hello // world".to_string())));
+    assert!(has_token(
+        &lexer,
+        &Token::StringLit("hello // world".to_string())
+    ));
 }
 
 #[test]
 fn test_string_escapes() {
     let source = "var s := \"hello\\nworld\"";
     let lexer = Lexer::new(source.to_string()).expect("ICE");
-    assert!(has_token(&lexer, &Token::StringLit("hello\nworld".to_string())));
+    assert!(has_token(
+        &lexer,
+        &Token::StringLit("hello\nworld".to_string())
+    ));
 }
 
 #[test]
@@ -109,7 +115,10 @@ fn test_escaped_quote_does_not_break_comment_stripping() {
     let lexer = Lexer::new(source.to_string()).expect("ICE");
     assert!(has_token(&lexer, &Token::StringLit("a\"b".to_string())));
     // The word "comment" must NOT have been tokenized.
-    assert!(!has_token(&lexer, &Token::Identifier("comment".to_string())));
+    assert!(!has_token(
+        &lexer,
+        &Token::Identifier("comment".to_string())
+    ));
 }
 
 #[test]

@@ -5,7 +5,6 @@
 
 // src/semantics/builder/mod.rs
 
-use std::borrow::Cow;
 use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::Pattern;
@@ -19,13 +18,14 @@ use crate::semantics::flow_analyzer::FlowAnalyzer;
 use crate::semantics::flow_result::{
     CaptureMode, DeferContext, FlowResult, LoopContext, TerminatorKind,
 };
+use std::borrow::Cow;
 use std::collections::HashMap;
 
-mod build;
 mod blocks;
-mod values;
+mod build;
 mod control_flow;
 mod expr;
+mod values;
 
 #[derive(Debug, Clone)]
 pub(super) struct VariableInfo {
@@ -42,7 +42,7 @@ pub struct SemanticIRBuilder {
     pub(super) scopes: Vec<HashMap<String, VariableInfo>>,
     pub(super) function_types: HashMap<String, FunctionSignature>,
     pub(super) iter_counter: usize,
-    pub diagnostics: Vec<String>,        // already pub, stays
+    pub diagnostics: Vec<String>, // already pub, stays
     pub(super) loop_stack: Vec<LoopContext>,
     pub(super) defer_stack: Vec<DeferContext>,
     pub(super) list_values: HashMap<String, Vec<Expr>>,
@@ -134,5 +134,5 @@ impl SemanticIRBuilder {
     }
     fn is_terminated(block: &SemanticBlock) -> bool {
         FlowAnalyzer::is_terminated(block)
-    }   
+    }
 }

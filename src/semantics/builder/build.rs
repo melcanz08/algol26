@@ -292,7 +292,8 @@ impl SemanticIRBuilder {
                         .unwrap_or_default();
 
                     if cleanups.is_empty() {
-                        if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id) {
+                        if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id)
+                        {
                             if b.terminator.is_none() {
                                 b.terminator = Some(Terminator::Return {
                                     value: None,
@@ -302,7 +303,8 @@ impl SemanticIRBuilder {
                         }
                     } else {
                         // final block → first cleanup
-                        if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id) {
+                        if let Some(b) = semantic_func.blocks.iter_mut().find(|b| b.id == final_id)
+                        {
                             if b.terminator.is_none() {
                                 b.terminator = Some(Terminator::Jump { block: cleanups[0] });
                             }
@@ -314,7 +316,9 @@ impl SemanticIRBuilder {
                                 .iter_mut()
                                 .find(|b| b.id == cleanups[i])
                             {
-                                cb.terminator = Some(Terminator::Jump { block: cleanups[i + 1] });
+                                cb.terminator = Some(Terminator::Jump {
+                                    block: cleanups[i + 1],
+                                });
                             }
                         }
                         // last cleanup emits the real return
@@ -368,9 +372,7 @@ impl SemanticIRBuilder {
             if func.is_extern {
                 if let Some(ffi) = &func.ffi_info {
                     if let Some(sym) = &ffi.symbol_name {
-                        program
-                            .ffi_symbols
-                            .insert(func.name.clone(), sym.clone());
+                        program.ffi_symbols.insert(func.name.clone(), sym.clone());
                     }
                     if let Some(lib) = &ffi.library {
                         if !program.ffi_libraries.contains(lib) {

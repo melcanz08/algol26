@@ -39,7 +39,13 @@ impl TraitRegistry {
             }
             TypePattern::Generic(name, args) => {
                 // Handle type variables (T, U, etc.) - they match anything
-                if name.len() == 1 && name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                if name.len() == 1
+                    && name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false)
+                {
                     return true;
                 }
 

@@ -143,7 +143,10 @@ impl Lexer {
                 Ok(val) => Ok((Token::FloatLit(val), length)),
                 Err(_) => Err(CompileError::simple(
                     &format!("Invalid float literal: {}", cleaned),
-                    0, 0, "", ErrorCode::E0001,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0001,
                 )),
             }
         } else {
@@ -151,7 +154,10 @@ impl Lexer {
                 Ok(val) => Ok((Token::IntLit(val), length)),
                 Err(_) => Err(CompileError::simple(
                     &format!("Invalid integer literal: {}", cleaned),
-                    0, 0, "", ErrorCode::E0001,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0001,
                 )),
             }
         }

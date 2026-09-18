@@ -48,22 +48,20 @@
 //! use-after-move is accepted.
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
+use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::{
-    BinOp, Expr, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt,
-    TraitDecl, WhereClause,
+    BinOp, Expr, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt, TraitDecl, WhereClause,
 };
+use crate::semantics::state::{NodeId, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
-use crate::semantics::state::{SemanticState, VarState, NodeId};
-use crate::common::span::Span;
 use std::collections::{HashMap, HashSet};
 
-
-mod scopes;
-mod ownership;
-mod items;
-mod stmt;
 mod expr;
+mod items;
+mod ownership;
+mod scopes;
+mod stmt;
 #[cfg(test)]
 mod tests;
 
@@ -188,8 +186,12 @@ impl SemanticAnalyzer {
         std::mem::take(&mut self.type_table_nid)
     }
     /// Access unified state (for dataflow integration)
-    pub fn state(&self) -> &SemanticState { &self.state }
-    pub fn state_mut(&mut self) -> &mut SemanticState { &mut self.state }
+    pub fn state(&self) -> &SemanticState {
+        &self.state
+    }
+    pub fn state_mut(&mut self) -> &mut SemanticState {
+        &mut self.state
+    }
 
     fn lookup_list_length(&self, name: &str) -> Option<usize> {
         for scope in self.list_lengths.iter().rev() {
@@ -274,9 +276,14 @@ impl SemanticAnalyzer {
             if !self.trait_registry.trait_exists(trait_name) {
                 return Err(CompileError::simple(
                     &format!("Unknown trait '{}'", trait_name),
-                    0, 0, "", ErrorCode::E0004,
-                ).with_suggestion(&format!(
-                    "Define trait '{}' before using it as a constraint", trait_name
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0004,
+                )
+                .with_suggestion(&format!(
+                    "Define trait '{}' before using it as a constraint",
+                    trait_name
                 )));
             }
         }

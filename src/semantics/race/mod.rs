@@ -3,10 +3,10 @@
 use crate::frontend::ast::{Expr, FunctionDecl, Stmt};
 use std::collections::HashMap;
 
-mod collect; 
-mod analyze; 
-#[cfg(test)] mod tests;
-
+mod analyze;
+mod collect;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone)]
 pub struct RaceDetector {
@@ -112,4 +112,3 @@ impl RaceDetector {
         false
     }
 }
-

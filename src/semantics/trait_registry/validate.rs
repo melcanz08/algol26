@@ -8,12 +8,10 @@ impl TraitRegistry {
 
         // Reject impls of traits that were never declared. Without this,
         // `impl MadeUpTrait for Int { ... }` would silently be accepted.
-        let trait_decl = self.traits.get(trait_name).ok_or_else(|| {
-            format!(
-                "Impl references undefined trait '{}'",
-                trait_name
-            )
-        })?;
+        let trait_decl = self
+            .traits
+            .get(trait_name)
+            .ok_or_else(|| format!("Impl references undefined trait '{}'", trait_name))?;
 
         let required_methods = &trait_decl.methods;
         let provided_methods: HashMap<&String, &FunctionDecl> =

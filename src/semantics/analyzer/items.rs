@@ -6,7 +6,11 @@ impl SemanticAnalyzer {
     pub(super) fn register_builtin_functions(&mut self) {
         let math_functions = [
             ("Math.sqrt", vec![("x", Type::Float)], Type::Float),
-            ("Math.pow", vec![("x", Type::Float), ("y", Type::Float)], Type::Float),
+            (
+                "Math.pow",
+                vec![("x", Type::Float), ("y", Type::Float)],
+                Type::Float,
+            ),
             ("Math.sin", vec![("x", Type::Float)], Type::Float),
             ("Math.cos", vec![("x", Type::Float)], Type::Float),
             ("Math.abs", vec![("x", Type::Float)], Type::Float),
@@ -20,7 +24,10 @@ impl SemanticAnalyzer {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
                 },
             );
@@ -28,10 +35,20 @@ impl SemanticAnalyzer {
 
         let string_functions = [
             ("String.length", vec![("s", Type::String)], Type::Int),
-            ("String.concat", vec![("s1", Type::String), ("s2", Type::String)], Type::String),
-            ("String.substring",
-                vec![("s", Type::String), ("start", Type::Int), ("length", Type::Int)],
-                Type::String),
+            (
+                "String.concat",
+                vec![("s1", Type::String), ("s2", Type::String)],
+                Type::String,
+            ),
+            (
+                "String.substring",
+                vec![
+                    ("s", Type::String),
+                    ("start", Type::Int),
+                    ("length", Type::Int),
+                ],
+                Type::String,
+            ),
             ("String.to_upper", vec![("s", Type::String)], Type::String),
             ("String.to_lower", vec![("s", Type::String)], Type::String),
         ];
@@ -39,7 +56,10 @@ impl SemanticAnalyzer {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
                 },
             );
@@ -47,30 +67,60 @@ impl SemanticAnalyzer {
 
         let file_functions = [
             ("File.read", vec![("path", Type::String)], Type::String),
-            ("File.write", vec![("path", Type::String), ("content", Type::String)], Type::Int),
-            ("File.append", vec![("path", Type::String), ("content", Type::String)], Type::Int),
+            (
+                "File.write",
+                vec![("path", Type::String), ("content", Type::String)],
+                Type::Int,
+            ),
+            (
+                "File.append",
+                vec![("path", Type::String), ("content", Type::String)],
+                Type::Int,
+            ),
         ];
         for (name, params, return_type) in file_functions {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
                 },
             );
         }
 
         let list_functions = [
-            ("List.length", vec![("arr", Type::list(Type::Unknown))], Type::Int),
-            ("List.sum", vec![("arr", Type::list(Type::Unknown))], Type::Float),
-            ("List.max", vec![("arr", Type::list(Type::Unknown))], Type::Float),
-            ("List.min", vec![("arr", Type::list(Type::Unknown))], Type::Float),
+            (
+                "List.length",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Int,
+            ),
+            (
+                "List.sum",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Float,
+            ),
+            (
+                "List.max",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Float,
+            ),
+            (
+                "List.min",
+                vec![("arr", Type::list(Type::Unknown))],
+                Type::Float,
+            ),
         ];
         for (name, params, return_type) in list_functions {
             self.functions.insert(
                 name.to_string(),
                 FunctionInfo {
-                    params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
                     return_type,
                 },
             );
@@ -93,15 +143,21 @@ impl SemanticAnalyzer {
     }
     pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) {
         for func in functions {
-            let params = func.params.iter().map(|(name, t)| {
-                let type_ = match t {
-                    Some(ts) => ts.to_type(),
-                    None => Type::Unknown,
-                };
-                (name.clone(), type_)
-            }).collect();
+            let params = func
+                .params
+                .iter()
+                .map(|(name, t)| {
+                    let type_ = match t {
+                        Some(ts) => ts.to_type(),
+                        None => Type::Unknown,
+                    };
+                    (name.clone(), type_)
+                })
+                .collect();
 
-            let return_type = func.return_type.as_ref()
+            let return_type = func
+                .return_type
+                .as_ref()
                 .map(|t| t.to_type())
                 .unwrap_or(Type::Void);
 
@@ -109,7 +165,13 @@ impl SemanticAnalyzer {
             if func.ffi_info.as_ref().is_some_and(|f| f.variadic) {
                 self.variadic_functions.insert(clean_name.clone());
             }
-            self.functions.insert(clean_name, FunctionInfo { params, return_type });
+            self.functions.insert(
+                clean_name,
+                FunctionInfo {
+                    params,
+                    return_type,
+                },
+            );
         }
     }
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
@@ -127,9 +189,14 @@ impl SemanticAnalyzer {
             if !self.trait_registry.trait_exists(&clause.trait_name) {
                 return Err(CompileError::simple(
                     &format!("Unknown trait '{}' in where clause", clause.trait_name),
-                    0, 0, "", ErrorCode::E0004,
-                ).with_suggestion(&format!(
-                    "Define trait '{}' before using it as a constraint", clause.trait_name
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0004,
+                )
+                .with_suggestion(&format!(
+                    "Define trait '{}' before using it as a constraint",
+                    clause.trait_name
                 )));
             }
         }
@@ -158,9 +225,16 @@ impl SemanticAnalyzer {
             let has_return = self.check_all_paths_return(&func.body);
             if !has_return {
                 return Err(CompileError::simple(
-                    &format!("Function '{}' may not return a value on all paths", func.name),
-                    0, 0, "", ErrorCode::E0002,
-                ).with_suggestion("Add a return statement to all code paths"));
+                    &format!(
+                        "Function '{}' may not return a value on all paths",
+                        func.name
+                    ),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
+                )
+                .with_suggestion("Add a return statement to all code paths"));
             }
         }
 
@@ -178,7 +252,7 @@ impl SemanticAnalyzer {
         }
         ty
     }
-        /// True if every control-flow path through `stmts` ends in a
+    /// True if every control-flow path through `stmts` ends in a
     /// `return`, `break`, or other diverging statement.
     ///
     /// This is a heuristic, not a real CFG reachability analysis. It

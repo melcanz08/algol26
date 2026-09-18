@@ -60,9 +60,7 @@ impl Parser {
                 Token::Equal => BinOp::Equal,
                 Token::NotEqual => BinOp::NotEqual,
                 other => {
-                    return Err(
-                        self.error(&format!("Unexpected comparison operator: {:?}", other))
-                    )
+                    return Err(self.error(&format!("Unexpected comparison operator: {:?}", other)))
                 }
             };
             let right = self.parse_additive()?;
@@ -85,9 +83,7 @@ impl Parser {
                 Token::Plus => BinOp::Add,
                 Token::Minus => BinOp::Subtract,
                 other => {
-                    return Err(
-                        self.error(&format!("Unexpected additive operator: {:?}", other))
-                    )
+                    return Err(self.error(&format!("Unexpected additive operator: {:?}", other)))
                 }
             };
             let right = self.parse_multiplicative()?;
@@ -335,11 +331,7 @@ impl Parser {
         }
     }
 
-    pub(super) fn parse_identifier_expr(
-        &mut self,
-        name: String,
-        ident_span: Span,
-    ) -> Result<Expr> {
+    pub(super) fn parse_identifier_expr(&mut self, name: String, ident_span: Span) -> Result<Expr> {
         if matches!(self.peek(), Token::LParen) {
             self.advance();
             let mut args = Vec::new();

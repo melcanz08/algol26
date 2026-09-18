@@ -29,7 +29,12 @@ impl RaceDetector {
                 }
                 self.analyze_expr(value, in_spawn);
             }
-            Stmt::VarDecl { name, value, mutable, .. } => {
+            Stmt::VarDecl {
+                name,
+                value,
+                mutable,
+                ..
+            } => {
                 // Only `var` bindings participate in race analysis. A
                 // `val` is written exactly once, before any concurrent
                 // observer could exist, and never reassigned — so it
@@ -124,7 +129,12 @@ impl RaceDetector {
                 Self::merge_access_map(accesses, name, AccessType::Write);
                 self.collect_expr_accesses(value, accesses);
             }
-            Stmt::VarDecl { name, value, mutable, .. } => {
+            Stmt::VarDecl {
+                name,
+                value,
+                mutable,
+                ..
+            } => {
                 if *mutable {
                     Self::merge_access_map(accesses, name, AccessType::Write);
                 }

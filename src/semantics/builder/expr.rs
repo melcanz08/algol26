@@ -110,11 +110,14 @@ impl SemanticIRBuilder {
                 // `val p := alloc(n)` is a memory operation, not a
                 // generic call. Emit an `Allocate` instruction and
                 // declare the pointer in one step. (Step 2 wiring.)
-                if let Expr::FunctionCall { name: fn_name, args, .. } = value {
+                if let Expr::FunctionCall {
+                    name: fn_name,
+                    args,
+                    ..
+                } = value
+                {
                     if fn_name == "alloc" && args.len() == 1 {
-                        let size = self.translate_expr(
-                            program, func, current_block, &args[0],
-                        );
+                        let size = self.translate_expr(program, func, current_block, &args[0]);
                         let ptr_ty = Type::pointer(Type::Unknown);
                         self.declare_var(name, ptr_ty.clone(), *mutable);
                         self.safe_push_instruction(
@@ -231,14 +234,14 @@ impl SemanticIRBuilder {
                 // Without this interception, `alloc` on an Assign RHS
                 // reaches LLVM codegen as a generic Call and fails
                 // with "unhandled builtin 'alloc'".
-                if let Expr::FunctionCall { name: fn_name, args, .. } = value {
+                if let Expr::FunctionCall {
+                    name: fn_name,
+                    args,
+                    ..
+                } = value
+                {
                     if fn_name == "alloc" && args.len() == 1 {
-                        let size = self.translate_expr(
-                            program,
-                            func,
-                            current_block,
-                            &args[0],
-                        );
+                        let size = self.translate_expr(program, func, current_block, &args[0]);
                         let ptr_ty = Type::pointer(Type::Unknown);
                         self.safe_push_instruction(
                             func,
@@ -283,8 +286,7 @@ impl SemanticIRBuilder {
                 let typed_value = value
                     .as_ref()
                     .map(|v| self.translate_expr(program, func, current_block, v));
-                let coerced_value =
-                    typed_value.map(|v| self.coerce_value(v, &func.return_type));
+                let coerced_value = typed_value.map(|v| self.coerce_value(v, &func.return_type));
                 let type_ = coerced_value
                     .as_ref()
                     .map(|v| v.type_of())
@@ -319,7 +321,9 @@ impl SemanticIRBuilder {
                             self.safe_set_terminator(
                                 func,
                                 cleanups[i],
-                                Terminator::Jump { block: cleanups[i + 1] },
+                                Terminator::Jump {
+                                    block: cleanups[i + 1],
+                                },
                             );
                         }
 
@@ -396,11 +400,14 @@ impl SemanticIRBuilder {
                 // alloc(n) / free(p) in statement position are memory
                 // operations, not generic calls. Intercept before the
                 // discarded-call path below. (Step 2 wiring.)
-                if let Expr::FunctionCall { name: fn_name, args, .. } = expr {
+                if let Expr::FunctionCall {
+                    name: fn_name,
+                    args,
+                    ..
+                } = expr
+                {
                     if fn_name == "alloc" && args.len() == 1 {
-                        let size = self.translate_expr(
-                            program, func, current_block, &args[0],
-                        );
+                        let size = self.translate_expr(program, func, current_block, &args[0]);
                         let temp = format!("__alloc_{}", self.iter_counter);
                         self.iter_counter += 1;
                         let ptr_ty = Type::pointer(Type::Unknown);
@@ -420,9 +427,7 @@ impl SemanticIRBuilder {
                         return FlowResult::Reachable(current_block);
                     }
                     if fn_name == "free" && args.len() == 1 {
-                        let ptr = self.translate_expr(
-                            program, func, current_block, &args[0],
-                        );
+                        let ptr = self.translate_expr(program, func, current_block, &args[0]);
                         self.safe_push_instruction(
                             func,
                             current_block,
@@ -459,8 +464,7 @@ impl SemanticIRBuilder {
                         },
                     );
                 } else {
-                    let _typed_value =
-                        self.translate_expr(program, func, current_block, expr);
+                    let _typed_value = self.translate_expr(program, func, current_block, expr);
                 }
                 if let Some(merge) = self.pending_merge.take() {
                     return FlowResult::Reachable(merge);
@@ -602,25 +606,17 @@ impl SemanticIRBuilder {
                 TypedIRValue::List(values, elem_type)
             }
             Expr::Binary {
-                left,
-                op,
-                right,
-                ..
+                left, op, right, ..
             } => match op {
                 BinOp::And | BinOp::Or => {
-                    self.translate_short_circuit(
-                        program, func, current_block, left, right, op,
-                    )
+                    self.translate_short_circuit(program, func, current_block, left, right, op)
                 }
                 _ => {
                     let l = self.translate_expr(program, func, current_block, left);
                     let r = self.translate_expr(program, func, current_block, right);
 
                     // ─── UNIFY TYPES ─── Type comes from the analyzer.
-                    let result_type = self
-                        .type_of_expr(expr)
-                        .cloned()
-                        .unwrap_or(Type::Unknown);
+                    let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
 
                     // Keep IR self-consistent by inserting Int→Float coercions.
                     let (cast_l, cast_r) = match (l.type_of(), r.type_of()) {
@@ -652,9 +648,9 @@ impl SemanticIRBuilder {
                         BinOp::LessEqual => SemanticBinOp::LessEqual,
                         BinOp::Equal => SemanticBinOp::Equal,
                         BinOp::NotEqual => SemanticBinOp::NotEqual,
-                        BinOp::And | BinOp::Or => unreachable!(
-                            "And/Or handled by translate_short_circuit arm above"
-                        ),
+                        BinOp::And | BinOp::Or => {
+                            unreachable!("And/Or handled by translate_short_circuit arm above")
+                        }
                     };
                     TypedIRValue::BinaryOp {
                         op: semantic_op,
@@ -697,16 +693,17 @@ impl SemanticIRBuilder {
 
                                 let mut call_args = vec![receiver_value];
                                 for arg in args {
-                                    call_args.push(
-                                        self.translate_expr(program, func, current_block, arg),
-                                    );
+                                    call_args.push(self.translate_expr(
+                                        program,
+                                        func,
+                                        current_block,
+                                        arg,
+                                    ));
                                 }
 
                                 // ─── UNIFY TYPES ─── analyzer already inferred the return type.
-                                let return_type = self
-                                    .type_of_expr(expr)
-                                    .cloned()
-                                    .unwrap_or(Type::Unknown);
+                                let return_type =
+                                    self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
 
                                 return TypedIRValue::Call {
                                     function: resolved_name,
@@ -731,21 +728,17 @@ impl SemanticIRBuilder {
                     .collect();
 
                 // ─── UNIFY TYPES ─── return type comes from the analyzer.
-                let return_type = self
-                    .type_of_expr(expr)
-                    .cloned()
-                    .unwrap_or(Type::Unknown);
+                let return_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
 
-                let coerced_args =
-                    if let Some(sig) = self.function_types.get(clean_name).cloned() {
-                        typed_args
-                            .into_iter()
-                            .zip(sig.params.iter())
-                            .map(|(a, (_, t))| self.coerce_value(a, t))
-                            .collect()
-                    } else {
-                        typed_args
-                    };
+                let coerced_args = if let Some(sig) = self.function_types.get(clean_name).cloned() {
+                    typed_args
+                        .into_iter()
+                        .zip(sig.params.iter())
+                        .map(|(a, (_, t))| self.coerce_value(a, t))
+                        .collect()
+                } else {
+                    typed_args
+                };
 
                 TypedIRValue::Call {
                     function: clean_name.to_string(),
@@ -831,8 +824,7 @@ impl SemanticIRBuilder {
                                     },
                                 );
                             } else {
-                                self.diagnostics
-                                    .push("Break outside of loop".to_string());
+                                self.diagnostics.push("Break outside of loop".to_string());
                             }
                             flow = FlowResult::Unreachable;
                         }
@@ -876,13 +868,9 @@ impl SemanticIRBuilder {
                 ..
             } => {
                 // ─── UNIFY TYPES ───
-                let result_type = self
-                    .type_of_expr(expr)
-                    .cloned()
-                    .unwrap_or(Type::Unknown);
+                let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
 
-                let result_var =
-                    self.allocate_result_var(func, current_block, result_type.clone());
+                let result_var = self.allocate_result_var(func, current_block, result_type.clone());
 
                 let then_flow = self.translate_if_with_target(
                     program,
@@ -906,18 +894,13 @@ impl SemanticIRBuilder {
             }
             Expr::Match { value, cases, .. } => {
                 // Translate the value being matched
-                let match_value =
-                    self.translate_expr(program, func, current_block, value);
+                let match_value = self.translate_expr(program, func, current_block, value);
 
                 // ─── UNIFY TYPES ───
-                let result_type = self
-                    .type_of_expr(expr)
-                    .cloned()
-                    .unwrap_or(Type::Unknown);
+                let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
 
                 // Allocate a result variable in the current scope
-                let result_var =
-                    self.allocate_result_var(func, current_block, result_type.clone());
+                let result_var = self.allocate_result_var(func, current_block, result_type.clone());
 
                 // Create a merge block for all arms
                 let merge_id = program.new_block_id();
@@ -952,12 +935,8 @@ impl SemanticIRBuilder {
                         crate::frontend::ast::Pattern::Error(v) => {
                             SemanticPattern::Error { binding: v.clone() }
                         }
-                        crate::frontend::ast::Pattern::Wildcard => {
-                            SemanticPattern::Wildcard
-                        }
-                        crate::frontend::ast::Pattern::Binding(_) => {
-                            SemanticPattern::Wildcard
-                        }
+                        crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Wildcard,
+                        crate::frontend::ast::Pattern::Binding(_) => SemanticPattern::Wildcard,
                         crate::frontend::ast::Pattern::Literal(e) => SemanticPattern::Literal(
                             self.translate_expr(program, func, current_block, e),
                         ),
@@ -1070,13 +1049,9 @@ impl SemanticIRBuilder {
                 //   err_block: translate catch body; result_var := its value; Jump merge
                 //   merge: result_var holds the value
 
-                let result_type = self
-                    .type_of_expr(expr)
-                    .cloned()
-                    .unwrap_or(Type::Unknown);
+                let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
 
-                let result_var =
-                    self.allocate_result_var(func, current_block, result_type.clone());
+                let result_var = self.allocate_result_var(func, current_block, result_type.clone());
 
                 // Fresh names for the try-body's value and the Ok payload.
                 let try_value_name = format!("__try_value_{}", self.iter_counter);
@@ -1186,17 +1161,10 @@ impl SemanticIRBuilder {
                     ok_block_id,
                     SemanticInstruction::Assign {
                         target: result_var.clone(),
-                        value: TypedIRValue::Variable(
-                            ok_payload_name.clone(),
-                            result_type.clone(),
-                        ),
+                        value: TypedIRValue::Variable(ok_payload_name.clone(), result_type.clone()),
                     },
                 );
-                self.safe_set_terminator(
-                    func,
-                    ok_block_id,
-                    Terminator::Jump { block: merge_id },
-                );
+                self.safe_set_terminator(func, ok_block_id, Terminator::Jump { block: merge_id });
 
                 // ─── Err block: translate catch body ───
                 // The switch's Error pattern binds catch_var at runtime;
@@ -1251,8 +1219,7 @@ impl SemanticIRBuilder {
                 // ─── Finally: runs after both branches at the merge ───
                 let final_reachable = if let Some(finally_stmts) = finally_body {
                     self.push_scope();
-                    let finally_flow =
-                        self.translate_block(program, func, merge_id, finally_stmts);
+                    let finally_flow = self.translate_block(program, func, merge_id, finally_stmts);
                     self.pop_scope();
                     match finally_flow {
                         FlowResult::Reachable(id) => id,
@@ -1306,9 +1273,7 @@ impl SemanticIRBuilder {
                     .as_ref()
                     .map(|e| self.translate_expr(program, func, current_block, e))
                     .unwrap_or(TypedIRValue::Void);
-                let elem_type = start_val
-                    .type_of()
-                    .common_supertype(&end_val.type_of());
+                let elem_type = start_val.type_of().common_supertype(&end_val.type_of());
                 TypedIRValue::List(vec![start_val, end_val], elem_type)
             }
             Expr::FieldAccess { object, field, .. } => {

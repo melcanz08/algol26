@@ -361,7 +361,11 @@ impl TypeSyntax {
                 "Void" | "void" => Type::Void,
                 "Self" => Type::TypeVar("Self".to_string()),
                 _ if name.len() == 1
-                    && name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) =>
+                    && name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false) =>
                 {
                     Type::TypeVar(name.clone())
                 }
@@ -406,7 +410,11 @@ impl TypeSyntax {
         if s.is_empty() {
             TypeSyntax::Unknown
         } else if s.contains('<') || s.contains('[') {
-            let (open_char, close_char) = if s.contains('<') { ('<', '>') } else { ('[', ']') };
+            let (open_char, close_char) = if s.contains('<') {
+                ('<', '>')
+            } else {
+                ('[', ']')
+            };
             let Some(open_pos) = s.find(open_char) else {
                 return TypeSyntax::Unknown;
             };

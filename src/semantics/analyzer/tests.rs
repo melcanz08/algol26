@@ -366,7 +366,10 @@ procedure main
     printf(\"hello\\n\")
     printf(\"value: %lld\\n\", 42)
 ";
-    assert!(analyze(source).is_ok(), "variadic extern must accept extra args");
+    assert!(
+        analyze(source).is_ok(),
+        "variadic extern must accept extra args"
+    );
 }
 
 #[test]
@@ -380,5 +383,9 @@ procedure main
     let result = analyze(source);
     assert!(result.is_err(), "variadic extern must reject too few args");
     let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("at least"), "expected 'at least' in message, got: {}", msg);
+    assert!(
+        msg.contains("at least"),
+        "expected 'at least' in message, got: {}",
+        msg
+    );
 }

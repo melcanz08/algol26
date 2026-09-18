@@ -8,13 +8,13 @@ use crate::frontend::ast::{
 };
 use crate::frontend::lexer::{SpannedToken, Token};
 
-mod types;
-mod pattern;
-mod items;
-mod stmt;
 mod expr;
+mod items;
+mod pattern;
+mod stmt;
 #[cfg(test)]
 mod tests;
+mod types;
 
 #[derive(Clone, Debug)]
 pub(super) struct TokenInfo {
@@ -62,13 +62,10 @@ impl Parser {
     }
 
     fn peek_info(&self) -> TokenInfo {
-        self.tokens
-            .get(self.pos)
-            .cloned()
-            .unwrap_or(TokenInfo {
-                token: Token::Eof,
-                span: Span::default(),
-            })
+        self.tokens.get(self.pos).cloned().unwrap_or(TokenInfo {
+            token: Token::Eof,
+            span: Span::default(),
+        })
     }
 
     /// Span of the token at the current position (the one `peek` would return).

@@ -18,7 +18,7 @@ impl Parser {
             Token::Channel => self.parse_channel_decl(),
             Token::Send => self.parse_send(),
             Token::Receive => self.parse_receive(),
-                        Token::Match => {
+            Token::Match => {
                 self.advance(); // consume 'match'
                 Ok(Stmt::Expression(self.parse_match_expr()?))
             }
@@ -182,10 +182,7 @@ impl Parser {
         match self.advance() {
             Token::Assign => {}
             other => {
-                return Err(self.error(&format!(
-                    "Expected assignment operator, found {:?}",
-                    other
-                )))
+                return Err(self.error(&format!("Expected assignment operator, found {:?}", other)))
             }
         }
 
@@ -340,11 +337,15 @@ impl Parser {
                 // arm), give it the case's span so the analyzer can point
                 // diagnostics at the `case` keyword.
                 let body = match body {
-                    Expr::Block { statements, trailing_expr, span }
-                        if span == Span::default() =>
-                    {
-                        Expr::Block { statements, trailing_expr, span: case_span }
-                    }
+                    Expr::Block {
+                        statements,
+                        trailing_expr,
+                        span,
+                    } if span == Span::default() => Expr::Block {
+                        statements,
+                        trailing_expr,
+                        span: case_span,
+                    },
                     other => other,
                 };
 

@@ -46,11 +46,7 @@ impl SemanticIRBuilder {
     }
 
     #[allow(dead_code)]
-    pub(super) fn compile_pattern_match(
-        &self,
-        pattern: &Pattern,
-        value: &TypedIRValue,
-    ) -> bool {
+    pub(super) fn compile_pattern_match(&self, pattern: &Pattern, value: &TypedIRValue) -> bool {
         match pattern {
             Pattern::Some(_) => matches!(value, TypedIRValue::Some(_)),
             Pattern::SomeNested(inner) => match value {
@@ -84,9 +80,7 @@ impl SemanticIRBuilder {
             Stmt::Expression(expr) => Self::expr_has_complex_cf(expr),
             Stmt::Spawn { body, .. }
             | Stmt::RegionBlock { body, .. }
-            | Stmt::UnsafeBlock { body, .. } => {
-                body.iter().any(Self::stmt_has_complex_cf)
-            }
+            | Stmt::UnsafeBlock { body, .. } => body.iter().any(Self::stmt_has_complex_cf),
             Stmt::Parallel { blocks, .. } => blocks
                 .iter()
                 .any(|b| b.iter().any(Self::stmt_has_complex_cf)),
@@ -117,9 +111,7 @@ impl SemanticIRBuilder {
                         .as_ref()
                         .is_some_and(|e| Self::expr_has_complex_cf(e))
             }
-            Expr::Match { cases, .. } => {
-                cases.iter().any(|c| Self::expr_has_complex_cf(&c.body))
-            }
+            Expr::Match { cases, .. } => cases.iter().any(|c| Self::expr_has_complex_cf(&c.body)),
             Expr::TryCatch {
                 try_branch,
                 catch_branch,

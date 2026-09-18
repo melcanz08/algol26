@@ -161,7 +161,8 @@ impl SemanticState {
         }
 
         let mut regions = HashMap::new();
-        let all_regions: HashSet<String> = a.regions.keys().chain(b.regions.keys()).cloned().collect();
+        let all_regions: HashSet<String> =
+            a.regions.keys().chain(b.regions.keys()).cloned().collect();
         for r in all_regions {
             let ra = a.regions.get(&r);
             let rb = b.regions.get(&r);
@@ -249,9 +250,23 @@ impl SemanticState {
     /// first introduced. Setting it here would incorrectly attribute
     /// a local declared outside a region to that region if the local
     /// happened to be borrowed inside it.
-    pub fn borrow(&mut self, borrower: String, place: String, kind: BorrowKind, lifetime: BorrowLifetime) {
+    pub fn borrow(
+        &mut self,
+        borrower: String,
+        place: String,
+        kind: BorrowKind,
+        lifetime: BorrowLifetime,
+    ) {
         let node = self.fresh_node_id();
-        self.borrows.insert(borrower, BorrowState { place, kind, lifetime, created_at: node });
+        self.borrows.insert(
+            borrower,
+            BorrowState {
+                place,
+                kind,
+                lifetime,
+                created_at: node,
+            },
+        );
     }
 
     pub fn borrow_temporary(&mut self, _place: String, _kind: BorrowKind) -> BorrowLifetime {
@@ -260,7 +275,8 @@ impl SemanticState {
     }
 
     pub fn end_temporary_borrows(&mut self, call_id: CallId) {
-        self.borrows.retain(|_, b| b.lifetime != BorrowLifetime::Temporary(call_id));
+        self.borrows
+            .retain(|_, b| b.lifetime != BorrowLifetime::Temporary(call_id));
     }
 
     pub fn enter_region(&mut self, name: String) {
@@ -274,7 +290,7 @@ impl SemanticState {
         // Returns list of places whose borrows outlive this region (for diagnostics)
         let mut outliving = Vec::new();
         self.regions.insert(name.to_string(), RegionState::Freed);
-        
+
         // Pop from stack if top matches
         if self.region_stack.last().map(|s| s.as_str()) == Some(name) {
             self.region_stack.pop();
@@ -286,13 +302,16 @@ impl SemanticState {
         for (borrower, bstate) in &self.borrows {
             let storage_lifetime = self.storage_lifetime_of(&bstate.place);
             let borrow_lifetime = &bstate.lifetime;
-            
+
             // If storage is in the region being freed and borrow lives longer -> error
             if let StorageLifetime::Region(storage_reg) = &storage_lifetime {
                 if (storage_reg == name || self.is_ancestor(name, storage_reg))
                     && borrow_lifetime.outlives_region(&storage_lifetime, self)
                 {
-                    outliving.push(format!("{} (borrowed by {} lives in {:?} but storage in {} freed)", bstate.place, borrower, borrow_lifetime, name));
+                    outliving.push(format!(
+                        "{} (borrowed by {} lives in {:?} but storage in {} freed)",
+                        bstate.place, borrower, borrow_lifetime, name
+                    ));
                 }
             }
         }
@@ -313,7 +332,9 @@ impl SemanticState {
     }
 
     pub fn is_mutably_borrowed(&self, place: &str) -> bool {
-        self.borrows.values().any(|b| b.place == place && b.kind == BorrowKind::Mutable)
+        self.borrows
+            .values()
+            .any(|b| b.place == place && b.kind == BorrowKind::Mutable)
     }
 
     pub fn mark_escape(&mut self, from: String, to: String) {
@@ -416,7 +437,12 @@ mod tests {
     fn move_ends_borrow() {
         let mut s = SemanticState::new();
         s.declare("x".into(), VarState::Available);
-        s.borrow("r".into(), "x".into(), BorrowKind::Mutable, BorrowLifetime::Local("r".into()));
+        s.borrow(
+            "r".into(),
+            "x".into(),
+            BorrowKind::Mutable,
+            BorrowLifetime::Local("r".into()),
+        );
         assert!(s.is_borrowed("x"));
         s.move_out("x");
         assert!(!s.is_borrowed("x"));
@@ -442,11 +468,20 @@ mod tests {
         s.declare("r".into(), VarState::Available); // r in outer
         s.enter_region("inner".into());
         s.declare("x".into(), VarState::Available); // x in inner
-        // r borrows x, but r lives in outer, x in inner
-        s.borrow("r".into(), "x".into(), BorrowKind::Shared, BorrowLifetime::Region("outer".into()));
-        
+                                                    // r borrows x, but r lives in outer, x in inner
+        s.borrow(
+            "r".into(),
+            "x".into(),
+            BorrowKind::Shared,
+            BorrowLifetime::Region("outer".into()),
+        );
+
         let outliving = s.exit_region("inner");
-        assert!(!outliving.is_empty(), "borrow in outer should outlive inner storage: {:?}", outliving);
+        assert!(
+            !outliving.is_empty(),
+            "borrow in outer should outlive inner storage: {:?}",
+            outliving
+        );
     }
 
     #[test]
@@ -455,10 +490,18 @@ mod tests {
         s.enter_region("r1".into());
         s.declare("x".into(), VarState::Available);
         s.declare("r".into(), VarState::Available);
-        s.borrow("r".into(), "x".into(), BorrowKind::Shared, BorrowLifetime::Region("r1".into()));
-        
+        s.borrow(
+            "r".into(),
+            "x".into(),
+            BorrowKind::Shared,
+            BorrowLifetime::Region("r1".into()),
+        );
+
         let outliving = s.exit_region("r1");
-        assert!(outliving.is_empty(), "same region borrow should not outlive");
+        assert!(
+            outliving.is_empty(),
+            "same region borrow should not outlive"
+        );
     }
 
     #[test]
@@ -476,9 +519,17 @@ mod tests {
         s.declare("r".into(), VarState::Available); // r outside
         s.enter_region("inner".into());
         s.declare("x".into(), VarState::Available); // x inside
-        s.borrow("r".into(), "x".into(), BorrowKind::Shared, BorrowLifetime::Local("r".into()));
-        
+        s.borrow(
+            "r".into(),
+            "x".into(),
+            BorrowKind::Shared,
+            BorrowLifetime::Local("r".into()),
+        );
+
         let outliving = s.exit_region("inner");
-        assert!(!outliving.is_empty(), "local outside borrowing inner should outlive");
+        assert!(
+            !outliving.is_empty(),
+            "local outside borrowing inner should outlive"
+        );
     }
 }

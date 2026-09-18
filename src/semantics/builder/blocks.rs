@@ -80,7 +80,12 @@ impl SemanticIRBuilder {
 
         Some(final_block)
     }
-    pub(super) fn allocate_result_var(&mut self, func: &mut SemanticFunction, current_block: usize, type_hint: Type) -> String {
+    pub(super) fn allocate_result_var(
+        &mut self,
+        func: &mut SemanticFunction,
+        current_block: usize,
+        type_hint: Type,
+    ) -> String {
         let name = format!("__result_{}", self.iter_counter);
         self.iter_counter += 1;
         // Declare the variable in the current scope (and in the IR)

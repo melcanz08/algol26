@@ -256,16 +256,6 @@ impl Type {
                 {
                     Type::pointer(Type::from_str(inner))
                 } else if let Some(inner) = s_lower
-                    .strip_prefix("pointer<")
-                    .and_then(|s| s.strip_suffix('>'))
-                {
-                    Type::pointer(Type::from_str(inner))
-                } else if let Some(inner) = s_lower
-                    .strip_prefix("ptr<")
-                    .and_then(|s| s.strip_suffix('>'))
-                {
-                    Type::pointer(Type::from_str(inner))
-                } else if let Some(inner) = s_lower
                     .strip_prefix("borrow<")
                     .and_then(|s| s.strip_suffix('>'))
                 {

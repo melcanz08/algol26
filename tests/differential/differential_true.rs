@@ -466,7 +466,7 @@ procedure main
     print(5 / 0)
 "#;
     let (llvm_stdout, llvm_ok) = run_llvm_raw(source);
-    let (interp_stdout, interp_ok) = run_interp_raw(source);
+    let (interp_stdout, interp_stderr, interp_ok) = run_interp_full(source);
 
     assert!(
         !llvm_ok,
@@ -474,15 +474,19 @@ procedure main
     );
     assert!(
         !interp_ok,
-        "Interpreter should exit non-zero on integer div by zero; stdout: {interp_stdout:?}"
+        "Interpreter should exit non-zero on integer div by zero; stdout: {interp_stdout:?}, stderr: {interp_stderr:?}"
     );
     assert!(
         llvm_stdout.contains("integer division by zero"),
         "LLVM diagnostic missing; got: {llvm_stdout:?}"
     );
+    // The interpreter reports runtime errors through the compiler's
+    // error path, which writes to stderr. Check both streams so the
+    // test doesn't depend on which printer emitted the message.
+    let interp_combined = format!("{interp_stdout}{interp_stderr}");
     assert!(
-        interp_stdout.contains("integer division by zero"),
-        "Interpreter diagnostic missing; got: {interp_stdout:?}"
+        interp_combined.contains("integer division by zero"),
+        "Interpreter diagnostic missing; combined output: {interp_combined:?}"
     );
 }
 
@@ -495,12 +499,19 @@ procedure main
     print(x / y)
 "#;
     let (llvm_stdout, llvm_ok) = run_llvm_raw(source);
-    let (interp_stdout, interp_ok) = run_interp_raw(source);
+    let (interp_stdout, interp_stderr, interp_ok) = run_interp_full(source);
 
     assert!(!llvm_ok, "LLVM should exit non-zero; got: {llvm_stdout:?}");
-    assert!(!interp_ok, "Interpreter should exit non-zero; got: {interp_stdout:?}");
+    assert!(
+        !interp_ok,
+        "Interpreter should exit non-zero; stdout: {interp_stdout:?}, stderr: {interp_stderr:?}"
+    );
     assert!(llvm_stdout.contains("integer division by zero"));
-    assert!(interp_stdout.contains("integer division by zero"));
+    let interp_combined = format!("{interp_stdout}{interp_stderr}");
+    assert!(
+        interp_combined.contains("integer division by zero"),
+        "Interpreter diagnostic missing; combined output: {interp_combined:?}"
+    );
 }
 
 #[test]
@@ -859,8 +870,10 @@ fn run_llvm_full(source: &str) -> (String, String, bool) {
     )
 }
 
-/// Run via `run --interpreter`, returning `(stdout, success)`.
-fn run_interp_raw(source: &str) -> (String, bool) {
+/// Run via `run --interpreter`, returning `(stdout, stderr, success)`.
+/// Diagnostics produced by the compiler's error path land on stderr,
+/// so callers that expect a runtime error must inspect stderr.
+fn run_interp_full(source: &str) -> (String, String, bool) {
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let temp_dir = std::env::temp_dir();
     let source_path = temp_dir.join(format!("interp_raw_{}.gol", id));
@@ -880,6 +893,7 @@ fn run_interp_raw(source: &str) -> (String, bool) {
 
     (
         String::from_utf8_lossy(&run.stdout).to_string(),
+        String::from_utf8_lossy(&run.stderr).to_string(),
         run.status.success(),
     )
 }

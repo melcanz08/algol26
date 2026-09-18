@@ -201,18 +201,26 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions.insert("free".to_string(), free_fn);
     }
 
+    /// Compile a call to a backend builtin. Returns the LLVM value
+    /// **and** the ALGOL26 type it corresponds to, so the caller can
+    /// allocate a result slot with the correct type.
+    ///
+    /// Before this change the type was not reported, and
+    /// `compile_builtin_call` assumed `Float` — mis-typing the slot
+    /// for every Int-returning builtin (both current builtins).
     pub(super) fn compile_builtin_value(
         &self,
         name: &str,
         args: &[TypedIRValue],
-    ) -> Result<BasicValueEnum<'ctx>> {
+    ) -> Result<(BasicValueEnum<'ctx>, Type)> {
         match name {
             "List.length" | "len" | "length" => match args.first() {
                 Some(TypedIRValue::Variable(var_name, _)) => {
                     match self.list_lengths.get(var_name) {
-                        Some(len) => {
-                            Ok(self.context.i64_type().const_int(*len as u64, false).into())
-                        }
+                        Some(len) => Ok((
+                            self.context.i64_type().const_int(*len as u64, false).into(),
+                            Type::Int,
+                        )),
                         None => Err(CompileError::simple(
                             &format!(
                                 "LLVM codegen: List.length called on unknown list '{}' \
@@ -278,8 +286,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_call(utf8_len_fn, &[s_val.into()], "utf8_strlen_call")
                     .unwrap();
                 match call.try_as_basic_value() {
-                    inkwell::values::ValueKind::Basic(v) => Ok(v),
-                    _ => Ok(self.context.i64_type().const_zero().into()),
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::Int)),
+                    // algol26_strlen_utf8 returns i64; a call that
+                    // produces no value means the module was built
+                    // incorrectly. Fail closed rather than silently
+                    // returning 0.
+                    inkwell::values::ValueKind::Instruction(_) => {
+                        Err(CompileError::unsupported_operation(
+                            "String.length (algol26_strlen_utf8 call produced no value)",
+                            "llvm",
+                        ))
+                    }
                 }
             }
             other => Err(CompileError::simple(
@@ -302,15 +319,20 @@ impl<'ctx> IRCodeGen<'ctx> {
         args: &[TypedIRValue],
         result: &Option<String>,
     ) -> Result<()> {
-        let val = self.compile_builtin_value(name, args)?;
+        // `compile_builtin_value` reports the ALGOL26 type alongside
+        // the LLVM value so the result slot is allocated with the
+        // correct type. Previously the type was assumed to be Float
+        // even for Int-returning builtins, which silently mis-typed
+        // the slot.
+        let (val, val_ty) = self.compile_builtin_value(name, args)?;
         if let Some(res_name) = result {
             if let Some(ptr) = self.variables.get(res_name).cloned() {
                 self.builder.build_store(ptr, val).unwrap();
             } else {
-                let alloca = self.create_entry_alloca(res_name, &Type::Float);
+                let alloca = self.create_entry_alloca(res_name, &val_ty);
                 self.builder.build_store(alloca, val).unwrap();
                 self.variables.insert(res_name.clone(), alloca);
-                self.var_types.insert(res_name.clone(), Type::Float);
+                self.var_types.insert(res_name.clone(), val_ty);
             }
         }
         Ok(())

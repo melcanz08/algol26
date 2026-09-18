@@ -157,7 +157,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                         }
                     }
                 } else {
-                    self.compile_builtin_value(&callee_name, args)?
+                    // `compile_builtin_value` now returns
+                    // `(BasicValueEnum, Type)`; discard the type here
+                    // because the caller of `compile_value` doesn't
+                    // need it.
+                    self.compile_builtin_value(&callee_name, args)?.0
                 }
             }
             TypedIRValue::ArrayAccess {

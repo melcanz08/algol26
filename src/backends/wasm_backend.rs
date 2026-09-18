@@ -25,8 +25,17 @@ impl WasmBackend {
 
 impl Backend for WasmBackend {
     fn compile(&self, ir: &VerifiedIR, output_name: &str) -> Result<BackendOutput> {
-        // Capability check — the backend supports nothing, so any
-        // non-trivial program is refused here with a clear message.
+        // Capability check — refuses any program whose constructs
+        // the WASM backend cannot lower (channels, Result, Option,
+        // spawn, ...). The supported set is declared in
+        // `BackendCapabilities::wasm()` and enforced here before
+        // any codegen runs.
+        //
+        // Note: the WASM backend reuses `IRCodeGen` — the same
+        // struct the LLVM backend uses. So the fail-closed work
+        // done across `value.rs`, `instruction.rs`, `terminator.rs`,
+        // etc. applies here for free; there is no separate WASM
+        // lowering to keep in sync.
         // (The old `validate_wasm_compatibility` only checked
         // Send/Receive and missed everything else.)
         crate::backends::capabilities::check_backend(

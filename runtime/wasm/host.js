@@ -51,6 +51,12 @@ const env = {
         // The format string itself is a fixed arg and is passed
         // directly. We dereference each vararg according to the type
         // the format specifier asks for.
+        //
+        // LIMITATION: only the formats the ALGOL26 compiler currently
+        // emits are handled — `%lld\n` (Int), `%.1f\n` (Float), `%s\n`
+        // (String). In particular, `%f` without a precision always
+        // prints one decimal place, which happens to match `%.1f`
+        // but not C's default of 6. Extend when a new lowering needs it.
         const ptrs = Array.prototype.slice.call(arguments, 1);
         const view = new Uint8Array(linearMemory.buffer);
         const dv = new DataView(linearMemory.buffer);
@@ -165,12 +171,21 @@ const env = {
         const neededPages = Math.ceil(heapTop / 65536);
         const currentPages = linearMemory.buffer.byteLength / 65536;
         if (neededPages > currentPages) {
-            linearMemory.grow(neededPages - currentPages);
+            const prevPages = linearMemory.grow(neededPages - currentPages);
+            if (prevPages === -1) {
+                // Out of memory. C's malloc returns 0 on failure;
+                // match that rather than returning a pointer into
+                // pages that were never allocated.
+                return 0;
+            }
         }
         return ptr;
     },
     free: function () {
-        // Bump allocator — no-op.
+        // Bump allocator — `free` is a no-op. Memory is reclaimed
+        // only when the module exits. This is a deliberate
+        // simplification for the test host; a real WASM runtime
+        // would provide a full allocator.
     },
 
     // ─── math (LLVM lowerings use the C names) ───
@@ -186,8 +201,31 @@ const env = {
     pow: Math.pow,
 
     // ─── string ───
+    // `strlen` returns the number of UTF-8 bytes before the null
+    // terminator, matching C semantics. Note: the ALGOL26
+    // `String.length` builtin does NOT call this — it calls
+    // `algol26_strlen_utf8`, which counts codepoints. This
+    // implementation is only reachable from a future lowering that
+    // explicitly asks for byte length.
     strlen: function (ptr) {
-        return readCString(ptr).length;
+        const mem = new Uint8Array(linearMemory.buffer);
+        let end = ptr;
+        while (end < mem.length && mem[end] !== 0) end++;
+        return end - ptr;
+    },
+    // `algol26_strlen_utf8` counts Unicode codepoints: every byte
+    // whose top two bits are not `10` (i.e. not a UTF-8
+    // continuation byte) increments the count. Matches the emitted
+    // LLVM helper and the interpreter's `str::chars().count()`.
+    algol26_strlen_utf8: function (ptr) {
+        const mem = new Uint8Array(linearMemory.buffer);
+        let count = 0;
+        let i = ptr;
+        while (i < mem.length && mem[i] !== 0) {
+            if ((mem[i] & 0xc0) !== 0x80) count++;
+            i++;
+        }
+        return count;
     },
     strcmp: function (a, b) {
         const sa = readCString(a);
@@ -236,7 +274,14 @@ async function run() {
         process.exit(1);
     }
 
-    instance.exports.main();
+    const result = instance.exports.main();
+    // If `main` declares a non-Void return type (e.g.
+    // `function main() -> Int`), propagate a non-zero value to the
+    // shell exit code. `procedure main` returns undefined, which is
+    // treated as success.
+    if (typeof result === 'number' && result !== 0) {
+        process.exit(result);
+    }
 }
 
 run().catch(e => {

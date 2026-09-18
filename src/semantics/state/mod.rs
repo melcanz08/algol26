@@ -344,7 +344,21 @@ impl SemanticState {
 
 impl BorrowLifetime {
     pub fn outlives(&self, _storage: &StorageLifetime) -> bool {
-        // Legacy simple version - kept for backward compat tests
+        // Simplified borrow-outlives-storage check.
+        //
+        // This is a **stub**: it does not consult the region
+        // hierarchy, so it returns `false` for every non-`Static`
+        // borrow. All production call sites use
+        // [`BorrowLifetime::outlives_region`], which does the real
+        // check.
+        //
+        // Kept because `temporary_borrow_does_not_escape` in this
+        // file still calls it. When that test is updated to use
+        // `outlives_region`, this method can be deleted.
+        //
+        // Note: the `_storage` parameter is unused by design. If
+        // the method is ever made to actually consult `storage`,
+        // it should be renamed and the underscore dropped.
         match self {
             BorrowLifetime::Temporary(_) => false,
             BorrowLifetime::Local(_) => false,

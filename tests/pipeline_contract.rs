@@ -92,3 +92,93 @@ fn unsupported_ir_must_be_compiler_error() {
         result.diagnostics
     );
 }
+
+#[test]
+fn transform_preserves_verification() {
+    use algol26::common::types::Type;
+    use algol26::ir::optimizer::Optimizer;
+    use algol26::ir::semantic_ir::{
+        SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
+    };
+    use algol26::ir::verified_ir::VerifiedIR;
+
+    // Build a minimal valid program: one function with one empty block.
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![],
+            terminator: Some(Terminator::Return {
+                value: None,
+                type_: Type::Void,
+            }),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    });
+
+    let verified = VerifiedIR::new(program).expect("empty program verifies");
+
+    // Run the optimizer through the only sanctioned mutation path.
+    let mut optimizer = Optimizer::new();
+    let optimized = verified
+        .mutate(|program| optimizer.optimize(program))
+        .expect("optimizer preserves verification");
+
+    // The result is a fresh VerifiedIR; its program has been
+    // re-verified by `mutate`, so this is not just a type-level
+    // promise.
+    assert!(
+        optimized.verify().is_ok(),
+        "optimizer output must pass the verifier"
+    );
+}
+
+#[test]
+fn mutate_rejects_invalid_ir() {
+    use algol26::common::types::Type;
+    use algol26::ir::semantic_ir::{
+        SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
+    };
+    use algol26::ir::verified_ir::VerifiedIR;
+
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![],
+            terminator: Some(Terminator::Return {
+                value: None,
+                type_: Type::Void,
+            }),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    });
+
+    let verified = VerifiedIR::new(program).expect("program verifies");
+
+    // Break the program inside the mutation: add an unreachable
+    // block with no terminator. The verifier should reject this.
+    let result = verified.mutate(|program| {
+        let bad = program.new_block_id();
+        program.functions[0].blocks.push(SemanticBlock {
+            id: bad,
+            instructions: vec![],
+            terminator: None,
+        });
+    });
+
+    assert!(
+        result.is_err(),
+        "mutate must reject IR that fails verification"
+    );
+}

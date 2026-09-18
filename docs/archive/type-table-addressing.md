@@ -1,3 +1,10 @@
+> **Superseded.** This document is kept for historical context only.
+> The current reference is [`../language-reference.md`](../language-reference.md).
+>
+> _Archived 2026-09-18._
+
+---
+
 # Type Table Addressing
 
 **Status:** Active invariant. Violating it produces wrong codegen

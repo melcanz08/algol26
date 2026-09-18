@@ -1,3 +1,10 @@
+> **Superseded.** This document is kept for historical context only.
+> The current reference is [`../IMPLEMENTATION_STATUS.md`](../IMPLEMENTATION_STATUS.md).
+>
+> _Archived 2026-09-18._
+
+---
+
 # ALGOL26 Safety Roadmap
 
 > **ARCHIVED — 2026-09-11**

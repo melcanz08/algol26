@@ -1,3 +1,10 @@
+> **Superseded.** This document is kept for historical context only.
+> The current reference is [`../architecture-direction.md`](../architecture-direction.md).
+>
+> _Archived 2026-09-18._
+
+---
+
 # ALGOL26 Design Principles
 
 ## Language Layers

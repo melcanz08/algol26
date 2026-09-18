@@ -1,3 +1,10 @@
+> **Superseded.** This document is kept for historical context only.
+> The current reference is [`../language-reference.md`](../language-reference.md).
+>
+> _Archived 2026-09-18._
+
+---
+
 # ALGOL26 Language Specification v0.1.0
 
 > **ARCHIVED — 2026-09-11**

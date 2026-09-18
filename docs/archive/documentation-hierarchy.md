@@ -1,3 +1,10 @@
+> **Superseded.** This document is kept for historical context only.
+> The current reference is [`../README.md`](../README.md).
+>
+> _Archived 2026-09-18._
+
+---
+
 # ALGOL26 Documentation Hierarchy
 
 > **ARCHIVED — 2026-09-11**

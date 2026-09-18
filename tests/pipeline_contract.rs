@@ -102,7 +102,6 @@ fn transform_preserves_verification() {
     };
     use algol26::ir::verified_ir::VerifiedIR;
 
-    // Build a minimal valid program: one function with one empty block.
     let mut program = SemanticProgram::new();
     let entry = program.new_block_id();
     program.functions.push(SemanticFunction {
@@ -123,15 +122,11 @@ fn transform_preserves_verification() {
 
     let verified = VerifiedIR::new(program).expect("empty program verifies");
 
-    // Run the optimizer through the only sanctioned mutation path.
     let mut optimizer = Optimizer::new();
     let optimized = verified
         .mutate(|program| optimizer.optimize(program))
         .expect("optimizer preserves verification");
 
-    // The result is a fresh VerifiedIR; its program has been
-    // re-verified by `mutate`, so this is not just a type-level
-    // promise.
     assert!(
         optimized.verify().is_ok(),
         "optimizer output must pass the verifier"
@@ -166,8 +161,8 @@ fn mutate_rejects_invalid_ir() {
 
     let verified = VerifiedIR::new(program).expect("program verifies");
 
-    // Break the program inside the mutation: add an unreachable
-    // block with no terminator. The verifier should reject this.
+    // Break the IR inside the mutation: append a block with no
+    // terminator. The verifier should reject this.
     let result = verified.mutate(|program| {
         let bad = program.new_block_id();
         program.functions[0].blocks.push(SemanticBlock {

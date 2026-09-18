@@ -11,7 +11,10 @@ pub struct PassRegistry<Prog> {
 
 impl<Prog: 'static> PassRegistry<Prog> {
     pub fn new() -> Self {
-        Self { passes: HashMap::new(), order: Vec::new() }
+        Self {
+            passes: HashMap::new(),
+            order: Vec::new(),
+        }
     }
 
     /// Register a pass.
@@ -39,15 +42,15 @@ impl<Prog: 'static> PassRegistry<Prog> {
     }
 
     pub fn contracts(&self) -> impl Iterator<Item = &PassContract> {
-        self.order.iter().filter_map(move |id| self.passes.get(id)).map(|p| p.contract())
+        self.order
+            .iter()
+            .filter_map(move |id| self.passes.get(id))
+            .map(|p| p.contract())
     }
 
     /// Build a pipeline from a list of pass names in the given order.
     /// Consumes the registry.
-    pub fn build_pipeline(
-        mut self,
-        ids: &[PassId],
-    ) -> Result<Pipeline<Prog>, PipelineError> {
+    pub fn build_pipeline(mut self, ids: &[PassId]) -> Result<Pipeline<Prog>, PipelineError> {
         let mut b: PipelineBuilder<Prog> = Pipeline::builder();
         for id in ids {
             let p = self
@@ -61,7 +64,9 @@ impl<Prog: 'static> PassRegistry<Prog> {
 }
 
 impl<Prog: 'static> Default for PassRegistry<Prog> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -79,13 +84,17 @@ mod tests {
                 kind: PassKind::Analysis,
                 input: IrLevel::Ast,
                 output: IrLevel::Ast,
-                requires: &[], guarantees: &[],
-                may_change: &[], must_preserve: &[],
+                requires: &[],
+                guarantees: &[],
+                may_change: &[],
+                must_preserve: &[],
                 may_fail: false,
             };
             &C
         }
-        fn run(&self, _: &mut CompilerContext, _: &mut Program) -> PassResult { Ok(()) }
+        fn run(&self, _: &mut CompilerContext, _: &mut Program) -> PassResult {
+            Ok(())
+        }
     }
 
     #[test]

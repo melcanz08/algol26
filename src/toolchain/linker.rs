@@ -20,11 +20,7 @@ fn resolve_output_path(output_name: &str) -> PathBuf {
 /// `output_name` using the host `clang`.
 ///
 /// Returns the resolved absolute path of the produced binary.
-pub fn link_llvm_ir(
-    ir_path: &Path,
-    output_name: &str,
-    libraries: &[String],
-) -> Result<PathBuf> {
+pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> Result<PathBuf> {
     let output_path = resolve_output_path(output_name);
 
     let mut cmd = Command::new("clang");
@@ -40,22 +36,26 @@ pub fn link_llvm_ir(
     for lib in libraries {
         cmd.arg(format!("-l{}", lib));
     }
-    let output = cmd
-        .output()
-        .map_err(|e| {
-            let err = CompileError::simple(
-                &format!("Failed to run clang: {}", e),
-                0, 0, "", ErrorCode::E0001,
-            );
-            err.display();
-            err
-        })?;
+    let output = cmd.output().map_err(|e| {
+        let err = CompileError::simple(
+            &format!("Failed to run clang: {}", e),
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
+        );
+        err.display();
+        err
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let err = CompileError::simple(
             &format!("Linking failed: {}", stderr),
-            0, 0, "", ErrorCode::E0001,
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
         );
         err.display();
         return Err(err);
@@ -69,10 +69,8 @@ pub fn link_llvm_ir(
 /// error — the program ran successfully, it just returned a failure.
 pub fn run_binary(path: &Path) -> Result<()> {
     Command::new(path).status().map_err(|e| {
-        let err = CompileError::simple(
-            &format!("Failed to run: {}", e),
-            0, 0, "", ErrorCode::E0001,
-        );
+        let err =
+            CompileError::simple(&format!("Failed to run: {}", e), 0, 0, "", ErrorCode::E0001);
         err.display();
         err
     })?;

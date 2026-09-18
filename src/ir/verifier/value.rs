@@ -36,10 +36,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
                 });
             }
             let elem_ty = common.unwrap_or(Type::Unknown);
-            if !claimed_elem.is_unknown()
-                && !elem_ty.is_unknown()
-                && claimed_elem != &elem_ty
-            {
+            if !claimed_elem.is_unknown() && !elem_ty.is_unknown() && claimed_elem != &elem_ty {
                 return Err(format!(
                     "List claims element type {:?} but elements imply {:?}",
                     claimed_elem, elem_ty
@@ -57,10 +54,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             let rt = verify_value(right, env)?;
             let expected = compute_binop_type(op, &lt, &rt)?;
 
-            if !result_type.is_unknown()
-                && !expected.is_unknown()
-                && result_type != &expected
-            {
+            if !result_type.is_unknown() && !expected.is_unknown() && result_type != &expected {
                 return Err(format!(
                     "BinaryOp claims result {:?} but {:?} {:?} {:?} implies {:?}",
                     result_type, lt, op, rt, expected
@@ -104,9 +98,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
                 Type::List(t) => *t,
                 Type::Array(t, _) => *t,
                 Type::Unknown => Type::Unknown,
-                other => {
-                    return Err(format!("Array access on non-list type {:?}", other))
-                }
+                other => return Err(format!("Array access on non-list type {:?}", other)),
             };
 
             if !element_type.is_unknown() && !elem.is_unknown() && element_type != &elem {
@@ -144,9 +136,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             let expected = match inner {
                 Type::Pointer(t) | Type::Borrow(t) | Type::MutBorrow(t) => *t,
                 Type::Unknown => Type::Unknown,
-                other => {
-                    return Err(format!("Deref on non-pointer type {:?}", other))
-                }
+                other => return Err(format!("Deref on non-pointer type {:?}", other)),
             };
             if !target_type.is_unknown() && !expected.is_unknown() && target_type != &expected {
                 return Err(format!(
@@ -172,8 +162,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             args,
             return_type,
         } => {
-            let arg_types: Result<Vec<_>, _> =
-                args.iter().map(|a| verify_value(a, env)).collect();
+            let arg_types: Result<Vec<_>, _> = args.iter().map(|a| verify_value(a, env)).collect();
             let arg_types = arg_types?;
 
             let sig = env.function_sigs.get(function).ok_or_else(|| {
@@ -193,13 +182,13 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
                 };
                 return Err(format!(
                     "Call to '{}' expects {} args, found {}",
-                    function, expected, arg_types.len()
+                    function,
+                    expected,
+                    arg_types.len()
                 ));
             }
 
-            for (i, ((_, param_ty), arg_ty)) in
-                sig.params.iter().zip(&arg_types).enumerate()
-            {
+            for (i, ((_, param_ty), arg_ty)) in sig.params.iter().zip(&arg_types).enumerate() {
                 if arg_ty.is_unknown() || param_ty.is_unknown() {
                     continue;
                 }
@@ -221,7 +210,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
                 ));
             }
 
-                        // A generic function's signature return type is a type
+            // A generic function's signature return type is a type
             // variable (possibly nested). The analyzer has already
             // bound it against the actual argument types and rewritten
             // the call site; the verifier has no scope to re-derive
@@ -268,10 +257,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             }
             let actual = common.unwrap_or(Type::Unknown);
 
-            if !elem_type.is_unknown()
-                && !actual.is_unknown()
-                && elem_type != &actual
-            {
+            if !elem_type.is_unknown() && !actual.is_unknown() && elem_type != &actual {
                 return Err(format!(
                     "Array literal claims element type {:?} but elements imply {:?}",
                     elem_type, actual
@@ -284,16 +270,10 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             let et = verify_value(end, env)?;
 
             if !st.is_numeric() && !st.is_unknown() {
-                return Err(format!(
-                    "Range start must be numeric, found {:?}",
-                    st
-                ));
+                return Err(format!("Range start must be numeric, found {:?}", st));
             }
             if !et.is_numeric() && !et.is_unknown() {
-                return Err(format!(
-                    "Range end must be numeric, found {:?}",
-                    et
-                ));
+                return Err(format!("Range end must be numeric, found {:?}", et));
             }
             Type::list(st.common_supertype(&et))
         }
@@ -308,7 +288,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             let _obj = verify_value(object, env)?;
             field_type.clone()
         }
-                TypedIRValue::Some(inner) => {
+        TypedIRValue::Some(inner) => {
             let inner_ty = verify_value(inner, env)?;
             Type::option(inner_ty)
         }
@@ -356,9 +336,7 @@ pub(super) fn compute_binop_type(op: &SemanticBinOp, lt: &Type, rt: &Type) -> Re
                 ))
             }
         }
-        SemanticBinOp::Subtract
-        | SemanticBinOp::Multiply
-        | SemanticBinOp::Divide => {
+        SemanticBinOp::Subtract | SemanticBinOp::Multiply | SemanticBinOp::Divide => {
             if lt.is_numeric() && rt.is_numeric() {
                 Ok(lt.common_supertype(rt))
             } else if lt.is_unknown() || rt.is_unknown() {

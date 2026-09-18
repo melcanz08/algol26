@@ -12,7 +12,7 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// `printf("%d\n", i1)` would print 0/1, diverging from the
     /// interpreter. Instead, branch on the value and call `printf`
     /// with a constant "true\n" or "false\n" string.
-    pub (super) fn emit_print_bool(
+    pub(super) fn emit_print_bool(
         &self,
         printf_fn: inkwell::values::FunctionValue<'ctx>,
         val: BasicValueEnum<'ctx>,
@@ -124,7 +124,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                              (no LLVM format mapping; see common::types::print)",
                             ty
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
                     ));
                 }
             };
@@ -141,5 +144,4 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
         Ok(())
     }
-
 }

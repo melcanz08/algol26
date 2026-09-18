@@ -1,4 +1,4 @@
-// src/ffi/lowering.rs 
+// src/ffi/lowering.rs
 
 use crate::common::types::Type;
 use crate::ffi::c::CType;

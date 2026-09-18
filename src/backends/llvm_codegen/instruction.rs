@@ -1,8 +1,8 @@
 // src/backends/llvm_codegen/instruction.rs
 
+use super::resolve_math_name;
 use super::IRCodeGen;
 use super::LRegionFrame;
-use super::resolve_math_name;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{Instruction, TypedIRValue};
@@ -13,7 +13,12 @@ impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
         match instr {
             Instruction::Nop => Ok(()),
-            Instruction::Declare { name, type_, value, mutable: _ } => {
+            Instruction::Declare {
+                name,
+                type_,
+                value,
+                mutable: _,
+            } => {
                 if let TypedIRValue::List(elems, elem_ty) = value {
                     let len = elems.len();
                     let elem_llvm_ty = self.map_type(elem_ty);
@@ -28,12 +33,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                         let ev = self.compile_value(elem)?;
                         let idx = self.context.i32_type().const_int(i as u64, false);
                         let ptr = unsafe {
-                            self.builder.build_gep(
-                                array_ty,
-                                arr_alloca,
-                                &[self.context.i32_type().const_zero(), idx],
-                                &format!("{}_gep_{}", name, i),
-                            ).unwrap()
+                            self.builder
+                                .build_gep(
+                                    array_ty,
+                                    arr_alloca,
+                                    &[self.context.i32_type().const_zero(), idx],
+                                    &format!("{}_gep_{}", name, i),
+                                )
+                                .unwrap()
                         };
                         self.builder.build_store(ptr, ev).unwrap();
                     }
@@ -87,7 +94,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                         self.builder.build_store(ptr, ev).unwrap();
                     }
                     self.list_arrays.insert(target.clone(), arr_alloca);
-                    self.list_array_types.insert(target.clone(), array_ty.into());
+                    self.list_array_types
+                        .insert(target.clone(), array_ty.into());
                     self.list_lengths.insert(target.clone(), len);
                     self.variables.insert(target.clone(), arr_alloca);
                     return Ok(());
@@ -123,31 +131,56 @@ impl<'ctx> IRCodeGen<'ctx> {
                     let len_val = self.context.i64_type().const_int(len, false);
                     let zero = self.context.i64_type().const_int(0, false);
 
-                    let is_negative = self.builder.build_int_compare(
-                        inkwell::IntPredicate::SLT, idx_int, zero, "bounds_check_neg"
-                    ).unwrap();
-                    let is_too_big = self.builder.build_int_compare(
-                        inkwell::IntPredicate::SGE, idx_int, len_val, "bounds_check_big"
-                    ).unwrap();
-                    let out_of_bounds = self.builder.build_or(is_negative, is_too_big, "oob").unwrap();
+                    let is_negative = self
+                        .builder
+                        .build_int_compare(
+                            inkwell::IntPredicate::SLT,
+                            idx_int,
+                            zero,
+                            "bounds_check_neg",
+                        )
+                        .unwrap();
+                    let is_too_big = self
+                        .builder
+                        .build_int_compare(
+                            inkwell::IntPredicate::SGE,
+                            idx_int,
+                            len_val,
+                            "bounds_check_big",
+                        )
+                        .unwrap();
+                    let out_of_bounds = self
+                        .builder
+                        .build_or(is_negative, is_too_big, "oob")
+                        .unwrap();
 
-                    let error_bb = self.context.append_basic_block(
-                        self.current_function.unwrap(), "bounds_error_write"
-                    );
-                    let continue_bb = self.context.append_basic_block(
-                        self.current_function.unwrap(), "bounds_ok_write"
-                    );
+                    let error_bb = self
+                        .context
+                        .append_basic_block(self.current_function.unwrap(), "bounds_error_write");
+                    let continue_bb = self
+                        .context
+                        .append_basic_block(self.current_function.unwrap(), "bounds_ok_write");
 
-                    self.builder.build_conditional_branch(out_of_bounds, error_bb, continue_bb).unwrap();
+                    self.builder
+                        .build_conditional_branch(out_of_bounds, error_bb, continue_bb)
+                        .unwrap();
 
                     self.builder.position_at_end(error_bb);
-                    let error_msg = self.builder.build_global_string_ptr(
-                        "Error: Array index out of bounds\n", "bounds_err_msg_write"
-                    ).unwrap();
+                    let error_msg = self
+                        .builder
+                        .build_global_string_ptr(
+                            "Error: Array index out of bounds\n",
+                            "bounds_err_msg_write",
+                        )
+                        .unwrap();
                     let printf_fn = self.module.get_function("printf").unwrap();
-                    self.builder.build_call(
-                        printf_fn, &[error_msg.as_pointer_value().into()], "print_bounds_error"
-                    ).unwrap();
+                    self.builder
+                        .build_call(
+                            printf_fn,
+                            &[error_msg.as_pointer_value().into()],
+                            "print_bounds_error",
+                        )
+                        .unwrap();
 
                     // Return void if the enclosing function is void; otherwise return 1.
                     let current_fn = self.current_function.unwrap();
@@ -345,7 +378,11 @@ impl<'ctx> IRCodeGen<'ctx> {
             Instruction::Receive { .. } => Ok(()),
             Instruction::ChannelSend { .. } => Ok(()),
             Instruction::ChannelReceive { .. } => Ok(()),
-            Instruction::Allocate { target, size, type_ } => {
+            Instruction::Allocate {
+                target,
+                size,
+                type_,
+            } => {
                 // `alloc(n)` lowers to a call to libc `malloc`.
                 // The result is stored into a per-variable alloca
                 // so `p` behaves like any other pointer-typed
@@ -366,7 +403,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let malloc_fn = self.module.get_function("malloc").ok_or_else(|| {
                     CompileError::simple(
                         "LLVM codegen: malloc not registered in stdlib",
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )
                 })?;
                 let call = self
@@ -407,19 +447,14 @@ impl<'ctx> IRCodeGen<'ctx> {
 
                 let snapshot: Option<inkwell::values::PointerValue<'ctx>> =
                     if in_region && is_reassignment {
-                        if let Some(existing_alloca) =
-                            self.variables.get(target).copied()
-                        {
-                            let ptr_ty = self
-                                .context
-                                .ptr_type(inkwell::AddressSpace::default());
+                        if let Some(existing_alloca) = self.variables.get(target).copied() {
+                            let ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
                             let old_val = self
                                 .builder
                                 .build_load(ptr_ty, existing_alloca, "region_saved_load")
                                 .unwrap();
                             self.iter_counter += 1;
-                            let slot_name =
-                                format!("__region_saved_{}", self.iter_counter);
+                            let slot_name = format!("__region_saved_{}", self.iter_counter);
                             let slot = self.create_entry_alloca(
                                 &slot_name,
                                 &Type::Pointer(Box::new(Type::Unknown)),
@@ -462,7 +497,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let free_fn = self.module.get_function("free").ok_or_else(|| {
                     CompileError::simple(
                         "LLVM codegen: free not registered in stdlib",
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )
                 })?;
                 self.builder
@@ -470,9 +508,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .unwrap();
                 if let TypedIRValue::Variable(name, _) = ptr {
                     if let Some(alloca) = self.variables.get(name).copied() {
-                        let ptr_ty = self
-                            .context
-                            .ptr_type(inkwell::AddressSpace::default());
+                        let ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
                         let null_ptr = ptr_ty.const_null();
                         self.builder.build_store(alloca, null_ptr).unwrap();
                     }
@@ -499,16 +535,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                         // (LIFO), then currently-tracked vars
                         // (LIFO). The `frame` is owned (from
                         // pop()), so no borrow conflict.
-                        let mut cleanups: Vec<
-                            inkwell::values::PointerValue<'ctx>,
-                        > = Vec::new();
+                        let mut cleanups: Vec<inkwell::values::PointerValue<'ctx>> = Vec::new();
                         for slot in frame.saved_slots.iter().rev() {
                             cleanups.push(*slot);
                         }
                         for var_name in frame.tracked_vars.iter().rev() {
-                            if let Some(alloca) =
-                                self.variables.get(var_name).copied()
-                            {
+                            if let Some(alloca) = self.variables.get(var_name).copied() {
                                 cleanups.push(alloca);
                             }
                         }
@@ -522,14 +554,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                             "LLVM codegen: region exit '{}' but top frame is '{}'",
                             name, frame.name
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )),
                     None => Err(CompileError::simple(
                         &format!(
                             "LLVM codegen: region exit '{}' with no matching enter",
                             name
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )),
                 }
             }

@@ -412,13 +412,17 @@ impl Optimizer {
                         let mut deps = HashSet::new();
                         collect_variables_from_value(value, &mut deps);
                         deps.remove(name);
-                        for d in deps { used_variables.insert(d); }
+                        for d in deps {
+                            used_variables.insert(d);
+                        }
                     }
                     Instruction::Assign { target, value } => {
                         let mut deps = HashSet::new();
                         collect_variables_from_value(value, &mut deps);
                         deps.remove(target);
-                        for d in deps { used_variables.insert(d); }
+                        for d in deps {
+                            used_variables.insert(d);
+                        }
                     }
                     Instruction::IteratorInit { iterable, .. } => {
                         collect_variables_from_value(iterable, &mut used_variables);
@@ -691,11 +695,7 @@ mod tests {
                     }],
                     Terminator::Jump { block: merge_id },
                 ),
-                block(
-                    else_id,
-                    vec![],
-                    Terminator::Jump { block: merge_id },
-                ),
+                block(else_id, vec![], Terminator::Jump { block: merge_id }),
                 block(
                     merge_id,
                     vec![Instruction::Assign {
@@ -738,7 +738,7 @@ mod tests {
             assign
         );
     }
-        #[test]
+    #[test]
     fn folding_skips_large_int_literals() {
         // A BinaryOp over two `Int` operands whose values exceed 2^53
         // must not be folded to a Float. The pass should leave the
@@ -860,7 +860,7 @@ mod tests {
         );
     }
 
-        #[test]
+    #[test]
     fn dce_preserves_call_side_effects_even_when_result_unused() {
         // The IR builder emits a `Call` instruction with
         // `result: Some(name)` immediately before a `Declare` for
@@ -870,8 +870,7 @@ mod tests {
         // coupling.
         use crate::common::types::Type;
         use crate::ir::semantic_ir::{
-            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
-            TypedIRValue,
+            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
         };
 
         let mut program = SemanticProgram::new();
@@ -911,9 +910,10 @@ mod tests {
 
         let block = &program.functions[0].blocks[0];
 
-        let call_still_there = block.instructions.iter().any(|i| {
-            matches!(i, Instruction::Call { result: Some(name), .. } if name == "unused")
-        });
+        let call_still_there = block
+            .instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::Call { result: Some(name), .. } if name == "unused"));
         let declare_removed = !block
             .instructions
             .iter()

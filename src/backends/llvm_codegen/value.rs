@@ -1,13 +1,12 @@
 // src/backends/llvm_codegen/value.rs
 
-use super::IRCodeGen;
 use super::resolve_math_name;
+use super::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::TypedIRValue;
 use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
-
 
 impl<'ctx> IRCodeGen<'ctx> {
     /// Compile an expression as a *reference* — i.e., produce the
@@ -222,7 +221,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                             match ret_type {
                                 Some(_) => {
                                     self.builder
-                                        .build_return(Some(&self.context.i32_type().const_int(1, false)))
+                                        .build_return(Some(
+                                            &self.context.i32_type().const_int(1, false),
+                                        ))
                                         .unwrap();
                                 }
                                 None => {
@@ -269,13 +270,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                                 arr_name,
                                 self.list_arrays.keys().collect::<Vec<_>>()
                             ),
-                            0, 0, "", ErrorCode::E0004,
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
                         ));
                     }
                 } else {
                     return Err(CompileError::simple(
                         "codegen: ArrayAccess with non-variable array expression",
-                        0, 0, "", ErrorCode::E0004,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0004,
                     ));
                 }
             }
@@ -312,7 +319,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                                  of kind {:?} to {:?}",
                                 source_llvm, target
                             ),
-                            0, 0, "", ErrorCode::E0002,
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
                         ));
                     }
                 }
@@ -325,9 +335,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // would segfault.
                 self.compile_reference(expr)?
             }
-            TypedIRValue::MutBorrow { expr, .. } => {
-                self.compile_reference(expr)?
-            }
+            TypedIRValue::MutBorrow { expr, .. } => self.compile_reference(expr)?,
             TypedIRValue::Deref { expr, target_type } => {
                 let ptr = self.compile_value(expr)?;
                 if ptr.is_pointer_value() {
@@ -370,28 +378,40 @@ impl<'ctx> IRCodeGen<'ctx> {
                 return Err(CompileError::simple(
                     "LLVM codegen: Some(...) has no LLVM lowering; \
                      the capability scan should have refused this program",
-                    0, 0, "", ErrorCode::E0002,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
                 ));
             }
             TypedIRValue::None { .. } => {
                 return Err(CompileError::simple(
                     "LLVM codegen: None has no LLVM lowering; \
                      the capability scan should have refused this program",
-                    0, 0, "", ErrorCode::E0002,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
                 ));
             }
             TypedIRValue::Ok { .. } => {
                 return Err(CompileError::simple(
                     "LLVM codegen: Ok(...) has no LLVM lowering; \
                      the capability scan should have refused this program",
-                    0, 0, "", ErrorCode::E0002,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
                 ));
             }
             TypedIRValue::Error { .. } => {
                 return Err(CompileError::simple(
                     "LLVM codegen: Error(...) has no LLVM lowering; \
                      the capability scan should have refused this program",
-                    0, 0, "", ErrorCode::E0002,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
                 ));
             }
 
@@ -404,14 +424,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                 return Err(CompileError::simple(
                     "LLVM codegen: array literal value has no LLVM lowering; \
                      the capability matrix should have refused this program",
-                    0, 0, "", ErrorCode::E0002,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
                 ));
             }
             TypedIRValue::Range(_, _) => {
                 return Err(CompileError::simple(
                     "LLVM codegen: range value has no LLVM lowering; \
                      the capability matrix should have refused this program",
-                    0, 0, "", ErrorCode::E0002,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
                 ));
             }
             TypedIRValue::FieldAccess { .. } => {
@@ -419,7 +445,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                     "LLVM codegen: field access has no LLVM lowering \
                      (no struct support); the capability matrix should \
                      have refused this program",
-                    0, 0, "", ErrorCode::E0002,
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
                 ));
             }
         })

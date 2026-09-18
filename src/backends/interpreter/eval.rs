@@ -1,15 +1,12 @@
 // src/backends/interpreter/eval.rs
 
-use super::Interpreter;
 use super::runtime::{runtime_kind, EvalError, RuntimeValue};
-use crate::ir::semantic_ir::{SemanticBinOp, TypedIRValue};
+use super::Interpreter;
 use crate::common::types::Type;
+use crate::ir::semantic_ir::{SemanticBinOp, TypedIRValue};
 
 impl Interpreter {
-    pub(super) fn eval_value(
-        &mut self,
-        v: &TypedIRValue,
-    ) -> Result<RuntimeValue, EvalError> {
+    pub(super) fn eval_value(&mut self, v: &TypedIRValue) -> Result<RuntimeValue, EvalError> {
         Ok(match v {
             TypedIRValue::Int(i) => RuntimeValue::Int(*i),
             TypedIRValue::Float(f) => RuntimeValue::Float(*f),
@@ -47,9 +44,7 @@ impl Interpreter {
                 let idx = self.eval_value(index)?;
                 let idx_usize = match idx {
                     RuntimeValue::Int(i) if i < 0 => {
-                        return Err(EvalError::Runtime(format!(
-                            "array index {} is negative", i
-                        )));
+                        return Err(EvalError::Runtime(format!("array index {} is negative", i)));
                     }
                     RuntimeValue::Int(i) => i as usize,
                     other => {
@@ -79,7 +74,9 @@ impl Interpreter {
                 })?
             }
 
-            TypedIRValue::BinaryOp { op, left, right, .. } => {
+            TypedIRValue::BinaryOp {
+                op, left, right, ..
+            } => {
                 let l = self.eval_value(left)?;
                 let r = self.eval_value(right)?;
                 return Self::eval_binop(op, l, r);
@@ -162,9 +159,15 @@ impl Interpreter {
                     Ok(RuntimeValue::Int(a.wrapping_add(b)))
                 }
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a + b)),
-                (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a as f64 + b)),
-                (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a + b as f64)),
-                (RuntimeValue::String(a), RuntimeValue::String(b)) => Ok(RuntimeValue::String(a + &b)),
+                (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
+                    Ok(RuntimeValue::Float(a as f64 + b))
+                }
+                (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
+                    Ok(RuntimeValue::Float(a + b as f64))
+                }
+                (RuntimeValue::String(a), RuntimeValue::String(b)) => {
+                    Ok(RuntimeValue::String(a + &b))
+                }
                 _ => Err(mismatch("Add")),
             },
             SemanticBinOp::Subtract => match (l, r) {
@@ -186,13 +189,9 @@ impl Interpreter {
                     if b == 0 {
                         return Err(EvalError::Runtime("integer division by zero".into()));
                     }
-                    a.checked_div(b)
-                        .map(RuntimeValue::Int)
-                        .ok_or_else(|| {
-                            EvalError::Runtime(format!(
-                                "integer division overflow: {} / {}", a, b
-                            ))
-                        })
+                    a.checked_div(b).map(RuntimeValue::Int).ok_or_else(|| {
+                        EvalError::Runtime(format!("integer division overflow: {} / {}", a, b))
+                    })
                 }
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a / b)),
                 _ => Err(mismatch("Divide")),
@@ -311,36 +310,48 @@ impl Interpreter {
             "String.substring" => {
                 let s = match arg_vals.first() {
                     Some(RuntimeValue::String(s)) => s.clone(),
-                    Some(other) => return Err(EvalError::TypeMismatch {
-                        op: "String.substring",
-                        left: runtime_kind(other),
-                        right: "String",
-                    }),
-                    None => return Err(EvalError::Runtime(
-                        "String.substring: missing string argument".into(),
-                    )),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.substring",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.substring: missing string argument".into(),
+                        ))
+                    }
                 };
                 let start = match arg_vals.get(1) {
                     Some(RuntimeValue::Int(i)) => (*i).max(0) as usize,
-                    Some(other) => return Err(EvalError::TypeMismatch {
-                        op: "String.substring.start",
-                        left: runtime_kind(other),
-                        right: "Int",
-                    }),
-                    None => return Err(EvalError::Runtime(
-                        "String.substring: missing start argument".into(),
-                    )),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.substring.start",
+                            left: runtime_kind(other),
+                            right: "Int",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.substring: missing start argument".into(),
+                        ))
+                    }
                 };
                 let length = match arg_vals.get(2) {
                     Some(RuntimeValue::Int(i)) => (*i).max(0) as usize,
-                    Some(other) => return Err(EvalError::TypeMismatch {
-                        op: "String.substring.length",
-                        left: runtime_kind(other),
-                        right: "Int",
-                    }),
-                    None => return Err(EvalError::Runtime(
-                        "String.substring: missing length argument".into(),
-                    )),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.substring.length",
+                            left: runtime_kind(other),
+                            right: "Int",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.substring: missing length argument".into(),
+                        ))
+                    }
                 };
                 let chars: Vec<char> = s.chars().collect();
                 let start = start.min(chars.len());
@@ -348,17 +359,18 @@ impl Interpreter {
                 Ok(RuntimeValue::String(chars[start..end].iter().collect()))
             }
 
-            "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan"
-            | "Math.exp" | "Math.log" | "Math.floor" | "Math.ceil"
-            | "Math.abs" => {
+            "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp" | "Math.log"
+            | "Math.floor" | "Math.ceil" | "Math.abs" => {
                 let x = match arg_vals.first() {
                     Some(RuntimeValue::Float(f)) => *f,
                     Some(RuntimeValue::Int(i)) => *i as f64,
-                    Some(other) => return Err(EvalError::TypeMismatch {
-                        op: "Math.*",
-                        left: runtime_kind(other),
-                        right: "Int | Float",
-                    }),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Math.*",
+                            left: runtime_kind(other),
+                            right: "Int | Float",
+                        })
+                    }
                     None => return Err(EvalError::Runtime("Math.*: missing argument".into())),
                 };
                 let r = match func {
@@ -381,12 +393,16 @@ impl Interpreter {
                     (Some(RuntimeValue::Float(a)), Some(RuntimeValue::Float(b))) => (*a, *b),
                     (Some(RuntimeValue::Int(a)), Some(RuntimeValue::Float(b))) => (*a as f64, *b),
                     (Some(RuntimeValue::Float(a)), Some(RuntimeValue::Int(b))) => (*a, *b as f64),
-                    (Some(RuntimeValue::Int(a)), Some(RuntimeValue::Int(b))) => (*a as f64, *b as f64),
-                    _ => return Err(EvalError::TypeMismatch {
-                        op: "Math.pow",
-                        left: arg_vals.first().map(runtime_kind).unwrap_or("none"),
-                        right: arg_vals.get(1).map(runtime_kind).unwrap_or("none"),
-                    }),
+                    (Some(RuntimeValue::Int(a)), Some(RuntimeValue::Int(b))) => {
+                        (*a as f64, *b as f64)
+                    }
+                    _ => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Math.pow",
+                            left: arg_vals.first().map(runtime_kind).unwrap_or("none"),
+                            right: arg_vals.get(1).map(runtime_kind).unwrap_or("none"),
+                        })
+                    }
                 };
                 Ok(RuntimeValue::Float(a.powf(b)))
             }
@@ -402,29 +418,29 @@ impl Interpreter {
                 }),
             },
 
-            "String.to_upper" | "String.upper" | "to_upper" | "upper" => {
-                match arg_vals.first() {
-                    Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.to_uppercase())),
-                    Some(other) => Err(EvalError::TypeMismatch {
-                        op: "String.to_upper",
-                        left: runtime_kind(other),
-                        right: "String",
-                    }),
-                    None => Err(EvalError::Runtime("String.to_upper: missing argument".into())),
-                }
-            }
+            "String.to_upper" | "String.upper" | "to_upper" | "upper" => match arg_vals.first() {
+                Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.to_uppercase())),
+                Some(other) => Err(EvalError::TypeMismatch {
+                    op: "String.to_upper",
+                    left: runtime_kind(other),
+                    right: "String",
+                }),
+                None => Err(EvalError::Runtime(
+                    "String.to_upper: missing argument".into(),
+                )),
+            },
 
-            "String.to_lower" | "String.lower" | "to_lower" | "lower" => {
-                match arg_vals.first() {
-                    Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.to_lowercase())),
-                    Some(other) => Err(EvalError::TypeMismatch {
-                        op: "String.to_lower",
-                        left: runtime_kind(other),
-                        right: "String",
-                    }),
-                    None => Err(EvalError::Runtime("String.to_lower: missing argument".into())),
-                }
-            }
+            "String.to_lower" | "String.lower" | "to_lower" | "lower" => match arg_vals.first() {
+                Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.to_lowercase())),
+                Some(other) => Err(EvalError::TypeMismatch {
+                    op: "String.to_lower",
+                    left: runtime_kind(other),
+                    right: "String",
+                }),
+                None => Err(EvalError::Runtime(
+                    "String.to_lower: missing argument".into(),
+                )),
+            },
 
             "String.length" | "String.len" | "strlen" => match arg_vals.first() {
                 Some(RuntimeValue::String(s)) => Ok(RuntimeValue::Int(s.len() as i64)),

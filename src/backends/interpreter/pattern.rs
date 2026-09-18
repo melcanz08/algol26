@@ -16,9 +16,7 @@ impl Interpreter {
             SemanticPattern::Wildcard => Ok(Some(Vec::new())),
 
             SemanticPattern::Some { binding } => match value {
-                RuntimeValue::Option(Some(v)) => {
-                    Ok(Some(vec![(binding.clone(), (**v).clone())]))
-                }
+                RuntimeValue::Option(Some(v)) => Ok(Some(vec![(binding.clone(), (**v).clone())])),
                 _ => Ok(None),
             },
 
@@ -28,16 +26,18 @@ impl Interpreter {
             },
 
             SemanticPattern::Ok { binding } => match value {
-                RuntimeValue::Result { is_ok: true, value: v } => {
-                    Ok(Some(vec![(binding.clone(), (**v).clone())]))
-                }
+                RuntimeValue::Result {
+                    is_ok: true,
+                    value: v,
+                } => Ok(Some(vec![(binding.clone(), (**v).clone())])),
                 _ => Ok(None),
             },
 
             SemanticPattern::Error { binding } => match value {
-                RuntimeValue::Result { is_ok: false, value: v } => {
-                    Ok(Some(vec![(binding.clone(), (**v).clone())]))
-                }
+                RuntimeValue::Result {
+                    is_ok: false,
+                    value: v,
+                } => Ok(Some(vec![(binding.clone(), (**v).clone())])),
                 _ => Ok(None),
             },
 

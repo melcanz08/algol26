@@ -8,9 +8,15 @@ pub struct Pipeline<Prog> {
 }
 
 impl<Prog> Pipeline<Prog> {
-    pub fn stages(&self) -> &[Box<dyn Pass<Prog>>] { &self.stages }
-    pub fn len(&self) -> usize { self.stages.len() }
-    pub fn is_empty(&self) -> bool { self.stages.is_empty() }
+    pub fn stages(&self) -> &[Box<dyn Pass<Prog>>] {
+        &self.stages
+    }
+    pub fn len(&self) -> usize {
+        self.stages.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.stages.is_empty()
+    }
 }
 
 impl<Prog: 'static> Pipeline<Prog> {
@@ -36,7 +42,9 @@ impl<Prog: 'static> PipelineBuilder<Prog> {
 
     pub fn build(self) -> Result<Pipeline<Prog>, PipelineError> {
         Self::validate_chain(&self.stages)?;
-        Ok(Pipeline { stages: self.stages })
+        Ok(Pipeline {
+            stages: self.stages,
+        })
     }
 
     /// Contract-chain validation.
@@ -58,15 +66,11 @@ impl<Prog: 'static> PipelineBuilder<Prog> {
                     // Analysis reads the current representation and
                     // produces metadata, not a new IR level.
                     if c.input != c.output {
-                        return Err(PipelineError::AnalysisChangedLevel(
-                            c.id, c.input, c.output,
-                        ));
+                        return Err(PipelineError::AnalysisChangedLevel(c.id, c.input, c.output));
                     }
                     if let Some(cur) = current {
                         if cur != c.input {
-                            return Err(PipelineError::AnalysisAtWrongLevel(
-                                c.id, cur, c.input,
-                            ));
+                            return Err(PipelineError::AnalysisAtWrongLevel(c.id, cur, c.input));
                         }
                     }
                     current = Some(c.input);
@@ -187,20 +191,45 @@ mod tests {
         };
     }
 
-    dummy_pass!(NoAdvance, "test.no_advance",
-        PassKind::Lowering, IrLevel::Ast, IrLevel::Ast);
+    dummy_pass!(
+        NoAdvance,
+        "test.no_advance",
+        PassKind::Lowering,
+        IrLevel::Ast,
+        IrLevel::Ast
+    );
 
-    dummy_pass!(Backwards, "test.backwards",
-        PassKind::Lowering, IrLevel::SemanticIr, IrLevel::Ast);
+    dummy_pass!(
+        Backwards,
+        "test.backwards",
+        PassKind::Lowering,
+        IrLevel::SemanticIr,
+        IrLevel::Ast
+    );
 
-    dummy_pass!(GoodLowering, "test.good_lowering",
-        PassKind::Lowering, IrLevel::Ast, IrLevel::SemanticIr);
+    dummy_pass!(
+        GoodLowering,
+        "test.good_lowering",
+        PassKind::Lowering,
+        IrLevel::Ast,
+        IrLevel::SemanticIr
+    );
 
-    dummy_pass!(AstLower, "test.ast_lower",
-        PassKind::Lowering, IrLevel::Source, IrLevel::Ast);
+    dummy_pass!(
+        AstLower,
+        "test.ast_lower",
+        PassKind::Lowering,
+        IrLevel::Source,
+        IrLevel::Ast
+    );
 
-    dummy_pass!(AnalysisAtAst, "test.analysis_ast",
-        PassKind::Analysis, IrLevel::Ast, IrLevel::Ast);
+    dummy_pass!(
+        AnalysisAtAst,
+        "test.analysis_ast",
+        PassKind::Analysis,
+        IrLevel::Ast,
+        IrLevel::Ast
+    );
 
     #[test]
     fn lowering_must_advance() {
@@ -251,16 +280,23 @@ mod tests {
 
         // Build a pipeline with Transform but NO following Verification
         let pipeline = Pipeline::builder()
-           .add(OptimizePass) // Transform kind, requires following Verify
-           .build()
-           .expect("pipeline builds");
+            .add(OptimizePass) // Transform kind, requires following Verify
+            .build()
+            .expect("pipeline builds");
 
         let mut ctx = CompilerContext::new(CompilerConfig::default());
         let mut program = Program::new("", "");
 
         let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
 
-        assert!(outcome.failure.is_some(), "scheduler should refuse Transform without following Verify");
-        assert!(outcome.failure.unwrap().message.contains("not followed by a verification"));
+        assert!(
+            outcome.failure.is_some(),
+            "scheduler should refuse Transform without following Verify"
+        );
+        assert!(outcome
+            .failure
+            .unwrap()
+            .message
+            .contains("not followed by a verification"));
     }
 }

@@ -20,12 +20,18 @@ impl InterpreterBackend {
     }
 
     pub fn get_output(&self) -> String {
-        let buffer = self.output_buffer.lock().expect("interpreter output lock poisoned");
+        let buffer = self
+            .output_buffer
+            .lock()
+            .expect("interpreter output lock poisoned");
         String::from_utf8_lossy(&buffer).to_string()
     }
 
     pub fn clear_output(&self) {
-        let mut buffer = self.output_buffer.lock().expect("interpreter output lock poisoned");
+        let mut buffer = self
+            .output_buffer
+            .lock()
+            .expect("interpreter output lock poisoned");
         buffer.clear();
     }
 }
@@ -60,7 +66,10 @@ impl Backend for InterpreterBackend {
         // Keep the legacy buffer in sync so existing callers
         // using `get_output()` continue to work; the returned
         // enum now also carries the same string for new callers.
-        let mut buffer = self.output_buffer.lock().expect("interpreter output lock poisoned");
+        let mut buffer = self
+            .output_buffer
+            .lock()
+            .expect("interpreter output lock poisoned");
         buffer.clear();
         buffer.extend_from_slice(stdout.as_bytes());
 
@@ -94,8 +103,7 @@ mod tests {
         // against a simulated heap.
         use crate::common::types::Type;
         use crate::ir::semantic_ir::{
-            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
-            TypedIRValue,
+            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
         };
         use crate::ir::verified_ir::VerifiedIR;
 
@@ -115,10 +123,7 @@ mod tests {
                         type_: Type::pointer(Type::Unknown),
                     },
                     Instruction::Free {
-                        ptr: TypedIRValue::Variable(
-                            "p".to_string(),
-                            Type::pointer(Type::Unknown),
-                        ),
+                        ptr: TypedIRValue::Variable("p".to_string(), Type::pointer(Type::Unknown)),
                     },
                     Instruction::Print {
                         value: TypedIRValue::String("ok".to_string()),
@@ -137,7 +142,11 @@ mod tests {
         let verified = VerifiedIR::new(program).expect("IR verification failed");
         let backend = InterpreterBackend::new();
         let result = backend.compile(&verified, "test");
-        assert!(result.is_ok(), "interpreter should handle alloc/free: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "interpreter should handle alloc/free: {:?}",
+            result
+        );
         assert_eq!(backend.get_output(), "ok\n");
     }
 
@@ -149,8 +158,7 @@ mod tests {
         // and both prints succeed.
         use crate::common::types::Type;
         use crate::ir::semantic_ir::{
-            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
-            TypedIRValue,
+            Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
         };
         use crate::ir::verified_ir::VerifiedIR;
 

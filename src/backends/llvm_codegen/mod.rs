@@ -15,13 +15,13 @@ use inkwell::values::{FunctionValue, PointerValue};
 use inkwell::AddressSpace;
 use std::collections::HashMap;
 
-mod types;
-mod effects;
-mod builtins;
-mod value;
 mod binop;
+mod builtins;
+mod effects;
 mod instruction;
 mod terminator;
+mod types;
+mod value;
 
 fn ice_opt<T>(opt: Option<T>, msg: &str) -> Result<T> {
     opt.ok_or_else(|| CompileError::simple(msg, 0, 0, "", ErrorCode::E0009))
@@ -264,10 +264,7 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// is a no-op. This is how region auto-free stays idempotent
     /// with respect to explicit `free(p)` calls in the region
     /// body.
-    pub(super) fn emit_free_if_non_null(
-        &self,
-        alloca: PointerValue<'ctx>,
-    ) -> Result<()> {
+    pub(super) fn emit_free_if_non_null(&self, alloca: PointerValue<'ctx>) -> Result<()> {
         use inkwell::AddressSpace;
         let ptr_ty = self.context.ptr_type(AddressSpace::default());
         let loaded = self
@@ -281,7 +278,10 @@ impl<'ctx> IRCodeGen<'ctx> {
         let free_fn = self.module.get_function("free").ok_or_else(|| {
             CompileError::simple(
                 "LLVM codegen: free not registered in stdlib",
-                0, 0, "", ErrorCode::E0009,
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
             )
         })?;
         let current_fn = self.current_function.unwrap();

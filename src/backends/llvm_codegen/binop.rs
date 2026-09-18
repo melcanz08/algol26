@@ -77,7 +77,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -100,7 +103,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -123,7 +129,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -140,12 +149,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap();
 
                     let current_fn = self.current_function.unwrap();
-                    let err_bb = self
-                        .context
-                        .append_basic_block(current_fn, "div_zero_err");
-                    let ok_bb = self
-                        .context
-                        .append_basic_block(current_fn, "div_ok");
+                    let err_bb = self.context.append_basic_block(current_fn, "div_zero_err");
+                    let ok_bb = self.context.append_basic_block(current_fn, "div_ok");
 
                     self.builder
                         .build_conditional_branch(is_zero, err_bb, ok_bb)
@@ -162,11 +167,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap();
                     let printf_fn = self.module.get_function("printf").unwrap();
                     self.builder
-                        .build_call(
-                            printf_fn,
-                            &[msg.as_pointer_value().into()],
-                            "print_div_err",
-                        )
+                        .build_call(printf_fn, &[msg.as_pointer_value().into()], "print_div_err")
                         .unwrap();
                     let exit_fn = self.module.get_function("exit").unwrap();
                     self.builder
@@ -180,7 +181,10 @@ impl<'ctx> IRCodeGen<'ctx> {
 
                     // Continuation: real sdiv.
                     self.builder.position_at_end(ok_bb);
-                    self.builder.build_int_signed_div(l, r, "sdiv").unwrap().into()
+                    self.builder
+                        .build_int_signed_div(l, r, "sdiv")
+                        .unwrap()
+                        .into()
                 } else if left.is_float_value() && right.is_float_value() {
                     self.builder
                         .build_float_div(left.into_float_value(), right.into_float_value(), "fdiv")
@@ -194,7 +198,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -227,7 +234,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -260,7 +270,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -293,7 +306,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -326,7 +342,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -354,11 +373,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                 } else if left.is_pointer_value() && right.is_pointer_value() {
                     let l_int = self
                         .builder
-                        .build_ptr_to_int(left.into_pointer_value(), self.context.i64_type(), "eq_l_ptr")
+                        .build_ptr_to_int(
+                            left.into_pointer_value(),
+                            self.context.i64_type(),
+                            "eq_l_ptr",
+                        )
                         .unwrap();
                     let r_int = self
                         .builder
-                        .build_ptr_to_int(right.into_pointer_value(), self.context.i64_type(), "eq_r_ptr")
+                        .build_ptr_to_int(
+                            right.into_pointer_value(),
+                            self.context.i64_type(),
+                            "eq_r_ptr",
+                        )
                         .unwrap();
                     self.builder
                         .build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "ptr_eq")
@@ -372,7 +399,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }
@@ -400,11 +430,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                 } else if left.is_pointer_value() && right.is_pointer_value() {
                     let l_int = self
                         .builder
-                        .build_ptr_to_int(left.into_pointer_value(), self.context.i64_type(), "eq_l_ptr")
+                        .build_ptr_to_int(
+                            left.into_pointer_value(),
+                            self.context.i64_type(),
+                            "eq_l_ptr",
+                        )
                         .unwrap();
                     let r_int = self
                         .builder
-                        .build_ptr_to_int(right.into_pointer_value(), self.context.i64_type(), "eq_r_ptr")
+                        .build_ptr_to_int(
+                            right.into_pointer_value(),
+                            self.context.i64_type(),
+                            "eq_r_ptr",
+                        )
                         .unwrap();
                     self.builder
                         .build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ptr_ne")
@@ -418,7 +456,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                             describe(&left),
                             describe(&right)
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     ));
                 }
             }

@@ -1,6 +1,6 @@
 // src/ir/verifier/builtins.rs
 
-use super::{FunctionSignature};
+use super::FunctionSignature;
 use crate::common::types::Type;
 use std::collections::HashMap;
 
@@ -42,7 +42,10 @@ pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
         m.insert(
             name.to_string(),
             FunctionSignature {
-                params: params.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+                params: params
+                    .into_iter()
+                    .map(|(n, t)| (n.to_string(), t))
+                    .collect(),
                 return_type: ret,
                 variadic: false,
             },
@@ -50,33 +53,90 @@ pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
     };
 
     // Math
-    for name in &["Math.sqrt", "Math.sin", "Math.cos", "Math.tan",
-                  "Math.abs", "Math.floor", "Math.ceil", "Math.exp", "Math.log"] {
+    for name in &[
+        "Math.sqrt",
+        "Math.sin",
+        "Math.cos",
+        "Math.tan",
+        "Math.abs",
+        "Math.floor",
+        "Math.ceil",
+        "Math.exp",
+        "Math.log",
+    ] {
         reg(name, vec![("x", Type::Float)], Type::Float);
     }
-    reg("Math.pow", vec![("x", Type::Float), ("y", Type::Float)], Type::Float);
+    reg(
+        "Math.pow",
+        vec![("x", Type::Float), ("y", Type::Float)],
+        Type::Float,
+    );
 
     // String
-    reg("String.length",    vec![("s", Type::String)], Type::Int);
-    reg("String.concat",    vec![("s1", Type::String), ("s2", Type::String)], Type::String);
-    reg("String.substring", vec![("s", Type::String), ("start", Type::Int), ("length", Type::Int)], Type::String);
-    reg("String.to_upper",  vec![("s", Type::String)], Type::String);
-    reg("String.to_lower",  vec![("s", Type::String)], Type::String);
+    reg("String.length", vec![("s", Type::String)], Type::Int);
+    reg(
+        "String.concat",
+        vec![("s1", Type::String), ("s2", Type::String)],
+        Type::String,
+    );
+    reg(
+        "String.substring",
+        vec![
+            ("s", Type::String),
+            ("start", Type::Int),
+            ("length", Type::Int),
+        ],
+        Type::String,
+    );
+    reg("String.to_upper", vec![("s", Type::String)], Type::String);
+    reg("String.to_lower", vec![("s", Type::String)], Type::String);
 
     // File
-    reg("File.read",   vec![("path", Type::String)], Type::String);
-    reg("File.write",  vec![("path", Type::String), ("content", Type::String)], Type::Int);
-    reg("File.append", vec![("path", Type::String), ("content", Type::String)], Type::Int);
+    reg("File.read", vec![("path", Type::String)], Type::String);
+    reg(
+        "File.write",
+        vec![("path", Type::String), ("content", Type::String)],
+        Type::Int,
+    );
+    reg(
+        "File.append",
+        vec![("path", Type::String), ("content", Type::String)],
+        Type::Int,
+    );
 
     // List
-    reg("List.length", vec![("arr", Type::list(Type::Unknown))], Type::Int);
-    reg("List.sum",    vec![("arr", Type::list(Type::Unknown))], Type::Float);
-    reg("List.max",    vec![("arr", Type::list(Type::Unknown))], Type::Float);
-    reg("List.min",    vec![("arr", Type::list(Type::Unknown))], Type::Float);
+    reg(
+        "List.length",
+        vec![("arr", Type::list(Type::Unknown))],
+        Type::Int,
+    );
+    reg(
+        "List.sum",
+        vec![("arr", Type::list(Type::Unknown))],
+        Type::Float,
+    );
+    reg(
+        "List.max",
+        vec![("arr", Type::list(Type::Unknown))],
+        Type::Float,
+    );
+    reg(
+        "List.min",
+        vec![("arr", Type::list(Type::Unknown))],
+        Type::Float,
+    );
 
     // Raw memory
-    reg("alloc", vec![("size", Type::Int)], Type::pointer(Type::Unknown));
-    reg("free",  vec![("ptr", Type::pointer(Type::Unknown))], Type::Void);
+    reg(
+        "alloc",
+        vec![("size", Type::Int)],
+        Type::pointer(Type::Unknown),
+    );
+    reg(
+        "free",
+        vec![("ptr", Type::pointer(Type::Unknown))],
+        Type::Void,
+    );
 
     m
 }

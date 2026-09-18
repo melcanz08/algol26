@@ -1,7 +1,7 @@
 // src/backends/capabilities/contract.rs
 
-use super::*;
 use super::scan::scan_call_name;
+use super::*;
 use std::collections::HashSet;
 
 #[test]

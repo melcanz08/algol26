@@ -1,10 +1,15 @@
 // src/compiler/context.rs
 
-use crate::compiler::capabilities::{BackendKind, CapabilityMatrix};
 use crate::common::diagnostics::Diagnostic;
+use crate::compiler::capabilities::{BackendKind, CapabilityMatrix};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OptLevel { O0, O1, O2, O3 }
+pub enum OptLevel {
+    O0,
+    O1,
+    O2,
+    O3,
+}
 
 /// Distinct from `crate::compiler::capabilities::Feature` — that one
 /// describes what a *backend* supports. This one describes what the
@@ -99,7 +104,7 @@ impl Default for CompilerConfig {
             opt_level: OptLevel::O0,
             debug_info: false,
             strict_mode: true,
-            features: FeatureSet::all(), 
+            features: FeatureSet::all(),
         }
     }
 }
@@ -127,7 +132,9 @@ impl CompilerContext {
         id
     }
 
-    pub fn target(&self) -> BackendKind { self.config.target }
+    pub fn target(&self) -> BackendKind {
+        self.config.target
+    }
 
     pub fn push_diagnostic(&mut self, d: Diagnostic) {
         self.diagnostics.push(d);
@@ -172,7 +179,7 @@ impl CompilerContext {
     pub fn render_diagnostics(&self) -> String {
         crate::diagnostics::renderer::render_all(&self.diagnostics)
     }
-        /// Check whether `program` uses only features the configured
+    /// Check whether `program` uses only features the configured
     /// target backend supports.
     ///
     /// Delegates to the scan in `backends::capabilities`, feeding it
@@ -195,8 +202,12 @@ mod tests {
     #[test]
     fn default_config_enables_all_features() {
         let cfg = CompilerConfig::default();
-        for f in [LangFeature::Generics, LangFeature::Traits,
-                  LangFeature::Regions, LangFeature::Channels] {
+        for f in [
+            LangFeature::Generics,
+            LangFeature::Traits,
+            LangFeature::Regions,
+            LangFeature::Channels,
+        ] {
             assert!(cfg.features.enabled(f), "{:?} should default to on", f);
         }
     }
@@ -204,8 +215,12 @@ mod tests {
     #[test]
     fn minimal_feature_set_disables_optional_features() {
         let fs = FeatureSet::minimal();
-        for f in [LangFeature::Generics, LangFeature::Traits,
-                  LangFeature::Regions, LangFeature::Channels] {
+        for f in [
+            LangFeature::Generics,
+            LangFeature::Traits,
+            LangFeature::Regions,
+            LangFeature::Channels,
+        ] {
             assert!(!fs.enabled(f), "{:?} should be off in minimal", f);
         }
     }

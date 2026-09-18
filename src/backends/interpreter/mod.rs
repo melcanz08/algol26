@@ -90,10 +90,7 @@ impl Interpreter {
         Ok(self.output.join("\n"))
     }
 
-    pub(super) fn execute_function(
-        &mut self,
-        func: &SemanticFunction,
-    ) -> Result<(), EvalError> {
+    pub(super) fn execute_function(&mut self, func: &SemanticFunction) -> Result<(), EvalError> {
         let mut current = func.entry_block;
         let mut iterations = 0;
         // Pending branches after a Fork. Each entry is
@@ -115,9 +112,7 @@ impl Interpreter {
                 .blocks
                 .iter()
                 .find(|b| b.id == current)
-                .ok_or_else(|| {
-                    EvalError::Runtime(format!("block {} not found", current))
-                })?
+                .ok_or_else(|| EvalError::Runtime(format!("block {} not found", current)))?
                 .clone();
 
             for instr in &block.instructions {
@@ -190,10 +185,8 @@ impl Interpreter {
                         if current_idx < list.len() {
                             let value = list[current_idx].clone();
                             self.variables.insert(target.clone(), value);
-                            self.variables.insert(
-                                idx_key,
-                                RuntimeValue::Int((current_idx + 1) as i64),
-                            );
+                            self.variables
+                                .insert(idx_key, RuntimeValue::Int((current_idx + 1) as i64));
                             current = *body_block;
                         } else {
                             current = *exit_block;
@@ -292,7 +285,8 @@ impl Interpreter {
                 let idx_usize = match idx {
                     RuntimeValue::Int(i) if i < 0 => {
                         return Err(EvalError::Runtime(format!(
-                            "array assignment index {} is negative", i
+                            "array assignment index {} is negative",
+                            i
                         )));
                     }
                     RuntimeValue::Int(i) => i as usize,
@@ -309,7 +303,8 @@ impl Interpreter {
                     let mut new_list = list;
                     if idx_usize < new_list.len() {
                         new_list[idx_usize] = val;
-                        self.variables.insert(arr_name, RuntimeValue::List(new_list));
+                        self.variables
+                            .insert(arr_name, RuntimeValue::List(new_list));
                     } else {
                         return Err(EvalError::Runtime(format!(
                             "array assignment index {} out of bounds (length {})",
@@ -373,27 +368,25 @@ impl Interpreter {
                     allocations: Vec::new(),
                 });
             }
-            Instruction::RegionExit { name } => {
-                match self.region_stack.pop() {
-                    Some(frame) if frame.name == *name => {
-                        for handle in frame.allocations {
-                            self.heap.remove(&handle);
-                        }
-                    }
-                    Some(frame) => {
-                        return Err(EvalError::Runtime(format!(
-                            "region exit mismatch: expected '{}', found '{}'",
-                            name, frame.name
-                        )));
-                    }
-                    None => {
-                        return Err(EvalError::Runtime(format!(
-                            "region exit '{}' with no matching enter",
-                            name
-                        )));
+            Instruction::RegionExit { name } => match self.region_stack.pop() {
+                Some(frame) if frame.name == *name => {
+                    for handle in frame.allocations {
+                        self.heap.remove(&handle);
                     }
                 }
-            }
+                Some(frame) => {
+                    return Err(EvalError::Runtime(format!(
+                        "region exit mismatch: expected '{}', found '{}'",
+                        name, frame.name
+                    )));
+                }
+                None => {
+                    return Err(EvalError::Runtime(format!(
+                        "region exit '{}' with no matching enter",
+                        name
+                    )));
+                }
+            },
 
             // Channel operations are not modeled. The capability
             // matrix should refuse any program that would reach

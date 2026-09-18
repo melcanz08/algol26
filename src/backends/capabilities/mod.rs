@@ -19,9 +19,9 @@ mod scan;
 use scan::scan_features;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod contract_tests;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Feature {
@@ -42,7 +42,7 @@ pub enum Feature {
     StringFunctions,
     /// `File.*` builtins: read, write, append.
     FileFunctions,
-        /// `List.*` aggregate builtins: sum, max, min.
+    /// `List.*` aggregate builtins: sum, max, min.
     ListAggregates,
     /// `print(x)` where `x` has a list type. The interpreter formats
     /// lists as `[a, b, c]`; the LLVM backend has no lowering for it
@@ -102,7 +102,9 @@ impl Feature {
             Feature::Fork => "parallel",
             Feature::Channels => "channels",
             Feature::Ffi => "foreign function calls (extern)",
-            Feature::StringFunctions => "String.* operations (concat, substring, to_upper, to_lower)",
+            Feature::StringFunctions => {
+                "String.* operations (concat, substring, to_upper, to_lower)"
+            }
             Feature::FileFunctions => "File.* operations (read, write, append)",
             Feature::ListAggregates => "List.* aggregates (sum, max, min)",
             Feature::ListPrint => "printing a list value",
@@ -196,4 +198,3 @@ pub fn check_backend(program: &SemanticProgram, caps: &BackendCapabilities) -> R
 
     Err(CompileError::simple(&msg, 0, 0, "", ErrorCode::E0002))
 }
-

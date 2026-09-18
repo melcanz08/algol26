@@ -26,13 +26,18 @@ fn program_with(instr: Instruction, term: Terminator) -> SemanticProgram {
 }
 
 fn simple_return() -> Terminator {
-    Terminator::Return { value: None, type_: Type::Void }
+    Terminator::Return {
+        value: None,
+        type_: Type::Void,
+    }
 }
 
 #[test]
 fn llvm_accepts_plain_program() {
     let program = program_with(
-        Instruction::Print { value: TypedIRValue::Int(1) },
+        Instruction::Print {
+            value: TypedIRValue::Int(1),
+        },
         simple_return(),
     );
     assert!(check_backend(&program, &BackendCapabilities::llvm()).is_ok());
@@ -105,7 +110,9 @@ fn interpreter_accepts_raw_memory() {
     // The interpreter has a simulated heap for alloc/free
     // (added in Step 2 wiring). Refusal is only for LLVM.
     let program = program_with(
-        Instruction::Free { ptr: TypedIRValue::NullPtr },
+        Instruction::Free {
+            ptr: TypedIRValue::NullPtr,
+        },
         simple_return(),
     );
     assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
@@ -141,7 +148,9 @@ fn llvm_rejects_spawn() {
             SemanticBlock {
                 id: entry,
                 instructions: vec![],
-                terminator: Some(Terminator::Spawn { entry_block: spawned }),
+                terminator: Some(Terminator::Spawn {
+                    entry_block: spawned,
+                }),
             },
             SemanticBlock {
                 id: spawned,
@@ -256,7 +265,7 @@ fn interpreter_rejects_ffi() {
     let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
     assert!(err.message.contains("foreign"));
 }
-    #[test]
+#[test]
 fn llvm_rejects_list_print() {
     let mut program = SemanticProgram::new();
     let entry = program.new_block_id();
@@ -271,16 +280,10 @@ fn llvm_rejects_list_print() {
                     name: "xs".to_string(),
                     mutable: false,
                     type_: Type::list(Type::Float),
-                    value: TypedIRValue::List(
-                        vec![TypedIRValue::Float(1.0)],
-                        Type::Float,
-                    ),
+                    value: TypedIRValue::List(vec![TypedIRValue::Float(1.0)], Type::Float),
                 },
                 Instruction::Print {
-                    value: TypedIRValue::Variable(
-                        "xs".to_string(),
-                        Type::list(Type::Float),
-                    ),
+                    value: TypedIRValue::Variable("xs".to_string(), Type::list(Type::Float)),
                 },
             ],
             terminator: Some(Terminator::Return {
@@ -310,10 +313,7 @@ fn interpreter_accepts_list_print() {
         blocks: vec![SemanticBlock {
             id: entry,
             instructions: vec![Instruction::Print {
-                value: TypedIRValue::List(
-                    vec![TypedIRValue::Float(1.0)],
-                    Type::Float,
-                ),
+                value: TypedIRValue::List(vec![TypedIRValue::Float(1.0)], Type::Float),
             }],
             terminator: Some(Terminator::Return {
                 value: None,

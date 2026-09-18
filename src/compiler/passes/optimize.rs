@@ -1,9 +1,7 @@
 // src/compiler/passes/optimize.rs
 
 use crate::compiler::context::CompilerContext;
-use crate::compiler::pass::{
-    IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult,
-};
+use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
 use crate::compiler::program::Program;
 use crate::ir::optimizer::Optimizer;
 

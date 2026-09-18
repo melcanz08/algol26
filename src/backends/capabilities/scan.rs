@@ -92,7 +92,11 @@ pub(super) fn scan_instruction(
     match instr {
         Instruction::Declare { value, .. } => scan_value(value, extern_fns, used),
         Instruction::Assign { value, .. } => scan_value(value, extern_fns, used),
-        Instruction::ArrayAssign { array, index, value } => {
+        Instruction::ArrayAssign {
+            array,
+            index,
+            value,
+        } => {
             scan_value(array, extern_fns, used);
             scan_value(index, extern_fns, used);
             scan_value(value, extern_fns, used);

@@ -119,10 +119,7 @@ impl PassError {
         }
     }
     /// Construct from a `CompileError`, preserving its code and span.
-    pub fn from_compile_error(
-        pass: PassId,
-        err: crate::common::diagnostics::CompileError,
-    ) -> Self {
+    pub fn from_compile_error(pass: PassId, err: crate::common::diagnostics::CompileError) -> Self {
         Self {
             pass,
             message: err.message.clone(),

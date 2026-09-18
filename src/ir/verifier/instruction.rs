@@ -120,8 +120,7 @@ pub(super) fn verify_instruction(
             args,
             result,
         } => {
-            let arg_types: Result<Vec<_>, _> =
-                args.iter().map(|a| verify_value(a, env)).collect();
+            let arg_types: Result<Vec<_>, _> = args.iter().map(|a| verify_value(a, env)).collect();
             let arg_types = arg_types?;
 
             let sig = env.function_sigs.get(callee).ok_or_else(|| {
@@ -144,13 +143,14 @@ pub(super) fn verify_instruction(
                 };
                 return Err(format!(
                     "Function '{}': Call to '{}' expects {} args, found {}",
-                    func.name, callee, expected, arg_types.len()
+                    func.name,
+                    callee,
+                    expected,
+                    arg_types.len()
                 ));
             }
 
-            for (i, ((_, param_ty), arg_ty)) in
-                sig.params.iter().zip(&arg_types).enumerate()
-            {
+            for (i, ((_, param_ty), arg_ty)) in sig.params.iter().zip(&arg_types).enumerate() {
                 if arg_ty.is_unknown() || param_ty.is_unknown() {
                     continue;
                 }
@@ -208,8 +208,7 @@ pub(super) fn verify_instruction(
             env.mutability.insert(name.clone(), false);
             Ok(())
         }
-        Instruction::Send { channel, value }
-        | Instruction::ChannelSend { channel, value } => {
+        Instruction::Send { channel, value } | Instruction::ChannelSend { channel, value } => {
             let chan_ty = env.variables.get(channel).ok_or_else(|| {
                 format!(
                     "Function '{}': Send on undeclared channel '{}'",

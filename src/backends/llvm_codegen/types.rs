@@ -7,7 +7,6 @@ use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 
 impl<'ctx> IRCodeGen<'ctx> {
-
     pub(super) fn map_type(&self, ty: &Type) -> BasicTypeEnum<'ctx> {
         match ty {
             Type::Int => self.context.i64_type().into(),
@@ -80,5 +79,4 @@ impl<'ctx> IRCodeGen<'ctx> {
             _ => self.context.f64_type().const_float(0.0).into(),
         }
     }
-
 }

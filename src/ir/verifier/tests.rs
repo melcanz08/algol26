@@ -162,7 +162,7 @@ fn verifier_accepts_int_to_float_coercion() {
     );
     assert!(verify(&program).is_ok());
 }
-    // ─── Stage 2: instruction-level checks ───
+// ─── Stage 2: instruction-level checks ───
 #[test]
 fn verifier_rejects_array_assign_float_index() {
     let program = single_block_program(
@@ -194,10 +194,7 @@ fn verifier_rejects_array_assign_value_type_mismatch() {
                 name: "xs".to_string(),
                 mutable: true,
                 type_: Type::list(Type::Int),
-                value: TypedIRValue::List(
-                    vec![TypedIRValue::Int(1)],
-                    Type::Int,
-                ),
+                value: TypedIRValue::List(vec![TypedIRValue::Int(1)], Type::Int),
             },
             Instruction::ArrayAssign {
                 array: Box::new(TypedIRValue::Variable("xs".into(), Type::list(Type::Int))),
@@ -229,7 +226,10 @@ fn verifier_rejects_iterator_init_on_non_list() {
         ],
         None,
     );
-    assert!(verify(&program).is_err(), "iterator over Int must be rejected");
+    assert!(
+        verify(&program).is_err(),
+        "iterator over Int must be rejected"
+    );
 }
 #[test]
 fn verifier_rejects_receive_on_non_channel() {
@@ -436,7 +436,11 @@ fn builtin_signatures_match_analyzer_table() {
         ("Math.tan", vec![Type::Float], Type::Float),
         // String
         ("String.length", vec![Type::String], Type::Int),
-        ("String.concat", vec![Type::String, Type::String], Type::String),
+        (
+            "String.concat",
+            vec![Type::String, Type::String],
+            Type::String,
+        ),
         (
             "String.substring",
             vec![Type::String, Type::Int, Type::Int],
@@ -446,16 +450,8 @@ fn builtin_signatures_match_analyzer_table() {
         ("String.to_lower", vec![Type::String], Type::String),
         // File
         ("File.read", vec![Type::String], Type::String),
-        (
-            "File.write",
-            vec![Type::String, Type::String],
-            Type::Int,
-        ),
-        (
-            "File.append",
-            vec![Type::String, Type::String],
-            Type::Int,
-        ),
+        ("File.write", vec![Type::String, Type::String], Type::Int),
+        ("File.append", vec![Type::String, Type::String], Type::Int),
         // List
         ("List.length", vec![Type::list(Type::Unknown)], Type::Int),
         ("List.sum", vec![Type::list(Type::Unknown)], Type::Float),

@@ -7,7 +7,6 @@ use crate::ir::semantic_ir::TypedIRValue;
 use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 
-
 impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn register_stdlib(&mut self) {
         // Print functions
@@ -73,10 +72,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         let malloc_fn = self.module.add_function("malloc", malloc_ty, None);
         self.functions.insert("malloc".to_string(), malloc_fn);
 
-        let free_ty = self
-            .context
-            .void_type()
-            .fn_type(&[i8_ptr.into()], false);
+        let free_ty = self.context.void_type().fn_type(&[i8_ptr.into()], false);
         let free_fn = self.module.add_function("free", free_ty, None);
         self.functions.insert("free".to_string(), free_fn);
     }
@@ -87,37 +83,44 @@ impl<'ctx> IRCodeGen<'ctx> {
         args: &[TypedIRValue],
     ) -> Result<BasicValueEnum<'ctx>> {
         match name {
-            "List.length" | "len" | "length" => {
-                match args.first() {
-                    Some(TypedIRValue::Variable(var_name, _)) => {
-                        match self.list_lengths.get(var_name) {
-                            Some(len) => Ok(self
-                                .context
-                                .i64_type()
-                                .const_int(*len as u64, false)
-                                .into()),
-                            None => Err(CompileError::simple(
-                                &format!(
-                                    "LLVM codegen: List.length called on unknown list '{}' \
-                                     (known lists: {:?})",
-                                    var_name,
-                                    self.list_lengths.keys().collect::<Vec<_>>()
-                                ),
-                                0, 0, "", ErrorCode::E0004,
-                            )),
+            "List.length" | "len" | "length" => match args.first() {
+                Some(TypedIRValue::Variable(var_name, _)) => {
+                    match self.list_lengths.get(var_name) {
+                        Some(len) => {
+                            Ok(self.context.i64_type().const_int(*len as u64, false).into())
                         }
+                        None => Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: List.length called on unknown list '{}' \
+                                     (known lists: {:?})",
+                                var_name,
+                                self.list_lengths.keys().collect::<Vec<_>>()
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
+                        )),
                     }
-                    _ => Err(CompileError::simple(
-                        "LLVM codegen: List.length requires a variable argument",
-                        0, 0, "", ErrorCode::E0004,
-                    )),
                 }
-            }
+                _ => Err(CompileError::simple(
+                    "LLVM codegen: List.length requires a variable argument",
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0004,
+                )),
+            },
             "String.length" | "String.len" => {
-                let arg = args.first().ok_or_else(|| CompileError::simple(
-                    "LLVM codegen: String.length requires exactly one argument",
-                    0, 0, "", ErrorCode::E0004,
-                ))?;
+                let arg = args.first().ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: String.length requires exactly one argument",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0004,
+                    )
+                })?;
                 let s_val = self.compile_value(arg)?;
                 if !s_val.is_pointer_value() {
                     return Err(CompileError::simple(
@@ -125,13 +128,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                             "LLVM codegen: String.length expected a pointer argument, got {:?}",
                             s_val
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
                     ));
                 }
                 let strlen_fn = self.module.get_function("strlen").ok_or_else(|| {
                     CompileError::simple(
                         "LLVM codegen: strlen not registered in stdlib",
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )
                 })?;
                 let call = self
@@ -149,7 +158,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                      (this builtin has no LLVM lowering)",
                     other
                 ),
-                0, 0, "", ErrorCode::E0004,
+                0,
+                0,
+                "",
+                ErrorCode::E0004,
             )),
         }
     }

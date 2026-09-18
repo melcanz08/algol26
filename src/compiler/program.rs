@@ -107,7 +107,6 @@ mod tests {
         p.assert_addressing_invariant();
     }
 
-    
     #[test]
     #[should_panic(expected = "addressing invariant violated")]
     fn addressing_invariant_catches_divergent_allocations() {
@@ -119,7 +118,7 @@ mod tests {
             span_map: HashMap::new(),
         });
         p.typed = Some(TypedProgram {
-            functions: Rc::new(Vec::new()),   // deliberately a different Rc
+            functions: Rc::new(Vec::new()), // deliberately a different Rc
             type_info: TypeInfo::default(),
             type_table: HashMap::new(),
         });

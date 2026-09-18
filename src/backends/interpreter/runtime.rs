@@ -1,6 +1,5 @@
 // src/backends/interpreter/runtime.rs
 
-
 use std::fmt;
 
 /// Errors produced by the interpreter while evaluating IR.
@@ -38,11 +37,9 @@ impl fmt::Display for EvalError {
                 op, left, right
             ),
             Self::Runtime(msg) => write!(f, "runtime error: {}", msg),
-            Self::Unsupported { construct, hint } => write!(
-                f,
-                "interpreter does not support `{}`: {}",
-                construct, hint
-            ),
+            Self::Unsupported { construct, hint } => {
+                write!(f, "interpreter does not support `{}`: {}", construct, hint)
+            }
         }
     }
 }
@@ -57,7 +54,10 @@ pub enum RuntimeValue {
     Bool(bool),
     List(Vec<RuntimeValue>),
     Option(Option<Box<RuntimeValue>>),
-    Result { is_ok: bool, value: Box<RuntimeValue> },
+    Result {
+        is_ok: bool,
+        value: Box<RuntimeValue>,
+    },
     Void,
 }
 
@@ -89,7 +89,10 @@ impl RuntimeValue {
             RuntimeValue::Option(Some(v)) => format!("Some({})", v.display()),
             RuntimeValue::Option(None) => "None".to_string(),
             RuntimeValue::Result { is_ok: true, value } => format!("Ok({})", value.display()),
-            RuntimeValue::Result { is_ok: false, value } => format!("Error({})", value.display()),
+            RuntimeValue::Result {
+                is_ok: false,
+                value,
+            } => format!("Error({})", value.display()),
             RuntimeValue::Void => String::new(),
         }
     }
@@ -120,8 +123,14 @@ impl RuntimeValue {
             (Option(Some(a)), Option(Some(b))) => a.runtime_eq(b),
             (Option(None), Option(None)) => true,
             (
-                Result { is_ok: k1, value: v1 },
-                Result { is_ok: k2, value: v2 },
+                Result {
+                    is_ok: k1,
+                    value: v1,
+                },
+                Result {
+                    is_ok: k2,
+                    value: v2,
+                },
             ) => k1 == k2 && v1.runtime_eq(v2),
             (Void, Void) => true,
             _ => false,

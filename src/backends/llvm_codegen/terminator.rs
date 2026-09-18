@@ -4,8 +4,8 @@ use super::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{SemanticPattern, Terminator, TypedIRValue};
-use inkwell::FloatPredicate;
 use inkwell::types::BasicTypeEnum;
+use inkwell::FloatPredicate;
 
 impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_terminator(&mut self, term: &Terminator, ret_type: &Type) -> Result<()> {
@@ -21,9 +21,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // Collect everything to free first, then emit the
                 // frees. Order: for each frame (innermost first),
                 // snapshots then tracked vars, both LIFO.
-                let mut cleanups: Vec<
-                    inkwell::values::PointerValue<'ctx>,
-                > = Vec::new();
+                let mut cleanups: Vec<inkwell::values::PointerValue<'ctx>> = Vec::new();
                 for frame in self.region_frames.iter().rev() {
                     for slot in frame.saved_slots.iter().rev() {
                         cleanups.push(*slot);
@@ -140,10 +138,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                         // exhaustiveness check should have caught
                         // this at compile time.
                         let saved_bb = self.builder.get_insert_block().unwrap();
-                        let un_bb = self.context.append_basic_block(
-                            self.current_function.unwrap(),
-                            "switch_unmatched",
-                        );
+                        let un_bb = self
+                            .context
+                            .append_basic_block(self.current_function.unwrap(), "switch_unmatched");
                         self.builder.position_at_end(un_bb);
                         self.builder.build_unreachable().unwrap();
                         self.builder.position_at_end(saved_bb);

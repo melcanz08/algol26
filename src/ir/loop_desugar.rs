@@ -20,10 +20,7 @@ pub fn desugar_loops(functions: &mut [FunctionDecl]) {
 /// `parallel` blocks. Without this, a variable shadowed inside the
 /// nested scope would overwrite the outer binding in `env` and be
 /// seen by subsequent loops at the outer level.
-fn desugar_scoped_stmts(
-    stmts: Vec<Stmt>,
-    env: &mut HashMap<String, Vec<Expr>>,
-) -> Vec<Stmt> {
+fn desugar_scoped_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<Stmt> {
     let saved = env.clone();
     let result = desugar_stmts(stmts, env);
     *env = saved;
@@ -125,8 +122,7 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                                         // inside the body must not leak
                                         // into sibling iterations or
                                         // past the loop.
-                                        let inner =
-                                            desugar_scoped_stmts(vec![s], env);
+                                        let inner = desugar_scoped_stmts(vec![s], env);
                                         result.extend(inner);
                                     }
                                 }
@@ -243,8 +239,7 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
                 }
             }
             let desugared_body = desugar_scoped_stmts(body, env);
-            let desugared_trailing =
-                trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
+            let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
             Expr::For {
                 var,
                 iterable: Box::new(resolved),
@@ -260,8 +255,7 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
             span,
         } => {
             let desugared_body = desugar_scoped_stmts(body, env);
-            let desugared_trailing =
-                trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
+            let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
             Expr::While {
                 condition,
                 body: desugared_body,
@@ -278,8 +272,7 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
             // expression, so we desugar both inside the same scope.
             let saved = env.clone();
             let desugared_statements = desugar_stmts(statements, env);
-            let desugared_trailing =
-                trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
+            let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
             *env = saved;
             Expr::Block {
                 statements: desugared_statements,
@@ -352,9 +345,7 @@ fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
         Stmt::Spawn { body, .. }
         | Stmt::RegionBlock { body, .. }
         | Stmt::UnsafeBlock { body, .. } => body.iter().any(stmt_has_complex_cf),
-        Stmt::Parallel { blocks, .. } => {
-            blocks.iter().any(|b| b.iter().any(stmt_has_complex_cf))
-        }
+        Stmt::Parallel { blocks, .. } => blocks.iter().any(|b| b.iter().any(stmt_has_complex_cf)),
         _ => false,
     }
 }
@@ -449,10 +440,7 @@ fn eval_const_expr(expr: &Expr) -> Option<bool> {
     match expr {
         Expr::Bool(b, _) => Some(*b),
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             let l = eval_const_num(left)?;
             let r = eval_const_num(right)?;
@@ -544,17 +532,18 @@ fn substitute_var_literal(stmts: &[Stmt], old_name: &str, literal: &Expr) -> Vec
                     .collect(),
                 span: *span,
             },
-            Stmt::Send { channel, value, span } => Stmt::Send {
+            Stmt::Send {
+                channel,
+                value,
+                span,
+            } => Stmt::Send {
                 channel: channel.clone(),
                 value: substitute_expr_literal(value, old_name, literal),
                 span: *span,
             },
             Stmt::Defer { stmt, span } => {
-                let substituted = substitute_var_literal(
-                    std::slice::from_ref(stmt),
-                    old_name,
-                    literal,
-                );
+                let substituted =
+                    substitute_var_literal(std::slice::from_ref(stmt), old_name, literal);
                 let new_stmt = substituted
                     .into_iter()
                     .next()
@@ -752,10 +741,7 @@ procedure main
                 expr: Expr::Number(f, _),
                 ..
             } => {
-                assert_eq!(
-                    *f, 5.0,
-                    "loop unrolled with stale pre-reassignment list"
-                );
+                assert_eq!(*f, 5.0, "loop unrolled with stale pre-reassignment list");
             }
             other => panic!("expected final Print(5.0), got {:?}", other),
         }
@@ -783,20 +769,15 @@ procedure main
         assert_eq!(body.len(), 2, "expected two unrolled RegionBlocks");
 
         match body.last().unwrap() {
-            Stmt::RegionBlock { body: inner, .. } => {
-                match inner.last() {
-                    Some(Stmt::Print {
-                        expr: Expr::Number(f, _),
-                        ..
-                    }) => {
-                        assert_eq!(*f, 2.0, "loop var not substituted in region block");
-                    }
-                    other => panic!(
-                        "expected Print(2.0) in region body, got {:?}",
-                        other
-                    ),
+            Stmt::RegionBlock { body: inner, .. } => match inner.last() {
+                Some(Stmt::Print {
+                    expr: Expr::Number(f, _),
+                    ..
+                }) => {
+                    assert_eq!(*f, 2.0, "loop var not substituted in region block");
                 }
-            }
+                other => panic!("expected Print(2.0) in region body, got {:?}", other),
+            },
             other => panic!("expected RegionBlock, got {:?}", other),
         }
     }

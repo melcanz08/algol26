@@ -1,9 +1,7 @@
 // src/compiler/passes/build_ir.rs
 
 use crate::compiler::context::CompilerContext;
-use crate::compiler::pass::{
-    IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult,
-};
+use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
 use crate::compiler::program::Program;
 
 pub struct BuildSemanticIRPass;
@@ -40,10 +38,8 @@ impl Pass<Program> for BuildSemanticIRPass {
             )
         })?;
 
-        match crate::compiler::build_semantic_ir_program(
-            &typed.functions,
-            typed.type_table.clone(),
-        ) {
+        match crate::compiler::build_semantic_ir_program(&typed.functions, typed.type_table.clone())
+        {
             Ok(sem) => {
                 program.semantic_ir = Some(sem);
                 Ok(())

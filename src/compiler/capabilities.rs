@@ -25,7 +25,11 @@ pub enum BackendKind {
 
 impl BackendKind {
     pub fn all() -> [BackendKind; 3] {
-        [BackendKind::Interpreter, BackendKind::Llvm, BackendKind::Wasm]
+        [
+            BackendKind::Interpreter,
+            BackendKind::Llvm,
+            BackendKind::Wasm,
+        ]
     }
     pub fn name(self) -> &'static str {
         match self {
@@ -61,7 +65,9 @@ pub struct CapabilityMatrix {
 
 impl CapabilityMatrix {
     pub fn new() -> Self {
-        Self { entries: HashMap::new() }
+        Self {
+            entries: HashMap::new(),
+        }
     }
 
     pub fn set(&mut self, f: Feature, b: BackendKind, s: Support) {
@@ -145,7 +151,9 @@ impl CapabilityMatrix {
 }
 
 impl Default for CapabilityMatrix {
-    fn default() -> Self { Self::standard() }
+    fn default() -> Self {
+        Self::standard()
+    }
 }
 
 #[cfg(test)]
@@ -161,9 +169,11 @@ mod tests {
                 let from_caps = caps.supported.contains(f);
                 let from_matrix = m.supports(*f, b);
                 assert_eq!(
-                    from_caps, from_matrix,
+                    from_caps,
+                    from_matrix,
                     "matrix and constructor disagree on {} for {}",
-                    f.name(), b.name()
+                    f.name(),
+                    b.name()
                 );
             }
         }
@@ -176,7 +186,10 @@ mod tests {
             let derived = m.caps_for(b);
             let original = b.caps();
             assert_eq!(derived.supported, original.supported);
-            assert_eq!(derived.has_interpreter_fallback, original.has_interpreter_fallback);
+            assert_eq!(
+                derived.has_interpreter_fallback,
+                original.has_interpreter_fallback
+            );
         }
     }
     #[test]

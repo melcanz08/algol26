@@ -456,11 +456,7 @@ impl Monomorphizer {
                     .collect(),
                 *span,
             ),
-            Expr::ArrayAccess {
-                array,
-                index,
-                span,
-            } => Expr::ArrayAccess {
+            Expr::ArrayAccess { array, index, span } => Expr::ArrayAccess {
                 array: Box::new(self.substitute_in_expr(array, type_bindings)),
                 index: Box::new(self.substitute_in_expr(index, type_bindings)),
                 span: *span,
@@ -570,7 +566,11 @@ impl Monomorphizer {
                 inclusive: *inclusive,
                 span: *span,
             },
-            Expr::FieldAccess { object, field, span } => Expr::FieldAccess {
+            Expr::FieldAccess {
+                object,
+                field,
+                span,
+            } => Expr::FieldAccess {
                 object: Box::new(self.substitute_in_expr(object, type_bindings)),
                 field: field.clone(),
                 span: *span,
@@ -644,8 +644,7 @@ impl Monomorphizer {
                                 bindings.insert(param.clone(), concrete.clone());
                             }
                         }
-                        if let Err(err) =
-                            self.check_trait_bounds_for_instantiation(func, type_args)
+                        if let Err(err) = self.check_trait_bounds_for_instantiation(func, type_args)
                         {
                             eprintln!("Trait bound violation: {}", err);
                             continue;
@@ -847,11 +846,7 @@ impl Monomorphizer {
                     .collect(),
                 *span,
             ),
-            Expr::ArrayAccess {
-                array,
-                index,
-                span,
-            } => Expr::ArrayAccess {
+            Expr::ArrayAccess { array, index, span } => Expr::ArrayAccess {
                 array: Box::new(self.substitute_in_expr_with_instantiations(array)),
                 index: Box::new(self.substitute_in_expr_with_instantiations(index)),
                 span: *span,
@@ -904,9 +899,7 @@ impl Monomorphizer {
             } => Expr::TryCatch {
                 try_branch: Box::new(self.substitute_in_expr_with_instantiations(try_branch)),
                 catch_var: catch_var.clone(),
-                catch_branch: Box::new(self.substitute_in_expr_with_instantiations(
-                    catch_branch,
-                )),
+                catch_branch: Box::new(self.substitute_in_expr_with_instantiations(catch_branch)),
                 finally_body: finally_body.as_ref().map(|body| {
                     body.iter()
                         .map(|s| self.substitute_in_stmt_with_instantiations(s))
@@ -963,7 +956,11 @@ impl Monomorphizer {
                 inclusive: *inclusive,
                 span: *span,
             },
-            Expr::FieldAccess { object, field, span } => Expr::FieldAccess {
+            Expr::FieldAccess {
+                object,
+                field,
+                span,
+            } => Expr::FieldAccess {
                 object: Box::new(self.substitute_in_expr_with_instantiations(object)),
                 field: field.clone(),
                 span: *span,

@@ -14,12 +14,10 @@
 //! kinds may legitimately never be typed (`NullPtr`, `None`); until
 //! we've confirmed which, the pass reports without refusing.
 
-use crate::compiler::context::CompilerContext;
-use crate::compiler::pass::{
-    IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult,
-};
-use crate::compiler::program::Program;
 use crate::common::types::Type;
+use crate::compiler::context::CompilerContext;
+use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
+use crate::compiler::program::Program;
 use crate::frontend::ast::{Expr, FunctionDecl, Pattern, Stmt};
 use std::collections::HashMap;
 
@@ -33,9 +31,7 @@ impl Pass<Program> for TypeTableCompletePass {
             input: IrLevel::Ast,
             output: IrLevel::Ast,
             requires: &["typed AST with analyzer-produced type table"],
-            guarantees: &[
-                "every reachable Expr node is checked for a type_table entry",
-            ],
+            guarantees: &["every reachable Expr node is checked for a type_table entry"],
             may_change: &["diagnostics"],
             must_preserve: &["program.ast", "program.typed"],
             may_fail: false,
@@ -107,10 +103,14 @@ impl<'a> Walker<'a> {
             Stmt::VarDecl { value, .. } => self.visit_expr(value),
             Stmt::Import { .. } => {}
             Stmt::RegionBlock { body, .. } => {
-                for s in body { self.visit_stmt(s); }
+                for s in body {
+                    self.visit_stmt(s);
+                }
             }
             Stmt::UnsafeBlock { body, .. } => {
-                for s in body { self.visit_stmt(s); }
+                for s in body {
+                    self.visit_stmt(s);
+                }
             }
             Stmt::Assign { value, .. } => self.visit_expr(value),
             Stmt::ArrayAssign { index, value, .. } => {
@@ -118,17 +118,23 @@ impl<'a> Walker<'a> {
                 self.visit_expr(value);
             }
             Stmt::Return { value, .. } => {
-                if let Some(e) = value { self.visit_expr(e); }
+                if let Some(e) = value {
+                    self.visit_expr(e);
+                }
             }
             Stmt::Print { expr, .. } => self.visit_expr(expr),
             Stmt::Defer { stmt, .. } => self.visit_stmt(stmt),
             Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Spawn { body, .. } => {
-                for s in body { self.visit_stmt(s); }
+                for s in body {
+                    self.visit_stmt(s);
+                }
             }
             Stmt::Parallel { blocks, .. } => {
                 for b in blocks {
-                    for s in b { self.visit_stmt(s); }
+                    for s in b {
+                        self.visit_stmt(s);
+                    }
                 }
             }
             Stmt::ChannelDecl { .. } => {}
@@ -164,14 +170,29 @@ impl<'a> Walker<'a> {
             | Expr::NullPtr(_)
             | Expr::PtrLiteral(_, _) => {}
 
-            Expr::Block { statements, trailing_expr, .. } => {
-                for s in statements { self.visit_stmt(s); }
-                if let Some(e) = trailing_expr { self.visit_expr(e); }
+            Expr::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                for s in statements {
+                    self.visit_stmt(s);
+                }
+                if let Some(e) = trailing_expr {
+                    self.visit_expr(e);
+                }
             }
-            Expr::If { condition, then_branch, else_branch, .. } => {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 self.visit_expr(condition);
                 self.visit_expr(then_branch);
-                if let Some(e) = else_branch { self.visit_expr(e); }
+                if let Some(e) = else_branch {
+                    self.visit_expr(e);
+                }
             }
             Expr::Match { value, cases, .. } => {
                 self.visit_expr(value);
@@ -191,7 +212,9 @@ impl<'a> Walker<'a> {
                 self.visit_expr(expr);
             }
             Expr::List(items, _) => {
-                for e in items { self.visit_expr(e); }
+                for e in items {
+                    self.visit_expr(e);
+                }
             }
             Expr::ArrayAccess { array, index, .. } => {
                 self.visit_expr(array);
@@ -202,28 +225,59 @@ impl<'a> Walker<'a> {
                 self.visit_expr(right);
             }
             Expr::FunctionCall { args, .. } => {
-                for e in args { self.visit_expr(e); }
+                for e in args {
+                    self.visit_expr(e);
+                }
             }
-            Expr::TryCatch { try_branch, catch_branch, finally_body, .. } => {
+            Expr::TryCatch {
+                try_branch,
+                catch_branch,
+                finally_body,
+                ..
+            } => {
                 self.visit_expr(try_branch);
                 self.visit_expr(catch_branch);
                 if let Some(stmts) = finally_body {
-                    for s in stmts { self.visit_stmt(s); }
+                    for s in stmts {
+                        self.visit_stmt(s);
+                    }
                 }
             }
-            Expr::For { iterable, body, trailing_expr, .. } => {
+            Expr::For {
+                iterable,
+                body,
+                trailing_expr,
+                ..
+            } => {
                 self.visit_expr(iterable);
-                for s in body { self.visit_stmt(s); }
-                if let Some(e) = trailing_expr { self.visit_expr(e); }
+                for s in body {
+                    self.visit_stmt(s);
+                }
+                if let Some(e) = trailing_expr {
+                    self.visit_expr(e);
+                }
             }
-            Expr::While { condition, body, trailing_expr, .. } => {
+            Expr::While {
+                condition,
+                body,
+                trailing_expr,
+                ..
+            } => {
                 self.visit_expr(condition);
-                for s in body { self.visit_stmt(s); }
-                if let Some(e) = trailing_expr { self.visit_expr(e); }
+                for s in body {
+                    self.visit_stmt(s);
+                }
+                if let Some(e) = trailing_expr {
+                    self.visit_expr(e);
+                }
             }
             Expr::Range { start, end, .. } => {
-                if let Some(e) = start { self.visit_expr(e); }
-                if let Some(e) = end { self.visit_expr(e); }
+                if let Some(e) = start {
+                    self.visit_expr(e);
+                }
+                if let Some(e) = end {
+                    self.visit_expr(e);
+                }
             }
             Expr::FieldAccess { object, .. } => {
                 self.visit_expr(object);
@@ -239,20 +293,30 @@ impl<'a> Walker<'a> {
                 self.visit_expr(condition);
             }
             Pattern::Range { start, end } => {
-                if let Some(e) = start { self.visit_expr(e); }
-                if let Some(e) = end { self.visit_expr(e); }
+                if let Some(e) = start {
+                    self.visit_expr(e);
+                }
+                if let Some(e) = end {
+                    self.visit_expr(e);
+                }
             }
-            Pattern::SomeNested(p)
-            | Pattern::OkNested(p)
-            | Pattern::ErrorNested(p) => {
+            Pattern::SomeNested(p) | Pattern::OkNested(p) | Pattern::ErrorNested(p) => {
                 self.visit_pattern(p);
             }
             Pattern::ListDestructure { first, rest } => {
-                if let Some(p) = first { self.visit_pattern(p); }
-                if let Some(p) = rest { self.visit_pattern(p); }
+                if let Some(p) = first {
+                    self.visit_pattern(p);
+                }
+                if let Some(p) = rest {
+                    self.visit_pattern(p);
+                }
             }
-            Pattern::Some(_) | Pattern::None | Pattern::Ok(_) | Pattern::Error(_)
-            | Pattern::Wildcard | Pattern::Binding(_) => {}
+            Pattern::Some(_)
+            | Pattern::None
+            | Pattern::Ok(_)
+            | Pattern::Error(_)
+            | Pattern::Wildcard
+            | Pattern::Binding(_) => {}
         }
     }
 }
@@ -303,7 +367,10 @@ mod tests {
             span: Span::default(),
         };
         let table = HashMap::new();
-        let mut w = Walker { type_table: &table, missing: Vec::new() };
+        let mut w = Walker {
+            type_table: &table,
+            missing: Vec::new(),
+        };
         w.visit_expr(&ast);
         // Both the Block and the Int(42) should be reported.
         assert_eq!(w.missing.len(), 2, "missing: {:?}", w.missing);
@@ -325,7 +392,10 @@ mod tests {
         // Note: the inner Boxed Int lives on the heap; the outer walker
         // visits it via the Box. Address-based insertion here uses the
         // *outer* address of the Box's referent, which is stable.
-        let mut w = Walker { type_table: &table, missing: Vec::new() };
+        let mut w = Walker {
+            type_table: &table,
+            missing: Vec::new(),
+        };
         w.visit_expr(&outer);
         // The inner Int inside the Box is a different address than
         // `inner`, so it will still be reported. This test is
@@ -346,7 +416,10 @@ mod tests {
             span: Span::default(),
         });
         let table = HashMap::new();
-        let mut w = Walker { type_table: &table, missing: Vec::new() };
+        let mut w = Walker {
+            type_table: &table,
+            missing: Vec::new(),
+        };
         w.visit_stmt(&stmt);
 
         // The top-level `if` is in statement position, so its type

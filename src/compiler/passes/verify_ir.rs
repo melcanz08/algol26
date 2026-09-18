@@ -10,9 +10,7 @@
 
 use crate::common::diagnostics::{CompileError, ErrorCode};
 use crate::compiler::context::CompilerContext;
-use crate::compiler::pass::{
-    IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult,
-};
+use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
 use crate::compiler::program::Program;
 use crate::ir::cfg::{build_cfg_from_semantic_program, DataflowEngine, OwnershipTransfer};
 use crate::semantics::state::SemanticState;
@@ -42,7 +40,10 @@ impl Pass<Program> for VerifyIrPass {
 
     fn run(&self, ctx: &mut CompilerContext, program: &mut Program) -> PassResult {
         let sem = program.semantic_ir.as_ref().ok_or_else(|| {
-            PassError::new(PassId("ir.verify"), "contract violation: semantic IR not built")
+            PassError::new(
+                PassId("ir.verify"),
+                "contract violation: semantic IR not built",
+            )
         })?;
 
         // NEW: fixed-point dataflow check
@@ -51,13 +52,18 @@ impl Pass<Program> for VerifyIrPass {
         let result = engine.run(&cfg, SemanticState::new());
 
         if result.has_errors() {
-            let msg = result.diagnostics.iter()
+            let msg = result
+                .diagnostics
+                .iter()
                 .map(|d| d.message.clone())
                 .collect::<Vec<_>>()
                 .join("\n");
             ctx.push_error(CompileError::simple(
                 &format!("Dataflow verification failed:\n{}", msg),
-                0, 0, "", ErrorCode::E0002,
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
             ));
             return Err(PassError::recoverable(PassId("ir.verify"), msg));
         }
@@ -66,7 +72,10 @@ impl Pass<Program> for VerifyIrPass {
         sem.verify().map_err(|msg| {
             ctx.push_error(CompileError::simple(
                 &format!("IR verification failed: {}", msg),
-                0, 0, "", ErrorCode::E0002,
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
             ));
             PassError::recoverable(PassId("ir.verify"), msg)
         })

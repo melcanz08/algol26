@@ -211,9 +211,13 @@ pub enum Instruction {
     /// automatically on exit. LLVM treats both as no-ops — the
     /// capability check refuses any program that actually allocs,
     /// so a region without alloc has no runtime meaning.
-    RegionEnter { name: String },
+    RegionEnter {
+        name: String,
+    },
     /// Exit a `region NAME` block.
-    RegionExit { name: String },
+    RegionExit {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone)]

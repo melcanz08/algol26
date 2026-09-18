@@ -81,7 +81,11 @@ impl Scheduler {
             let elapsed = start.elapsed();
 
             let ok = result.is_ok() && !ctx.has_fatal_diagnostics();
-            timings.push(StageTiming { pass: c.id, duration: elapsed, ok });
+            timings.push(StageTiming {
+                pass: c.id,
+                duration: elapsed,
+                ok,
+            });
 
             match result {
                 Ok(()) => {
@@ -91,10 +95,7 @@ impl Scheduler {
                                 completed,
                                 total,
                                 timings,
-                                failure: Some(PassError::new(
-                                    c.id,
-                                    "fatal diagnostics emitted",
-                                )),
+                                failure: Some(PassError::new(c.id, "fatal diagnostics emitted")),
                             };
                         }
                         // Non-fatal diagnostics: keep going but don't count
@@ -126,9 +127,7 @@ impl Scheduler {
     }
 }
 
-fn next_non_analysis_is_verification<Prog: 'static>(
-    rest: &[Box<dyn Pass<Prog>>],
-) -> bool {
+fn next_non_analysis_is_verification<Prog: 'static>(rest: &[Box<dyn Pass<Prog>>]) -> bool {
     for stage in rest {
         let kind = stage.contract().kind;
         if kind == PassKind::Analysis {

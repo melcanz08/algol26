@@ -69,18 +69,18 @@ use crate::common::types::Type;
 use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
 };
-use std::collections::{HashMap, HashSet};
 use builtins::{builtin_signatures, contains_type_var};
 use instruction::verify_instruction;
-use value::{verify_value, types_compatible_for_call};
+use std::collections::{HashMap, HashSet};
 use terminator::verify_terminator;
+use value::{types_compatible_for_call, verify_value};
 
-mod instruction;
-mod value;
-mod terminator;
 pub mod builtins;
+mod instruction;
+mod terminator;
 #[cfg(test)]
 mod tests;
+mod value;
 
 // ─────────────────────────────────────────────────────────────────────
 // Public entry point
@@ -142,10 +142,7 @@ pub(super) struct VerifyEnv {
 }
 
 impl VerifyEnv {
-    fn new_for(
-        func: &SemanticFunction,
-        sigs: &HashMap<String, FunctionSignature>,
-    ) -> Self {
+    fn new_for(func: &SemanticFunction, sigs: &HashMap<String, FunctionSignature>) -> Self {
         let mut variables = HashMap::new();
         let mut mutability = HashMap::new();
         for (name, ty) in &func.params {
@@ -196,10 +193,7 @@ fn verify_function(
 /// block the pattern targets — `Ok(v)` binds `v` in the ok branch,
 /// `Error(e)` binds `e` in the error branch. `IteratorNext` similarly
 /// binds the loop variable in the body.
-fn successors_with_envs(
-    term: &Terminator,
-    env: &VerifyEnv,
-) -> Vec<(usize, VerifyEnv)> {
+fn successors_with_envs(term: &Terminator, env: &VerifyEnv) -> Vec<(usize, VerifyEnv)> {
     use crate::ir::semantic_ir::SemanticPattern;
 
     match term {
@@ -286,10 +280,12 @@ fn verify_block_dfs(
         verify_instruction(func, instr, &mut env)?;
     }
 
-    let term = block
-        .terminator
-        .as_ref()
-        .ok_or_else(|| format!("Function '{}': block {} has no terminator", func.name, block_id))?;
+    let term = block.terminator.as_ref().ok_or_else(|| {
+        format!(
+            "Function '{}': block {} has no terminator",
+            func.name, block_id
+        )
+    })?;
 
     verify_terminator(func, term, &mut env)?;
 

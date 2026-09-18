@@ -23,10 +23,7 @@ pub(super) fn verify_terminator(
                 }
             }
 
-            if !type_.is_unknown()
-                && !func.return_type.is_unknown()
-                && *type_ != func.return_type
-            {
+            if !type_.is_unknown() && !func.return_type.is_unknown() && *type_ != func.return_type {
                 return Err(format!(
                     "Function '{}' declared return type {:?} but returns {:?}",
                     func.name, func.return_type, type_

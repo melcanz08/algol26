@@ -8,6 +8,9 @@
 //   - every jump/branch/switch target resolves to an existing block
 //   - no unreachable blocks from the entry
 //   - function names are unique across the program
+//   - fork shape: each branch is entered only from the fork block,
+//     exits only via a jump to the join, and the join is not also a
+//     branch (see ADR 0011)
 //
 // Checks NOT performed here (see verifier.rs and future
 // data-flow work):
@@ -17,7 +20,7 @@
 //   - instruction-level semantics
 
 use crate::ir::semantic_ir::{SemanticProgram, Terminator};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub struct CFGVerifier;
 
@@ -87,6 +90,16 @@ impl CFGVerifier {
             }
         }
 
+        // Build a predecessor map. Needed for the fork branch-uniqueness
+        // check below. The fork's own `successors()` contributes one edge
+        // to each of its branches and one to its join.
+        let mut predecessors: HashMap<usize, Vec<usize>> = HashMap::new();
+        for block in &func.blocks {
+            for succ in block.successors() {
+                predecessors.entry(succ).or_default().push(block.id);
+            }
+        }
+
         // Check for unreachable blocks (except entry)
         let mut reachable = HashSet::new();
         let mut worklist = vec![func.entry_block];
@@ -138,6 +151,103 @@ impl CFGVerifier {
                             "Function '{}' block {} has duplicate switch case target {}",
                             func.name, block.id, target
                         ));
+                    }
+                }
+            }
+        }
+
+        // Fork shape checks. These close the discontinuity documented in
+        // ADR 0011: the interpreter's `pending_forks` worklist requires
+        // that each branch is entered only from the fork block and exits
+        // only via a jump to the join.
+        for block in &func.blocks {
+            let (blocks_in_fork, join_block): (&[usize], usize) = match &block.terminator {
+                Some(Terminator::Fork { blocks, join_block }) => (blocks.as_slice(), *join_block),
+                _ => continue,
+            };
+
+            let fork_block_set: HashSet<usize> = blocks_in_fork.iter().copied().collect();
+
+            // Rule 1: each branch entered only from the fork block.
+            for branch_id in blocks_in_fork.iter().copied() {
+                match predecessors.get(&branch_id) {
+                    Some(preds) if preds.len() == 1 && preds[0] == block.id => {}
+                    Some(preds) => {
+                        return Err(format!(
+                            "Function '{}' fork at block {}: branch {} has {} \
+                             predecessor(s); expected exactly one (from the fork)",
+                            func.name,
+                            block.id,
+                            branch_id,
+                            preds.len()
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "Function '{}' fork at block {}: branch {} has no predecessor",
+                            func.name, block.id, branch_id
+                        ));
+                    }
+                }
+            }
+
+            // Rule 3: join is not also a branch.
+            if fork_block_set.contains(&join_block) {
+                return Err(format!(
+                    "Function '{}' fork at block {}: join block {} also appears \
+                     as a branch",
+                    func.name, block.id, join_block
+                ));
+            }
+
+            // Rule 2: no path exits a branch except via Jump to the join.
+            for entry in blocks_in_fork.iter().copied() {
+                // Compute the branch's reachable set, excluding the join.
+                let mut reachable: HashSet<usize> = HashSet::new();
+                let mut worklist: Vec<usize> = vec![entry];
+                while let Some(bid) = worklist.pop() {
+                    if bid == join_block {
+                        continue;
+                    }
+                    if !reachable.insert(bid) {
+                        continue;
+                    }
+                    if let Some(b) = func.blocks.iter().find(|b| b.id == bid) {
+                        for succ in b.successors() {
+                            worklist.push(succ);
+                        }
+                    }
+                }
+
+                for &bid in &reachable {
+                    // Rule 1 generalization: no branch may reach another's entry.
+                    if bid != entry && fork_block_set.contains(&bid) {
+                        return Err(format!(
+                            "Function '{}' fork at block {}: branch {} reaches \
+                             branch {}",
+                            func.name, block.id, entry, bid
+                        ));
+                    }
+
+                    let b = func.blocks.iter().find(|b| b.id == bid).unwrap();
+                    match &b.terminator {
+                        Some(Terminator::Return { .. }) => {
+                            return Err(format!(
+                                "Function '{}' fork at block {}: branch {} returns \
+                                 from the function, which the parallel model does \
+                                 not allow",
+                                func.name, block.id, entry
+                            ));
+                        }
+                        Some(Terminator::Spawn { .. }) | Some(Terminator::Fork { .. }) => {
+                            return Err(format!(
+                                "Function '{}' fork at block {}: branch {} contains \
+                                 nested concurrency, which the parallel model does \
+                                 not allow",
+                                func.name, block.id, entry
+                            ));
+                        }
+                        _ => {}
                     }
                 }
             }

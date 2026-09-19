@@ -26,12 +26,22 @@
 //! yet — and every `None` must have a non-empty `notes` explaining
 //! why. `tests/conformance_coverage.rs` enforces both directions.
 //!
+//! ## The `refusal_tests` field
+//!
+//! Names the capability tests in `src/backends/capabilities/tests.rs`
+//! that pin this row's `Refused` claims. Every row whose
+//! `interpreter`/`llvm`/`wasm` is `Refused` must name at least one
+//! test — or be listed in `KNOWN_MISSING_REFUSALS` with a note
+//! explaining the gap. Every `*_rejects_*` test in the capability
+//! file must be claimed by some row. The three tests at the bottom
+//! enforce both directions.
+//!
 //! ## Keeping this in sync
 //!
 //! When a feature's backend support changes:
 //! 1. Update the corresponding `docs/features/<feature>.md` contract
 //! 2. Update this matrix
-//! 3. If the change is a capability check flip, update
+//! 3. Update the corresponding capability test in
 //!    `src/backends/capabilities/tests.rs`
 //! 4. If the change is a new differential test, add it to
 //!    `tests/differential/differential_true.rs`
@@ -52,10 +62,33 @@ pub struct FeatureRow {
     pub interpreter: Support,
     pub llvm: Support,
     pub wasm: Support,
-    /// Required when any backend is `Partial`/`Unknown`, or when
-    /// `conformance_dir` is `None`.
+    /// Names of capability tests in `src/backends/capabilities/tests.rs`
+    /// that pin this row's `Refused` claims. Required when any
+    /// backend is `Refused` and the feature is not in
+    /// `KNOWN_MISSING_REFUSALS`.
+    pub refusal_tests: &'static [&'static str],
+    /// Required when any backend is `Partial`/`Unknown`, when
+    /// `conformance_dir` is `None`, or when the row is in
+    /// `KNOWN_MISSING_REFUSALS`.
     pub notes: &'static str,
 }
+
+/// Features whose matrix says `Refused` on some backend but which do
+/// not yet have a capability test pinning that refusal. Every entry
+/// here is a gap that should be closed. Removing a name from this
+/// list requires adding the corresponding test to
+/// `src/backends/capabilities/tests.rs` and naming it in the row's
+/// `refusal_tests`.
+pub const KNOWN_MISSING_REFUSALS: &[&str] = &[
+    "borrow",   // interpreter refuses; no `interpreter_rejects_borrow` test
+    "channel",  // llvm refuses; no `llvm_rejects_channels` test
+    "ffi",      // wasm refuses; no `wasm_rejects_ffi` test
+    "option",   // wasm refuses; no `wasm_rejects_option_values` test
+    "parallel", // llvm + wasm refuse; no `*_rejects_parallel` tests
+    "range",    // all three refuse; feature is unfinished
+    "region",   // llvm refuses; no `llvm_rejects_region` test
+    "spawn",    // wasm refuses; no `wasm_rejects_spawn` test
+];
 
 pub const MATRIX: &[FeatureRow] = &[
     // ─── arithmetic ───
@@ -65,6 +98,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -73,6 +107,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -81,6 +116,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -89,6 +125,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     // ─── strings ───
@@ -98,6 +135,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -106,6 +144,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -114,6 +153,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -122,6 +162,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Unknown,
         wasm: Support::Unknown,
+        refusal_tests: &[],
         notes: "No dedicated conformance fixture. substring exercised via \
                 strings.gol but not asserted. Also unverified: LLVM/WASM lowering.",
     },
@@ -131,6 +172,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Unknown,
         wasm: Support::Unknown,
+        refusal_tests: &[],
         notes: "No dedicated conformance fixture for to_upper/to_lower. \
                 LLVM/WASM lowering unverified.",
     },
@@ -141,6 +183,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -149,6 +192,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -157,6 +201,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -165,6 +210,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {
@@ -173,6 +219,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Unknown,
+        refusal_tests: &["llvm_rejects_list_print"],
         notes: "LLVM refuses `print(list)` via capability check. No dedicated \
                 conformance fixture. WASM support unverified.",
     },
@@ -182,6 +229,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Unknown,
         wasm: Support::Unknown,
+        refusal_tests: &[],
         notes: "No conformance fixture. No LLVM/WASM lowering seen in codegen; \
                 verify whether these builtins are lowered or refused.",
     },
@@ -192,7 +240,8 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        notes: "",
+        refusal_tests: &["llvm_rejects_option_values"],
+        notes: "WASM refusal is claimed but not yet pinned by a capability test.",
     },
     FeatureRow {
         name: "result",
@@ -200,6 +249,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
+        refusal_tests: &["llvm_rejects_result_values", "wasm_rejects_result_values"],
         notes: "",
     },
     FeatureRow {
@@ -208,6 +258,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
+        refusal_tests: &["llvm_rejects_result_values", "wasm_rejects_result_values"],
         notes: "",
     },
     // ─── ownership ───
@@ -217,8 +268,9 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Refused,
         llvm: Support::Full,
         wasm: Support::Unknown,
-        notes: "Interpreter refuses `&x` / `*r` with EvalError::Unsupported. \
-                WASM support unverified.",
+        refusal_tests: &[],
+        notes: "Interpreter refuses `&x` / `*r` with EvalError::Unsupported \
+                but no capability test pins it. WASM support unverified.",
     },
     FeatureRow {
         name: "region",
@@ -226,9 +278,10 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Unknown,
-        notes: "No conformance fixture; corpus_30/31 exercise regions but are \
-                not conformance fixtures. LLVM treats RegionEnter/Exit as \
-                no-ops, capability refuses programs that alloc. WASM unverified.",
+        refusal_tests: &[],
+        notes: "No conformance fixture. LLVM treats RegionEnter/Exit as \
+                no-ops, capability refuses programs that alloc — but no \
+                capability test pins it. WASM unverified.",
     },
     FeatureRow {
         name: "alloc_free",
@@ -236,8 +289,9 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Unknown,
-        notes: "No conformance fixture; alloc/free exercised in interpreter unit \
-                tests. WASM has malloc/free in host.js but no capability test.",
+        refusal_tests: &[],
+        notes: "No conformance fixture; alloc/free exercised in interpreter \
+                unit tests. WASM has malloc/free in host.js but no capability test.",
     },
     // ─── concurrency ───
     FeatureRow {
@@ -246,9 +300,10 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Partial,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        notes: "No conformance fixture. Interpreter has channel instructions as \
-                silent no-ops (see docs/features/channel.md). Should become \
-                Refused until a real queue is implemented.",
+        refusal_tests: &["wasm_rejects_channels"],
+        notes: "No conformance fixture. Interpreter has channel instructions \
+                as silent no-ops (see docs/features/channel.md). LLVM refuses \
+                but no `llvm_rejects_channels` test pins it.",
     },
     FeatureRow {
         name: "spawn",
@@ -256,7 +311,9 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        notes: "Interpreter runs sequentially; LLVM and WASM refuse.",
+        refusal_tests: &["llvm_rejects_spawn"],
+        notes: "Interpreter runs sequentially; LLVM refuses (pinned). WASM \
+                refuses but no test pins it.",
     },
     FeatureRow {
         name: "parallel",
@@ -264,7 +321,9 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        notes: "",
+        refusal_tests: &[],
+        notes: "LLVM and WASM both refuse, but no `*_rejects_parallel` tests \
+                pin either.",
     },
     // ─── compile-time-only ───
     FeatureRow {
@@ -273,6 +332,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "No conformance fixture; trait tests are in tests/semantics/. \
                 Resolved before IR construction, so every backend supports.",
     },
@@ -282,6 +342,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "No conformance fixture; generics exercised in examples/generics/. \
                 Monomorphized before IR construction.",
     },
@@ -291,6 +352,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "Desugared to a function call before IR construction.",
     },
     FeatureRow {
@@ -299,6 +361,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "Lowered before IR construction.",
     },
     // ─── FFI ───
@@ -308,9 +371,9 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Refused,
         llvm: Support::Full,
         wasm: Support::Refused,
-        notes: "No conformance fixture; FFI exercised in examples/ffi/ and \
-                tests/conformance/valid/ffi_math.gol (not currently present). \
-                Only LLVM links C symbols; interpreter and WASM refuse.",
+        refusal_tests: &["interpreter_rejects_ffi"],
+        notes: "No conformance fixture. Only LLVM links C symbols; interpreter \
+                refuses (pinned). WASM refuses but no test pins it.",
     },
     // ─── unsafe / range ───
     FeatureRow {
@@ -319,6 +382,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
+        refusal_tests: &[],
         notes: "Parsed but not enforced (see docs/features/unsafe.md). Currently \
                 a no-op block, so every backend accepts it and no dedicated \
                 fixture is meaningful.",
@@ -329,6 +393,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Refused,
         llvm: Support::Refused,
         wasm: Support::Refused,
+        refusal_tests: &[],
         notes: "Unfinished feature (see docs/features/range.md). No backend \
                 supports it end-to-end, so no fixture is possible.",
     },
@@ -339,6 +404,7 @@ pub const MATRIX: &[FeatureRow] = &[
 // ─────────────────────────────────────────────────────────────────────
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 #[test]
 fn feature_names_are_unique() {
@@ -405,8 +471,6 @@ fn missing_conformance_dir_has_notes() {
 
 #[test]
 fn every_feature_works_somewhere() {
-    // Features that are known to be unfinished. If one of these starts
-    // working on a backend, remove it from the list.
     const KNOWN_UNFINISHED: &[&str] = &["range"];
 
     for row in MATRIX {
@@ -433,4 +497,98 @@ fn matrix_is_not_trivially_empty() {
         "MATRIX has only {} entries; the feature set should be >= 20",
         MATRIX.len()
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Capability-test enforcement (Tier 5.2)
+// ─────────────────────────────────────────────────────────────────────
+
+/// Read the capability tests source at runtime. Using `std::fs`
+/// rather than `include_str!` avoids any ambiguity about how the
+/// path resolves when this file is included via `#[path]` from
+/// `conformance_coverage.rs`.
+fn capability_tests_source() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/backends/capabilities/tests.rs");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {}", path.display(), e))
+}
+
+/// Scan the capability tests source for `fn <name>` declarations.
+/// Returns the function names in declaration order.
+fn declared_test_names(src: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in src.lines() {
+        let trimmed = line.trim_start();
+        let Some(after_fn) = trimmed.strip_prefix("fn ") else {
+            continue;
+        };
+        let end = after_fn
+            .find(|c: char| !c.is_alphanumeric() && c != '_')
+            .unwrap_or(after_fn.len());
+        if end > 0 {
+            names.push(after_fn[..end].to_string());
+        }
+    }
+    names
+}
+
+#[test]
+fn refusal_tests_are_declared() {
+    for row in MATRIX {
+        let has_refusal = matches!(row.interpreter, Support::Refused)
+            || matches!(row.llvm, Support::Refused)
+            || matches!(row.wasm, Support::Refused);
+        if !has_refusal {
+            continue;
+        }
+        if KNOWN_MISSING_REFUSALS.contains(&row.name) {
+            continue;
+        }
+        assert!(
+            !row.refusal_tests.is_empty(),
+            "feature `{}` claims a Refused backend but declares no refusal_tests. \
+             Either add a capability test and name it in this row's refusal_tests, \
+             or add the feature to KNOWN_MISSING_REFUSALS.",
+            row.name
+        );
+    }
+}
+
+#[test]
+fn refusal_tests_exist() {
+    let src = capability_tests_source();
+    let declared: HashSet<String> = declared_test_names(&src).into_iter().collect();
+
+    for row in MATRIX {
+        for test_name in row.refusal_tests {
+            assert!(
+                declared.contains(*test_name),
+                "feature `{}` names refusal test `{}` but it does not exist in \
+                 src/backends/capabilities/tests.rs",
+                row.name,
+                test_name
+            );
+        }
+    }
+}
+
+#[test]
+fn no_unclaimed_refusal_tests() {
+    let src = capability_tests_source();
+    let declared = declared_test_names(&src);
+
+    for test_name in declared {
+        if !test_name.contains("_rejects_") {
+            continue;
+        }
+        let claimed = MATRIX
+            .iter()
+            .any(|row| row.refusal_tests.contains(&test_name.as_str()));
+        assert!(
+            claimed,
+            "capability test `{}` is not claimed by any matrix row — \
+             either add it to a row's refusal_tests or delete it",
+            test_name
+        );
+    }
 }

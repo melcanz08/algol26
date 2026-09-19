@@ -1,0 +1,10 @@
+# Reduce build tree size on this machine's 35 GB partition.
+# Debug info is the single biggest consumer of disk in a Rust build.
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false

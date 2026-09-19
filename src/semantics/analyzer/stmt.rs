@@ -458,51 +458,56 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    pub(super) fn bind_pattern_variables(&mut self, pattern: &Pattern, value_type: &Type) {
+    pub(super) fn bind_pattern_variables(
+        &mut self,
+        pattern: &Pattern,
+        value_type: &Type,
+    ) -> Result<()> {
         match pattern {
             Pattern::Binding(var) => {
-                self.declare_variable(var, value_type.clone(), false).ok();
+                self.declare_variable(var, value_type.clone(), false)?;
             }
             Pattern::Some(var) => {
                 if let Type::Option(inner) = value_type {
-                    self.declare_variable(var, *inner.clone(), false).ok();
+                    self.declare_variable(var, *inner.clone(), false)?;
                 } else {
-                    self.declare_variable(var, Type::Unknown, false).ok();
+                    self.declare_variable(var, Type::Unknown, false)?;
                 }
             }
             Pattern::SomeNested(inner) => {
                 if let Type::Option(inner_type) = value_type {
-                    self.bind_pattern_variables(inner, inner_type);
+                    self.bind_pattern_variables(inner, inner_type)?;
                 }
             }
             Pattern::Ok(var) => {
                 if let Type::Result { ok, .. } = value_type {
-                    self.declare_variable(var, *ok.clone(), false).ok();
+                    self.declare_variable(var, *ok.clone(), false)?;
                 } else {
                     self.declare_variable(var, Type::Unknown, false).ok();
                 }
             }
             Pattern::OkNested(inner) => {
                 if let Type::Result { ok, .. } = value_type {
-                    self.bind_pattern_variables(inner, ok);
+                    self.bind_pattern_variables(inner, ok)?;
                 }
             }
             Pattern::Error(var) => {
                 if let Type::Result { error, .. } = value_type {
-                    self.declare_variable(var, *error.clone(), false).ok();
+                    self.declare_variable(var, *error.clone(), false)?;
                 } else {
                     self.declare_variable(var, Type::Unknown, false).ok();
                 }
             }
             Pattern::ErrorNested(inner) => {
                 if let Type::Result { error, .. } = value_type {
-                    self.bind_pattern_variables(inner, error);
+                    self.bind_pattern_variables(inner, error)?;
                 }
             }
             Pattern::Guarded { pattern, .. } => {
-                self.bind_pattern_variables(pattern, value_type);
+                self.bind_pattern_variables(pattern, value_type)?;
             }
             _ => {}
         }
+        Ok(())
     }
 }

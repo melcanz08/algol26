@@ -229,7 +229,7 @@ impl SemanticAnalyzer {
                 if let Some(first_case) = cases.first() {
                     self.check_pattern_type(&first_case.pattern, &value_type)?;
                     self.push_scope();
-                    self.bind_pattern_variables(&first_case.pattern, &value_type);
+                    self.bind_pattern_variables(&first_case.pattern, &value_type)?;
                     if let Pattern::Guarded { condition, .. } = &first_case.pattern {
                         let cond_type = self.analyze_expr(condition)?;
                         if cond_type != Type::Bool && cond_type != Type::Unknown {
@@ -250,7 +250,7 @@ impl SemanticAnalyzer {
                     for case in &cases[1..] {
                         self.check_pattern_type(&case.pattern, &value_type)?;
                         self.push_scope();
-                        self.bind_pattern_variables(&case.pattern, &value_type);
+                        self.bind_pattern_variables(&case.pattern, &value_type)?;
                         if let Pattern::Guarded { condition, .. } = &case.pattern {
                             let cond_type = self.analyze_expr(condition)?;
                             if cond_type != Type::Bool && cond_type != Type::Unknown {

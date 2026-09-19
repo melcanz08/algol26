@@ -325,3 +325,203 @@ fn interpreter_accepts_list_print() {
     });
     assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
 }
+
+#[test]
+fn llvm_rejects_channels() {
+    let program = program_with(
+        Instruction::ChannelDecl {
+            name: "ch".to_string(),
+            type_: Type::channel(Type::Int),
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+    assert!(
+        err.message.contains("channels"),
+        "expected channel diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn wasm_rejects_ffi() {
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "puts".to_string(),
+        params: vec![("s".to_string(), Type::String)],
+        return_type: Type::Int,
+        blocks: vec![],
+        entry_block: 0,
+        is_extern: true,
+    });
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![Instruction::Call {
+                func: "puts".to_string(),
+                args: vec![TypedIRValue::String("hi".to_string())],
+                result: None,
+            }],
+            terminator: Some(simple_return()),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    });
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("foreign"),
+        "expected FFI diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn wasm_rejects_option_values() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "m".to_string(),
+            mutable: false,
+            type_: Type::option(Type::Int),
+            value: TypedIRValue::Some(Box::new(TypedIRValue::Int(1))),
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("Option"),
+        "expected Option diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn llvm_rejects_parallel() {
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    let a = program.new_block_id();
+    let b = program.new_block_id();
+    let join = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![
+            SemanticBlock {
+                id: entry,
+                instructions: vec![],
+                terminator: Some(Terminator::Fork {
+                    blocks: vec![a, b],
+                    join_block: join,
+                }),
+            },
+            SemanticBlock {
+                id: a,
+                instructions: vec![],
+                terminator: Some(Terminator::Jump { block: join }),
+            },
+            SemanticBlock {
+                id: b,
+                instructions: vec![],
+                terminator: Some(Terminator::Jump { block: join }),
+            },
+            SemanticBlock {
+                id: join,
+                instructions: vec![],
+                terminator: Some(simple_return()),
+            },
+        ],
+        entry_block: entry,
+        is_extern: false,
+    });
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+    assert!(
+        err.message.contains("parallel"),
+        "expected parallel diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn wasm_rejects_parallel() {
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    let a = program.new_block_id();
+    let b = program.new_block_id();
+    let join = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![
+            SemanticBlock {
+                id: entry,
+                instructions: vec![],
+                terminator: Some(Terminator::Fork {
+                    blocks: vec![a, b],
+                    join_block: join,
+                }),
+            },
+            SemanticBlock {
+                id: a,
+                instructions: vec![],
+                terminator: Some(Terminator::Jump { block: join }),
+            },
+            SemanticBlock {
+                id: b,
+                instructions: vec![],
+                terminator: Some(Terminator::Jump { block: join }),
+            },
+            SemanticBlock {
+                id: join,
+                instructions: vec![],
+                terminator: Some(simple_return()),
+            },
+        ],
+        entry_block: entry,
+        is_extern: false,
+    });
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("parallel"),
+        "expected parallel diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn wasm_rejects_spawn() {
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    let spawned = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![
+            SemanticBlock {
+                id: entry,
+                instructions: vec![],
+                terminator: Some(Terminator::Spawn {
+                    entry_block: spawned,
+                }),
+            },
+            SemanticBlock {
+                id: spawned,
+                instructions: vec![],
+                terminator: Some(simple_return()),
+            },
+        ],
+        entry_block: entry,
+        is_extern: false,
+    });
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("spawn"),
+        "expected spawn diagnostic, got: {}",
+        err.message
+    );
+}

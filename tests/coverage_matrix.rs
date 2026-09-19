@@ -80,14 +80,16 @@ pub struct FeatureRow {
 /// `src/backends/capabilities/tests.rs` and naming it in the row's
 /// `refusal_tests`.
 pub const KNOWN_MISSING_REFUSALS: &[&str] = &[
-    "borrow",   // interpreter refuses; no `interpreter_rejects_borrow` test
-    "channel",  // llvm refuses; no `llvm_rejects_channels` test
-    "ffi",      // wasm refuses; no `wasm_rejects_ffi` test
-    "option",   // wasm refuses; no `wasm_rejects_option_values` test
-    "parallel", // llvm + wasm refuse; no `*_rejects_parallel` tests
-    "range",    // all three refuse; feature is unfinished
-    "region",   // llvm refuses; no `llvm_rejects_region` test
-    "spawn",    // wasm refuses; no `wasm_rejects_spawn` test
+    // Runtime refusal, not a capability check. The interpreter
+    // backend does not call `check_backend`; borrows are refused
+    // inside `eval_value` via EvalError::Unsupported. There is no
+    // capability test to add — the refusal is a different mechanism.
+    "borrow",
+    // Unfinished feature. No capability check exists because there
+    // is no `Feature::Range` variant, and no backend supports ranges
+    // end-to-end. Stays here until the feature is either implemented
+    // or removed.
+    "range",
 ];
 
 pub const MATRIX: &[FeatureRow] = &[
@@ -240,8 +242,8 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_option_values"],
-        notes: "WASM refusal is claimed but not yet pinned by a capability test.",
+        refusal_tests: &["llvm_rejects_option_values", "wasm_rejects_option_values"],
+        notes: "",
     },
     FeatureRow {
         name: "result",
@@ -276,12 +278,14 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "region",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
-        wasm: Support::Unknown,
+        llvm: Support::Full,
+        wasm: Support::Partial,
         refusal_tests: &[],
-        notes: "No conformance fixture. LLVM treats RegionEnter/Exit as \
-                no-ops, capability refuses programs that alloc — but no \
-                capability test pins it. WASM unverified.",
+        notes: "LLVM supports regions: RegionEnter/RegionExit push/pop a \
+                frame and emit guarded frees for the allocations made \
+                inside. WASM reuses the same IRCodeGen, so empty regions \
+                work; regions that allocate are refused because WASM's \
+                capability check refuses RawMemory.",
     },
     FeatureRow {
         name: "alloc_free",
@@ -300,10 +304,9 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Partial,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_channels"],
+        refusal_tests: &["wasm_rejects_channels", "llvm_rejects_channels"],
         notes: "No conformance fixture. Interpreter has channel instructions \
-                as silent no-ops (see docs/features/channel.md). LLVM refuses \
-                but no `llvm_rejects_channels` test pins it.",
+                as silent no-ops (see docs/features/channel.md).",
     },
     FeatureRow {
         name: "spawn",
@@ -311,9 +314,8 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_spawn"],
-        notes: "Interpreter runs sequentially; LLVM refuses (pinned). WASM \
-                refuses but no test pins it.",
+        refusal_tests: &["llvm_rejects_spawn", "wasm_rejects_spawn"],
+        notes: "Interpreter runs sequentially; LLVM and WASM refuse (both pinned).",
     },
     FeatureRow {
         name: "parallel",
@@ -321,9 +323,8 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &[],
-        notes: "LLVM and WASM both refuse, but no `*_rejects_parallel` tests \
-                pin either.",
+        refusal_tests: &["llvm_rejects_parallel", "wasm_rejects_parallel"],
+        notes: "",
     },
     // ─── compile-time-only ───
     FeatureRow {
@@ -371,9 +372,9 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Refused,
         llvm: Support::Full,
         wasm: Support::Refused,
-        refusal_tests: &["interpreter_rejects_ffi"],
-        notes: "No conformance fixture. Only LLVM links C symbols; interpreter \
-                refuses (pinned). WASM refuses but no test pins it.",
+        refusal_tests: &["interpreter_rejects_ffi", "wasm_rejects_ffi"],
+        notes: "No conformance fixture. Only LLVM links C symbols; both \
+                interpreter and WASM refuse (both pinned).",
     },
     // ─── unsafe / range ───
     FeatureRow {

@@ -16,12 +16,12 @@
 //! the "checklist, not treasure hunt" property.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[path = "coverage_matrix.rs"]
 mod coverage_matrix;
 
-use coverage_matrix::{FeatureRow, MATRIX};
+use coverage_matrix::MATRIX;
 
 /// Directories under `tests/conformance/valid/` that group fixtures
 /// by category rather than by a single feature. They are exempt from
@@ -127,5 +127,4 @@ fn matrix_and_dirs_are_consistent() {
         "no subdirectories under tests/conformance/valid/ — has the \
          restructure been reverted?"
     );
-    let _ = std::path::Path::new::<PathBuf>(&conformance_valid_root()); // silence unused warning on Path import
 }

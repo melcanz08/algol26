@@ -2,12 +2,16 @@
 
 ## Status
 
-**Proposed** (2026-09-19). Not yet implemented.
+**Partially implemented** (2026-09-19).
+
+- Phase 1 (borrow canonicalization) — **landed**.
+- Phase 2 (deref canonicalization) — **landed**.
+- Phase 3 (channel canonicalization) — **landed**.
+- Phase 5a (dead region code removal) — **landed**. 627 lines deleted.
+- Phases 4, 5b, 6 — **not started**; each requires its own design session.
 
 Supersedes nothing. Superseded by nothing. This is the first
-architectural decision that touches the IR representation as a
-whole.
-
+architectural decision that touches the IR representation as a whole.
 ## Summary
 
 ALGOL26 currently represents the same semantic concepts in four
@@ -384,6 +388,20 @@ Collapse `Send`/`ChannelSend` into `SendChannel`; same for receive.
 
 ### Phase 4 — Task canonicalization
 
+> **Status:** Not started. Requires its own ADR.
+>
+> Discovery during Phase 2: the interpreter's `pending_forks` queue
+> implements continuation-passing-style concurrency, not the task
+> model this ADR proposes. The CFG has no representation for
+> continuation capture. Canonicalizing `Fork` to `SpawnTask` +
+> `JoinTask` is a **redesign** of the interpreter's concurrency model,
+> not a rename of a terminator.
+>
+> The next deliverable is a short ADR proposing the migration,
+> including what `pending_forks`'s actual semantics are and how the
+> CFG should represent them.
+
+
 Replace `Terminator::Fork` with `SpawnTask` + `JoinTask` sequences.
 
 - IR builder expands `parallel` to a `SpawnTask` per branch,
@@ -397,6 +415,15 @@ conformance fixture, one differential test.
 
 ### Phase 5 — Region canonicalization
 
+> **Status:** 5a landed (`runtime/region.rs` and
+> `runtime/region_memory.rs` deleted — 627 lines). 5b (region
+> instruction canonicalization) shares Phase 4's "needs design"
+> status: `AllocateRegion` and `FreeRegion` would replace the current
+> `Allocate` + `RegionEnter`/`RegionExit` split, but the change
+> interacts with the interpreter's region-stack model in the same way
+> Phase 4 interacts with `pending_forks`.
+
+
 Introduce `AllocateRegion` and `FreeRegion`. Deprecate the raw
 `RegionEnter`/`RegionExit` terminator pairing.
 
@@ -408,6 +435,9 @@ Introduce `AllocateRegion` and `FreeRegion`. Deprecate the raw
 **Estimated scope:** three files plus a deletion.
 
 ### Phase 6 — Explicit Move (deferrable)
+
+> **Status:** Deferred indefinitely. See "When not to do this" below.
+
 
 Add `Instruction::Move`. Make `Declare` and `Assign` always copy
 when the value is not a fresh construction.
@@ -524,24 +554,128 @@ cautious about.
 
 ## Success criteria
 
-The canonicalization is complete when:
+Status as of 2026-09-19:
 
-1. `TypedIRValue::Borrow`, `MutBorrow`, `Deref`, and `AddrOf` no
-   longer exist.
-2. `Instruction::Send`, `ChannelSend`, `Receive`, and
-   `ChannelReceive` no longer exist.
-3. `Terminator::Fork` no longer exists.
-4. `src/runtime/region.rs` and `src/runtime/region_memory.rs` are
-   deleted.
-5. Every feature contract in `docs/features/` has a checklist of
-   at most five items.
-6. The coverage matrix has no `Unknown` entries for features that
-   are listed as `Stable`.
-7. A new operation added to the IR requires exactly three files to
-   change: one IR file, one per-backend lowering file, one test.
+- [x] `TypedIRValue::Borrow` and `TypedIRValue::MutBorrow` no longer
+      exist. *(Phase 1.)*
+- [x] `TypedIRValue::Deref` no longer exists. *(Phase 2.)*
+- [x] `Instruction::Send`, `Instruction::ChannelSend`,
+      `Instruction::Receive`, and `Instruction::ChannelReceive` no
+      longer exist. *(Phase 3.)*
+- [x] `src/runtime/region.rs` and `src/runtime/region_memory.rs` are
+      deleted. *(Phase 5a.)*
+- [ ] `TypedIRValue::AddrOf` — **kept, deliberately.** Raw pointers
+      (`Type::Ptr`) are semantically distinct from tracked borrows
+      (`Type::Borrow(T)` / `Type::MutBorrow(T)`). Folding them would
+      weaken the type discipline for no gain. Phase 1's design notes
+      record this decision.
+- [ ] `WriteReference` — **not added.** Discovery during Phase 2: the
+      language has no write-through-`&mut` syntax. `Stmt::Assign.target`
+      is always a bare identifier; the parser never produces
+      `*p := ...`. The analyzer and verifier had write-through
+      type-checking *dead code* with no parser and no backend lowering.
+      Deferred pending a language decision (delete the dead code or
+      implement the feature end-to-end). Not a Phase 2 concern.
+- [ ] `Terminator::Fork` — **still exists.** Phase 4 requires its own
+      design session.
+- [ ] `Move` — **not added.** Phase 6, deferred indefinitely.
 
-Criterion 7 is the point. Today it is ten. After canonicalization,
-it is three.
+### Criterion 7 was wrong and is replaced
+
+The original ADR claimed a new operation would require three files.
+Reality, learned across Phases 1 and 3:
+
+**An IR variant rename or addition touches roughly six files:**
+
+1. The IR enum (`src/ir/semantic_ir/<family>.rs`).
+2. The producer (IR builder, `src/semantics/builder/`).
+3. The verifier (`src/ir/verifier/`).
+4. The optimizer (`src/ir/optimizer.rs`).
+5. One lowering per backend architecture — LLVM and interpreter;
+   WASM inherits via `IRCodeGen`.
+6. The capability scan (`src/backends/capabilities/scan.rs`).
+
+Plus `src/ir/verifier/tests.rs` for verifier tests. The verifier and
+optimizer arms are the two easiest to miss — both were missed in
+Phase 1, and the verifier was missed again in Phase 3.
+
+The realistic estimate is **six to eight files per operation**, not
+three. Still better than the ten-to-fifteen per *feature* the current
+architecture costs, but the original number was aspirational.
+
+## Post-implementation notes
+
+Two latent issues were documented during Phases 1–3 but not fixed.
+
+### Write-through typing dead code
+
+The analyzer (`src/semantics/analyzer/`) and the verifier
+(`src/ir/verifier/instruction.rs`) contain type-checking code for writing
+through a `&mut T`. There is no parser production that creates this
+construct — `Stmt::Assign.target` is always a bare identifier — and
+no backend lowering. The code has been dead since at least the
+session that introduced the current parser.
+
+Phase 2 revealed it: `WriteReference` was supposed to be the canonical
+form, but there is nothing to canonicalize *from*.
+
+**Resolution required:** either delete the dead type-checking (small,
+low-risk) or implement write-through `&mut` end-to-end (a new
+language feature with its own contract, own ADR, own tests). A future
+session should pick one. Not urgent.
+
+### `pending_forks` is CPS, not a task queue
+
+The interpreter's concurrency model (`pending_forks` in
+`src/backends/interpreter/mod.rs`) is a continuation-passing
+implementation. When a `Fork` terminator is encountered, the branches
+are stored and re-entered at each `Jump` to the join block. This is
+not a task queue — it cannot be expressed by `SpawnTask` + `JoinTask`
+without a CFG change to represent continuation capture.
+
+Phase 4 is therefore a design project, not a mechanical migration.
+The current `Fork` semantics are correct for what they do; the
+question is whether the language wants those semantics, or whether
+"spawn N tasks and join them" is the right model. That is a language
+design question, not an IR cleanup question.
+## When not to do this
+
+This ADR proposes a multi-month migration. It is not the right
+project for every point in the language's life. Concretely, do not
+start (or continue) this work if:
+
+- **You are not planning more features.** The value of canonical IR
+  is measured in future feature velocity. If the current feature set
+  is roughly what you intend to ship, the migration is a six-month
+  project that buys you nothing.
+
+- **You cannot dedicate sessions to it.** Partial completion is worse
+  than not starting. A migration that gets through Phase 2 and stops
+  leaves the codebase with both old and new variants, both needing
+  maintenance. The ADR's "every phase is revertable" property makes
+  each *step* safe; it does not make *stopping* safe.
+
+- **You are tired or rushed.** Phase 4 is a concurrency redesign.
+  Phase 6 changes the observable behavior of every non-`Copy`
+  binding. Neither is a good fit for a session where you want to be
+  done in an hour. Phases 1–3 worked because they were bounded and
+  low-risk; Phases 4–6 are neither.
+
+- **You have a live bug.** Bug fixes and architectural refactors use
+  the same mental resources. Land the bug fix first.
+
+**What to do instead if any of the above applies:**
+
+- Keep the feature-contract discipline (`docs/features/*.md`). It is
+  a poor substitute for canonical IR, but it is a *working*
+  substitute at roughly 1/50th the cost.
+- Add differential tests before fixing bugs, not after.
+- Revisit this ADR when the next feature feels genuinely painful to
+  add. That pain is the signal.
+
+The goal of this ADR is not to be followed. It is to be *available* —
+a written description of where the architecture would go if the
+project's circumstances make that direction worth the trip.
 
 ## See also
 

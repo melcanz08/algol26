@@ -521,7 +521,7 @@ impl SemanticIRBuilder {
             Expr::Borrow { expr, .. } => {
                 let inner = self.translate_expr(program, func, current_block, expr);
                 let inner_type = inner.type_of();
-                TypedIRValue::Borrow {
+                TypedIRValue::BorrowShared {
                     expr: Box::new(inner),
                     target_type: Type::borrow(inner_type),
                 }
@@ -529,7 +529,7 @@ impl SemanticIRBuilder {
             Expr::MutBorrow { expr, .. } => {
                 let inner = self.translate_expr(program, func, current_block, expr);
                 let inner_type = inner.type_of();
-                TypedIRValue::MutBorrow {
+                TypedIRValue::BorrowMutable {
                     expr: Box::new(inner),
                     target_type: Type::mut_borrow(inner_type),
                 }

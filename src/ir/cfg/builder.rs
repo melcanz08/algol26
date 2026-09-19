@@ -15,7 +15,10 @@ use std::collections::HashMap;
 fn extract_var_name(v: &TypedIRValue) -> Option<String> {
     match v {
         TypedIRValue::Variable(name, _) => Some(name.clone()),
-        TypedIRValue::Borrow { expr, .. } | TypedIRValue::MutBorrow { expr, .. } => {
+        TypedIRValue::Borrow { expr, .. }
+        | TypedIRValue::MutBorrow { expr, .. }
+        | TypedIRValue::BorrowShared { expr, .. }
+        | TypedIRValue::BorrowMutable { expr, .. } => {
             if let TypedIRValue::Variable(name, _) = expr.as_ref() {
                 Some(name.clone())
             } else {
@@ -29,7 +32,10 @@ fn extract_var_name(v: &TypedIRValue) -> Option<String> {
 fn collect_all_vars(v: &TypedIRValue, out: &mut Vec<String>) {
     match v {
         TypedIRValue::Variable(name, _) => out.push(name.clone()),
-        TypedIRValue::Borrow { expr, .. } | TypedIRValue::MutBorrow { expr, .. } => {
+        TypedIRValue::Borrow { expr, .. }
+        | TypedIRValue::MutBorrow { expr, .. }
+        | TypedIRValue::BorrowShared { expr, .. }
+        | TypedIRValue::BorrowMutable { expr, .. } => {
             collect_all_vars(expr, out);
         }
         _ => {}
@@ -40,6 +46,12 @@ fn is_borrow(v: &TypedIRValue) -> Option<(String, bool)> {
     match v {
         TypedIRValue::Borrow { expr, .. } => extract_var_name(expr).map(|place| (place, false)),
         TypedIRValue::MutBorrow { expr, .. } => extract_var_name(expr).map(|place| (place, true)),
+        TypedIRValue::BorrowShared { expr, .. } => {
+            extract_var_name(expr).map(|place| (place, false))
+        }
+        TypedIRValue::BorrowMutable { expr, .. } => {
+            extract_var_name(expr).map(|place| (place, true))
+        }
         _ => None,
     }
 }

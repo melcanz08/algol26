@@ -548,7 +548,7 @@ impl SemanticIRBuilder {
                         Type::Unknown
                     }
                 };
-                TypedIRValue::Deref {
+                TypedIRValue::ReadReference {
                     expr: Box::new(inner),
                     target_type,
                 }

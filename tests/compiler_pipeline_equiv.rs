@@ -15,6 +15,37 @@ use algol26::compiler::program::Program;
 use algol26::compiler::Compiler;
 use algol26::ir::optimizer::Optimizer;
 use algol26::ir::semantic_ir::SemanticProgram;
+use std::path::{Path, PathBuf};
+
+/// Collect every `.gol` file under `dir`, recursing one level.
+///
+/// Fixtures are grouped by feature (Tier 4.1 restructure), so `dir`
+/// contains subdirectories like `arithmetic/`, `strings/`, `defer/`,
+/// each holding `.gol` files. Flat files directly under `dir` are
+/// also accepted for backwards compatibility.
+fn conformance_gol_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                for sub in sub_entries.flatten() {
+                    let sub_path = sub.path();
+                    if sub_path.extension().and_then(|s| s.to_str()) == Some("gol") {
+                        out.push(sub_path);
+                    }
+                }
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("gol") {
+            out.push(path);
+        }
+    }
+    out.sort();
+    out
+}
 
 #[test]
 fn verify_pass_agrees_with_direct_call_on_conformance_valid() {
@@ -23,13 +54,7 @@ fn verify_pass_agrees_with_direct_call_on_conformance_valid() {
     let mut agreed_ok = 0usize;
     let mut agreed_err = 0usize;
 
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("gol") {
-            continue;
-        }
-
+    for path in conformance_gol_files(dir) {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
@@ -86,13 +111,7 @@ fn optimize_pass_produces_identical_ir_to_direct_call() {
     let dir = std::path::Path::new("tests/conformance/valid");
     let mut checked = 0usize;
 
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("gol") {
-            continue;
-        }
-
+    for path in conformance_gol_files(dir) {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
@@ -151,13 +170,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
     let dir = std::path::Path::new("tests/conformance/valid");
     let mut checked = 0usize;
 
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("gol") {
-            continue;
-        }
-
+    for path in conformance_gol_files(dir) {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
@@ -236,13 +249,7 @@ fn type_check_pass_agrees_with_direct_call() {
     let dir = std::path::Path::new("tests/conformance/valid");
     let mut checked = 0usize;
 
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("gol") {
-            continue;
-        }
-
+    for path in conformance_gol_files(dir) {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
@@ -314,12 +321,7 @@ fn type_table_complete_passes_on_conformance_suite() {
     let mut checked = 0usize;
     let mut total_warnings = 0usize;
 
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("gol") {
-            continue;
-        }
+    for path in conformance_gol_files(dir) {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 

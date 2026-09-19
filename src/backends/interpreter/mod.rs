@@ -172,14 +172,29 @@ impl Interpreter {
                     let idx_key = format!("{}_idx", iterator);
                     let current_idx = match self.variables.get(&idx_key) {
                         Some(RuntimeValue::Int(i)) => *i as usize,
-                        _ => 0,
+                        Some(other) => {
+                            return Err(EvalError::Runtime(format!(
+                                "iterator index `{}` has wrong type at runtime: {}",
+                                idx_key,
+                                runtime::runtime_kind(other)
+                            )));
+                        }
+                        None => {
+                            return Err(EvalError::Runtime(format!(
+                                "iterator index `{}` not found — `IteratorInit` \
+                                 should have created it",
+                                idx_key
+                            )));
+                        }
                     };
 
-                    let iterable = self
-                        .variables
-                        .get(iterator)
-                        .cloned()
-                        .unwrap_or(RuntimeValue::Void);
+                    let iterable = self.variables.get(iterator).cloned().ok_or_else(|| {
+                        EvalError::Runtime(format!(
+                            "iterator `{}` not found — `IteratorInit` should \
+                             have bound it",
+                            iterator
+                        ))
+                    })?;
 
                     if let RuntimeValue::List(list) = iterable {
                         if current_idx < list.len() {

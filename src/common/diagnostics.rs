@@ -14,6 +14,39 @@ pub struct CompileError {
     pub suggestion: Option<String>,
 }
 
+/// The bucket code the diagnostic renderer prefixes on every error.
+///
+/// **Two-tier diagnostic system.** ALGOL26 uses two distinct code
+/// vocabularies that serve different purposes:
+///
+/// - **`ErrorCode::E0001..E0009`** (this enum) — the coarse bucket
+///   the renderer prints at the start of every message. Stable,
+///   enumerated, and machine-readable. Tools that filter or count
+///   by category look at these.
+/// - **`E-XXX-NNN` sub-codes** — embedded in the *message text* by
+///   specific subsystems (`E-MOVE-001`, `E-REGION-001`,
+///   `E-ESCAPE-002`, etc.). They carry finer-grained meaning for
+///   humans but are not part of the `CompileError` struct.
+///
+/// A single diagnostic can carry both: `E0002` from the renderer
+/// plus `E-UNSUPPORTED-001` inside the message. This is deliberate.
+/// Unifying them is a future refactor (see
+/// `docs/architecture-direction.md`, Tier 2.5).
+///
+/// **Current `E0001..E0009` bucket meanings** (approximate; the
+/// message carries the detail):
+///
+/// | Code | Broad category |
+/// |---|---|
+/// | E0001 | I/O / lexing / file access |
+/// | E0002 | IR construction or verification |
+/// | E0003 | Undefined identifier |
+/// | E0004 | Unsupported operation in a backend |
+/// | E0005 | Reserved |
+/// | E0006 | Reserved |
+/// | E0007 | Concurrency / race / borrow |
+/// | E0008 | Reserved |
+/// | E0009 | Internal / codegen invariant |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     E0001,

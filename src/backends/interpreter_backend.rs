@@ -48,13 +48,7 @@ impl Backend for InterpreterBackend {
 
         // Capture output from interpreter
         let output = interpreter.run().map_err(|e| {
-            CompileError::simple(
-                &format!("Runtime error: {:?}", e),
-                0,
-                0,
-                "",
-                ErrorCode::E0002,
-            )
+            CompileError::simple(&format!("Runtime error: {}", e), 0, 0, "", ErrorCode::E0002)
         })?;
 
         let stdout = if output.is_empty() {

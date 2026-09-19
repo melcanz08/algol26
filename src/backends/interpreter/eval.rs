@@ -5,6 +5,24 @@ use super::Interpreter;
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{SemanticBinOp, TypedIRValue};
 
+/// Extract a numeric `f64` from a runtime value, or fail closed.
+///
+/// The analyzer only permits `List.sum`/`List.max`/`List.min` on
+/// `List<Int>` or `List<Float>`. If a non-numeric element reaches
+/// these builtins at runtime, the analyzer missed something —
+/// returning a placeholder would silently produce a wrong sum.
+fn numeric_element(v: &RuntimeValue, op: &'static str) -> Result<f64, EvalError> {
+    match v {
+        RuntimeValue::Int(i) => Ok(*i as f64),
+        RuntimeValue::Float(f) => Ok(*f),
+        other => Err(EvalError::TypeMismatch {
+            op,
+            left: runtime_kind(other),
+            right: "Int | Float",
+        }),
+    }
+}
+
 impl Interpreter {
     pub(super) fn eval_value(&mut self, v: &TypedIRValue) -> Result<RuntimeValue, EvalError> {
         Ok(match v {
@@ -14,11 +32,15 @@ impl Interpreter {
             TypedIRValue::String(s) => RuntimeValue::String(s.clone()),
             TypedIRValue::Void => RuntimeValue::Void,
 
-            TypedIRValue::Variable(name, _) => self
-                .variables
-                .get(name)
-                .cloned()
-                .unwrap_or(RuntimeValue::Void),
+            TypedIRValue::Variable(name, _) => {
+                self.variables.get(name).cloned().ok_or_else(|| {
+                    EvalError::Runtime(format!(
+                        "variable `{}` not found at runtime — the verifier \
+                         should have caught this",
+                        name
+                    ))
+                })?
+            }
 
             TypedIRValue::List(elems, _) => {
                 let mut out = Vec::with_capacity(elems.len());
@@ -254,14 +276,10 @@ impl Interpreter {
 
             "List.sum" | "sum" => match arg_vals.first() {
                 Some(RuntimeValue::List(list)) => {
-                    let sum: f64 = list
-                        .iter()
-                        .map(|v| match v {
-                            RuntimeValue::Int(i) => *i as f64,
-                            RuntimeValue::Float(f) => *f,
-                            _ => 0.0,
-                        })
-                        .sum();
+                    let mut sum = 0.0;
+                    for v in list {
+                        sum += numeric_element(v, "List.sum")?;
+                    }
                     Ok(RuntimeValue::Float(sum))
                 }
                 Some(other) => Err(EvalError::TypeMismatch {
@@ -274,14 +292,13 @@ impl Interpreter {
 
             "List.max" => match arg_vals.first() {
                 Some(RuntimeValue::List(list)) => {
-                    let max = list
-                        .iter()
-                        .filter_map(|v| match v {
-                            RuntimeValue::Int(i) => Some(*i as f64),
-                            RuntimeValue::Float(f) => Some(*f),
-                            _ => None,
-                        })
-                        .fold(f64::NEG_INFINITY, f64::max);
+                    let mut max = f64::NEG_INFINITY;
+                    for v in list {
+                        let f = numeric_element(v, "List.max")?;
+                        if f > max {
+                            max = f;
+                        }
+                    }
                     Ok(RuntimeValue::Float(max))
                 }
                 Some(other) => Err(EvalError::TypeMismatch {
@@ -388,7 +405,16 @@ impl Interpreter {
                     "Math.floor" => x.floor(),
                     "Math.ceil" => x.ceil(),
                     "Math.abs" => x.abs(),
-                    _ => unreachable!(), // unreachable: outer match bound `func` to this arm's alternatives
+                    _ => {
+                        // The outer match arm binds `func` to the
+                        // Math.* names handled above. Reaching this
+                        // point means the arm list and the inner
+                        // dispatch got out of sync.
+                        return Err(EvalError::Unsupported {
+                            construct: "Math builtin dispatch",
+                            hint: "internal: arm list out of sync with Math.* alternatives",
+                        });
+                    }
                 };
                 Ok(RuntimeValue::Float(r))
             }
@@ -494,7 +520,16 @@ impl Interpreter {
             }
 
             let result = self.execute_function(&callee);
-            let ret = self.return_value.take().unwrap_or(RuntimeValue::Void);
+            let ret = match self.return_value.take() {
+                Some(v) => v,
+                None if callee.return_type == Type::Void => RuntimeValue::Void,
+                None => {
+                    return Err(EvalError::Runtime(format!(
+                        "function `{}` returned no value but its return type is `{}`",
+                        callee.name, callee.return_type
+                    )));
+                }
+            };
 
             self.variables = saved_vars;
             self.return_value = saved_ret;

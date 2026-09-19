@@ -265,7 +265,9 @@ pub fn verify(program: &SemanticProgram) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::common::types::Type;
-    use crate::ir::semantic_ir::{SemanticBlock, SemanticFunction, SemanticProgram, Terminator};
+    use crate::ir::semantic_ir::{
+        SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
+    };
 
     fn create_test_program() -> SemanticProgram {
         let mut program = SemanticProgram::new();
@@ -373,6 +375,275 @@ mod tests {
             is_extern: false,
         };
         program.functions.push(func);
+        assert!(CFGVerifier::verify(&program).is_err());
+    }
+
+    #[test]
+    fn well_formed_fork_is_accepted() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        let a = program.new_block_id();
+        let b = program.new_block_id();
+        let join = program.new_block_id();
+        let func = SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![
+                SemanticBlock {
+                    id: entry,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Fork {
+                        blocks: vec![a, b],
+                        join_block: join,
+                    }),
+                },
+                SemanticBlock {
+                    id: a,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: b,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: join,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }),
+                },
+            ],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+        assert!(CFGVerifier::verify(&program).is_ok());
+    }
+
+    #[test]
+    fn fork_branch_with_extra_predecessor_is_rejected() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        let fork_block = program.new_block_id();
+        let extra = program.new_block_id();
+        let a = program.new_block_id();
+        let join = program.new_block_id();
+        let func = SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![
+                SemanticBlock {
+                    id: entry,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Branch {
+                        condition: TypedIRValue::Bool(true),
+                        then_block: fork_block,
+                        else_block: extra,
+                    }),
+                },
+                SemanticBlock {
+                    id: fork_block,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Fork {
+                        blocks: vec![a],
+                        join_block: join,
+                    }),
+                },
+                SemanticBlock {
+                    id: extra,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: a }),
+                },
+                SemanticBlock {
+                    id: a,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: join,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }),
+                },
+            ],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+        // `a` is a fork branch but has two predecessors: `fork_block`
+        // and `extra`. Rule 1 rejects it.
+        assert!(CFGVerifier::verify(&program).is_err());
+    }
+
+    #[test]
+    fn fork_branch_with_early_return_is_rejected() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        let a = program.new_block_id();
+        let b = program.new_block_id();
+        let join = program.new_block_id();
+        let func = SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![
+                SemanticBlock {
+                    id: entry,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Fork {
+                        blocks: vec![a, b],
+                        join_block: join,
+                    }),
+                },
+                SemanticBlock {
+                    id: a,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }),
+                },
+                SemanticBlock {
+                    id: b,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: join,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }),
+                },
+            ],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+        // Branch `a` terminates with `Return` instead of `Jump{join}`.
+        // Rule 2 rejects it.
+        assert!(CFGVerifier::verify(&program).is_err());
+    }
+
+    #[test]
+    fn fork_branch_with_nested_fork_is_rejected() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        let a = program.new_block_id();
+        let b = program.new_block_id();
+        let join = program.new_block_id();
+        let a_inner = program.new_block_id();
+        let a_inner_join = program.new_block_id();
+        let func = SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![
+                SemanticBlock {
+                    id: entry,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Fork {
+                        blocks: vec![a, b],
+                        join_block: join,
+                    }),
+                },
+                SemanticBlock {
+                    id: a,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Fork {
+                        blocks: vec![a_inner],
+                        join_block: a_inner_join,
+                    }),
+                },
+                SemanticBlock {
+                    id: a_inner,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump {
+                        block: a_inner_join,
+                    }),
+                },
+                SemanticBlock {
+                    id: a_inner_join,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: b,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: join,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }),
+                },
+            ],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+        // Branch `a` contains a nested `Fork`. The outer fork's Rule 2
+        // sees `a` in its reachable set and rejects the nested terminator.
+        assert!(CFGVerifier::verify(&program).is_err());
+    }
+
+    #[test]
+    fn fork_join_in_branches_is_rejected() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        let a = program.new_block_id();
+        let b = program.new_block_id();
+        let join = program.new_block_id();
+        let func = SemanticFunction {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![
+                SemanticBlock {
+                    id: entry,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Fork {
+                        blocks: vec![a, b, join],
+                        join_block: join,
+                    }),
+                },
+                SemanticBlock {
+                    id: a,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: b,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: join,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }),
+                },
+            ],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+        // `join` appears in its own fork's `blocks` list. Rule 1 fires
+        // first here (join has three predecessors), but either Rule 1
+        // or Rule 3 would reject the shape. The test asserts rejection.
         assert!(CFGVerifier::verify(&program).is_err());
     }
 }

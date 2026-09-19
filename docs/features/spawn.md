@@ -75,6 +75,33 @@ independent. The analyzer currently requires the spawned block to be
 `Void` (or to end without producing a value); a spawn block with a
 trailing expression is a compile error.
 
+## Parallel block shape
+
+A `parallel` block is not "run these branches concurrently." It is
+"run these branches in source order, then continue at the join." The
+interpreter enforces this via a worklist (`pending_forks`) that
+intercepts each branch's jump to the join and runs the next branch
+instead. The final branch's jump is allowed through.
+
+For this to work, the IR for a `parallel` block must have a specific
+shape. The CFG verifier enforces three rules (`src/ir/cfg_verifier.rs`):
+
+1. Each branch is entered only from the block containing the `Fork`.
+2. No path through a branch exits the branch except via a `Jump` to
+   the join block. In particular, a branch may not contain `return`,
+   `spawn`, or another `parallel`.
+3. The join block is not also listed as a branch.
+
+Programs that violate these rules are rejected at verification time
+with a diagnostic naming the constraint. The rules exist because the
+interpreter's `pending_forks` logic silently assumes them; without
+the verifier, an IR-builder change could produce a program whose
+control flow differs from what the source implies.
+
+See `docs/decisions/0011-phase4-task-model.md` for the design
+discussion and the alternative (a full task-model redesign) that
+was considered and deferred.
+
 ## IR representation
 
 In `src/ir/semantic_ir.rs`, two `Terminator` variants:

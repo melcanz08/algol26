@@ -388,18 +388,11 @@ Collapse `Send`/`ChannelSend` into `SendChannel`; same for receive.
 
 ### Phase 4 — Task canonicalization
 
-> **Status:** Not started. Requires its own ADR.
->
-> Discovery during Phase 2: the interpreter's `pending_forks` queue
-> implements continuation-passing-style concurrency, not the task
-> model this ADR proposes. The CFG has no representation for
-> continuation capture. Canonicalizing `Fork` to `SpawnTask` +
-> `JoinTask` is a **redesign** of the interpreter's concurrency model,
-> not a rename of a terminator.
->
-> The next deliverable is a short ADR proposing the migration,
-> including what `pending_forks`'s actual semantics are and how the
-> CFG should represent them.
+> **Resolved by investigation, not by redesign.** See
+> `docs/decisions/0011-phase4-task-model.md`. The canonical
+> `SpawnTask` / `JoinTask` migration was considered and deferred
+> in favor of enforcing the existing `Fork` shape via the CFG
+> verifier. The rules landed 2026-09-19.
 
 
 Replace `Terminator::Fork` with `SpawnTask` + `JoinTask` sequences.

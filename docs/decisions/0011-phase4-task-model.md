@@ -317,6 +317,12 @@ doubles. Revise it before proceeding.
 this ADR — a one-line note under "The constraint on
 `parallel`" — and continue to Step 2.
 
+> **Completed 2026-09-19.** Findings: `pending_forks` description in
+> this ADR is accurate; `spawn` does **not** have the parallel
+> constraint (it has no worklist — the spawned block runs inline and
+> continues); `cfg_verifier.rs` did not build a predecessor map, so
+> the implementation adds one.
+
 ### Step 2 — Add CFG verifier rules for `Fork`
 
 In `src/ir/cfg_verifier.rs`, for every `Fork { blocks,
@@ -344,6 +350,10 @@ what `cfg_verifier.rs` walks. The instruction-level verifier
 handles semantic properties (types, environments); the CFG
 verifier handles structural properties.
 
+> **Completed 2026-09-19.** Rules implemented in `cfg_verifier.rs`,
+> inside `verify_function`, after the switch-case check. Rule 2 as
+> originally worded was too strict — see the refinement note below.
+
 ### Step 3 — Add tests for the new CFG verifier rules
 
 In `src/ir/cfg_verifier.rs`'s test module:
@@ -353,6 +363,10 @@ In `src/ir/cfg_verifier.rs`'s test module:
 - `fork_branch_with_nested_fork_is_rejected`
 - `fork_join_in_branches_is_rejected`
 - `well_formed_fork_is_accepted` (positive case)
+
+> **Completed 2026-09-19.** Five tests added to `cfg_verifier.rs`'s
+> test module: `well_formed_fork_is_accepted` plus four rejection
+> cases covering Rules 1 and 2.
 
 ### Step 4 — Document the constraint
 
@@ -374,6 +388,26 @@ language; the CFG verifier tests cover them directly.
 Update ADR 0010's Phase 4 section to point at this ADR and
 record that Option B was chosen. This closes Phase 4 of ADR
 0010 as "resolved by investigation, not by redesign."
+
+### Rule 2 as implemented differs from the ADR's phrasing
+
+The ADR's original Rule 2 said: *every block in `Fork.blocks`
+terminates with `Jump { block: join_block }` directly.*
+
+That is too strict. A branch body containing an `if` — perfectly
+legal source like `parallel do\n  if x > 0 then print(1)\nand\n
+print(2)` — is translated into multiple blocks. The branch's entry
+terminates with `Branch`, not `Jump{join}`; only the inner block
+does.
+
+The implemented rule is: *no path through a branch exits the branch
+except via a `Jump` to the join*. That means: walking the reachable
+set from each branch entry, excluding the join, every block's
+terminator must not be `Return`, `Spawn`, or `Fork`, and no block in
+the set (other than the entry itself) may be another branch's entry.
+
+This is what `cfg_verifier.rs` enforces. The ADR's original phrasing
+would have rejected legal programs.
 
 ## Open questions
 
@@ -411,6 +445,16 @@ Remaining open questions:
    the current implementation builds a predecessor map or
    relies on forward-only traversal affects the shape of the
    new rules. A short read of the file before Step 2.
+
+5. **What does `return` inside `spawn` mean?** Step 1(b) established
+   that `spawn` does not have the `parallel` constraint. But the
+   interpreter's handling of `Return` inside a spawn body is: the
+   spawned task's return value becomes the *whole function's* return
+   value, and the spawn's continuation block never runs. That is
+   consistent with "spawn is an inline synchronous block that runs
+   before the spawner continues," but not with "spawn is a task."
+   A future language-semantics ADR should decide which reading is
+   intended. Not a verifier concern.
 
 ## See also
 

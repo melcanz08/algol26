@@ -592,12 +592,6 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
         TypedIRValue::Error { value, .. } => {
             collect_variables_from_value(value, vars);
         }
-        TypedIRValue::Borrow { expr, .. } => {
-            collect_variables_from_value(expr, vars);
-        }
-        TypedIRValue::MutBorrow { expr, .. } => {
-            collect_variables_from_value(expr, vars);
-        }
         TypedIRValue::BorrowShared { expr, .. } => {
             collect_variables_from_value(expr, vars);
         }

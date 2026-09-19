@@ -67,14 +67,6 @@ pub enum TypedIRValue {
         index: Box<TypedIRValue>,
         element_type: Type,
     },
-    Borrow {
-        expr: Box<TypedIRValue>,
-        target_type: Type,
-    },
-    MutBorrow {
-        expr: Box<TypedIRValue>,
-        target_type: Type,
-    },
     BorrowShared {
         expr: Box<TypedIRValue>,
         target_type: Type,
@@ -125,8 +117,6 @@ impl TypedIRValue {
             TypedIRValue::BinaryOp { result_type, .. } => result_type.clone(),
             TypedIRValue::Call { return_type, .. } => return_type.clone(),
             TypedIRValue::ArrayAccess { element_type, .. } => element_type.clone(),
-            TypedIRValue::Borrow { target_type, .. } => target_type.clone(),
-            TypedIRValue::MutBorrow { target_type, .. } => target_type.clone(),
             TypedIRValue::BorrowShared { target_type, .. } => target_type.clone(),
             TypedIRValue::BorrowMutable { target_type, .. } => target_type.clone(),
             TypedIRValue::Deref { target_type, .. } => target_type.clone(),

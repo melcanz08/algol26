@@ -109,28 +109,6 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             }
             elem
         }
-        TypedIRValue::Borrow { expr, target_type } => {
-            let inner = verify_value(expr, env)?;
-            let expected = Type::borrow(inner);
-            if !target_type.is_unknown() && !expected.is_unknown() && target_type != &expected {
-                return Err(format!(
-                    "Borrow claims {:?} but operand is {:?}",
-                    target_type, expected
-                ));
-            }
-            expected
-        }
-        TypedIRValue::MutBorrow { expr, target_type } => {
-            let inner = verify_value(expr, env)?;
-            let expected = Type::mut_borrow(inner);
-            if !target_type.is_unknown() && !expected.is_unknown() && target_type != &expected {
-                return Err(format!(
-                    "MutBorrow claims {:?} but operand is {:?}",
-                    target_type, expected
-                ));
-            }
-            expected
-        }
         TypedIRValue::BorrowShared { expr, target_type } => {
             let inner = verify_value(expr, env)?;
             let expected = Type::borrow(inner);

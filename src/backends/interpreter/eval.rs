@@ -126,9 +126,7 @@ impl Interpreter {
             // The interpreter does not model references or regions.
             // Refuse loudly; the capability matrix should have caught
             // this before the interpreter ran.
-            TypedIRValue::Borrow { .. }
-            | TypedIRValue::BorrowShared { .. }
-            | TypedIRValue::MutBorrow { .. }
+            TypedIRValue::BorrowShared { .. }
             | TypedIRValue::BorrowMutable { .. }
             | TypedIRValue::Deref { .. }
             | TypedIRValue::AddrOf { .. } => {

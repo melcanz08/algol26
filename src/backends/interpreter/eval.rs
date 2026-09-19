@@ -31,7 +31,6 @@ impl Interpreter {
             TypedIRValue::Bool(b) => RuntimeValue::Bool(*b),
             TypedIRValue::String(s) => RuntimeValue::String(s.clone()),
             TypedIRValue::Void => RuntimeValue::Void,
-
             TypedIRValue::Variable(name, _) => {
                 self.variables.get(name).cloned().ok_or_else(|| {
                     EvalError::Runtime(format!(
@@ -41,7 +40,6 @@ impl Interpreter {
                     ))
                 })?
             }
-
             TypedIRValue::List(elems, _) => {
                 let mut out = Vec::with_capacity(elems.len());
                 for e in elems {
@@ -49,7 +47,6 @@ impl Interpreter {
                 }
                 RuntimeValue::List(out)
             }
-
             // `Array` was previously unhandled. Treat it as a List —
             // the interpreter's runtime value model has no fixed-size
             // array; fixed sizes are a compile-time property.
@@ -60,7 +57,6 @@ impl Interpreter {
                 }
                 RuntimeValue::List(out)
             }
-
             TypedIRValue::ArrayAccess { array, index, .. } => {
                 let arr = self.eval_value(array)?;
                 let idx = self.eval_value(index)?;
@@ -95,7 +91,6 @@ impl Interpreter {
                     ))
                 })?
             }
-
             TypedIRValue::BinaryOp {
                 op, left, right, ..
             } => {
@@ -103,11 +98,9 @@ impl Interpreter {
                 let r = self.eval_value(right)?;
                 return Self::eval_binop(op, l, r);
             }
-
             TypedIRValue::Call { function, args, .. } => {
                 return self.eval_call(function, args);
             }
-
             TypedIRValue::Cast { value, target_type } => {
                 let v = self.eval_value(value)?;
                 match (v, target_type) {
@@ -116,7 +109,6 @@ impl Interpreter {
                     (v, _) => v,
                 }
             }
-
             TypedIRValue::Some(inner) => {
                 RuntimeValue::Option(Some(Box::new(self.eval_value(inner)?)))
             }
@@ -129,15 +121,15 @@ impl Interpreter {
                 is_ok: false,
                 value: Box::new(self.eval_value(value)?),
             },
-
             TypedIRValue::PtrLiteral(n) => RuntimeValue::Int(*n as i64),
             TypedIRValue::NullPtr => RuntimeValue::Int(0),
-
             // The interpreter does not model references or regions.
             // Refuse loudly; the capability matrix should have caught
             // this before the interpreter ran.
             TypedIRValue::Borrow { .. }
+            | TypedIRValue::BorrowShared { .. }
             | TypedIRValue::MutBorrow { .. }
+            | TypedIRValue::BorrowMutable { .. }
             | TypedIRValue::Deref { .. }
             | TypedIRValue::AddrOf { .. } => {
                 return Err(EvalError::Unsupported {

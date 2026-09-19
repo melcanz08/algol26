@@ -29,9 +29,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                     )
                 }),
             // A reference-to-reference yields the inner reference.
-            TypedIRValue::Borrow { expr, .. } | TypedIRValue::MutBorrow { expr, .. } => {
-                self.compile_value(expr)
-            }
+            TypedIRValue::Borrow { expr, .. }
+            | TypedIRValue::BorrowShared { expr, .. }
+            | TypedIRValue::MutBorrow { expr, .. }
+            | TypedIRValue::BorrowMutable { expr, .. } => self.compile_value(expr),
             // Anything else falls back to producing a value; the caller
             // (or verifier) is responsible for ensuring it's used as a
             // reference only when the inner form is addressable.
@@ -370,6 +371,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                 self.compile_reference(expr)?
             }
             TypedIRValue::MutBorrow { expr, .. } => self.compile_reference(expr)?,
+            TypedIRValue::BorrowShared { expr, .. } => self.compile_reference(expr)?,
+            TypedIRValue::BorrowMutable { expr, .. } => self.compile_reference(expr)?,
             TypedIRValue::Deref { expr, target_type } => {
                 let ptr = self.compile_value(expr)?;
                 if !ptr.is_pointer_value() {

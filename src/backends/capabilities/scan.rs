@@ -190,7 +190,9 @@ pub(super) fn scan_value(
             scan_value(index, extern_fns, used);
         }
         TypedIRValue::Borrow { expr, .. }
+        | TypedIRValue::BorrowShared { expr, .. }
         | TypedIRValue::MutBorrow { expr, .. }
+        | TypedIRValue::BorrowMutable { expr, .. }
         | TypedIRValue::Deref { expr, .. }
         | TypedIRValue::AddrOf { expr, .. } => scan_value(expr, extern_fns, used),
         TypedIRValue::Range(start, end) => {

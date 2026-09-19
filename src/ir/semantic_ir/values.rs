@@ -75,6 +75,14 @@ pub enum TypedIRValue {
         expr: Box<TypedIRValue>,
         target_type: Type,
     },
+    BorrowShared {
+        expr: Box<TypedIRValue>,
+        target_type: Type,
+    },
+    BorrowMutable {
+        expr: Box<TypedIRValue>,
+        target_type: Type,
+    },
     Deref {
         expr: Box<TypedIRValue>,
         target_type: Type,
@@ -119,6 +127,8 @@ impl TypedIRValue {
             TypedIRValue::ArrayAccess { element_type, .. } => element_type.clone(),
             TypedIRValue::Borrow { target_type, .. } => target_type.clone(),
             TypedIRValue::MutBorrow { target_type, .. } => target_type.clone(),
+            TypedIRValue::BorrowShared { target_type, .. } => target_type.clone(),
+            TypedIRValue::BorrowMutable { target_type, .. } => target_type.clone(),
             TypedIRValue::Deref { target_type, .. } => target_type.clone(),
             TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
             _ => Type::Unknown,

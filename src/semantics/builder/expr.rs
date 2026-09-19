@@ -378,14 +378,14 @@ impl SemanticIRBuilder {
             }
             Stmt::Send { channel, value, .. } => {
                 let typed_value = self.translate_expr(program, func, current_block, value);
-                SemanticInstruction::Send {
+                SemanticInstruction::SendChannel {
                     channel: channel.clone(),
                     value: typed_value,
                 }
             }
             Stmt::Receive {
                 channel, target, ..
-            } => SemanticInstruction::Receive {
+            } => SemanticInstruction::ReceiveChannel {
                 channel: channel.clone(),
                 target: target.clone(),
             },

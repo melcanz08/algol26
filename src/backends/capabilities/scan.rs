@@ -125,11 +125,11 @@ pub(super) fn scan_instruction(
         Instruction::ChannelDecl { .. } => {
             used.insert(Feature::Channels);
         }
-        Instruction::Send { value, .. } | Instruction::ChannelSend { value, .. } => {
+        Instruction::SendChannel { value, .. } => {
             used.insert(Feature::Channels);
             scan_value(value, extern_fns, used);
         }
-        Instruction::Receive { .. } | Instruction::ChannelReceive { .. } => {
+        Instruction::ReceiveChannel { .. } => {
             used.insert(Feature::Channels);
         }
         Instruction::Allocate { size, .. } => {

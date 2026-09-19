@@ -176,7 +176,7 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                             args: args.iter().filter_map(extract_var_name).collect(),
                         })
                     }
-                    I::ChannelSend { channel, value } | I::Send { channel, value } => {
+                    I::SendChannel { channel, value } => {
                         if let Some(var_name) = extract_var_name(value) {
                             instrs.push(CfgInstruction::Use {
                                 name: var_name.clone(),
@@ -230,7 +230,7 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                     // Receive: binds `target` to a value read from the
                     // channel. Like ChannelDecl, no ownership transfer
                     // crosses this boundary.
-                    I::Receive { channel, target } | I::ChannelReceive { channel, target } => {
+                    I::ReceiveChannel { channel, target } => {
                         instrs.push(CfgInstruction::Use {
                             name: channel.clone(),
                         });

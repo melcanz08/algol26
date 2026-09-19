@@ -208,7 +208,7 @@ pub(super) fn verify_instruction(
             env.mutability.insert(name.clone(), false);
             Ok(())
         }
-        Instruction::Send { channel, value } | Instruction::ChannelSend { channel, value } => {
+        Instruction::SendChannel { channel, value } => {
             let chan_ty = env.variables.get(channel).ok_or_else(|| {
                 format!(
                     "Function '{}': Send on undeclared channel '{}'",
@@ -224,8 +224,7 @@ pub(super) fn verify_instruction(
             verify_value(value, env)?;
             Ok(())
         }
-        Instruction::Receive { channel, target }
-        | Instruction::ChannelReceive { channel, target } => {
+        Instruction::ReceiveChannel { channel, target } => {
             let chan_ty = env.variables.get(channel).ok_or_else(|| {
                 format!(
                     "Function '{}': Receive on undeclared channel '{}'",

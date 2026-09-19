@@ -408,10 +408,8 @@ impl Interpreter {
             // here. Listed explicitly (rather than `_ =>`) so a
             // future IR variant forces a decision at compile time.
             Instruction::ChannelDecl { .. } => {}
-            Instruction::Send { .. } => {}
-            Instruction::Receive { .. } => {}
-            Instruction::ChannelSend { .. } => {}
-            Instruction::ChannelReceive { .. } => {}
+            Instruction::SendChannel { .. } => {}
+            Instruction::ReceiveChannel { .. } => {}
         }
         Ok(())
     }

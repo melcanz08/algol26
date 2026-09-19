@@ -427,19 +427,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                 "channel declaration (channels have no LLVM lowering)",
                 "llvm",
             )),
-            Instruction::Send { .. } => Err(CompileError::unsupported_operation(
+            Instruction::SendChannel { .. } => Err(CompileError::unsupported_operation(
                 "channel send (channels have no LLVM lowering)",
                 "llvm",
             )),
-            Instruction::Receive { .. } => Err(CompileError::unsupported_operation(
-                "channel receive (channels have no LLVM lowering)",
-                "llvm",
-            )),
-            Instruction::ChannelSend { .. } => Err(CompileError::unsupported_operation(
-                "channel send (channels have no LLVM lowering)",
-                "llvm",
-            )),
-            Instruction::ChannelReceive { .. } => Err(CompileError::unsupported_operation(
+            Instruction::ReceiveChannel { .. } => Err(CompileError::unsupported_operation(
                 "channel receive (channels have no LLVM lowering)",
                 "llvm",
             )),

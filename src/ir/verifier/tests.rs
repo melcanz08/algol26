@@ -241,7 +241,7 @@ fn verifier_rejects_receive_on_non_channel() {
                 type_: Type::Int,
                 value: TypedIRValue::Int(0),
             },
-            Instruction::Receive {
+            Instruction::ReceiveChannel {
                 channel: "n".to_string(),
                 target: "y".to_string(),
             },
@@ -295,11 +295,11 @@ fn verifier_accepts_channel_send_receive() {
                 name: "ch".to_string(),
                 type_: Type::channel(Type::Int),
             },
-            Instruction::Send {
+            Instruction::SendChannel {
                 channel: "ch".to_string(),
                 value: TypedIRValue::Int(42),
             },
-            Instruction::Receive {
+            Instruction::ReceiveChannel {
                 channel: "ch".to_string(),
                 target: "got".to_string(),
             },

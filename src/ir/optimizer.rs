@@ -172,7 +172,7 @@ impl Optimizer {
                             }
                         }
                     }
-                    Instruction::Send { value, .. } => {
+                    Instruction::SendChannel { value, .. } => {
                         if self.fold_value(value) {
                             self.stats.folded_constants += 1;
                         }
@@ -444,10 +444,10 @@ impl Optimizer {
                         collect_variables_from_value(index, &mut used_variables);
                         collect_variables_from_value(value, &mut used_variables);
                     }
-                    Instruction::Send { value, .. } => {
+                    Instruction::SendChannel { value, .. } => {
                         collect_variables_from_value(value, &mut used_variables);
                     }
-                    Instruction::Receive { target, .. } => {
+                    Instruction::ReceiveChannel { target, .. } => {
                         used_variables.insert(target.clone());
                     }
                     _ => {}

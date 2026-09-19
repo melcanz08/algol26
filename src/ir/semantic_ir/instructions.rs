@@ -40,23 +40,14 @@ pub enum Instruction {
         name: String,
         type_: Type,
     },
-    Send {
+    SendChannel {
         channel: String,
         value: TypedIRValue,
     },
-    Receive {
+    ReceiveChannel {
         channel: String,
         target: String,
     },
-    ChannelSend {
-        channel: String,
-        value: TypedIRValue,
-    },
-    ChannelReceive {
-        channel: String,
-        target: String,
-    },
-
     Allocate {
         target: String,
         size: TypedIRValue,

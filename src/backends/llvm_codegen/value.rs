@@ -363,24 +363,6 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
             TypedIRValue::BorrowShared { expr, .. } => self.compile_reference(expr)?,
             TypedIRValue::BorrowMutable { expr, .. } => self.compile_reference(expr)?,
-            TypedIRValue::Deref { expr, target_type } => {
-                let ptr = self.compile_value(expr)?;
-                if !ptr.is_pointer_value() {
-                    // Reaching this arm means the IR has a Deref whose
-                    // operand was not lowered to a pointer. The verifier
-                    // should have rejected this; failing closed here
-                    // rather than returning the non-pointer value (which
-                    // would silently be the wrong value).
-                    return Err(CompileError::unsupported_operation(
-                        &format!("deref of non-pointer value (kind {:?})", ptr),
-                        "llvm",
-                    ));
-                }
-                let llvm_ty = self.map_type(target_type);
-                self.builder
-                    .build_load(llvm_ty, ptr.into_pointer_value(), "deref_load")
-                    .unwrap()
-            }
             TypedIRValue::ReadReference { expr, target_type } => {
                 let ptr = self.compile_value(expr)?;
                 if !ptr.is_pointer_value() {

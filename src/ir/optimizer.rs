@@ -598,9 +598,6 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
         TypedIRValue::BorrowMutable { expr, .. } => {
             collect_variables_from_value(expr, vars);
         }
-        TypedIRValue::Deref { expr, .. } => {
-            collect_variables_from_value(expr, vars);
-        }
         TypedIRValue::ReadReference { expr, .. } => {
             collect_variables_from_value(expr, vars);
         }

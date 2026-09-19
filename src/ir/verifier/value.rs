@@ -131,21 +131,6 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             }
             expected
         }
-        TypedIRValue::Deref { expr, target_type } => {
-            let inner = verify_value(expr, env)?;
-            let expected = match inner {
-                Type::Pointer(t) | Type::Borrow(t) | Type::MutBorrow(t) => *t,
-                Type::Unknown => Type::Unknown,
-                other => return Err(format!("Deref on non-pointer type {:?}", other)),
-            };
-            if !target_type.is_unknown() && !expected.is_unknown() && target_type != &expected {
-                return Err(format!(
-                    "Deref claims {:?} but pointer points to {:?}",
-                    target_type, expected
-                ));
-            }
-            expected
-        }
         TypedIRValue::ReadReference { expr, target_type } => {
             let inner = verify_value(expr, env)?;
             let expected = match inner {

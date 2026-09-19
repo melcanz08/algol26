@@ -128,7 +128,6 @@ impl Interpreter {
             // this before the interpreter ran.
             TypedIRValue::BorrowShared { .. }
             | TypedIRValue::BorrowMutable { .. }
-            | TypedIRValue::Deref { .. }
             | TypedIRValue::ReadReference { .. }
             | TypedIRValue::AddrOf { .. } => {
                 return Err(EvalError::Unsupported {

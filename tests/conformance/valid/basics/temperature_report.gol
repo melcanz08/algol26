@@ -1,0 +1,61 @@
+// OUTPUT: Weekly Temperature Report
+// OUTPUT: =========================
+// OUTPUT: samples:
+// OUTPUT: 10
+// OUTPUT: mean (C):
+// OUTPUT: 20.8
+// OUTPUT: min (C):
+// OUTPUT: 18.3
+// OUTPUT: max (C):
+// OUTPUT: 23.5
+// OUTPUT: max (F):
+// OUTPUT: 74.3
+// OUTPUT: days above mean:
+// OUTPUT: 5
+// OUTPUT: days below mean:
+// OUTPUT: 5
+function to_fahrenheit(c: float) -> float
+    return c * 9.0 / 5.0 + 32.0
+
+procedure main
+    val temps := [18.5, 19.2, 20.1, 21.4, 22.8, 23.5, 22.9, 21.0, 19.8, 18.3]
+
+    var total := 0.0
+    var count := 0
+    for t in temps do
+        total := total + t
+        count := count + 1
+
+    val mean := total / count
+
+    var min_val := temps[0]
+    var max_val := temps[0]
+    var above := 0
+    var below := 0
+
+    for t in temps do
+        if t < min_val then
+            min_val := t
+        if t > max_val then
+            max_val := t
+        if t > mean then
+            above := above + 1
+        if t < mean then
+            below := below + 1
+
+    print("Weekly Temperature Report")
+    print("=========================")
+    print("samples:")
+    print(count)
+    print("mean (C):")
+    print(mean)
+    print("min (C):")
+    print(min_val)
+    print("max (C):")
+    print(max_val)
+    print("max (F):")
+    print(to_fahrenheit(max_val))
+    print("days above mean:")
+    print(above)
+    print("days below mean:")
+    print(below)

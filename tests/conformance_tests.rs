@@ -117,6 +117,34 @@ fn conformance_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/conformance")
 }
 
+/// Iterate over `.gol` files under `dir`, recursing exactly one level.
+/// Flat files directly under `dir` are also accepted (for backwards
+/// compatibility while the tree is being reorganized).
+fn gol_files_under(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return out,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                for sub in sub_entries.flatten() {
+                    let sub_path = sub.path();
+                    if sub_path.extension().and_then(|s| s.to_str()) == Some("gol") {
+                        out.push(sub_path);
+                    }
+                }
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("gol") {
+            out.push(path);
+        }
+    }
+    out.sort();
+    out
+}
+
 #[test]
 fn test_conformance_valid() {
     let bin = compiler_binary();
@@ -127,16 +155,9 @@ fn test_conformance_valid() {
     }
 
     let mut count = 0;
-    for entry in std::fs::read_dir(&dir).expect("read valid dir") {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("gol") {
-            continue;
-        }
-
+    for path in gol_files_under(&dir) {
         let source = std::fs::read_to_string(&path).expect("read program");
         let dirs = parse_directives(&source);
-
         let out = run_compiler(&bin, &path, dirs.backend.as_deref());
         let stdout = String::from_utf8_lossy(&out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -185,13 +206,7 @@ fn test_conformance_invalid() {
     }
 
     let mut count = 0;
-    for entry in std::fs::read_dir(&dir).expect("read invalid dir") {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("gol") {
-            continue;
-        }
-
+    for path in gol_files_under(&dir) {
         let source = std::fs::read_to_string(&path).expect("read program");
         let dirs = parse_directives(&source);
 

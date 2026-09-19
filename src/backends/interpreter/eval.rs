@@ -129,6 +129,7 @@ impl Interpreter {
             TypedIRValue::BorrowShared { .. }
             | TypedIRValue::BorrowMutable { .. }
             | TypedIRValue::Deref { .. }
+            | TypedIRValue::ReadReference { .. }
             | TypedIRValue::AddrOf { .. } => {
                 return Err(EvalError::Unsupported {
                     construct: "references",

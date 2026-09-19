@@ -381,6 +381,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_load(llvm_ty, ptr.into_pointer_value(), "deref_load")
                     .unwrap()
             }
+            TypedIRValue::ReadReference { expr, target_type } => {
+                let ptr = self.compile_value(expr)?;
+                if !ptr.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        &format!("read through non-pointer value (kind {:?})", ptr),
+                        "llvm",
+                    ));
+                }
+                let llvm_ty = self.map_type(target_type);
+                self.builder
+                    .build_load(llvm_ty, ptr.into_pointer_value(), "read_ref_load")
+                    .unwrap()
+            }
             TypedIRValue::AddrOf { expr, .. } => {
                 if let TypedIRValue::Variable(name, _) = expr.as_ref() {
                     self.variables

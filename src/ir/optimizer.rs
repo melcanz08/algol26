@@ -601,6 +601,9 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
         TypedIRValue::Deref { expr, .. } => {
             collect_variables_from_value(expr, vars);
         }
+        TypedIRValue::ReadReference { expr, .. } => {
+            collect_variables_from_value(expr, vars);
+        }
         TypedIRValue::AddrOf { expr, .. } => {
             collect_variables_from_value(expr, vars);
         }

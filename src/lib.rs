@@ -18,6 +18,5 @@ pub mod diagnostics;
 pub mod ffi;
 pub mod frontend;
 pub mod ir;
-pub mod runtime;
 pub mod semantics;
 pub mod toolchain;

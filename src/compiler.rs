@@ -253,20 +253,55 @@ impl Compiler {
     /// verifier before returning). Both properties are enforced by
     /// the type system, not by convention.
     fn run_optimize_pass(&self, verified: VerifiedIR) -> Result<VerifiedIR> {
-        use crate::ir::optimizer::Optimizer;
+        use crate::compiler::context::{CompilerConfig, CompilerContext};
+        use crate::compiler::passes::optimize::OptimizePass;
+        use crate::compiler::passes::verify_ir::VerifyIrPass;
+        use crate::compiler::pipeline::Pipeline;
+        use crate::compiler::program::Program;
+        use crate::compiler::scheduler::Scheduler;
 
-        let mut optimizer = Optimizer::new();
-        verified
-            .mutate(|program| optimizer.optimize(program))
-            .map_err(|e| {
-                CompileError::simple(
-                    &format!("IR verification failed after optimization: {}", e),
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0002,
-                )
-            })
+        // Route through the pass pipeline so `Scheduler` enforces
+        // the `ir.optimize` contract: a `Transform` pass must be
+        // followed by a `Verification` at the same level. Before
+        // this change, `run_optimize_pass` called `Optimizer`
+        // directly via `VerifiedIR::mutate`, which re-verified the
+        // result but never triggered the scheduler's chain check.
+        // The contract was documented and the pass was registered,
+        // but the enforcement never ran on the compiler's actual
+        // optimize path.
+        let pipeline = Pipeline::builder()
+            .add(OptimizePass)
+            .add(VerifyIrPass)
+            .build()
+            .expect("optimize + verify is a valid chain — see pass-contracts.md");
+
+        // `VerifiedIR` has no move-out by design (see the comment
+        // on `from_verify_pass`). Clone the program into a
+        // transient `Program`, run the pipeline, and re-wrap the
+        // result. The clone is cheap relative to LLVM lowering —
+        // one `SemanticProgram` copy vs. a clang subprocess.
+        let mut program = Program::new("", "");
+        program.semantic_ir = Some(verified.program().clone());
+
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
+
+        if let Some(err) = outcome.failure {
+            return Err(CompileError::simple(
+                &format!("IR optimization failed: {}", err.message),
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
+        }
+
+        let optimized = program
+            .semantic_ir
+            .take()
+            .expect("verify pass leaves IR in place");
+
+        Ok(VerifiedIR::from_verify_pass(optimized))
     }
 
     /// Runs `BuildSemanticIRPass` on the given typed AST.

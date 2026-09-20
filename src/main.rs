@@ -196,7 +196,7 @@ fn print_usage() {
     println!("Options:");
     println!("  --emit-llvm            Only generate LLVM IR");
     println!("  --run                  Run after compilation");
-    println!("  --timing               Print per-phase compile timings");
+    println!("  --timing               Print per-phase compile timings (LLVM path only)");
     println!("  --interpreter          Run through the interpreter (skips LLVM)");
     println!("  --output, -o NAME      Specify output name");
     println!("  --version, -v          Show version");

@@ -391,7 +391,7 @@ fn inspect_ast(compiler: &mut Compiler, source: &str, filename: &str) {
 fn inspect_ir(compiler: &mut Compiler, source: &str, filename: &str) {
     match compiler.build_semantic_ir_for(source, filename) {
         Ok(ir) => {
-            println!("{:#?}", ir);
+            print!("{}", algol26::ir::semantic_ir::format_program(&ir));
         }
         Err(e) => {
             e.display();

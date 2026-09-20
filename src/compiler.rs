@@ -356,7 +356,6 @@ impl Compiler {
         use crate::backends::backend::Backend;
         use crate::backends::interpreter_backend::InterpreterBackend;
 
-        // Phases 1–8 (same as compile).
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
         let parsed = self.process_imports(&parsed, filename)?;
@@ -364,25 +363,20 @@ impl Compiler {
         let parsed = self.expand_impl_methods(&parsed);
         let typed = self.type_check(&parsed)?;
 
-        // Phase 9–10: IR + verification.
         let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
-        semantic_ir.verify().map_err(|e| {
-            CompileError::simple(
-                &format!("IR verification failed: {}", e),
-                0,
-                0,
-                "",
-                ErrorCode::E0002,
-            )
-        })?;
+
+        // Route verification through the pass pipeline so the
+        // scheduler's contract enforcement runs. Before this change,
+        // `run_interpreter` called `semantic_ir.verify()` directly,
+        // bypassing the `ir.verify` pass contract. Same bug class as
+        // the earlier `run_optimize_pass` fix.
+        let verified = self.run_verify_pass(semantic_ir, "before interpreter lowering")?;
 
         crate::backends::capabilities::check_backend(
-            &semantic_ir,
+            verified.program(),
             &crate::backends::capabilities::BackendCapabilities::interpreter(),
         )?;
 
-        // Phase 13: Interpreter backend.
-        let verified = VerifiedIR::new(semantic_ir)?;
         let backend = InterpreterBackend::new();
         backend.compile(&verified, "")?;
         let output = backend.get_output();
@@ -809,25 +803,17 @@ impl Compiler {
         // type info keyed by these exact nodes, so addresses line up.
         let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
 
-        // Phase 10: Verify IR
-        semantic_ir.verify().map_err(|e| {
-            CompileError::simple(
-                &format!("IR verification failed: {}", e),
-                0,
-                0,
-                "",
-                ErrorCode::E0002,
-            )
-        })?;
+        // Route verification through the pass pipeline — see
+        // `run_interpreter` for the rationale.
+        let verified = self.run_verify_pass(semantic_ir, "before WASM lowering")?;
 
         crate::backends::capabilities::check_backend(
-            &semantic_ir,
+            verified.program(),
             &crate::backends::capabilities::BackendCapabilities::wasm(),
         )?;
 
-        // Phase 13: Lower to WASM backend
         let backend = WasmBackend::new();
-        backend.compile(&VerifiedIR::new(semantic_ir.clone())?, output_name)?;
+        backend.compile(&verified, output_name)?;
 
         Ok(())
     }

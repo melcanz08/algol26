@@ -1,10 +1,27 @@
 # ALGOL26 Implementation Status
 
-Last updated: 2026-09-14
+Last updated: 2026-09-21
 
 This document records what actually works, verified by the differential
 corpus in `tests/corpus/`. A feature is only listed as "works" if there
 is at least one corpus program exercising it end-to-end.
+
+## Changes since 2026-09-14
+
+This revision reflects a two-day session of compiler work:
+
+- **Removed:** the "Deferred runtime modules" section. `src/runtime/region.rs`
+  and `src/runtime/region_memory.rs` were deleted (they had no callers).
+- **Added:** a "Compiler infrastructure" section describing the pass
+  pipeline contracts, `--timing`, and the `inspect` subcommands.
+- **Added:** the write-through-`&mut` backend gap, discovered during
+  an ADR correction this session. See ADR 0010 Phase 2.
+- **Added:** the region-boundary `break`/`continue` leak fix.
+- **Added:** canonical IR variant names throughout. `Borrow` / `MutBorrow`
+  → `BorrowShared` / `BorrowMutable`; `Deref` → `ReadReference`;
+  `Send` / `ChannelSend` → `SendChannel`; `Receive` / `ChannelReceive`
+  → `ReceiveChannel`.
+- **Added:** CFG verifier rules enforcing the `Fork` shape (ADR 0011).
 
 ## Known divergences between backends
 
@@ -18,6 +35,14 @@ documented so future work can close them:
   region exit. Workaround: do not reuse an outer pointer variable
   as region-local scratch storage — declare a fresh `var` inside
   the block.
+- **Write-through-`&mut` is accepted but not lowered.** Assigning
+  to a variable whose declared type is `MutBorrow(T)` is the
+  language's write-through syntax. The analyzer and verifier
+  implement the rule; both backends do not. `Instruction::Assign`
+  in LLVM codegen and the interpreter stores the value into the
+  reference variable's slot instead of writing through the
+  reference. See `docs/decisions/0010-canonical-ir.md` Phase 2
+  for the corrected premise and the fix plan.
 - **Variadic FFI argument *types* are not validated.** `extern "C"
   function printf(fmt: String, ...)` accepts any number of arguments
   at or above the fixed count, and the analyzer records every
@@ -33,14 +58,36 @@ documented so future work can close them:
   on the shim side, which is handled for the built-in `printf`
   format specifiers. A WASM-specific libc is out of scope.
 
-## Deferred runtime modules (wired but not shared)
+## Compiler infrastructure (2026-09-20 / 2026-09-21)
 
-The modules `src/runtime/region.rs` and `src/runtime/region_memory.rs`
-implement a `std::alloc`-based region allocator with parent/child
-cascade on free. They are not used by the current pipeline: the
-interpreter has its own heap and the LLVM backend relies on libc.
-These modules are the seed of a shared runtime that a future
-backend could consume.
+The compiler's phase sequence is now visible and enforced through
+the pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
+`registry.rs`, `pass.rs`).
+
+- **Pass contracts.** Every pass declares a `PassContract`
+  (`id`, `kind`, `input`/`output` IR level, and prose fields for
+  `requires` / `guarantees` / `may_change` / `must_preserve`).
+  See `docs/pass-contracts.md`.
+- **Enforcement.** `PipelineBuilder::validate_chain` enforces
+  chain continuity and level advancement at build time.
+  `Scheduler::run` enforces Transform-must-be-followed-by-
+  Verification at run time. `tests/pass_contracts.rs` enforces
+  non-empty metadata for every registered pass.
+- **Every compile path routes through the pipeline.** The LLVM
+  path (`compile`), `run_interpreter`, `compile_to_wasm`, and
+  `inspect --ir` / `--type-table` all invoke passes via the
+  scheduler. Before this session, `run_optimize_pass` called
+  `Optimizer` directly, so the Transform→Verification check
+  never fired on the compiler's actual optimize path.
+- **`--timing`.** Prints per-phase compile durations (lex,
+  parse, imports, desugar, expand, mono, type_check, safety,
+  ir_build, verify_pre, optimize, verify_post, lower,
+  type_table_check). Previously only shown when total compile
+  time exceeded one second.
+- **`inspect` subcommands.** `--tokens`, `--ast`, `--ir`, `--cfg`,
+  `--passes`, `--capabilities`, `--type-table`. `--ast` / `--ir`
+  / `--cfg` render source-shaped output via `src/frontend/ast_display.rs`
+  and `src/ir/semantic_ir/display.rs`.
 
 ## Legend
 
@@ -68,7 +115,7 @@ backend could consume.
 | Strings | ✅ | ✅ | ✅ | ✅ | 08, 15 |
 | `String.length` / `to_upper` / `to_lower` | ✅ | ✅ | ✅ | ⚠️ | 08 |
 | `Math.*` | ✅ | ✅ | ✅ | ⚠️ | — |
-| `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ❌ | 13 |
+| `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ⛔ | 13 |
 | `match` (literal patterns) | ✅ | ✅ | ✅ | ✅ | — |
 | `match` (binding patterns) | ✅ | ✅ | ✅ | ⛔ | 13 |
 | `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ⛔ | 14 |
@@ -78,11 +125,20 @@ backend could consume.
 | `unsafe` | ✅ | ✅ | ✅ | ⚠️ | 32, 33 |
 | `spawn` / `parallel` | ✅ | ✅ | ✅ | ⛔ | — |
 | `channel` / `send` / `receive` | ✅ | ✅ | ❌ | ❌ | 23–26 |
-|  `alloc` in `var` position | ❌ | — | — | — | — |
+| `alloc` in `var` position | ✅ | ❓ | ❓ | ❓ | — |
 | `alloc(x)` as statement | ✅ | ✅ | ✅ | ❓ | — |
 | `free` | ✅ | ✅ | ✅ | ❓ | — |
 | `extern` (FFI) | ✅ | ✅ | ⛔ | ✅ | — |
 | `import` | ✅ | ✅ | ✅ | ✅ | — |
+
+**Note on canonical IR names.** The IR builder now emits `SendChannel`
+and `ReceiveChannel` (not `Send` / `ChannelSend` / `Receive` /
+`ChannelReceive`). User-facing syntax is unchanged.
+
+**Note on `Option` / `Result` refusal markers.** Changed from ❌ to ⛔
+to match the legend: the LLVM backend refuses these constructs via
+the capability check, it does not silently fail. The ❌ marker means
+"no backend runtime at all"; ⛔ means "explicitly refused."
 
 ## Known Gaps
 
@@ -114,7 +170,7 @@ programs.
   implements a reference-outlives-scope analysis, but no pass
   constructs an `EscapeAnalyzer` or consumes its output. Escape
   detection is therefore not part of the compiler's safety story
-  yet, despite being referenced by ADR-0005. Either wire it up or
+  yet, despite being referenced by ADR 0005. Either wire it up or
   delete it; right now it is unused.
 
 - **`flow_analyzer.rs` is a stub.** Definite-assignment analysis,
@@ -122,9 +178,9 @@ programs.
   merge points are not implemented. See the module doc comment for
   the explicit statement of scope.
 
-### IR correctness (audited and fixed)
+### IR correctness
 
-Fixed in the Phase 3 audit:
+Fixed in the Phase 3 audit (2026-09-14):
 
 - Constant propagation no longer leaks constants across branch
   blocks. Before the fix, a conditional assignment in one branch
@@ -136,6 +192,21 @@ Fixed in the Phase 3 audit:
   matches the analyzer's `can_coerce_to` rules.
 - Optimizer skips folding large `Int` arithmetic where `f64`
   intermediates would lose precision (above 2^53).
+
+Fixed in the Canonical IR session (2026-09-19 / 2026-09-20):
+
+- Canonical IR variants landed: `Borrow` / `MutBorrow` → `BorrowShared`
+  / `BorrowMutable`; `Deref` → `ReadReference`; `Send` / `ChannelSend`
+  → `SendChannel`; `Receive` / `ChannelReceive` → `ReceiveChannel`.
+  Eight variants reduced to five canonical operations.
+- CFG verifier rules for `Fork` shape: each branch must be entered
+  only from the fork block, must not contain nested concurrency or
+  `return`, and the join block must not also appear as a branch.
+  See ADR 0011.
+- Region-boundary `break`/`continue` leak fixed at the analyzer
+  level. Previously `break` or `continue` crossing a region
+  boundary skipped `RegionExit`, leaking frames (and every
+  allocation they held) until the enclosing function returned.
 
 Deferred (design/cleanup, not correctness bugs):
 
@@ -149,9 +220,9 @@ Deferred (design/cleanup, not correctness bugs):
   proper fixed-point.
 - `Spawn`/`Fork` capture semantics are not verified.
 
-### Backend audit (Phase 4)
+### Backend audit
 
-Fixed:
+Fixed (cumulative through 2026-09-21):
 
 - LLVM codegen: `NotEqual` on pointers now emits `NE` (was `EQ`).
 - LLVM codegen: switch with no default emits `unreachable` (was an
@@ -160,8 +231,6 @@ Fixed:
   leaving `list_arrays` pointing at the old allocation.
 - LLVM codegen: `Some`/`Ok`/`Error`/`None` are refused at capability
   check instead of silently unwrapped. The interpreter handles them.
-- LLVM codegen: `alloc`/`free` are refused (neither backend has a
-  heap model).
 - Production LLVM path now goes through `Backend::compile`, so
   `module.verify()` and the capability check run on the same path
   users exercise.
@@ -175,6 +244,11 @@ Fixed:
   of a prefix match — user-defined `String.helper` is no longer
   misclassified.
 - `BackendOutput` now carries real data (paths, stdout).
+- Pipeline routing: `run_optimize_pass` now runs `OptimizePass` +
+  `VerifyIrPass` through the scheduler (was: direct `Optimizer`
+  call). `run_interpreter` and `compile_to_wasm` now use
+  `run_verify_pass` (was: direct `semantic_ir.verify()`).
+  Removes two redundant verifications and one program clone.
 
 Open (not fixed):
 
@@ -205,18 +279,19 @@ Open (not fixed):
 
 ### Parser gaps
 
-- **`alloc` cannot appear in `var` position.** `parse_stmt` handles
-  `alloc(x)` as a bare statement producing a `FunctionCall`, but
-  `parse_expr` does not recognize the `Alloc` token, so
-  `val p := alloc(8)` fails to parse.
+- *(resolved)* `alloc` in `var` position. `parse_primary` in
+  `src/frontend/parser/expr.rs` now handles `Token::Alloc` in
+  expression position, so `val p := alloc(8)` parses. End-to-end
+  behavior through the analyzer / IR / backends has not been
+  re-verified since the parser change.
 
 ### Unimplemented features
 
 - **Channels** (`corpus_23`–`corpus_26`). Parser and analyzer
   support `channel c: T`, `send c, v`, and `receive c into x`.
-  The IR builder pushes `SemanticInstruction::Send` / `Receive`,
-  but no backend executes them. `send` and `receive` are effectively
-  no-ops.
+  The IR builder pushes `SemanticInstruction::SendChannel` /
+  `ReceiveChannel`, but no backend executes them. `send` and
+  `receive` are effectively no-ops.
 
 ## Conventions
 
@@ -228,6 +303,15 @@ methods are called as `x.method()`. There is no implicit `self`.
 declare `// BACKEND: interpreter` at the top of the file. The
 `corpus_diff` harness runs them through the interpreter; others run
 through LLVM by default.
+
+## See also
+
+- `docs/decisions/0010-canonical-ir.md` — the canonical IR migration.
+- `docs/decisions/0011-phase4-task-model.md` — the `Fork` shape
+  investigation and the CFG verifier rules.
+- `docs/pass-contracts.md` — the pass contract model and pipeline
+  enforcement rules.
+- `README.md` — user-facing overview.
 
 ## How to add a feature to this document
 

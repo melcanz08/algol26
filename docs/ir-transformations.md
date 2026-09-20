@@ -1,1 +1,119 @@
-# ALGOL26 IR Transformations\n\n**Effective**: v0.8.0\n\n> **This file describes what each IR transformation *does*.**\n> It is *not* about the compiler's pass contracts — for those,\n> see [`pass-contracts.md`](pass-contracts.md), which describes\n> the `PassContract` metadata every registered pass declares and\n> the pipeline rules the scheduler enforces.\n>\n> Two of the transformations below (Loop Desugaring and\n> Monomorphization) run on the AST *before* the analyzer, not on\n> IR. They produce the AST that the analyzer will then check,\n> so their constraints are shaped by what the analyzer will\n> accept.\n\n## Where each transformation runs\n\n| Transformation | Stage | Location |\n|---|---|---|\n| Loop Desugaring | Frontend (AST → AST) | `src/ir/loop_desugar.rs` |\n| Monomorphization | Frontend (AST → AST) | `src/ir/monomorphize.rs` |\n| Defer Lowering | IR build | `src/semantics/builder/control_flow.rs::translate_defer` |\n| Constant Folding | IR optimize | `src/ir/optimizer.rs` |\n| Constant Propagation | IR optimize | `src/ir/optimizer.rs` |\n| Dead Code Elimination | IR optimize | `src/ir/optimizer.rs` |\n| Branch Simplification | IR optimize | `src/ir/optimizer.rs` |\n| IR Verification | IR build, IR optimize | `src/ir/cfg_verifier.rs` + `src/ir/verifier/` |\n\n## Loop Desugaring\n\n**Where**: `src/ir/loop_desugar.rs`\n\n**Stage**: Frontend (runs before type checking).\n\nTracks list-valued variables in a per-function environment. A\n`for x in <literal-list>` loop whose body has straight-line\ncontrol flow is **unrolled** — the loop variable is substituted\nwith each literal element, and the body is emitted once per\niteration. Everything else passes through:\n\n- `while` loops are never unrolled.\n- `for` loops over non-literal iterables (variables the env\n  doesn't resolve to a list literal) are kept as `for` loops.\n- `for` loops whose body contains `break` / `continue` /\n  `return` / `defer`, or a nested loop with the same, are kept.\n- `for` loops whose body contains `var y := x` where `y != x`\n  are kept.\n\n| Property | Description |\n|---|---|\n| Input | AST with `for` / `while` loops |\n| Output | AST where eligible `for` loops are unrolled; other loops unchanged |\n| Preserves | The observable behavior the source intends |\n| May change | `for` loops become sequences of statements (only when unrolled) |\n| Does NOT unroll | Bodies with `break` / `continue` / `return` / `defer`, or `var y := x` (where `y != x`) |\n| Constraint | The desugared AST must be accepted by the analyzer |\n\n**Why `var y := x` blocks unrolling.** If a loop is unrolled,\na move inside its body appears once per iteration in the\nenclosing scope — but that scope has no notion of iteration,\nso the analyzer's loop-aware move check never fires. Refusing\nto unroll preserves the analyzer's ability to reject\nmoves-in-loops correctly. The check is conservative: it also\nblocks unrolling for `Copy` values, costing an unrolling\nopportunity to preserve correctness.\n\n## Monomorphization\n\n**Where**: `src/ir/monomorphize.rs`\n\n**Stage**: Frontend (runs after loop desugaring, before type\nchecking).\n\nWalks the AST to collect type-argument combinations seen at call\nsites, then produces an expanded function list. The output\ncontains:\n\n- Original non-generic functions, unchanged.\n- Original **generic functions, unchanged** — they are kept.\n- One **specialized copy** per generic function per resolvable\n  type-arg combination, named `func_Type1_Type2` in declaration\n  order of the type parameters.\n\nCall sites whose argument types resolve are rewritten to point\nat the specialized copy. Call sites whose type args cannot be\ninferred at this stage are left pointing at the original\ngeneric name; the analyzer resolves them later by binding type\nvariables from the actual argument types.\n\nTrait-bound checks run per specialization. **A failed bound is\nprinted to stderr and the specialization is skipped** — it is\nnot a fatal error from the monomorphizer.\n\n| Property | Description |\n|---|---|\n| Input | AST with generic functions |\n| Output | Original AST plus specialized copies for each resolvable type-arg combination |\n| Preserves | The original generic functions, unmodified |\n| Adds | Specialized `func_Type1_Type2` copies |\n| May change | Call sites whose type args resolve are rewritten to specialized names |\n| Does NOT remove | The original generic functions |\n| Does NOT guarantee | All call sites resolved; unresolved calls fall back to name lookup |\n| Does NOT error | On trait-bound violation; the violation is printed and the specialization is skipped |\n\n## Defer Lowering\n\n**Where**: `src/semantics/builder/control_flow.rs::translate_defer`\n\n**Stage**: IR build (part of `BuildSemanticIRPass`, not a\nstandalone pass).\n\nA `defer` statement is not a terminator. The builder allocates\na cleanup block, translates the deferred statement into it, and\npushes the cleanup block onto a defer stack. When a `Return`\nterminator is eventually emitted in the enclosing scope, it\nchains the pending cleanup blocks LIFO before emitting the real\nreturn. A `defer` does not terminate the current block;\nsubsequent statements continue.\n\n| Property | Description |\n|---|---|\n| Input | IR instructions containing deferred bodies |\n| Output | IR where deferred bodies live in cleanup blocks chained before `Return` |\n| Preserves | Every defer executes before its scope exits |\n| Preserves | Return semantics — an early `return` still runs pending defers LIFO |\n| May change | Control flow structure — cleanup blocks are inserted before the return |\n\n## The optimizer's passes\n\n**Where**: `src/ir/optimizer.rs`\n\nThe optimizer runs six passes per function, in this order:\n\n1. `remove_unreachable_blocks`\n2. `constant_folding`\n3. `constant_propagation` — skipped when the function's CFG\n   has a cycle\n4. `dead_code_elimination`\n5. `simplify_branches`\n6. `remove_unreachable_blocks` again\n\n### Constant Folding\n\nFolds `BinaryOp` nodes with constant operands, and `Cast`\nnodes of constants. Refuses to fold `Int` arithmetic whose\noperands exceed ±2^53 — routing that through `f64` would lose\nprecision.\n\n| Property | Description |\n|---|---|\n| Input | IR values |\n| Output | IR values with constants folded |\n| Preserves | Program semantics |\n| Preserves | Types |\n| Skips | `Int` operations with operands above 2^53 |\n| Does NOT fold | Division by zero |\n\n### Constant Propagation\n\nReplaces `Variable(x)` with a known constant when one is\navailable in the same block. **Not loop-aware, not\ndominance-aware.** The pass is skipped entirely for functions\nwhose CFG has a cycle.\n\nThe pass clears its constant map at each block boundary, so\nconstants defined in one branch never leak into a sibling or\njoin. This is conservative — cross-block propagation is\ndisabled until a dominance tree exists.\n\n| Property | Description |\n|---|---|\n| Input | IR with `Declare` / `Assign` instructions |\n| Output | IR where same-block variable uses are replaced with constants |\n| Preserves | Program semantics |\n| Skips | Functions with cyclic CFGs |\n| Scoping | Constants visible only within a single basic block |\n\n### Dead Code Elimination\n\nRemoves **only** immutable `Declare` instructions whose declared\nname is never used. Mutable declarations are always kept — they\nmay carry loop state, and the pass is not loop-aware.\nNon-`Declare` instructions are never removed.\n\nLiveness seeds from externally observable uses: `Print` values,\n`Call` arguments, `Return` values, `Branch` conditions,\niterator initializers, channel operations. Dependencies are\ncomputed transitively.\n\nThe pass relies on a coupling with the IR builder: initializer\nside effects (e.g. a `Call`) are emitted as separate\ninstructions *immediately before* the `Declare`, so a `Declare`\nnever wraps a side effect that DCE would need to preserve. If\nthe builder ever inlines side effects into `Declare` values,\nthis pass must be revised.\n\n| Property | Description |\n|---|---|\n| Input | IR with `Declare` / `Assign` instructions |\n| Output | IR with unused immutable declarations removed |\n| Preserves | Program semantics |\n| Preserves | All observable behavior |\n| Does NOT remove | Mutable `Declare`; `Call`; any non-`Declare` instruction |\n| Coupling | Assumes initializer side effects are separate instructions |\n\n### Branch Simplification\n\nReplaces `Terminator::Branch` with `Terminator::Jump` when the\ncondition is a literal `true` or `false`.\n\n| Property | Description |\n|---|---|\n| Input | IR terminators |\n| Output | IR with constant-condition branches collapsed |\n| Preserves | Program semantics |\n| May change | Block structure |\n\n## IR Verification\n\n**Where**: `src/ir/cfg_verifier.rs` (structural),\n`src/ir/verifier/` (instruction-level)\n\n**Stage**: IR build (once) and IR optimize (once). The\npipeline scheduler enforces that every `Transform` pass is\nfollowed by a `Verification` pass at the same IR level.\n\nThe verifier runs in two layers:\n\n1. **Structural** (`cfg_verifier.rs`): block IDs unique, entry\n   block exists, every block has a terminator, every jump\n   target resolves, no unreachable blocks, `Fork` shape\n   (see ADR 0011).\n2. **Instruction-level** (`verifier/`): operand types, branch\n   conditions are `Bool`, returns coerce to the function return\n   type, calls resolve to known signatures, `Option` / `Result`\n   payloads are recursively checked, `Float` arguments are\n   rejected for `Int` parameters.\n\n| Property | Description |\n|---|---|\n| Input | Any `SemanticProgram` |\n| Output | `Result<(), String>` |\n| Checks | Structural (see above) |\n| Checks | Semantic (see above) |\n| Guarantees | If `Ok`, the IR is structurally and semantically valid |\n\n## See also\n\n- `pass-contracts.md` — the pass registry and pipeline rules.\n- `decisions/0011-phase4-task-model.md` — the `Fork` shape rules.\n- `IMPLEMENTATION_STATUS.md` — current state of each transformation.\n- `type-table-addressing.md` — invariant any pass carrying AST-level\n  data must preserve.\n\n
+# ALGOL26 IR Transformations
+
+**Effective**: v0.8.0
+
+> **This file describes what each IR transformation *does*.**
+> It is *not* about the compiler's pass contracts — for those,
+> see [`pass-contracts.md`](pass-contracts.md), which describes
+> the `PassContract` metadata every registered pass declares and
+> the pipeline rules the scheduler enforces.
+>
+> The two files serve different purposes. A *transformation* is
+> a change to the IR. A *pass contract* is a machine-readable
+> declaration (id, kind, input/output level, prose fields) that
+> the pipeline uses to schedule passes and refuse invalid chains.
+> The same pass may run several transformations; the same
+> transformation may be split across several passes.
+
+## Loop Desugaring
+
+**Where**: `src/ir/loop_desugar.rs`
+
+| Property | Description |
+|----------|-------------|
+| Input | AST containing `for` / `while` loops |
+| Output | AST without loops (converted to lower-level control flow) |
+| Preserves | Program semantics (same observable behavior) |
+| May change | Control flow structure (loops become blocks) |
+| Must NOT | Change variable types or ownership |
+
+## Defer Lowering
+
+**Where**: `src/semantics/builder/control_flow.rs::translate_defer`
+
+Not a standalone module. The IR builder lowers `defer` to a
+cleanup block, pushed onto a defer stack; the eventual `Return`
+terminator chains the cleanup blocks LIFO before emitting the
+real return.
+
+| Property | Description |
+|----------|-------------|
+| Input | AST containing `defer` statements |
+| Output | IR where `defer` bodies live in cleanup blocks chained before `Return` |
+| Preserves | Every defer executes before scope exit |
+| Preserves | Return semantics (early returns still run defers) |
+| Preserves | Error semantics |
+| May change | Control flow structure |
+
+## Monomorphization
+
+**Where**: `src/ir/monomorphize.rs`
+
+| Property | Description |
+|----------|-------------|
+| Input | Generic AST with type parameters |
+| Output | Concrete AST without type parameters |
+| Preserves | Program semantics for each instantiation |
+| Guarantees | No unresolved generic calls remain |
+| Guarantees | All type parameters substituted |
+| May change | Function names (specialized names) |
+
+## Constant Folding
+
+**Where**: `src/ir/optimizer.rs` (inside `OptimizePass`)
+
+| Property | Description |
+|----------|-------------|
+| Input | Valid semantic IR |
+| Output | Valid semantic IR with constants folded |
+| Preserves | Program semantics (same output) |
+| Preserves | Types (no type changes) |
+| Preserves | Ownership (no ownership changes) |
+| May change | Expression structure (constant replaces expression) |
+| Known limit | Cross-block folding disabled — see `IMPLEMENTATION_STATUS.md` |
+
+## Dead Code Elimination
+
+**Where**: `src/ir/optimizer.rs` (inside `OptimizePass`)
+
+| Property | Description |
+|----------|-------------|
+| Input | Valid semantic IR |
+| Output | Valid semantic IR without unreachable code |
+| Preserves | Program semantics |
+| Preserves | All observable behavior |
+| May change | Number of blocks/instructions |
+| Must NOT | Remove code with side effects |
+
+## IR Verification
+
+**Where**: `src/ir/verifier/` (wrapped by the `ir.verify` pass)
+
+`src/ir/semantic_ir.rs` has a `verify()` method that delegates to
+`crate::ir::verifier::verify`. The pass wrapper is
+`src/compiler/passes/verify_ir.rs::VerifyIrPass`.
+
+| Property | Description |
+|----------|-------------|
+| Input | Any `SemanticProgram` |
+| Output | `Result<(), String>` |
+| Checks | Block IDs are unique |
+| Checks | Jump targets exist |
+| Checks | Entry block exists |
+| Checks | Every block has a terminator |
+| Checks | `Fork` shape (see ADR 0011) |
+| Checks | Instruction-level semantics (types, calls, ownership dataflow) |
+| Guarantees | If `Ok`, the IR is structurally and semantically valid |
+
+The verifier runs twice in the compile pipeline: once after
+`ir.build` and once after `ir.optimize`. The second run is
+enforced by the scheduler (a `Transform` must be followed by a
+`Verification` at the same IR level).
+
+## See also
+
+- `pass-contracts.md` — the pass registry and pipeline rules.
+- `decisions/0011-phase4-task-model.md` — the `Fork` shape rules.
+- `IMPLEMENTATION_STATUS.md` — current state of each transformation.
+- `type-table-addressing.md` — invariant any pass carrying AST-level
+  data must preserve.

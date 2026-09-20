@@ -181,11 +181,11 @@ time rather than at code generation.
 
 ## See also
 
-- `docs/ir-pass-contracts.md` — original IR-only contracts doc,
-  kept for its per-transformation detail (loop desugaring, defer
-  lowering, monomorphization, constant folding, DCE, IR
-  verification). Some of its content is now subsumed by this
-  document; the file remains as an appendix.
+- `docs/ir-transformations.md` — what each IR transformation
+  does (loop desugaring, monomorphization, defer lowering, the
+  optimizer's passes, IR verification). Renamed from
+  `ir-pass-contracts.md`, which conflated transformations with
+  pass contracts.
 - `src/compiler/pass.rs` — the `Pass` trait and `PassContract`
   struct.
 - `src/compiler/pipeline.rs` — chain validation.

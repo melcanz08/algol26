@@ -416,6 +416,6 @@ detail.
 - `docs/decisions/0005-ownership-model.md`
 - `docs/decisions/0007-region-memory.md`
 - `docs/decisions/0009-unsafe.md`
-- `docs/ir-pass-contracts.md`
+- `docs/ir-transformations.md`
 - `docs/test-organization.md`
 - `docs/IMPLEMENTATION_STATUS.md`

@@ -27,7 +27,7 @@ code changes.
 | `IMPLEMENTATION_STATUS.md` | Feature matrix + known gaps, corpus-verified |
 | `language-reference.md` | Canonical language specification |
 | `architecture-direction.md` | Structure of the codebase and why |
-| `ir-pass-contracts.md` | Contracts each compiler pass must satisfy |
+| `ir-transformations.md` | What each IR transformation does |
 | `test-organization.md` | What lives in each `tests/` subdirectory |
 | `no-panic-policy.md` | Rules about panics, unwraps, and errors |
 

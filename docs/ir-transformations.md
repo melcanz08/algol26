@@ -64,6 +64,42 @@ to unroll preserves the analyzer's ability to reject
 moves-in-loops correctly. The check is conservative: it also
 blocks unrolling for `Copy` values.
 
+## Monomorphization
+
+**Where**: `src/ir/monomorphize.rs`
+
+**Stage**: Frontend (runs after loop desugaring, before type
+checking).
+
+Walks the AST to collect type-argument combinations seen at call
+sites, then produces an expanded function list. The output
+contains:
+
+- Original non-generic functions, unchanged.
+- Original **generic functions, unchanged** — they are kept.
+- One **specialized copy** per generic function per resolvable
+  type-arg combination, named `func_Type1_Type2` in declaration
+  order of the type parameters.
+
+Call sites whose argument types resolve are rewritten to point
+at the specialized copy. Call sites whose type args cannot be
+inferred are left pointing at the original generic name; the
+analyzer resolves them later.
+
+Trait-bound checks run per specialization. **A failed bound is
+printed to stderr and the specialization is skipped** — it is
+not a fatal error.
+
+| Property | Description |
+|---|---|
+| Input | AST with generic functions |
+| Output | Original AST plus specialized copies for each resolvable type-arg combination |
+| Preserves | The original generic functions, unmodified |
+| Adds | Specialized `func_Type1_Type2` copies |
+| May change | Call sites whose type args resolve are rewritten to specialized names |
+| Does NOT remove | The original generic functions |
+| Does NOT error | On trait-bound violation; the violation is printed and the specialization is skipped |
+
 ## Defer Lowering
 
 **Where**: `src/semantics/builder/control_flow.rs::translate_defer`

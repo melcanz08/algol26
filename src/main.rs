@@ -368,23 +368,14 @@ fn inspect_tokens(compiler: &Compiler, source: &str) {
 fn inspect_ast(compiler: &mut Compiler, source: &str, filename: &str) {
     match compiler.parse_source_for(source, filename) {
         Ok(parsed) => {
-            println!("{} function(s):", parsed.functions.len());
-            for f in parsed.functions.iter() {
-                println!();
-                println!("{:#?}", f);
-            }
-            if !parsed.traits.is_empty() {
-                println!("\n{} trait(s):", parsed.traits.len());
-                for t in &parsed.traits {
-                    println!("  {:?}", t);
-                }
-            }
-            if !parsed.impls.is_empty() {
-                println!("\n{} impl block(s):", parsed.impls.len());
-                for i in &parsed.impls {
-                    println!("  {:?}", i);
-                }
-            }
+            print!(
+                "{}",
+                algol26::frontend::ast_display::format_program(
+                    &parsed.functions,
+                    &parsed.traits,
+                    &parsed.impls,
+                )
+            );
         }
         Err(e) => {
             e.display();

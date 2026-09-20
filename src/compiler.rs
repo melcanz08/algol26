@@ -252,7 +252,10 @@ impl Compiler {
     /// IR cannot leave it (the `mutate` call inside re-runs the
     /// verifier before returning). Both properties are enforced by
     /// the type system, not by convention.
-    fn run_optimize_pass(&self, verified: VerifiedIR) -> Result<VerifiedIR> {
+    fn run_optimize_pass(
+        &self,
+        verified: VerifiedIR,
+    ) -> Result<(VerifiedIR, std::time::Duration, std::time::Duration)> {
         use crate::compiler::context::{CompilerConfig, CompilerContext};
         use crate::compiler::passes::optimize::OptimizePass;
         use crate::compiler::passes::verify_ir::VerifyIrPass;
@@ -301,7 +304,30 @@ impl Compiler {
             .take()
             .expect("verify pass leaves IR in place");
 
-        Ok(VerifiedIR::from_verify_pass(optimized))
+        // Extract per-pass durations from the scheduler's outcome so
+        // the driver's timing summary can report them separately.
+        // Before this change, the driver printed `Verify(2): 0.0000s`
+        // because the verify that runs inside this pipeline was
+        // hidden in the total `Optimize` duration.
+        use crate::compiler::pass::PassId;
+        let optimize_dur = outcome
+            .timings
+            .iter()
+            .find(|t| t.pass == PassId("ir.optimize"))
+            .map(|t| t.duration)
+            .unwrap_or(std::time::Duration::ZERO);
+        let verify_dur = outcome
+            .timings
+            .iter()
+            .find(|t| t.pass == PassId("ir.verify"))
+            .map(|t| t.duration)
+            .unwrap_or(std::time::Duration::ZERO);
+
+        Ok((
+            VerifiedIR::from_verify_pass(optimized),
+            optimize_dur,
+            verify_dur,
+        ))
     }
 
     /// Runs `BuildSemanticIRPass` on the given typed AST.
@@ -545,11 +571,13 @@ impl Compiler {
         let verified_pre = self.run_verify_pass(semantic_ir, "after construction")?;
         let verify_pre_time = phase_start.elapsed();
 
-        // Phase 11 + 12: OPTIMIZE inside the verified wrapper → VerifiedIR
-        let phase_start = Instant::now();
-        let verified_post = self.run_optimize_pass(verified_pre)?;
-        let optimize_time = phase_start.elapsed();
-        let verify_post_time = std::time::Duration::ZERO;
+        // Phase 11 + 12: OPTIMIZE inside the verified wrapper → VerifiedIR.
+        // `run_optimize_pass` runs both the optimizer and a following
+        // verifier through the pass pipeline; the durations it returns
+        // are the per-pass times as recorded by the scheduler, not the
+        // outer pipeline-setup overhead.
+        let (verified_post, optimize_time, verify_post_time) =
+            self.run_optimize_pass(verified_pre)?;
 
         // Phase 13: LOWER TO BACKEND
         let phase_start = Instant::now();

@@ -169,8 +169,8 @@ impl CFGVerifier {
             let fork_block_set: HashSet<usize> = blocks_in_fork.iter().copied().collect();
 
             // Rule 1: each branch entered only from the fork block.
-            for branch_id in blocks_in_fork.iter().copied() {
-                match predecessors.get(&branch_id) {
+            for branch_id in blocks_in_fork {
+                match predecessors.get(branch_id) {
                     Some(preds) if preds.len() == 1 && preds[0] == block.id => {}
                     Some(preds) => {
                         return Err(format!(
@@ -229,7 +229,10 @@ impl CFGVerifier {
                         ));
                     }
 
-                    let b = func.blocks.iter().find(|b| b.id == bid).unwrap();
+                    let b =
+                        func.blocks.iter().find(|b| b.id == bid).expect(
+                            "bid came from reachable, which was built by walking func.blocks",
+                        );
                     match &b.terminator {
                         Some(Terminator::Return { .. }) => {
                             return Err(format!(

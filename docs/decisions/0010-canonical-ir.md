@@ -373,14 +373,55 @@ backends; one differential test.
 
 ### Phase 2 — ReadReference and WriteReference
 
-Add `ReadReference` and `WriteReference`. Do not remove `Deref`.
-
-- Same pattern as Phase 1.
-- `WriteReference` requires a new `Instruction` variant.
-
-**Estimated scope:** as Phase 1, plus a new instruction-arm in the
-three backends.
-
+> **Status: 2a (ReadReference) landed. 2b (WriteReference) deferred
+> on a corrected premise.**
+>
+> `ReadReference` landed as described. `Deref` was removed; every
+> dereference now lowers through `ReadReference`.
+>
+> `WriteReference` was originally deferred under the mistaken belief
+> that write-through-`&mut` was dead code. It is not dead code.
+> Assigning to a variable of declared type `MutBorrow(T)` is the
+> language's write-through syntax. Both the analyzer
+> (`src/semantics/analyzer/stmt.rs`, `Stmt::Assign` arm) and the
+> verifier (`src/ir/verifier/instruction.rs`, `Instruction::Assign`
+> arm) implement the rule: the assignment target's type is unwrapped
+> from `MutBorrow(T)` to `T` for type-checking purposes. Two tests
+> in the analyzer suite document the intended behavior, most
+> directly `test_param_is_assignable`, whose comment names
+> "functions like `increment(x: &mut float)` that write through
+> their parameter."
+>
+> What the language does **not** have is backend support. When the
+> IR builder emits `Instruction::Assign { target: "x", value }`
+> for an assignment to a `MutBorrow(T)` variable, both backends
+> store the value into `x`'s alloca — overwriting the *reference*
+> rather than writing through it. LLVM (`llvm_codegen/instruction.rs`)
+> and the interpreter (`interpreter/mod.rs`) both have this bug. No
+> end-to-end test exercises the path, so the bug has been latent
+> since the write-through rule was introduced.
+>
+> Fixing it is a phase, not a cleanup:
+>
+> 1. Add `Instruction::WriteReference { reference, value }`.
+> 2. Have the IR builder emit it when the assignment target's
+>    declared type is `MutBorrow(T)`, and emit plain `Assign`
+>    otherwise.
+> 3. Remove the `MutBorrow(inner) => inner` special cases from the
+>    analyzer and verifier — with the IR now carrying the
+>    distinction, the checkers can type-check both forms directly.
+> 4. Implement lowerings in LLVM (`load` the pointer, `store`
+>    through it) and the interpreter (`heap`/`variables` lookup,
+>    write through the referent).
+> 5. Add differential tests exercising write-through in both
+>    backends.
+>
+> Estimated scope: one design session plus one implementation
+> session — same as any of Phases 1, 3, or 5b.
+>
+> Original Phase 2 estimate (before the correction) applies to 2a,
+> which shipped: adding `ReadReference` alongside `Deref`, then
+> removing `Deref`, took the same shape as Phase 1.
 ### Phase 3 — Channel canonicalization
 
 Collapse `Send`/`ChannelSend` into `SendChannel`; same for receive.
@@ -582,13 +623,18 @@ Status as of 2026-09-19:
       (`Type::Borrow(T)` / `Type::MutBorrow(T)`). Folding them would
       weaken the type discipline for no gain. Phase 1's design notes
       record this decision.
-- [ ] `WriteReference` — **not added.** Discovery during Phase 2: the
-      language has no write-through-`&mut` syntax. `Stmt::Assign.target`
-      is always a bare identifier; the parser never produces
-      `*p := ...`. The analyzer and verifier had write-through
-      type-checking *dead code* with no parser and no backend lowering.
-      Deferred pending a language decision (delete the dead code or
-      implement the feature end-to-end). Not a Phase 2 concern.
+- [ ] `WriteReference` — **deferred.** Write-through-`&mut` is a real
+      language feature: assigning to a variable whose declared type is
+      `MutBorrow(T)` is defined as writing through the reference, and
+      both the analyzer and the verifier implement that rule. What is
+      missing is the *backend lowering*: `Instruction::Assign` in both
+      LLVM codegen and the interpreter currently overwrites the
+      reference variable instead of writing through it. Fixing this
+      requires a new IR instruction, matching lowerings in both
+      backends, and end-to-end tests — a phase the size of Phase 1 or
+      Phase 3, not a cleanup. The earlier Phase 2 note claiming the
+      construct "does not exist" was incorrect; see the corrected
+      Phase 2 section below.
 - [x] `Terminator::Fork` — **resolved by investigation.** See
       ADR 0011. The CFG verifier now enforces the shape the
       interpreter's `pending_forks` worklist assumes.

@@ -413,13 +413,17 @@ would have rejected legal programs.
 
 The investigation that produced this ADR — reading how the
 interpreter maintains execution state across terminator
-boundaries — also surfaced a second bug in a different
-subsystem. `break` and `continue` that cross a region boundary
-skip the region's `RegionExit`, leaving the interpreter's
-`region_stack` (and the LLVM backend's `region_frames`) with an
-unpopped frame. Inside a loop, frames accumulate linearly with
-iterations, leaking every allocation the region made until the
-enclosing function returns.
+boundaries — also surfaced two other issues in different
+subsystems.
+
+### Region-boundary leak (fixed)
+
+`break` and `continue` that cross a region boundary skip the
+region's `RegionExit`, leaving the interpreter's `region_stack`
+(and the LLVM backend's `region_frames`) with an unpopped frame.
+Inside a loop, frames accumulate linearly with iterations,
+leaking every allocation the region made until the enclosing
+function returns.
 
 The fix is the same technique this ADR applies to `Fork`:
 identify the shape the runtime assumes, reject the shapes it
@@ -441,6 +445,21 @@ Two paths for surfacing the region leak were considered:
 
 See `docs/decisions/0010-canonical-ir.md` Phase 5 for the full
 region investigation.
+
+### Write-through-`&mut` backend gap (open)
+
+Assigning to a variable whose declared type is `MutBorrow(T)` is
+the language's write-through syntax. The analyzer and verifier
+implement the rule; the backends do not. `Instruction::Assign`
+in both LLVM codegen and the interpreter overwrites the reference
+variable instead of writing through it.
+
+An earlier revision of this ADR's "related finding" section
+described this as "dead code that never fires." That was wrong:
+the construct exists, is intended, and is documented in
+`test_param_is_assignable`. What is missing is backend support.
+See `docs/decisions/0010-canonical-ir.md` Phase 2 for the full
+correction and the fix plan.
 
 ## Open questions
 

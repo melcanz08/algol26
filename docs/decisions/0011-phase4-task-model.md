@@ -409,6 +409,39 @@ the set (other than the entry itself) may be another branch's entry.
 This is what `cfg_verifier.rs` enforces. The ADR's original phrasing
 would have rejected legal programs.
 
+## Related finding from the same investigation
+
+The investigation that produced this ADR — reading how the
+interpreter maintains execution state across terminator
+boundaries — also surfaced a second bug in a different
+subsystem. `break` and `continue` that cross a region boundary
+skip the region's `RegionExit`, leaving the interpreter's
+`region_stack` (and the LLVM backend's `region_frames`) with an
+unpopped frame. Inside a loop, frames accumulate linearly with
+iterations, leaking every allocation the region made until the
+enclosing function returns.
+
+The fix is the same technique this ADR applies to `Fork`:
+identify the shape the runtime assumes, reject the shapes it
+cannot handle, at analysis time. The region check landed in
+`src/semantics/analyzer/stmt.rs`; the fork check landed in
+`src/ir/cfg_verifier.rs`. Different layers, same philosophy:
+make the implicit constraint explicit.
+
+Two paths for surfacing the region leak were considered:
+
+- **Verifier rule** — reject the IR shape. Rejected because
+  `break` and `continue` compile to `Jump` terminators, which
+  are indistinguishable from any other jump at the CFG level.
+  The information "this jump exits a region" lives in the AST,
+  not the IR.
+- **Analyzer rule** — reject the source shape. Adopted. The
+  analyzer already tracks scope depth and can track region
+  depth alongside it.
+
+See `docs/decisions/0010-canonical-ir.md` Phase 5 for the full
+region investigation.
+
 ## Open questions
 
 The first open question of the previous draft — *does `spawn`

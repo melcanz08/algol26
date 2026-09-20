@@ -8,7 +8,12 @@
 - Phase 2 (deref canonicalization) — **landed**.
 - Phase 3 (channel canonicalization) — **landed**.
 - Phase 5a (dead region code removal) — **landed**. 627 lines deleted.
-- Phases 4, 5b, 6 — **not started**; each requires its own design session.
+- Phase 4 (fork shape) — **resolved by investigation** (ADR 0011).
+- Phase 5b (region canonicalization) — **investigated and declined**.
+  The current `Allocate` + `RegionEnter`/`RegionExit` split is coherent;
+  `AllocateRegion`/`FreeRegion` would be an architectural repackaging,
+  not a canonicalization. See the Phase 5 section below.
+- Phase 6 (explicit Move) — **deferred indefinitely**.
 
 Supersedes nothing. Superseded by nothing. This is the first
 architectural decision that touches the IR representation as a whole.
@@ -408,21 +413,39 @@ conformance fixture, one differential test.
 
 ### Phase 5 — Region canonicalization
 
-> **Resolved by investigation, not by redesign.** Phase 5a (deleting
-> `runtime/region.rs` and `runtime/region_memory.rs`) landed. Phase 5b
-> (introducing `AllocateRegion` / `FreeRegion`) was investigated and
-> declined: the current `Allocate` + `RegionEnter`/`RegionExit` split
-> is coherent, and the proposed operations do not remove a real
-> duplication or fix a real bug. They re-represent an implicit
-> context lookup as an explicit instruction field, with no reduction
-> in the number of files a feature touches.
+> **Status: 5a landed. 5b investigated and declined.**
 >
-> The investigation did surface a real bug: `break`/`continue` that
-> cross a region boundary leak the region frame until function exit
-> (and accumulate in loops). Fixed at the analyzer level by rejecting
-> the shape.
+> 5a (deleting `runtime/region.rs` and `runtime/region_memory.rs`)
+> landed 2026-09-19 — 627 lines removed. Those modules had no callers.
+>
+> 5b (introducing `AllocateRegion` / `FreeRegion`) was investigated
+> 2026-09-20. The current design is:
+>
+> - `Instruction::Allocate { target, size, type }` — malloc
+> - `Instruction::RegionEnter { name }` / `RegionExit { name }` —
+>   push/pop a region frame; every allocation made while a frame is
+>   active is freed on exit
+>
+> Two implementations — `Interpreter::RegionFrame` and
+> `IRCodeGen::LRegionFrame` — both do the same thing: maintain a
+> stack, register allocations that occur while a frame is on top,
+> free them on pop.
+>
+> The ADR's proposal would move ownership tracking from an
+> implicit "is a region frame on the stack?" lookup to an explicit
+> `AllocateRegion(region_id, size)` instruction. It would rename an
+> ambient-context lookup as an instruction field. It would not
+> reduce the number of files a feature touches, remove a
+> duplication, or fix a bug. It is an architectural repackaging,
+> not a canonicalization.
+>
+> **The investigation did surface a real bug, fixed at the
+> analyzer level:** `break` or `continue` that crosses a region
+> boundary leaks the region frame until function return, and in a
+> loop accumulates linearly. The fix rejects the shape at analysis
+> time (`src/semantics/analyzer/stmt.rs`) using the same technique
+> as ADR 0011's fork rules.
 
-**Estimated scope:** three files plus a deletion.
 
 ### Phase 6 — Explicit Move (deferrable)
 
@@ -566,9 +589,14 @@ Status as of 2026-09-19:
       type-checking *dead code* with no parser and no backend lowering.
       Deferred pending a language decision (delete the dead code or
       implement the feature end-to-end). Not a Phase 2 concern.
-- [ ] `Terminator::Fork` — **still exists.** Phase 4 requires its own
-      design session.
+- [x] `Terminator::Fork` — **resolved by investigation.** See
+      ADR 0011. The CFG verifier now enforces the shape the
+      interpreter's `pending_forks` worklist assumes.
 - [ ] `Move` — **not added.** Phase 6, deferred indefinitely.
+- [x] **`break`/`continue` across a region boundary is rejected.**
+      Surfaced during the Phase 5b investigation. Fixed in the
+      analyzer, not the verifier — the leak is unconditional,
+      not shape-dependent.
 
 ### Criterion 7 was wrong and is replaced
 

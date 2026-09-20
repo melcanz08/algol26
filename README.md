@@ -18,7 +18,7 @@ management, safe concurrency, and native compilation via LLVM.
 # Build
 cargo build
 
-# Run the test suite (337 tests, including a 37-program corpus)
+# Run the test suite (501 tests, including a 37-program corpus)
 cargo test --all-features
 
 # Run a program through LLVM
@@ -48,7 +48,7 @@ procedure main
 
 - **Indentation-based**, like Python — no braces, no semicolons
 - **Immutable by default** (`val`), opt-in mutability (`var`)
-- **Statically typed** with inference: `Int`, `float`, `Bool`, `String`,
+- **Statically typed** with inference: `Int`, `Float`, `Bool`, `String`,
   `List<T>`, `Option<T>`, `Result<T, E>`
 - **Borrow checking** and **move semantics** enforced at compile time
 - **Region-based memory** — no garbage collector
@@ -63,27 +63,22 @@ procedure main
 >
 > - **`alloc` / `free`** work end-to-end through both backends.
 >   The interpreter uses a simulated heap; LLVM lowers to libc
->   `malloc` / `free` (Step 5 wiring, tag `step5-done`).
+>   `malloc` / `free`.
 > - **`region` blocks** work end-to-end with auto-free on both
->   backends. `RegionExit` frees the region's allocations in the
->   interpreter (Step 3 wiring) and in the LLVM backend (Step 6
->   wiring, tag `step6-done`). Explicit `free(p)` inside a region
->   is idempotent — LLVM nulls the pointer after freeing so
->   auto-free skips it. The one remaining asymmetry (reassigning a
->   `var` pointer inside a region leaks the earlier allocation in
->   LLVM but not in the interpreter) is documented in
->   `docs/IMPLEMENTATION_STATUS.md`.
+>   backends. Explicit `free(p)` inside a region is idempotent —
+>   LLVM nulls the pointer after freeing so auto-free skips it.
+>   One asymmetry remains (reassigning a `var` pointer inside a
+>   region leaks the earlier allocation in LLVM but not in the
+>   interpreter); see `docs/IMPLEMENTATION_STATUS.md`.
 > - **`extern "C"` FFI** works through LLVM. `as "symbol"` renaming,
 >   `from "library"` linking, and variadic arity checking are all
 >   implemented. Variadic argument *types* are not validated against
 >   the format string — that is C-level UB.
-> - The WASM backend produces a runnable module. After linking
->   via `wasm-ld`, the module is executed through a small Node
->   host shim at `runtime/wasm/host.js` that provides the C
->   library imports (`printf`, `exit`, `malloc`, `free`, math
->   functions). Run a WASM build with
->   `runtime/wasm/run.sh <file.gol>`. See
->   `docs/IMPLEMENTATION_STATUS.md` for details.
+> - **WASM** produces a runnable module. After linking via
+>   `wasm-ld`, the module executes through a Node host shim at
+>   `runtime/wasm/host.js` that provides the C library imports.
+>   Run a WASM build with `runtime/wasm/run.sh <file.gol>`.
+>   See `docs/IMPLEMENTATION_STATUS.md` for details.
 
 ## Backends
 
@@ -91,15 +86,37 @@ procedure main
 |---------|--------|--------|
 | Interpreter | Direct execution (semantic oracle) | Complete |
 | LLVM | Native executable | Most features; refuses some (see below) |
-| WASM | `.wasm` module | Compilation only; execution not wired up |
+| WASM | `.wasm` module | Compiles; runs via Node host shim |
 
 **For the accurate, corpus-verified feature matrix, see
 [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).**
 That file is the single source of truth for what works where.
 
+## Inspector
+
+`algol26 inspect` exposes the compiler's internal state, one flag
+per intermediate representation:
+
+| Command | Shows |
+|---------|-------|
+| `inspect --tokens <file>` | Lexer output |
+| `inspect --ast <file>` | Parsed AST (source-shaped) |
+| `inspect --ir <file>` | Semantic IR (source-shaped, with instructions) |
+| `inspect --cfg <file>` | CFG view — blocks and their successors |
+| `inspect --passes` | Registered passes and their contracts |
+| `inspect --capabilities` | Feature × backend capability matrix |
+| `inspect --type-table <file>` | Analyzer type-table completeness check |
+
+Plus `--timing` for per-phase compile durations:
+
+```bash
+./target/debug/algol26 check --timing file.gol
+```
+
 ## Known Limitations
 
-These are verified gaps, tracked by corpus programs:
+These are verified gaps, tracked by corpus programs. See
+`docs/IMPLEMENTATION_STATUS.md` for the complete list.
 
 - **LLVM does not support `match` with pattern bindings.** Use the
   interpreter. (`tests/corpus/corpus_13_match_option.gol`)
@@ -112,6 +129,8 @@ These are verified gaps, tracked by corpus programs:
   (`tests/corpus/corpus_23`–`corpus_26`)
 - **`alloc` cannot appear in a `var` declaration.** Only as a bare
   statement: `alloc(8)` works; `val p := alloc(8)` does not parse.
+- **Escape analysis is not wired into the pipeline.** `src/semantics/escape.rs`
+  exists but is not consumed by any pass. See `docs/IMPLEMENTATION_STATUS.md`.
 
 ## Testing
 
@@ -119,18 +138,15 @@ These are verified gaps, tracked by corpus programs:
 cargo test --all-features
 ```
 
-The suite has 14 test binaries covering:
+501 tests across 21 test binaries: unit tests for each subsystem,
+differential tests (interpreter vs LLVM vs WASM), semantic tests
+(borrow checker, traits, ownership), IR tests (verification,
+optimization, defer, short-circuit), integration tests, backend
+tests, soundness tests, and property/fuzz tests.
 
-- 137 unit tests (types, lexer, parser, IR, verifier, FFI)
-- 43 differential tests (interpreter vs LLVM vs WASM)
-- 49 semantic tests (borrow checker, traits, ownership)
-- 40 IR tests (verification, optimization, defer, short-circuit)
-- 27 integration tests (conformance, hardening, stress)
-- 20 backend tests (independence, oracle)
-- **37 corpus programs** in `tests/corpus/` — differential harness in
-  `tests/corpus_diff.rs` runs every program and compares output
-
-The corpus is the most important test suite. Every feature in
+**37 corpus programs** in `tests/corpus/` are the most important test
+suite. The differential harness in `tests/corpus_diff.rs` runs every
+program and compares output. Every feature in
 `IMPLEMENTATION_STATUS.md` is backed by at least one corpus program.
 Adding a feature means adding a corpus program.
 
@@ -157,7 +173,8 @@ Adding a feature means adding a corpus program.
 | Document | Purpose |
 |----------|---------|
 | [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | Feature matrix + known gaps |
-| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0009) |
+| [`docs/pass-contracts.md`](docs/pass-contracts.md) | Compiler pass contracts and pipeline rules |
+| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0011) |
 | [`docs/releases/`](docs/releases/) | Release notes |
 | [`docs/archive/`](docs/archive/) | Superseded docs, kept for history |
 | [`docs/README.md`](docs/README.md) | Full index of all docs |
@@ -171,18 +188,23 @@ src/
 ├── semantics/     — analyzer (types, borrow, traits, race) + IR builder
 ├── ir/            — semantic IR, verifier, optimizer, loop desugar
 ├── backends/      — interpreter, LLVM codegen, WASM
-├── runtime/       — region memory
 ├── compiler/      — pass pipeline, scheduler, registry
 ├── diagnostics/   — error rendering
 └── ffi/           — C type definitions, FFI registry
 ```
 
-Compilation pipeline:
+Compilation pipeline (see `src/compiler.rs`, `compile()`):
 
 ```
-Lex → Parse → Desugar → Expand Impl → Monomorphize → Type Check
-→ Safety Check → Build IR → Verify → Optimize → Verify → Lower to Backend
+Lex → Parse → Process Imports → Desugar → Expand Impl → Monomorphize
+→ Type Check → Type Table Complete → Build Semantic IR
+→ Verify → Optimize → Verify → Lower to Backend
 ```
+
+Every stage after the frontend runs through the pass pipeline in
+`src/compiler/`. Passes declare a contract (input level, output
+level, kind) that the scheduler enforces — see
+`docs/pass-contracts.md`.
 
 ## Safety Guarantees
 
@@ -192,13 +214,20 @@ Lex → Parse → Desugar → Expand Impl → Monomorphize → Type Check
 | Immutability | Semantic analyzer |
 | Bounds checking | IR verifier + runtime |
 | Use-after-move | Analyzer + IR verifier |
-| Borrow checking | Semantic analyzer |
+| Borrow checking | Semantic analyzer (partial — see below) |
 | Trait bounds | Trait registry |
-| IR well-formedness | VerifiedIR wrapper |
-| No-panic on malformed input | Fuzz tests (700 iterations) |
+| IR well-formedness | `VerifiedIR` wrapper |
+| No-panic on malformed input | Fuzz tests |
 
-See [`docs/decisions/`](docs/decisions/) for the reasoning behind each
-guarantee.
+> **The borrow checker is incomplete in the current version.**
+> Known gaps, documented in `docs/IMPLEMENTATION_STATUS.md`:
+> - `&mut x` in a call argument is not registered as a borrow.
+> - Escape analysis exists but is not wired into the pipeline.
+> - CFG data-flow joins are not a fixed point.
+>
+> These are conservative gaps — the analyzer may accept programs a
+> stricter borrow system would reject. Fixing them requires design
+> decisions that belong in their own ADRs.
 
 ## Contributing
 

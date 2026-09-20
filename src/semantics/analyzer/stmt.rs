@@ -287,7 +287,48 @@ impl SemanticAnalyzer {
             Stmt::Print { expr, .. } => {
                 self.analyze_expr(expr)?;
             }
-            Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Break(span) => {
+                if let Some(ctx) = self.loop_stack.last() {
+                    if self.region_depth > ctx.region_depth_at_entry {
+                        return Err(CompileError::simple(
+                            "Cannot `break` across a region boundary",
+                            span.start_line,
+                            span.start_column,
+                            "",
+                            ErrorCode::E0007,
+                        )
+                        .with_suggestion(
+                            "Region allocations are freed only at the region's end. \
+                             A `break` that jumps to a loop outside the region skips \
+                             the free, leaking every allocation the region made on \
+                             this iteration. Move the loop inside the region, or \
+                             restructure so the region exits normally before the \
+                             loop does.",
+                        ));
+                    }
+                }
+            }
+            Stmt::Continue(span) => {
+                if let Some(ctx) = self.loop_stack.last() {
+                    if self.region_depth > ctx.region_depth_at_entry {
+                        return Err(CompileError::simple(
+                            "Cannot `continue` across a region boundary",
+                            span.start_line,
+                            span.start_column,
+                            "",
+                            ErrorCode::E0007,
+                        )
+                        .with_suggestion(
+                            "Region allocations are freed only at the region's end. \
+                             A `continue` that jumps to a loop outside the region \
+                             skips the free, leaking every allocation the region \
+                             made on this iteration. Move the loop inside the region, \
+                             or restructure so the region exits normally on every \
+                             iteration.",
+                        ));
+                    }
+                }
+            }
             Stmt::Defer { stmt, .. } => {
                 let mut captured = HashSet::new();
                 self.collect_deferred_captures(stmt, &mut captured);
@@ -356,9 +397,11 @@ impl SemanticAnalyzer {
             }
             Stmt::RegionBlock { name: _, body, .. } => {
                 self.push_scope();
+                self.region_depth += 1;
                 for s in body {
                     self.analyze_stmt(s)?;
                 }
+                self.region_depth -= 1;
                 self.pop_scope();
             }
             Stmt::Import { .. } => {}

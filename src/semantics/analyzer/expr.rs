@@ -394,6 +394,9 @@ impl SemanticAnalyzer {
                 let outer_vars: HashSet<String> =
                     self.scopes.iter().flat_map(|s| s.keys().cloned()).collect();
 
+                self.loop_stack.push(LoopContext {
+                    region_depth_at_entry: self.region_depth,
+                });
                 self.push_scope();
                 self.declare_variable(var, elem_type, false)?;
                 let moves_before = self.all_moved_vars();
@@ -413,6 +416,7 @@ impl SemanticAnalyzer {
                     Type::Void
                 };
                 self.pop_scope();
+                self.loop_stack.pop();
                 if let Some(scope) = self.borrowed_vars.last_mut() {
                     *scope = outer_borrowed;
                 }
@@ -457,6 +461,9 @@ impl SemanticAnalyzer {
                 let outer_mutably_borrowed =
                     self.mutably_borrowed.last().cloned().unwrap_or_default();
 
+                self.loop_stack.push(LoopContext {
+                    region_depth_at_entry: self.region_depth,
+                });
                 self.push_scope();
                 for s in body {
                     self.analyze_stmt(s)?;
@@ -468,6 +475,7 @@ impl SemanticAnalyzer {
                     Type::Void
                 };
                 self.pop_scope();
+                self.loop_stack.pop();
                 if let Some(scope) = self.borrowed_vars.last_mut() {
                     *scope = outer_borrowed;
                 }

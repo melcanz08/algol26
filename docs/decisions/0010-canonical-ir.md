@@ -408,22 +408,19 @@ conformance fixture, one differential test.
 
 ### Phase 5 — Region canonicalization
 
-> **Status:** 5a landed (`runtime/region.rs` and
-> `runtime/region_memory.rs` deleted — 627 lines). 5b (region
-> instruction canonicalization) shares Phase 4's "needs design"
-> status: `AllocateRegion` and `FreeRegion` would replace the current
-> `Allocate` + `RegionEnter`/`RegionExit` split, but the change
-> interacts with the interpreter's region-stack model in the same way
-> Phase 4 interacts with `pending_forks`.
-
-
-Introduce `AllocateRegion` and `FreeRegion`. Deprecate the raw
-`RegionEnter`/`RegionExit` terminator pairing.
-
-- The interpreter's region stack becomes the lowering of
-  `AllocateRegion` / `FreeRegion` boundaries.
-- Delete `src/runtime/region.rs` and `src/runtime/region_memory.rs`,
-  which are the parallel unused implementation.
+> **Resolved by investigation, not by redesign.** Phase 5a (deleting
+> `runtime/region.rs` and `runtime/region_memory.rs`) landed. Phase 5b
+> (introducing `AllocateRegion` / `FreeRegion`) was investigated and
+> declined: the current `Allocate` + `RegionEnter`/`RegionExit` split
+> is coherent, and the proposed operations do not remove a real
+> duplication or fix a real bug. They re-represent an implicit
+> context lookup as an explicit instruction field, with no reduction
+> in the number of files a feature touches.
+>
+> The investigation did surface a real bug: `break`/`continue` that
+> cross a region boundary leak the region frame until function exit
+> (and accumulate in loops). Fixed at the analyzer level by rejecting
+> the shape.
 
 **Estimated scope:** three files plus a deletion.
 

@@ -126,12 +126,31 @@ pub struct SemanticAnalyzer {
     /// of `analyze_expr_with_context` and `analyze_stmt`. Used by
     /// error sites that don't have direct access to the node.
     current_span: Span,
+    /// Number of `region NAME` blocks currently open in the
+    /// enclosing function. Incremented only in the `Stmt::RegionBlock`
+    /// arm of `analyze_stmt`, matching the IR builder's emission of
+    /// `Instruction::RegionEnter` / `RegionExit`. Distinct from
+    /// `self.scopes.len()` because plain blocks (if-branches, loop
+    /// bodies, unsafe blocks) also push a scope but do not open a
+    /// region.
+    region_depth: usize,
+    /// Loop nesting stack. Each entry records the `region_depth` at
+    /// the moment the loop was entered. `break` and `continue` are
+    /// rejected if the current `region_depth` exceeds the innermost
+    /// loop's entry depth — that shape would skip the region's
+    /// `RegionExit` and leak its allocations until function return.
+    loop_stack: Vec<LoopContext>,
 }
 
 #[derive(Debug, Clone)]
 struct FunctionInfo {
     params: Vec<(String, Type)>,
     return_type: Type,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LoopContext {
+    region_depth_at_entry: usize,
 }
 
 impl Default for SemanticAnalyzer {
@@ -166,6 +185,8 @@ impl SemanticAnalyzer {
             type_table_nid: HashMap::new(),
             state: SemanticState::new(),
             current_span: Span::default(),
+            region_depth: 0,
+            loop_stack: Vec::new(),
         }
     }
 

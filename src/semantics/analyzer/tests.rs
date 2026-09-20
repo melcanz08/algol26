@@ -389,3 +389,53 @@ procedure main
         msg
     );
 }
+
+#[test]
+fn break_out_of_region_is_rejected() {
+    let source = "\
+procedure main
+    var x := 10.0
+    while x > 0
+        region r
+            break
+";
+    assert!(analyze(source).is_err());
+}
+
+#[test]
+fn continue_out_of_region_is_rejected() {
+    let source = "\
+procedure main
+    var x := 10.0
+    while x > 0
+        region r
+            continue
+";
+    assert!(analyze(source).is_err());
+}
+
+#[test]
+fn loop_inside_region_break_accepted() {
+    let source = "\
+procedure main
+    var x := 10.0
+    region r
+        while x > 0
+            break
+";
+    assert!(analyze(source).is_ok());
+}
+
+#[test]
+fn nested_loop_inside_region_break_accepted() {
+    let source = "\
+procedure main
+    var x := 10.0
+    region r
+        while x > 0
+            var y := 5.0
+            while y > 0
+                break
+";
+    assert!(analyze(source).is_ok());
+}

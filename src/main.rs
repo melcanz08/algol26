@@ -192,6 +192,7 @@ fn print_usage() {
     println!("  --tokens <file.gol>    Dump lexer tokens");
     println!("  --ast    <file.gol>    Dump parsed AST (before type checking)");
     println!("  --ir     <file.gol>    Dump semantic IR (after type checking)");
+    println!("  --cfg    <file.gol>    Dump the CFG view of the semantic IR");
     println!();
     println!("Options:");
     println!("  --emit-llvm            Only generate LLVM IR");
@@ -218,6 +219,7 @@ fn run_inspect(args: &[&str]) {
     let mut tokens = false;
     let mut ast = false;
     let mut ir = false;
+    let mut cfg = false;
     let mut file: Option<String> = None;
     let mut capabilities = false;
     let mut type_table = false;
@@ -228,6 +230,7 @@ fn run_inspect(args: &[&str]) {
             "--tokens" => tokens = true,
             "--ast" => ast = true,
             "--ir" => ir = true,
+            "--cfg" => cfg = true,
             "--capabilities" => capabilities = true,
             "--type-table" => type_table = true,
             "--help" | "-h" => {
@@ -282,10 +285,12 @@ fn run_inspect(args: &[&str]) {
         inspect_ast(&mut compiler, &source, &filename);
     } else if ir {
         inspect_ir(&mut compiler, &source, &filename);
+    } else if cfg {
+        inspect_cfg(&mut compiler, &source, &filename);
     } else if type_table {
         inspect_type_table(&mut compiler, &source, &filename);
     } else {
-        eprintln!("Error: inspect needs one of --passes, --capabilities, --type-table, --tokens, --ast, --ir");
+        eprintln!("Error: inspect needs one of --passes, --capabilities, --type-table, --tokens, --ast, --ir, --cfg");
         print_inspect_usage();
         std::process::exit(1);
     }
@@ -400,6 +405,27 @@ fn inspect_ir(compiler: &mut Compiler, source: &str, filename: &str) {
     }
 }
 
+fn inspect_cfg(compiler: &mut Compiler, source: &str, filename: &str) {
+    use algol26::ir::semantic_ir::{format_program_with, FormatMode, FormatOptions};
+    match compiler.build_semantic_ir_for(source, filename) {
+        Ok(ir) => {
+            print!(
+                "{}",
+                format_program_with(
+                    &ir,
+                    FormatOptions {
+                        mode: FormatMode::Cfg,
+                    },
+                )
+            );
+        }
+        Err(e) => {
+            e.display();
+            std::process::exit(1);
+        }
+    }
+}
+
 fn inspect_capabilities() {
     use algol26::compiler::capabilities::CapabilityMatrix;
     let m = CapabilityMatrix::standard();
@@ -440,4 +466,5 @@ fn print_inspect_usage() {
     eprintln!("  --tokens <file>  dump lexer tokens");
     eprintln!("  --ast    <file>  dump the parsed AST (before type checking)");
     eprintln!("  --ir     <file>  dump the semantic IR (after type checking)");
+    eprintln!("  --cfg    <file>  dump the CFG view (blocks and successors)");
 }

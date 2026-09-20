@@ -26,21 +26,32 @@ use super::{
 };
 use std::fmt::Write;
 
-/// Options controlling `format_program_with`. Currently only one
-/// flag; the struct exists so future options (type annotation
-/// detail, block ordering) can be added without breaking the
-/// signature.
+/// Which view of the program to render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatMode {
+    /// Full instructions and terminators. This is the default —
+    /// what `inspect --ir` shows.
+    Linear,
+    /// Block IDs and their successors, no instructions. What
+    /// `inspect --cfg` shows: useful for reasoning about control
+    /// flow without the noise of instruction bodies.
+    Cfg,
+    /// Function signatures only. Useful for a high-level overview
+    /// of a large program.
+    Signatures,
+}
+
+/// Options controlling `format_program_with`.
 #[derive(Debug, Clone, Copy)]
 pub struct FormatOptions {
-    /// When false, print only function signatures — no blocks, no
-    /// instructions, no terminators. Useful for a high-level
-    /// overview of a large program.
-    pub show_blocks: bool,
+    pub mode: FormatMode,
 }
 
 impl Default for FormatOptions {
     fn default() -> Self {
-        FormatOptions { show_blocks: true }
+        FormatOptions {
+            mode: FormatMode::Linear,
+        }
     }
 }
 
@@ -98,16 +109,22 @@ fn format_function(out: &mut String, func: &SemanticFunction, opts: FormatOption
     }
     out.push('\n');
 
-    if !opts.show_blocks {
-        return;
-    }
-
-    for block in &func.blocks {
-        format_block(out, block, func.entry_block);
+    match opts.mode {
+        FormatMode::Signatures => {}
+        FormatMode::Linear => {
+            for block in &func.blocks {
+                format_block_linear(out, block, func.entry_block);
+            }
+        }
+        FormatMode::Cfg => {
+            for block in &func.blocks {
+                format_block_cfg(out, block, func.entry_block);
+            }
+        }
     }
 }
 
-fn format_block(out: &mut String, block: &SemanticBlock, entry_id: usize) {
+fn format_block_linear(out: &mut String, block: &SemanticBlock, entry_id: usize) {
     if block.id == entry_id {
         writeln!(out, "  [{}] (entry):", block.id).unwrap();
     } else {
@@ -125,6 +142,37 @@ fn format_block(out: &mut String, block: &SemanticBlock, entry_id: usize) {
         format_terminator(out, term);
         out.push('\n');
     }
+}
+
+/// CFG view: block ID, then the list of successor block IDs (or
+/// `return` / `(no terminator)` for terminal blocks). No
+/// instructions, no operand detail.
+fn format_block_cfg(out: &mut String, block: &SemanticBlock, entry_id: usize) {
+    if block.id == entry_id {
+        write!(out, "  [{}] (entry)", block.id).unwrap();
+    } else {
+        write!(out, "  [{}]", block.id).unwrap();
+    }
+
+    match &block.terminator {
+        None => out.push_str(" -> (no terminator)"),
+        Some(Terminator::Return { .. }) => out.push_str(" -> return"),
+        Some(term) => {
+            let succs = term.successors();
+            if succs.is_empty() {
+                out.push_str(" -> (no successors)");
+            } else {
+                out.push_str(" -> ");
+                for (i, s) in succs.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    write!(out, "[{}]", s).unwrap();
+                }
+            }
+        }
+    }
+    out.push('\n');
 }
 
 fn format_instruction(out: &mut String, instr: &Instruction) {
@@ -530,5 +578,62 @@ mod tests {
 
         let out = format_program(&program);
         assert!(out.contains("print(*&x)"), "got:\n{}", out);
+    }
+
+    #[test]
+    fn cfg_mode_shows_successors() {
+        let mut program = SemanticProgram::new();
+        let entry = program.new_block_id();
+        let then_id = program.new_block_id();
+        let else_id = program.new_block_id();
+        let join = program.new_block_id();
+        let func = SemanticFunction {
+            name: "f".to_string(),
+            params: vec![],
+            return_type: Type::Void,
+            blocks: vec![
+                SemanticBlock {
+                    id: entry,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Branch {
+                        condition: TypedIRValue::Bool(true),
+                        then_block: then_id,
+                        else_block: else_id,
+                    }),
+                },
+                SemanticBlock {
+                    id: then_id,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: else_id,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Jump { block: join }),
+                },
+                SemanticBlock {
+                    id: join,
+                    instructions: vec![],
+                    terminator: Some(Terminator::Return {
+                        value: None,
+                        type_: Type::Void,
+                    }),
+                },
+            ],
+            entry_block: entry,
+            is_extern: false,
+        };
+        program.functions.push(func);
+
+        let out = format_program_with(
+            &program,
+            FormatOptions {
+                mode: FormatMode::Cfg,
+            },
+        );
+        assert!(out.contains("[0] (entry) -> ["), "got:\n{}", out);
+        assert!(out.contains("-> return"), "got:\n{}", out);
+        // No instructions in CFG mode.
+        assert!(!out.contains("branch true ? ["), "got:\n{}", out);
     }
 }

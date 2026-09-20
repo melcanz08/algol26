@@ -52,6 +52,17 @@ pub struct TypeInfo {
     pub total_variables: usize,
     pub types_checked: bool,
 }
+
+/// Per-pass durations returned by `run_optimize_pass`. A struct
+/// rather than a bare 3-tuple so the call site reads
+/// `timings.optimize` / `timings.verify` instead of positional
+/// destructuring — the field names are the documentation.
+#[derive(Debug, Clone, Copy)]
+struct OptimizeTimings {
+    optimize: std::time::Duration,
+    verify: std::time::Duration,
+}
+
 /// TODO: OptimizationReport is orphaned after removing
 ///SemanticIROptimized; either delete or reintroduce via
 ///the optimizer's return value
@@ -252,10 +263,7 @@ impl Compiler {
     /// IR cannot leave it (the `mutate` call inside re-runs the
     /// verifier before returning). Both properties are enforced by
     /// the type system, not by convention.
-    fn run_optimize_pass(
-        &self,
-        verified: VerifiedIR,
-    ) -> Result<(VerifiedIR, std::time::Duration, std::time::Duration)> {
+    fn run_optimize_pass(&self, verified: VerifiedIR) -> Result<(VerifiedIR, OptimizeTimings)> {
         use crate::compiler::context::{CompilerConfig, CompilerContext};
         use crate::compiler::passes::optimize::OptimizePass;
         use crate::compiler::passes::verify_ir::VerifyIrPass;
@@ -323,11 +331,12 @@ impl Compiler {
             .map(|t| t.duration)
             .unwrap_or(std::time::Duration::ZERO);
 
-        Ok((
-            VerifiedIR::from_verify_pass(optimized),
-            optimize_dur,
-            verify_dur,
-        ))
+        let timings = OptimizeTimings {
+            optimize: optimize_dur,
+            verify: verify_dur,
+        };
+
+        Ok((VerifiedIR::from_verify_pass(optimized), timings))
     }
 
     /// Runs `BuildSemanticIRPass` on the given typed AST.
@@ -576,8 +585,7 @@ impl Compiler {
         // verifier through the pass pipeline; the durations it returns
         // are the per-pass times as recorded by the scheduler, not the
         // outer pipeline-setup overhead.
-        let (verified_post, optimize_time, verify_post_time) =
-            self.run_optimize_pass(verified_pre)?;
+        let (verified_post, timings) = self.run_optimize_pass(verified_pre)?;
 
         // Phase 13: LOWER TO BACKEND
         let phase_start = Instant::now();
@@ -607,8 +615,8 @@ impl Compiler {
             eprintln!("  Safety:     {:.4}s", safety_time.as_secs_f64());
             eprintln!("  IR Build:   {:.4}s", ir_build_time.as_secs_f64());
             eprintln!("  Verify(1):  {:.4}s", verify_pre_time.as_secs_f64());
-            eprintln!("  Optimize:   {:.4}s", optimize_time.as_secs_f64());
-            eprintln!("  Verify(2):  {:.4}s", verify_post_time.as_secs_f64());
+            eprintln!("  Optimize:   {:.4}s", timings.optimize.as_secs_f64());
+            eprintln!("  Verify(2):  {:.4}s", timings.verify.as_secs_f64());
             eprintln!("  Lower:      {:.4}s", lower_time.as_secs_f64());
             eprintln!("  TypeTblChk: {:.4}s", type_table_check_time.as_secs_f64());
         }

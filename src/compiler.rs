@@ -456,6 +456,7 @@ impl Compiler {
         output_name: &str,
         emit_llvm: bool,
         run_after_compile: bool,
+        timing: bool,
     ) -> Result<()> {
         use std::time::Instant;
 
@@ -534,8 +535,10 @@ impl Compiler {
 
         let total_time = total_start.elapsed();
 
-        // Print timing summary (only if compile takes > 1 second)
-        if total_time.as_secs() > 1 {
+        // Print timing summary. Unconditionally when `--timing` is
+        // set; otherwise only when the compile took long enough that
+        // the phases are worth seeing.
+        if timing || total_time.as_secs() > 1 {
             eprintln!("[Timing] Total: {:.2}s", total_time.as_secs_f64());
             eprintln!("  Lex:        {:.4}s", lex_time.as_secs_f64());
             eprintln!("  Parse:      {:.4}s", parse_time.as_secs_f64());

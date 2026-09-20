@@ -26,6 +26,7 @@ fn main() {
     let use_interpreter = args.iter().any(|a| a == "--interpreter");
     let emit_llvm = args.iter().any(|a| a == "--emit-llvm");
     let run_flag = args.iter().any(|a| a == "--run");
+    let timing = args.iter().any(|a| a == "--timing");
 
     // Positional args: everything that isn't a recognized flag or
     // the value of a flag that takes one.
@@ -37,6 +38,7 @@ fn main() {
         if a == "--interpreter"
             || a == "--emit-llvm"
             || a == "--run"
+            || a == "--timing"
             || a == "--help"
             || a == "-h"
             || a == "--version"
@@ -162,7 +164,7 @@ fn main() {
         }
     } else {
         let mut compiler = Compiler::new();
-        if let Err(e) = compiler.compile(&source, &filename, &output_name, emit_llvm, run) {
+        if let Err(e) = compiler.compile(&source, &filename, &output_name, emit_llvm, run, timing) {
             e.display();
             std::process::exit(1);
         }
@@ -194,6 +196,7 @@ fn print_usage() {
     println!("Options:");
     println!("  --emit-llvm            Only generate LLVM IR");
     println!("  --run                  Run after compilation");
+    println!("  --timing               Print per-phase compile timings");
     println!("  --interpreter          Run through the interpreter (skips LLVM)");
     println!("  --output, -o NAME      Specify output name");
     println!("  --version, -v          Show version");

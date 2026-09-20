@@ -4,7 +4,7 @@ use algol26::compiler::Compiler;
 
 fn compile_and_check(source: &str) -> Result<()> {
     let mut compiler = Compiler::new();
-    compiler.compile(source, "test.gol", "test_output", true, false)
+    compiler.compile(source, "test.gol", "test_output", true, false, false)
 }
 
 #[test]

@@ -267,7 +267,7 @@ fn type_check_pass_agrees_with_direct_call() {
             &parsed.functions,
             &parsed.traits,
             &parsed.impls,
-            &parsed.span_map,
+            &std::collections::HashMap::new(),
         ) {
             Ok(t) => t,
             Err(_) => continue,
@@ -283,7 +283,7 @@ fn type_check_pass_agrees_with_direct_call() {
             functions: Rc::clone(&parsed.functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            span_map: parsed.span_map.clone(),
+            span_map: std::collections::HashMap::new(),
         });
         pass.run(&mut ctx, &mut program)
             .unwrap_or_else(|e| panic!("type_check pass failed on {}: {:?}", filename, e));

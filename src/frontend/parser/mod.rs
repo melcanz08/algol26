@@ -25,7 +25,6 @@ pub(super) struct TokenInfo {
 pub struct Parser {
     pub(super) tokens: Vec<TokenInfo>,
     pub(super) pos: usize,
-    pub(super) span_map: std::collections::HashMap<usize, (usize, usize)>,
     /// Span of the most recently consumed token, updated by `advance()`.
     /// Used by PR-4 to construct compound node spans. Defaults to
     /// `Span::default()` before any token is consumed.
@@ -45,13 +44,8 @@ impl Parser {
         Parser {
             tokens: token_infos,
             pos: 0,
-            span_map: std::collections::HashMap::new(),
             last_span: Span::default(),
         }
-    }
-
-    pub fn get_span_map(&self) -> &std::collections::HashMap<usize, (usize, usize)> {
-        &self.span_map
     }
 
     fn peek(&self) -> &Token {

@@ -34,7 +34,6 @@ pub struct LexedProgram {
 
 pub struct ParsedProgram {
     pub functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
-    pub span_map: std::collections::HashMap<usize, (usize, usize)>,
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
 }
@@ -637,7 +636,6 @@ impl Compiler {
 
         ParsedProgram {
             functions: Rc::new(all_functions),
-            span_map: parsed.span_map.clone(),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
         }
@@ -650,7 +648,6 @@ impl Compiler {
 
         ParsedProgram {
             functions: Rc::new(specialized_functions),
-            span_map: parsed.span_map.clone(),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
         }
@@ -668,7 +665,6 @@ impl Compiler {
         crate::ir::loop_desugar::desugar_loops(&mut functions);
         ParsedProgram {
             functions: Rc::new(functions),
-            span_map: parsed.span_map.clone(),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
         }
@@ -677,10 +673,8 @@ impl Compiler {
     fn parse(&self, lexed: LexedProgram) -> Result<ParsedProgram> {
         let mut parser = Parser::new(lexed.tokens);
         let program = parser.parse_program()?;
-        let span_map = parser.get_span_map().clone();
         Ok(ParsedProgram {
             functions: Rc::new(program.functions),
-            span_map,
             traits: program.traits,
             impls: program.impls,
         })
@@ -709,7 +703,6 @@ impl Compiler {
                                 all_functions.push(imported);
                             }
                         }
-                        // TODO: merge span maps from imports
                     }
 
                     loader.end_import();
@@ -719,7 +712,6 @@ impl Compiler {
 
         Ok(ParsedProgram {
             functions: Rc::new(all_functions),
-            span_map: std::collections::HashMap::new(),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
         })
@@ -730,7 +722,7 @@ impl Compiler {
             Rc::clone(&parsed.functions),
             parsed.traits.clone(),
             parsed.impls.clone(),
-            parsed.span_map.clone(),
+            std::collections::HashMap::new(),
         )
     }
 

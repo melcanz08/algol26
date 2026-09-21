@@ -526,7 +526,18 @@ impl SemanticAnalyzer {
                 if let Type::Result { ok, .. } = value_type {
                     self.declare_variable(var, *ok.clone(), false)?;
                 } else {
-                    self.declare_variable(var, Type::Unknown, false).ok();
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Internal: `Ok` pattern reached binding with \
+                             non-Result type `{}` (check_pattern_type should \
+                             have rejected this)",
+                            value_type
+                        ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0009,
+                    ));
                 }
             }
             Pattern::OkNested(inner) => {
@@ -538,7 +549,18 @@ impl SemanticAnalyzer {
                 if let Type::Result { error, .. } = value_type {
                     self.declare_variable(var, *error.clone(), false)?;
                 } else {
-                    self.declare_variable(var, Type::Unknown, false).ok();
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Internal: `Error` pattern reached binding with \
+                             non-Result type `{}` (check_pattern_type should \
+                             have rejected this)",
+                            value_type
+                        ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0009,
+                    ));
                 }
             }
             Pattern::ErrorNested(inner) => {

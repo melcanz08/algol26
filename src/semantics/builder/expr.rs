@@ -469,6 +469,13 @@ impl SemanticIRBuilder {
                 if let Some(merge) = self.pending_merge.take() {
                     return FlowResult::Reachable(merge);
                 }
+                if self.block_is_terminated(func, current_block) {
+                    // The expression set a terminator on the current block
+                    // without scheduling a merge (e.g. a match whose every
+                    // case returns). No following statement in this block
+                    // is reachable.
+                    return FlowResult::Unreachable;
+                }
                 SemanticInstruction::Nop
             }
             _ => {
@@ -971,7 +978,11 @@ impl SemanticIRBuilder {
                     },
                 );
 
-                // Translate each case body and assign result to result_var
+                // Translate each case body and assign result to result_var.
+                // Track whether any case falls through to the merge —
+                // if none does, the merge and default blocks are
+                // unreachable and must be removed.
+                let mut any_case_reaches_merge = false;
                 for (idx, case) in cases.iter().enumerate() {
                     let case_block_id = case_block_ids[idx];
 
@@ -1014,14 +1025,34 @@ impl SemanticIRBuilder {
                                 final_block,
                                 Terminator::Jump { block: merge_id },
                             );
+                            any_case_reaches_merge = true;
                         }
                     }
 
                     self.pop_scope();
                 }
 
-                // Set pending merge so that subsequent statements continue at merge block
-                self.pending_merge = Some(merge_id);
+                if any_case_reaches_merge {
+                    self.pending_merge = Some(merge_id);
+                } else {
+                    // Every case body returns or diverges. The merge
+                    // block has no reachable predecessor (the only
+                    // edge was through the switch's default, and the
+                    // analyzer enforces exhaustiveness, so the
+                    // default is unreachable). Remove both blocks and
+                    // clear the switch's default so the CFG verifier
+                    // doesn't flag them as unreachable.
+                    func.blocks
+                        .retain(|b| b.id != merge_id && b.id != default_block_id);
+                    if let Some(block) = func.blocks.iter_mut().find(|b| b.id == current_block) {
+                        if let Some(Terminator::Switch { default_block, .. }) =
+                            &mut block.terminator
+                        {
+                            *default_block = None;
+                        }
+                    }
+                    self.pending_merge = None;
+                }
 
                 // Return the result variable as the value of the match expression
                 TypedIRValue::Variable(result_var, result_type)

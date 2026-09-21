@@ -113,6 +113,25 @@ impl<'ctx> IRCodeGen<'ctx> {
                 self.builder.build_store(ptr, val).unwrap();
                 Ok(())
             }
+            Instruction::WriteReference { reference, value } => {
+                // Load the pointer held by the reference variable,
+                // then store `value` through it.
+                let ptr_val = self.compile_value(reference)?;
+                if !ptr_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "WriteReference reference did not lower to a pointer \
+                             (kind: {:?})",
+                            ptr_val
+                        ),
+                        "llvm",
+                    ));
+                }
+                let target_ptr = ptr_val.into_pointer_value();
+                let val = self.compile_value(value)?;
+                self.builder.build_store(target_ptr, val).unwrap();
+                Ok(())
+            }
             Instruction::ArrayAssign {
                 array,
                 index,

@@ -70,6 +70,30 @@ pub(super) fn verify_instruction(
 
             Ok(())
         }
+        Instruction::WriteReference { reference, value } => {
+            let ref_ty = verify_value(reference, env)?;
+            let inner_ty = match &ref_ty {
+                Type::MutBorrow(inner) => (**inner).clone(),
+                Type::Unknown => Type::Unknown,
+                other => {
+                    return Err(format!(
+                        "Function '{}': WriteReference requires a MutBorrow reference, found {:?}",
+                        func.name, other
+                    ));
+                }
+            };
+            let value_ty = verify_value(value, env)?;
+            if !inner_ty.is_unknown()
+                && !value_ty.is_unknown()
+                && !value_ty.can_coerce_to(&inner_ty)
+            {
+                return Err(format!(
+                    "Function '{}': WriteReference value type {:?} does not coerce to MutBorrow target type {:?}",
+                    func.name, value_ty, inner_ty
+                ));
+            }
+            Ok(())
+        }
         Instruction::Print { value } => {
             verify_value(value, env)?;
             Ok(())

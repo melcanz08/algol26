@@ -145,6 +145,14 @@ impl Optimizer {
                             self.stats.folded_constants += 1;
                         }
                     }
+                    Instruction::WriteReference { reference, value } => {
+                        if self.fold_value(reference) {
+                            self.stats.folded_constants += 1;
+                        }
+                        if self.fold_value(value) {
+                            self.stats.folded_constants += 1;
+                        }
+                    }
                     Instruction::Print { value } => {
                         if self.fold_value(value) {
                             self.stats.folded_constants += 1;
@@ -370,6 +378,16 @@ impl Optimizer {
                             constants.remove(target);
                         }
                     }
+                    Instruction::WriteReference { value, .. } => {
+                        if let TypedIRValue::Variable(name, _) = value {
+                            if let Some(constant) = constants.get(name) {
+                                *value = constant.clone();
+                                self.stats.propagated_constants += 1;
+                            }
+                        }
+                        // Cannot propagate through the reference —
+                        // no points-to tracking.
+                    }
                     _ => {}
                 }
             }
@@ -387,7 +405,7 @@ impl Optimizer {
                         let mut deps = HashSet::new();
                         collect_variables_from_value(value, &mut deps);
                         deps.remove(name);
-                        dependencies.insert(name.clone(), deps);
+                        dependencies.insert(name.clone(), deps); // <-- dependencies
                     }
                     Instruction::Assign { target, value } => {
                         let mut deps = HashSet::new();
@@ -407,13 +425,11 @@ impl Optimizer {
             for instr in &block.instructions {
                 match instr {
                     Instruction::Declare { name, value, .. } => {
-                        // Variables referenced in an initializer are used.
-                        // (Don't count the declared name itself.)
                         let mut deps = HashSet::new();
                         collect_variables_from_value(value, &mut deps);
                         deps.remove(name);
                         for d in deps {
-                            used_variables.insert(d);
+                            used_variables.insert(d); // <-- used_variables
                         }
                     }
                     Instruction::Assign { target, value } => {

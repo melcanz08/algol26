@@ -114,6 +114,22 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                             });
                         }
                     }
+                    I::WriteReference { reference, value } => {
+                        // Write-through-`&mut`: the reference
+                        // variable's pointer is loaded, and the
+                        // value's variables are computed. Both are
+                        // uses from the ownership model's
+                        // perspective. No `Assign` is emitted for
+                        // the reference variable itself — its
+                        // value (the pointer) is not being
+                        // reassigned.
+                        let mut vars = Vec::new();
+                        collect_all_vars(reference, &mut vars);
+                        collect_all_vars(value, &mut vars);
+                        for v in vars {
+                            instrs.push(CfgInstruction::Use { name: v });
+                        }
+                    }
                     I::ArrayAssign { array, value, .. } => {
                         let mut vars = Vec::new();
                         collect_all_vars(array, &mut vars);

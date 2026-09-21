@@ -402,7 +402,18 @@ impl Interpreter {
                     )));
                 }
             },
-
+            Instruction::WriteReference { .. } => {
+                // The interpreter does not model references. Its
+                // `Assign` handler would silently overwrite the
+                // reference variable's slot, which is wrong; refuse
+                // instead. Matches the interpreter's refusal of the
+                // reference-family `TypedIRValue` variants in
+                // `eval_value`.
+                return Err(EvalError::Unsupported {
+                    construct: "write-through-&mut",
+                    hint: "use the LLVM backend (--interpreter does not model references)",
+                });
+            }
             // Channel operations are not modeled. The capability
             // matrix should refuse any program that would reach
             // here. Listed explicitly (rather than `_ =>`) so a

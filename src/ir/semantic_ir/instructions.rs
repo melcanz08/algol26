@@ -19,6 +19,20 @@ pub enum Instruction {
         target: String,
         value: TypedIRValue,
     },
+    /// Write through a `MutBorrow(T)` reference variable: load the
+    /// pointer the reference holds, then store `value` at the
+    /// pointed-to location. This is the canonical form of ALGOL26's
+    /// write-through syntax (`p := v` where `p: MutBorrow(T)`).
+    ///
+    /// Before this variant existed, the IR builder emitted a plain
+    /// `Assign` for such statements. Both backends then stored the
+    /// value into the reference variable's own slot — overwriting
+    /// the pointer — instead of writing through it. See ADR 0010
+    /// Phase 2 for the discovery and the fix plan.
+    WriteReference {
+        reference: TypedIRValue,
+        value: TypedIRValue,
+    },
     ArrayAssign {
         array: Box<TypedIRValue>,
         index: Box<TypedIRValue>,

@@ -192,6 +192,12 @@ fn format_instruction(out: &mut String, instr: &Instruction) {
             write!(out, "{} := ", target).unwrap();
             format_value(out, value);
         }
+        Instruction::WriteReference { reference, value } => {
+            out.push('*');
+            format_value(out, reference);
+            out.push_str(" := ");
+            format_value(out, value);
+        }
         Instruction::ArrayAssign {
             array,
             index,

@@ -92,6 +92,10 @@ pub(super) fn scan_instruction(
     match instr {
         Instruction::Declare { value, .. } => scan_value(value, extern_fns, used),
         Instruction::Assign { value, .. } => scan_value(value, extern_fns, used),
+        Instruction::WriteReference { reference, value } => {
+            scan_value(reference, extern_fns, used);
+            scan_value(value, extern_fns, used);
+        }
         Instruction::ArrayAssign {
             array,
             index,

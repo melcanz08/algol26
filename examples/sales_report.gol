@@ -1,0 +1,111 @@
+// BACKEND: interpreter
+//
+// Sales report generator.
+//
+// A small real-world program: given a fixed table of products,
+// unit prices, and quantities sold, compute per-product revenue,
+// the total, and the top seller; print a formatted report.
+//
+// This is also a stress test for ALGOL26's current feature set.
+// It exercises:
+//   * parallel lists as a record encoding (no structs yet)
+//   * list indexing (read and write) with runtime-computed indices
+//   * in-place list mutation via `arr[i] := value`
+//   * mixed Int/Float arithmetic with automatic promotion
+//   * `List.length` and `List.sum` builtins
+//   * `while` loops with manual counters
+//   * `for` loops over lists
+//   * `if` / `else if` / `else` chains
+//   * user-defined functions with scalar parameters
+//   * `String`-returning functions
+//   * `print` with Int, Float, and String arguments
+//
+// Run with:
+//   algol26 run --interpreter examples/sales_report.gol
+
+// Classify a quantity sold into a coarse volume band.
+// Returns a String, so this also tests that a user-defined
+// function can return a String through the interpreter.
+function volume_category(qty: Int) -> String
+    if qty > 200 then
+        return "bulk"
+    else if qty > 100 then
+        return "wholesale"
+    else if qty > 20 then
+        return "retail"
+    else
+        return "specialty"
+
+procedure main
+    // ------------------------------------------------------------
+    // Input data.
+    //
+    // Three parallel lists model a table of
+    // (product, price, quantity-sold) rows. They must all be the
+    // same length; keeping them aligned by index is the only
+    // representation available today (no structs).
+    // ------------------------------------------------------------
+    val products := ["widget", "gadget", "gizmo", "doodad"]
+    val prices := [9.99, 24.50, 3.75, 149.00]
+    val quantities := [120, 45, 300, 8]
+
+    // ------------------------------------------------------------
+    // Step 1: per-product revenue.
+    //
+    //   revenues[i] = prices[i] * quantities[i]
+    //
+    // The multiplication mixes `Float` and `Int`. The language
+    // promotes the Int operand to Float and the result is a
+    // Float, so the arithmetic is well-typed.
+    // ------------------------------------------------------------
+    var revenues: List<Float> := [0.0, 0.0, 0.0, 0.0]
+
+    val n := List.length(products)
+    var i := 0
+    while i < n do
+        val price := prices[i]
+        val qty := quantities[i]
+        revenues[i] := price * qty
+        i := i + 1
+
+    // ------------------------------------------------------------
+    // Step 2: total revenue across all products.
+    // ------------------------------------------------------------
+    val total := List.sum(revenues)
+
+    // ------------------------------------------------------------
+    // Step 3: identify the top-selling product by revenue.
+    //
+    // ALGOL26 has no for-with-index, so we track `j` manually.
+    // ------------------------------------------------------------
+    var best_idx := 0
+    var best_rev := 0.0
+    var j := 0
+    for rev in revenues
+        if rev > best_rev then
+            best_rev := rev
+            best_idx := j
+        j := j + 1
+
+    // ------------------------------------------------------------
+    // Step 4: report.
+    // ------------------------------------------------------------
+    print("=== Sales Report ===")
+    print("")
+    print("Total revenue:")
+    print(total)
+    print("")
+    print("Top-selling product:")
+    print(products[best_idx])
+    print("Revenue:")
+    print(best_rev)
+    print("Volume category:")
+    print(volume_category(quantities[best_idx]))
+    print("")
+    print("Per-product breakdown:")
+    var k := 0
+    for p in products
+        print(p)
+        print(revenues[k])
+        print(volume_category(quantities[k]))
+        k := k + 1

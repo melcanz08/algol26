@@ -402,11 +402,19 @@ impl Parser {
         let else_branch = if matches!(self.peek(), Token::Else) {
             self.advance();
             if matches!(self.peek(), Token::If) {
-                let else_if_span = self.current_span();
+                self.advance(); // consume 'if' — parse_if_expr assumes it's gone
+                let else_if_span = self.last_span();
                 let else_if_expr = self.parse_if_expr()?;
+                // Wrap the nested `if` as a *statement* inside the
+                // synthetic block, not as a trailing expression. The
+                // IR builder extracts an else branch's statements and
+                // ignores trailing expressions; putting the nested
+                // `if` as `Stmt::Expression(...)` makes it flow
+                // through the normal statement path, which handles
+                // `if` recursively.
                 Some(Box::new(Expr::Block {
-                    statements: vec![],
-                    trailing_expr: Some(Box::new(else_if_expr)),
+                    statements: vec![Stmt::Expression(else_if_expr)],
+                    trailing_expr: None,
                     span: else_if_span,
                 }))
             } else {

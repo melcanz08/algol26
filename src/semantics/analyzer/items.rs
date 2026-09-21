@@ -255,15 +255,13 @@ impl SemanticAnalyzer {
     /// True if every control-flow path through `stmts` ends in a
     /// `return`, `break`, or other diverging statement.
     ///
-    /// This is a heuristic, not a real CFG reachability analysis. It
-    /// handles the constructs that appear in practice:
+    /// This is a heuristic, not a real CFG reachability analysis.
+    /// It handles the constructs that appear in practice:
     ///
     /// - A bare `return` returns `true` immediately (subsequent
     ///   statements are unreachable).
-    /// - `if cond ... else ...` requires both branches to return.
-    /// - `match` requires every arm to return.
-    /// - `try { ... } catch { ... }` requires both branches to return.
-    /// - A nested `block` returns if its statements do.
+    /// - Any statement whose top-level expression guarantees a
+    ///   return — see `expr_guarantees_return`.
     ///
     /// It does NOT handle `while true { ... }` (needs a break check)
     /// or `for` (may run zero times), so those are conservatively
@@ -273,73 +271,71 @@ impl SemanticAnalyzer {
         for stmt in stmts {
             match stmt {
                 Stmt::Return { .. } => return true,
-                Stmt::Expression(Expr::If {
-                    then_branch,
-                    else_branch: Some(else_expr),
-                    ..
-                }) => {
-                    let then_returns = matches!(
-                        then_branch.as_ref(),
-                        Expr::Block { statements, .. }
-                            if self.check_all_paths_return(statements)
-                    );
-                    let else_returns = matches!(
-                        else_expr.as_ref(),
-                        Expr::Block { statements, .. }
-                            if self.check_all_paths_return(statements)
-                    );
-                    if then_returns && else_returns {
-                        return true;
-                    }
-                }
-                Stmt::Expression(Expr::Match { cases, .. }) => {
-                    // Every arm must return. An empty match cannot
-                    // guarantee a return (the scrutinee might not
-                    // match any case). Cases must be non-empty and
-                    // each body must be a Block whose statements
-                    // always return.
-                    if !cases.is_empty()
-                        && cases.iter().all(|c| {
-                            matches!(
-                                &c.body,
-                                Expr::Block { statements, .. }
-                                    if self.check_all_paths_return(statements)
-                            )
-                        })
-                    {
-                        return true;
-                    }
-                }
-                Stmt::Expression(Expr::TryCatch {
-                    try_branch,
-                    catch_branch,
-                    ..
-                }) => {
-                    // Both try and catch must return. The finally
-                    // block is optional and runs after either branch,
-                    // so it doesn't affect whether a return happens.
-                    let try_returns = matches!(
-                        try_branch.as_ref(),
-                        Expr::Block { statements, .. }
-                            if self.check_all_paths_return(statements)
-                    );
-                    let catch_returns = matches!(
-                        catch_branch.as_ref(),
-                        Expr::Block { statements, .. }
-                            if self.check_all_paths_return(statements)
-                    );
-                    if try_returns && catch_returns {
-                        return true;
-                    }
-                }
-                Stmt::Expression(Expr::Block { statements, .. })
-                    if self.check_all_paths_return(statements) =>
-                {
+                Stmt::Expression(expr) if self.expr_guarantees_return(expr) => {
                     return true;
                 }
                 _ => {}
             }
         }
         false
+    }
+
+    /// True if evaluating `expr` always ends in a `return`.
+    ///
+    /// Recursively descends into the constructs that can guarantee
+    /// a return:
+    ///
+    /// - `Block { statements, trailing_expr }` — either its
+    ///   statements always return, or its trailing expression does.
+    ///   The trailing-expression case is what makes `else if`
+    ///   chains work: the parser represents `else if X` as
+    ///   `Block { statements: [], trailing_expr: Some(If { X }) }`,
+    ///   so the return-detection must look past the empty
+    ///   statement list to the nested `If`.
+    /// - `If { then, else: Some(else) }` — both branches must
+    ///   guarantee a return.
+    /// - `Match { cases }` — non-empty, and every case body must
+    ///   guarantee a return.
+    /// - `TryCatch { try, catch }` — both branches must guarantee
+    ///   a return. `finally` runs after either branch and does not
+    ///   affect whether a return happens.
+    ///
+    /// Everything else returns `false`: the expression might
+    /// produce a value without returning, or might diverge, and
+    /// this check is conservative by design.
+    fn expr_guarantees_return(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                self.check_all_paths_return(statements)
+                    || trailing_expr
+                        .as_ref()
+                        .is_some_and(|te| self.expr_guarantees_return(te))
+            }
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                self.expr_guarantees_return(then_branch) && self.expr_guarantees_return(else_branch)
+            }
+            Expr::If {
+                else_branch: None, ..
+            } => false,
+            Expr::Match { cases, .. } => {
+                !cases.is_empty() && cases.iter().all(|c| self.expr_guarantees_return(&c.body))
+            }
+            Expr::TryCatch {
+                try_branch,
+                catch_branch,
+                ..
+            } => {
+                self.expr_guarantees_return(try_branch) && self.expr_guarantees_return(catch_branch)
+            }
+            _ => false,
+        }
     }
 }

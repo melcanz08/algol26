@@ -23,7 +23,42 @@ pub fn desugar_loops(functions: &mut [FunctionDecl]) {
 fn desugar_scoped_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<Stmt> {
     let saved = env.clone();
     let result = desugar_stmts(stmts, env);
-    *env = saved;
+
+    // Names present before the scope.
+    let before_keys: std::collections::HashSet<String> = saved.keys().cloned().collect();
+    // Names present after the scope.
+    let after_keys: std::collections::HashSet<String> = env.keys().cloned().collect();
+
+    // Names newly added inside the scope are local declarations; they
+    // must not leak out.
+    for name in after_keys.difference(&before_keys) {
+        env.remove(name);
+    }
+
+    // Names that existed before and disappeared inside the scope were
+    // removed by `ArrayAssign`'s handler, which calls `env.remove`.
+    // That is a mutation to the outer binding, not a shadow; do not
+    // restore them.
+    let removed_inside: std::collections::HashSet<String> =
+        before_keys.difference(&after_keys).cloned().collect();
+
+    // Every surviving name is restored to its pre-scope value. For a
+    // name the scope did not touch, this is a no-op assignment of the
+    // same value. For a name shadowed by an inner `var`, this puts
+    // the outer value back. Names removed inside the scope stay
+    // removed.
+    //
+    // Before this change, the whole env was restored unconditionally,
+    // which reinstated a stale list literal after any array mutation
+    // inside a nested scope. `examples/sales_report.gol` hit this: the
+    // `while` loop mutates `revenues` via `revenues[i] := ...`, the
+    // mutation was reverted on scope exit, and the subsequent
+    // `for rev in revenues` unrolled over the pre-mutation zeros.
+    for (name, saved_val) in &saved {
+        if !removed_inside.contains(name) {
+            env.insert(name.clone(), saved_val.clone());
+        }
+    }
     result
 }
 

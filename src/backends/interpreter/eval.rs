@@ -525,8 +525,10 @@ impl Interpreter {
             self.return_value = saved_ret;
             self.region_stack = saved_regions;
 
-            // `execute_function` still returns `Result<(), String>`
-            // in PR-A. Convert.
+            // Wrap the callee's error with the function name so
+            // nested calls produce a readable chain
+            // (`in f: in g: ...`). The error type is `EvalError`
+            // throughout; nothing is swallowed.
             result.map_err(|e| EvalError::Runtime(format!("in {}: {}", callee.name, e)))?;
 
             Ok(ret)

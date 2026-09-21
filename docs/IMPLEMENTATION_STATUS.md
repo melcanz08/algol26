@@ -22,6 +22,9 @@ This revision reflects a two-day session of compiler work:
   `Send` / `ChannelSend` → `SendChannel`; `Receive` / `ChannelReceive`
   → `ReceiveChannel`.
 - **Added:** CFG verifier rules enforcing the `Fork` shape (ADR 0011).
+- **Removed:** the `eval_call` error-swallowing entry from the open
+  bugs list. The interpreter propagates user-function errors; the
+  entry described a state that no longer exists.
 
 ## Known divergences between backends
 
@@ -256,9 +259,6 @@ Open (not fixed):
   not record the iterator. Root cause: list-typed function
   parameters are not handled by `IteratorInit`. Two corpus
   programs hit this. Fix requires extending `IteratorInit`.
-- Interpreter `eval_call` swallows user-function errors — the
-  caller sees `Void` after an `eprintln!`. Requires `eval_*` to
-  return `Result`.
 - WASM output has unresolved C library imports (`printf`, `exit`,
   `sqrt`, `strlen`, `strcat`). Module is not executable without a
   host shim. Needs a design decision.

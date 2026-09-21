@@ -1,0 +1,14 @@
+// BACKEND: interpreter
+// OUTPUT: 42
+// OUTPUT: 0
+
+function unwrap(r: Result<Int, String>) -> Int
+    match r
+        case Ok(v)
+            return v
+        case Error(e)
+            return 0
+
+procedure main
+    print(unwrap(Ok(42)))
+    print(unwrap(Error("bad")))

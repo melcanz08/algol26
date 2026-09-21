@@ -95,12 +95,7 @@ pub fn type_check_program(
     span_map: &std::collections::HashMap<usize, (usize, usize)>,
 ) -> Result<TypedProgram> {
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer
-        .analyze_with_traits(functions, traits, impls, span_map)
-        .map_err(|e| {
-            e.display();
-            CompileError::simple("Type checking failed", 0, 0, "", ErrorCode::E0002)
-        })?;
+    analyzer.analyze_with_traits(functions, traits, impls, span_map)?;
 
     let mut race_detector = RaceDetector::new();
     let races = race_detector.analyze(functions);
@@ -703,27 +698,9 @@ impl Compiler {
 
                     if !source.is_empty() {
                         // Parse the imported file
-                        let lexer = Lexer::new(source.clone()).map_err(|e| {
-                            e.display();
-                            CompileError::simple(
-                                "Lexing failed in import",
-                                0,
-                                0,
-                                "",
-                                ErrorCode::E0001,
-                            )
-                        })?;
+                        let lexer = Lexer::new(source.clone())?;
                         let mut parser = Parser::new(lexer.tokens);
-                        let imported_program = parser.parse_program().map_err(|e| {
-                            e.display();
-                            CompileError::simple(
-                                "Parsing failed in import",
-                                0,
-                                0,
-                                "",
-                                ErrorCode::E0001,
-                            )
-                        })?;
+                        let imported_program = parser.parse_program()?;
 
                         // Add imported functions (skip any functions that already exist)
                         let imported_funcs = imported_program.functions;

@@ -116,3 +116,4 @@ examples/stats/*
 # Corpus build artifacts (keep only .gol sources)
 tests/corpus/*
 !tests/corpus/*.gol
+test_output.ll

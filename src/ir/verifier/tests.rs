@@ -509,3 +509,99 @@ fn builtin_signatures_match_analyzer_table() {
         );
     }
 }
+
+#[test]
+fn addrof_on_non_place_is_rejected() {
+    // Construct a program where AddrOf wraps an arithmetic
+    // expression. The verifier must reject it — the operand has
+    // no stable storage.
+    use crate::common::types::Type;
+    use crate::ir::semantic_ir::{
+        Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticProgram, Terminator,
+        TypedIRValue,
+    };
+
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    let func = SemanticFunction {
+        name: "f".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![Instruction::Print {
+                value: TypedIRValue::AddrOf {
+                    expr: Box::new(TypedIRValue::BinaryOp {
+                        op: SemanticBinOp::Add,
+                        left: Box::new(TypedIRValue::Int(1)),
+                        right: Box::new(TypedIRValue::Int(2)),
+                        result_type: Type::Int,
+                    }),
+                    target_type: Type::pointer(Type::Int),
+                },
+            }],
+            terminator: Some(Terminator::Return {
+                value: None,
+                type_: Type::Void,
+            }),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    };
+    program.functions.push(func);
+
+    let result = crate::ir::verifier::verify(&program);
+    assert!(
+        result.is_err(),
+        "AddrOf on a non-place should be rejected, got Ok"
+    );
+    let msg = result.unwrap_err();
+    assert!(
+        msg.contains("AddrOf requires a place"),
+        "expected 'requires a place' error, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn addrof_on_variable_is_accepted() {
+    // Positive case: AddrOf(Variable) is a valid place.
+    use crate::common::types::Type;
+    use crate::ir::semantic_ir::{
+        Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
+    };
+
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    let func = SemanticFunction {
+        name: "f".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![
+                Instruction::Declare {
+                    name: "x".to_string(),
+                    mutable: true,
+                    type_: Type::Int,
+                    value: TypedIRValue::Int(5),
+                },
+                Instruction::Print {
+                    value: TypedIRValue::AddrOf {
+                        expr: Box::new(TypedIRValue::Variable("x".to_string(), Type::Int)),
+                        target_type: Type::pointer(Type::Int),
+                    },
+                },
+            ],
+            terminator: Some(Terminator::Return {
+                value: None,
+                type_: Type::Void,
+            }),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    };
+    program.functions.push(func);
+
+    assert!(crate::ir::verifier::verify(&program).is_ok());
+}

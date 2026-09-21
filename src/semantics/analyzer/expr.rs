@@ -109,6 +109,30 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::AddrOf { expr, .. } => {
+                // Only expressions with stable storage can be
+                // addressed. `&x` where x is a variable is fine;
+                // `&(a + b)` or `&f()` are not.
+                if !matches!(
+                    expr.as_ref(),
+                    Expr::Var(_, _)
+                        | Expr::ArrayAccess { .. }
+                        | Expr::FieldAccess { .. }
+                        | Expr::Deref { .. }
+                ) {
+                    return Err(CompileError::simple(
+                        "Cannot take the address of a temporary value; \
+                         address-of requires a variable, array element, \
+                         field, or dereference",
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(
+                        "Bind the value to a variable first, then take \
+                         its address",
+                    ));
+                }
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::pointer(inner_type))
             }

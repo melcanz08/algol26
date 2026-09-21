@@ -237,3 +237,40 @@ function main() -> Float
         msg
     );
 }
+
+#[test]
+fn ampersand_produces_borrow_not_addrof() {
+    use crate::frontend::lexer::Lexer;
+    use crate::frontend::parser::Parser;
+
+    let src = "\
+procedure main
+    val x := 5.0
+    val p := &x
+";
+    let lexer = Lexer::new(src.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+
+    let body = &program.functions[0].body;
+    let has_borrow = body.iter().any(|s| {
+        matches!(
+            s,
+            Stmt::VarDecl {
+                value: Expr::Borrow { .. },
+                ..
+            }
+        )
+    });
+    let has_addrof = body.iter().any(|s| {
+        matches!(
+            s,
+            Stmt::VarDecl {
+                value: Expr::AddrOf { .. },
+                ..
+            }
+        )
+    });
+    assert!(has_borrow, "&x should parse as Expr::Borrow");
+    assert!(!has_addrof, "&x should NOT parse as Expr::AddrOf");
+}

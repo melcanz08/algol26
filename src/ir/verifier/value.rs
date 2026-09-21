@@ -147,6 +147,26 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             expected
         }
         TypedIRValue::AddrOf { expr, target_type } => {
+            // AddrOf operates on a place. Taking the address of a
+            // computed value is meaningless — there is no storage
+            // for the resulting pointer to refer to. The parser
+            // does not produce AddrOf today, but the verifier is
+            // the authoritative place for this invariant: any
+            // future pass or backend that constructs AddrOf
+            // receives the same rejection.
+            if !matches!(
+                expr.as_ref(),
+                TypedIRValue::Variable(_, _)
+                    | TypedIRValue::ArrayAccess { .. }
+                    | TypedIRValue::FieldAccess { .. }
+                    | TypedIRValue::ReadReference { .. }
+            ) {
+                return Err(format!(
+                    "AddrOf requires a place (variable, array element, field, \
+                     or dereference); got {:?}",
+                    expr
+                ));
+            }
             let inner = verify_value(expr, env)?;
             let expected = Type::pointer(inner);
             if !target_type.is_unknown() && !expected.is_unknown() && target_type != &expected {

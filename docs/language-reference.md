@@ -496,16 +496,26 @@ The analyzer tracks `val` bindings initialized to `null`. `var`
 bindings are not tracked by value flow; a `var` holding null at
 runtime is undefined behavior if dereferenced.
 
-### 8.3 Address-Of and Deref
+### 8.3 Borrowing and Dereference
 
 ```
 var x := 5.0
-val p := &x          // address of x
-val y := *p          // load from p
-```
+val p := &x          // p: Borrow<Float>
+val y := *p          // y: Float
 
-The `AddrOf` operator produces a pointer; `Deref` loads from a
-pointer, borrow, or mut-borrow.
+&x creates a shared borrow of x. &mut x creates a mutable
+borrow. *p reads through a pointer, borrow, or mut-borrow.
+
+Borrows (&x, &mut x) produce tracked reference types
+(Borrow<T>, MutBorrow<T>) that participate in the borrow
+checker's lifetime model. This is distinct from a raw pointer
+(Pointer<T>), which carries no lifetime information and is not
+tracked by the analyzer.
+```
+The IR carries a distinct AddrOf operation for producing a raw
+pointer. The surface parser currently does not produce it — no
+addr_of syntax exists today. It is reserved for a future
+raw-pointer feature and is not user-visible.
 
 ---
 

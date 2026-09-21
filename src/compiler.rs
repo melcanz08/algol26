@@ -568,26 +568,22 @@ impl Compiler {
 
         // Phase 8: SAFETY CHECK
         let phase_start = Instant::now();
-        let safety_time = phase_start.elapsed();
-
-        // Phase 9: BUILD SEMANTIC IR
-        let phase_start = Instant::now();
         let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
         let ir_build_time = phase_start.elapsed();
 
-        // Phase 10: VERIFY IR (pre-optimization) → VerifiedIR
+        // Phase 9: VERIFY IR (pre-optimization) → VerifiedIR
         let phase_start = Instant::now();
         let verified_pre = self.run_verify_pass(semantic_ir, "after construction")?;
         let verify_pre_time = phase_start.elapsed();
 
-        // Phase 11 + 12: OPTIMIZE inside the verified wrapper → VerifiedIR.
+        // Phase 10: OPTIMIZE inside the verified wrapper → VerifiedIR.
         // `run_optimize_pass` runs both the optimizer and a following
         // verifier through the pass pipeline; the durations it returns
         // are the per-pass times as recorded by the scheduler, not the
         // outer pipeline-setup overhead.
         let (verified_post, timings) = self.run_optimize_pass(verified_pre)?;
 
-        // Phase 13: LOWER TO BACKEND
+        // Phase 11: LOWER TO BACKEND
         let phase_start = Instant::now();
         self.lower_to_llvm(
             &verified_post,
@@ -612,7 +608,6 @@ impl Compiler {
             eprintln!("  Expand:     {:.4}s", expand_time.as_secs_f64());
             eprintln!("  Mono:       {:.4}s", mono_time.as_secs_f64());
             eprintln!("  TypeCheck:  {:.4}s", type_check_time.as_secs_f64());
-            eprintln!("  Safety:     {:.4}s", safety_time.as_secs_f64());
             eprintln!("  IR Build:   {:.4}s", ir_build_time.as_secs_f64());
             eprintln!("  Verify(1):  {:.4}s", verify_pre_time.as_secs_f64());
             eprintln!("  Optimize:   {:.4}s", timings.optimize.as_secs_f64());
@@ -827,7 +822,7 @@ impl Compiler {
         use crate::backends::backend::Backend;
         use crate::backends::wasm_backend::WasmBackend;
 
-        // Phases 1-8: Same as compile()
+        // Frontend phases: same as compile().
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
         let parsed = self.process_imports(&parsed, filename)?;

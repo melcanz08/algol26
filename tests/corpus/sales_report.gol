@@ -1,0 +1,112 @@
+// expected output : 
+
+// BACKEND: interpreter
+// OUTPUT: === Sales Report ===
+// OUTPUT: 
+// OUTPUT: Total revenue:
+// OUTPUT: 4618.3
+// OUTPUT: 
+// OUTPUT: Top-selling product:
+// OUTPUT: widget
+// OUTPUT: Revenue:
+// OUTPUT: 1198.8
+// OUTPUT: Volume category:
+// OUTPUT: wholesale
+// OUTPUT: 
+// OUTPUT: Per-product breakdown:
+// OUTPUT: widget
+// OUTPUT: 1198.8
+// OUTPUT: wholesale
+// OUTPUT: gadget
+// OUTPUT: 1102.5
+// OUTPUT: retail
+// OUTPUT: gizmo
+// OUTPUT: 1125.0
+// OUTPUT: bulk
+// OUTPUT: doodad
+// OUTPUT: 1192.0
+// OUTPUT: specialty
+
+function volume_category(qty: Int) -> String
+    if qty > 200 then
+        return "bulk"
+    else if qty > 100 then
+        return "wholesale"
+    else if qty > 20 then
+        return "retail"
+    else
+        return "specialty"
+
+procedure main
+    // ------------------------------------------------------------
+    // Input data.
+    //
+    // Three parallel lists model a table of
+    // (product, price, quantity-sold) rows. They must all be the
+    // same length; keeping them aligned by index is the only
+    // representation available today (no structs).
+    // ------------------------------------------------------------
+    val products := ["widget", "gadget", "gizmo", "doodad"]
+    val prices := [9.99, 24.50, 3.75, 149.00]
+    val quantities := [120, 45, 300, 8]
+
+    // ------------------------------------------------------------
+    // Step 1: per-product revenue.
+    //
+    //   revenues[i] = prices[i] * quantities[i]
+    //
+    // The multiplication mixes `Float` and `Int`. The language
+    // promotes the Int operand to Float and the result is a
+    // Float, so the arithmetic is well-typed.
+    // ------------------------------------------------------------
+    var revenues: List<Float> := [0.0, 0.0, 0.0, 0.0]
+
+    val n := List.length(products)
+    var i := 0
+    while i < n do
+        val price := prices[i]
+        val qty := quantities[i]
+        revenues[i] := price * qty
+        i := i + 1
+
+    // ------------------------------------------------------------
+    // Step 2: total revenue across all products.
+    // ------------------------------------------------------------
+    val total := List.sum(revenues)
+
+    // ------------------------------------------------------------
+    // Step 3: identify the top-selling product by revenue.
+    //
+    // ALGOL26 has no for-with-index, so we track `j` manually.
+    // ------------------------------------------------------------
+    var best_idx := 0
+    var best_rev := 0.0
+    var j := 0
+    for rev in revenues
+        if rev > best_rev then
+            best_rev := rev
+            best_idx := j
+        j := j + 1
+
+    // ------------------------------------------------------------
+    // Step 4: report.
+    // ------------------------------------------------------------
+    print("=== Sales Report ===")
+    print("")
+    print("Total revenue:")
+    print(total)
+    print("")
+    print("Top-selling product:")
+    print(products[best_idx])
+    print("Revenue:")
+    print(best_rev)
+    print("Volume category:")
+    print(volume_category(quantities[best_idx]))
+    print("")
+    print("Per-product breakdown:")
+    var k := 0
+    for p in products
+        print(p)
+        print(revenues[k])
+        print(volume_category(quantities[k]))
+        k := k + 1

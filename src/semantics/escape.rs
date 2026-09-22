@@ -11,7 +11,33 @@
 // This is a scope-level analysis, not a lifetime proof. It cannot
 // decide `lifetime(ref) <= lifetime(source)` in general; a full
 // lifetime model would need to be threaded through the AST.
-
+//
+// ─── Status ────────────────────────────────────────────────────────
+//
+// **Not wired into the compiler pipeline.**
+//
+// The CFG dataflow engine (`src/ir/cfg/dataflow.rs`) handles the
+// decidable escape cases today. When the IR builder emits a
+// `ReturnRef` instruction, the dataflow engine produces
+// `E-ESCAPE-001`. When it emits `Escape { from, to }` (currently
+// only from channel sends), the engine produces `E-ESCAPE-002`.
+// Those are the checks the compiler actually runs.
+//
+// This module is reserved for the broader lifetime model that
+// would answer "does this reference outlive its storage?" for
+// every reference site, not only the two the CFG builder can
+// detect. That work requires either a full non-lexical lifetime
+// analysis or explicit lifetime annotations on function
+// signatures; neither exists today.
+//
+// The API is currently circular for that reason:
+// `EscapeAnalyzer::reference(name, outlives_scope: bool)` requires
+// the caller to decide whether the reference outlives its scope,
+// which is the question the analyzer was designed to answer. A
+// caller that can answer that question doesn't need this module.
+//
+// This is a placeholder, not an incomplete implementation. Do not
+// assume it is invoked by the analyzer or by any pass. It is not.
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]

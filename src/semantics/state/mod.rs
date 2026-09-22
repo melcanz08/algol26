@@ -10,33 +10,115 @@ pub struct NodeId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CallId(pub u64);
 
+/// Whether a variable has been given a value on the current path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VarState {
+pub enum InitState {
+    /// Never assigned on any path reaching the current point.
     Uninitialized,
+    /// Assigned on some paths but not all.
     MaybeUninitialized,
-    Available,
-    Moved,
-    MaybeMoved,
+    /// Assigned on every path.
+    Initialized,
 }
 
-impl VarState {
+impl InitState {
     pub fn join(self, other: Self) -> Self {
-        use VarState::*;
+        use InitState::*;
         match (self, other) {
             (a, b) if a == b => a,
-            (Uninitialized, Available) | (Available, Uninitialized) => MaybeUninitialized,
-            (Available, Moved) | (Moved, Available) => MaybeMoved,
-            (Uninitialized, Moved) | (Moved, Uninitialized) => MaybeMoved,
-            (MaybeMoved, _) | (_, MaybeMoved) => MaybeMoved,
-            (MaybeUninitialized, _) | (_, MaybeUninitialized) => MaybeUninitialized,
+            _ => MaybeUninitialized,
+        }
+    }
+}
+
+/// Whether a variable's value is still held by this binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnershipState {
+    /// Still owned by this binding.
+    Owned,
+    /// Moved on some paths but not all.
+    MaybeMoved,
+    /// Moved on every path; the binding holds no value.
+    Moved,
+}
+
+impl OwnershipState {
+    pub fn join(self, other: Self) -> Self {
+        use OwnershipState::*;
+        match (self, other) {
+            (a, b) if a == b => a,
             _ => MaybeMoved,
         }
     }
-    pub fn is_available(&self) -> bool {
-        matches!(self, VarState::Available)
+}
+
+/// Two-dimensional state for a variable.
+///
+/// Initialization and ownership are independent properties. A
+/// variable can be `MaybeMoved` while still `Initialized` on the
+/// paths where it wasn't moved. Compressing them into a single
+/// enum forces a choice between expressing "moved" and "maybe
+/// uninitialized" when both are true, and loses the precision the
+/// verifier needs to produce accurate diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VarState {
+    pub init: InitState,
+    pub ownership: OwnershipState,
+}
+
+impl VarState {
+    /// A freshly declared, initialized variable.
+    pub fn available() -> Self {
+        VarState {
+            init: InitState::Initialized,
+            ownership: OwnershipState::Owned,
+        }
     }
+
+    /// A variable that exists but has no value on this path.
+    pub fn uninitialized() -> Self {
+        VarState {
+            init: InitState::Uninitialized,
+            ownership: OwnershipState::Owned,
+        }
+    }
+
+    /// A variable that has been moved out.
+    pub fn moved() -> Self {
+        VarState {
+            init: InitState::Initialized,
+            ownership: OwnershipState::Moved,
+        }
+    }
+
+    /// Join two states at a control-flow merge. Each dimension
+    /// joins independently.
+    pub fn join(self, other: Self) -> Self {
+        VarState {
+            init: self.init.join(other.init),
+            ownership: self.ownership.join(other.ownership),
+        }
+    }
+
+    /// True when the variable is initialized and still owned.
+    pub fn is_available(&self) -> bool {
+        self.init == InitState::Initialized && self.ownership == OwnershipState::Owned
+    }
+
+    /// True when the variable has been moved (or maybe moved).
     pub fn is_moved(&self) -> bool {
-        matches!(self, VarState::Moved | VarState::MaybeMoved)
+        matches!(
+            self.ownership,
+            OwnershipState::Moved | OwnershipState::MaybeMoved
+        )
+    }
+
+    /// True when the variable may be uninitialized.
+    pub fn is_uninitialized(&self) -> bool {
+        matches!(
+            self.init,
+            InitState::Uninitialized | InitState::MaybeUninitialized
+        )
     }
 }
 
@@ -146,8 +228,8 @@ impl SemanticState {
         let mut vars = HashMap::new();
         let all_keys: HashSet<String> = a.vars.keys().chain(b.vars.keys()).cloned().collect();
         for k in all_keys {
-            let va = a.vars.get(&k).copied().unwrap_or(VarState::Uninitialized);
-            let vb = b.vars.get(&k).copied().unwrap_or(VarState::Uninitialized);
+            let va = a.vars.get(&k).copied().unwrap_or(VarState::uninitialized());
+            let vb = b.vars.get(&k).copied().unwrap_or(VarState::uninitialized());
             vars.insert(k, va.join(vb));
         }
 
@@ -256,7 +338,7 @@ impl SemanticState {
     }
 
     pub fn move_out(&mut self, name: &str) {
-        self.vars.insert(name.to_string(), VarState::Moved);
+        self.vars.insert(name.to_string(), VarState::moved());
         self.borrows.retain(|_, b| b.place != name);
     }
 
@@ -450,17 +532,38 @@ mod tests {
     #[test]
     fn join_available_moved_is_maybe_moved() {
         let mut a = SemanticState::new();
-        a.declare("x".into(), VarState::Available);
+        a.declare("x".into(), VarState::available());
         let mut b = SemanticState::new();
-        b.declare("x".into(), VarState::Moved);
+        b.declare("x".into(), VarState::moved());
         let j = SemanticState::join(&a, &b);
-        assert_eq!(j.vars["x"], VarState::MaybeMoved);
+        // Ownership is maybe-moved; init is still definite because
+        // both branches had a value on entry.
+        assert_eq!(j.vars["x"].ownership, OwnershipState::MaybeMoved);
+        assert_eq!(j.vars["x"].init, InitState::Initialized);
+    }
+
+    #[test]
+    fn join_keeps_dimensions_independent() {
+        // Left branch: uninitialized but owned.
+        // Right branch: initialized but moved.
+        // The join must be {MaybeUninitialized, MaybeMoved} —
+        // the old single-enum representation could only express one
+        // of those two facts.
+        let mut a = SemanticState::new();
+        a.declare("x".into(), VarState::uninitialized());
+
+        let mut b = SemanticState::new();
+        b.declare("x".into(), VarState::moved());
+
+        let j = SemanticState::join(&a, &b);
+        assert_eq!(j.vars["x"].init, InitState::MaybeUninitialized);
+        assert_eq!(j.vars["x"].ownership, OwnershipState::MaybeMoved);
     }
 
     #[test]
     fn temporary_borrow_does_not_escape() {
         let mut s = SemanticState::new();
-        s.declare("x".into(), VarState::Available);
+        s.declare("x".into(), VarState::available());
         let lt = s.borrow_temporary("x".into(), BorrowKind::Mutable);
         assert!(!lt.outlives(&StorageLifetime::Local("x".into())));
     }
@@ -468,7 +571,7 @@ mod tests {
     #[test]
     fn move_ends_borrow() {
         let mut s = SemanticState::new();
-        s.declare("x".into(), VarState::Available);
+        s.declare("x".into(), VarState::available());
         s.borrow(
             "r".into(),
             "x".into(),
@@ -486,7 +589,7 @@ mod tests {
         let mut s = SemanticState::new();
         s.enter_region("r1".into());
         assert_eq!(s.current_region(), Some(&"r1".to_string()));
-        s.declare("x".into(), VarState::Available);
+        s.declare("x".into(), VarState::available());
         assert_eq!(s.var_region.get("x"), Some(&"r1".to_string()));
         let outliving = s.exit_region("r1");
         assert!(outliving.is_empty());
@@ -497,10 +600,10 @@ mod tests {
     fn region_borrow_outlives_inner_storage() {
         let mut s = SemanticState::new();
         s.enter_region("outer".into());
-        s.declare("r".into(), VarState::Available); // r in outer
+        s.declare("r".into(), VarState::available()); // r in outer
         s.enter_region("inner".into());
-        s.declare("x".into(), VarState::Available); // x in inner
-                                                    // r borrows x, but r lives in outer, x in inner
+        s.declare("x".into(), VarState::available()); // x in inner
+                                                      // r borrows x, but r lives in outer, x in inner
         s.borrow(
             "r".into(),
             "x".into(),
@@ -520,8 +623,8 @@ mod tests {
     fn same_region_borrow_ok() {
         let mut s = SemanticState::new();
         s.enter_region("r1".into());
-        s.declare("x".into(), VarState::Available);
-        s.declare("r".into(), VarState::Available);
+        s.declare("x".into(), VarState::available());
+        s.declare("r".into(), VarState::available());
         s.borrow(
             "r".into(),
             "x".into(),
@@ -539,7 +642,7 @@ mod tests {
     #[test]
     fn escape_tracking() {
         let mut s = SemanticState::new();
-        s.declare("x".into(), VarState::Available);
+        s.declare("x".into(), VarState::available());
         s.mark_escape("x".into(), "return".into());
         assert!(s.escapes.escapes("x"));
         assert!(s.escapes.get_escapes("x").unwrap().contains("return"));
@@ -548,9 +651,9 @@ mod tests {
     #[test]
     fn local_outside_outlives_inner() {
         let mut s = SemanticState::new();
-        s.declare("r".into(), VarState::Available); // r outside
+        s.declare("r".into(), VarState::available()); // r outside
         s.enter_region("inner".into());
-        s.declare("x".into(), VarState::Available); // x inside
+        s.declare("x".into(), VarState::available()); // x inside
         s.borrow(
             "r".into(),
             "x".into(),
@@ -568,8 +671,8 @@ mod tests {
     #[test]
     fn join_preserves_borrow_from_one_branch() {
         let mut a = SemanticState::new();
-        a.declare("x".into(), VarState::Available);
-        a.declare("p".into(), VarState::Available);
+        a.declare("x".into(), VarState::available());
+        a.declare("p".into(), VarState::available());
         a.borrow(
             "p".into(),
             "x".into(),
@@ -578,8 +681,8 @@ mod tests {
         );
 
         let mut b = SemanticState::new();
-        b.declare("x".into(), VarState::Available);
-        b.declare("p".into(), VarState::Available);
+        b.declare("x".into(), VarState::available());
+        b.declare("p".into(), VarState::available());
         // no borrow in b
 
         let j = SemanticState::join(&a, &b);
@@ -592,10 +695,10 @@ mod tests {
     #[test]
     fn join_preserves_borrow_from_right_branch() {
         let mut a = SemanticState::new();
-        a.declare("x".into(), VarState::Available);
+        a.declare("x".into(), VarState::available());
 
         let mut b = SemanticState::new();
-        b.declare("x".into(), VarState::Available);
+        b.declare("x".into(), VarState::available());
         b.borrow(
             "r".into(),
             "x".into(),
@@ -613,7 +716,7 @@ mod tests {
     #[test]
     fn join_keeps_definite_borrow_when_both_branches_agree() {
         let mut a = SemanticState::new();
-        a.declare("x".into(), VarState::Available);
+        a.declare("x".into(), VarState::available());
         a.borrow(
             "p".into(),
             "x".into(),
@@ -622,7 +725,7 @@ mod tests {
         );
 
         let mut b = SemanticState::new();
-        b.declare("x".into(), VarState::Available);
+        b.declare("x".into(), VarState::available());
         b.borrow(
             "p".into(),
             "x".into(),

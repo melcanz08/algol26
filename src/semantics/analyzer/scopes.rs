@@ -81,7 +81,7 @@ impl SemanticAnalyzer {
                     // Revert to Available - the move was scoped to inner branch
                     self.state
                         .vars
-                        .insert(outer_var.clone(), VarState::Available);
+                        .insert(outer_var.clone(), VarState::available());
                 }
             }
             let _outliving = self.state.exit_region(&region);
@@ -106,7 +106,7 @@ impl SemanticAnalyzer {
             scope.insert(name.to_string(), (type_.clone(), mutable));
         }
         // v0.9-D: mirror into unified state
-        self.state.declare(name.to_string(), VarState::Available);
+        self.state.declare(name.to_string(), VarState::available());
         Ok(())
     }
     pub(super) fn lookup_variable(&self, name: &str) -> Option<(Type, bool)> {

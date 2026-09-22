@@ -111,7 +111,7 @@ impl Transfer for OwnershipTransfer {
         for instr in &block.instructions {
             match instr {
                 CfgInstruction::Declare { name } => {
-                    incoming.declare(name.clone(), crate::semantics::state::VarState::Available);
+                    incoming.declare(name.clone(), crate::semantics::state::VarState::available());
                 }
                 CfgInstruction::Assign { name } => {
                     if incoming.is_mutably_borrowed(name) {
@@ -130,8 +130,8 @@ impl Transfer for OwnershipTransfer {
                     // this makes the dataflow layer agree so that
                     // any future producer bypassing the analyzer
                     // still gets the rejection.
-                    match incoming.vars.get(name) {
-                        Some(crate::semantics::state::VarState::Moved) => {
+                    if let Some(st) = incoming.vars.get(name) {
+                        if st.ownership == crate::semantics::state::OwnershipState::Moved {
                             diags.push(DataflowDiagnostic {
                                 message: format!(
                                     "E-MOVE-002: Cannot assign to moved variable '{}'",
@@ -140,8 +140,9 @@ impl Transfer for OwnershipTransfer {
                                 block: block.id,
                                 is_error: true,
                             });
-                        }
-                        Some(crate::semantics::state::VarState::MaybeMoved) => {
+                        } else if st.ownership
+                            == crate::semantics::state::OwnershipState::MaybeMoved
+                        {
                             diags.push(DataflowDiagnostic {
                                 message: format!(
                                     "E-MOVE-002: Cannot assign to maybe-moved variable '{}'",
@@ -151,7 +152,7 @@ impl Transfer for OwnershipTransfer {
                                 is_error: true,
                             });
                         }
-                        Some(crate::semantics::state::VarState::Uninitialized) => {
+                        if st.init == crate::semantics::state::InitState::Uninitialized {
                             diags.push(DataflowDiagnostic {
                                 message: format!(
                                     "E-INIT-001: Cannot assign to uninitialized variable '{}'",
@@ -161,7 +162,6 @@ impl Transfer for OwnershipTransfer {
                                 is_error: true,
                             });
                         }
-                        _ => {}
                     }
                     // A successful assignment re-establishes the
                     // target as Available. Done unconditionally so
@@ -170,7 +170,7 @@ impl Transfer for OwnershipTransfer {
                     // see a defined state.
                     incoming
                         .vars
-                        .insert(name.clone(), crate::semantics::state::VarState::Available);
+                        .insert(name.clone(), crate::semantics::state::VarState::available());
                 }
                 CfgInstruction::Move { name } => {
                     if incoming.is_borrowed(name) {
@@ -186,28 +186,38 @@ impl Transfer for OwnershipTransfer {
                     // `Use`, which catches these — but the check
                     // belongs on `Move` itself so the transfer is
                     // complete and independent of producer shape.
-                    match incoming.vars.get(name) {
-                        Some(crate::semantics::state::VarState::Moved) => {
+                    if let Some(st) = incoming.vars.get(name) {
+                        if st.ownership == crate::semantics::state::OwnershipState::Moved {
                             diags.push(DataflowDiagnostic {
                                 message: format!(
-                                    "E-MOVE-001: Cannot move already-moved '{}'",
+                                    "E-MOVE-002: Cannot assign to moved variable '{}'",
+                                    name
+                                ),
+                                block: block.id,
+                                is_error: true,
+                            });
+                        } else if st.ownership
+                            == crate::semantics::state::OwnershipState::MaybeMoved
+                        {
+                            diags.push(DataflowDiagnostic {
+                                message: format!(
+                                    "E-MOVE-002: Cannot assign to maybe-moved variable '{}'",
                                     name
                                 ),
                                 block: block.id,
                                 is_error: true,
                             });
                         }
-                        Some(crate::semantics::state::VarState::Uninitialized) => {
+                        if st.init == crate::semantics::state::InitState::Uninitialized {
                             diags.push(DataflowDiagnostic {
                                 message: format!(
-                                    "E-INIT-001: Cannot move uninitialized '{}'",
+                                    "E-INIT-001: Cannot assign to uninitialized variable '{}'",
                                     name
                                 ),
                                 block: block.id,
                                 is_error: true,
                             });
                         }
-                        _ => {}
                     }
                     incoming.move_out(name);
                 }
@@ -217,11 +227,7 @@ impl Transfer for OwnershipTransfer {
                     mutable,
                 } => {
                     if let Some(st) = incoming.vars.get(place) {
-                        if matches!(
-                            st,
-                            crate::semantics::state::VarState::Moved
-                                | crate::semantics::state::VarState::MaybeMoved
-                        ) {
+                        if st.is_moved() {
                             diags.push(DataflowDiagnostic {
                                 message: format!(
                                     "E-MOVE-001: Cannot borrow moved value '{}'",
@@ -231,11 +237,7 @@ impl Transfer for OwnershipTransfer {
                                 is_error: true,
                             });
                         }
-                        if matches!(
-                            st,
-                            crate::semantics::state::VarState::Uninitialized
-                                | crate::semantics::state::VarState::MaybeUninitialized
-                        ) {
+                        if st.is_uninitialized() {
                             diags.push(DataflowDiagnostic {
                                 message: format!(
                                     "E-INIT-001: Cannot borrow uninitialized '{}'",
@@ -313,15 +315,20 @@ impl Transfer for OwnershipTransfer {
                 }
                 CfgInstruction::Use { name } => {
                     if let Some(state) = incoming.vars.get(name) {
-                        match state {
-                            crate::semantics::state::VarState::Uninitialized => {
+                        // Two independent checks. A variable that is
+                        // both maybe-uninitialized and maybe-moved
+                        // now produces both diagnostics, which the
+                        // compressed single-enum state could not
+                        // express.
+                        match state.init {
+                            crate::semantics::state::InitState::Uninitialized => {
                                 diags.push(DataflowDiagnostic {
                                     message: format!("E-INIT-001: Use of uninitialized '{}'", name),
                                     block: block.id,
                                     is_error: true,
                                 });
                             }
-                            crate::semantics::state::VarState::MaybeUninitialized => {
+                            crate::semantics::state::InitState::MaybeUninitialized => {
                                 diags.push(DataflowDiagnostic {
                                     message: format!(
                                         "E-INIT-002: Use of maybe-uninitialized '{}'",
@@ -331,21 +338,24 @@ impl Transfer for OwnershipTransfer {
                                     is_error: true,
                                 });
                             }
-                            crate::semantics::state::VarState::Moved => {
+                            crate::semantics::state::InitState::Initialized => {}
+                        }
+                        match state.ownership {
+                            crate::semantics::state::OwnershipState::Moved => {
                                 diags.push(DataflowDiagnostic {
                                     message: format!("E-MOVE-001: Use of moved '{}'", name),
                                     block: block.id,
                                     is_error: true,
                                 });
                             }
-                            crate::semantics::state::VarState::MaybeMoved => {
+                            crate::semantics::state::OwnershipState::MaybeMoved => {
                                 diags.push(DataflowDiagnostic {
                                     message: format!("E-MOVE-002: Use of maybe-moved '{}'", name),
                                     block: block.id,
                                     is_error: true,
                                 });
                             }
-                            _ => {}
+                            crate::semantics::state::OwnershipState::Owned => {}
                         }
                     }
                     if incoming.is_mutably_borrowed(name) {

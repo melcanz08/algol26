@@ -124,6 +124,53 @@ impl Transfer for OwnershipTransfer {
                             is_error: true,
                         });
                     }
+                    // Match the analyzer's rule: assignment to a
+                    // moved or uninitialized target is rejected.
+                    // The analyzer catches this at the AST level;
+                    // this makes the dataflow layer agree so that
+                    // any future producer bypassing the analyzer
+                    // still gets the rejection.
+                    match incoming.vars.get(name) {
+                        Some(crate::semantics::state::VarState::Moved) => {
+                            diags.push(DataflowDiagnostic {
+                                message: format!(
+                                    "E-MOVE-002: Cannot assign to moved variable '{}'",
+                                    name
+                                ),
+                                block: block.id,
+                                is_error: true,
+                            });
+                        }
+                        Some(crate::semantics::state::VarState::MaybeMoved) => {
+                            diags.push(DataflowDiagnostic {
+                                message: format!(
+                                    "E-MOVE-002: Cannot assign to maybe-moved variable '{}'",
+                                    name
+                                ),
+                                block: block.id,
+                                is_error: true,
+                            });
+                        }
+                        Some(crate::semantics::state::VarState::Uninitialized) => {
+                            diags.push(DataflowDiagnostic {
+                                message: format!(
+                                    "E-INIT-001: Cannot assign to uninitialized variable '{}'",
+                                    name
+                                ),
+                                block: block.id,
+                                is_error: true,
+                            });
+                        }
+                        _ => {}
+                    }
+                    // A successful assignment re-establishes the
+                    // target as Available. Done unconditionally so
+                    // the transfer function is total: whether or
+                    // not an error was emitted, downstream blocks
+                    // see a defined state.
+                    incoming
+                        .vars
+                        .insert(name.clone(), crate::semantics::state::VarState::Available);
                 }
                 CfgInstruction::Move { name } => {
                     if incoming.is_borrowed(name) {
@@ -132,6 +179,35 @@ impl Transfer for OwnershipTransfer {
                             block: block.id,
                             is_error: true,
                         });
+                    }
+                    // Reject move of a source that is already moved
+                    // or never initialized. Every current producer
+                    // of `Move` (only `Free`) emits a preceding
+                    // `Use`, which catches these — but the check
+                    // belongs on `Move` itself so the transfer is
+                    // complete and independent of producer shape.
+                    match incoming.vars.get(name) {
+                        Some(crate::semantics::state::VarState::Moved) => {
+                            diags.push(DataflowDiagnostic {
+                                message: format!(
+                                    "E-MOVE-001: Cannot move already-moved '{}'",
+                                    name
+                                ),
+                                block: block.id,
+                                is_error: true,
+                            });
+                        }
+                        Some(crate::semantics::state::VarState::Uninitialized) => {
+                            diags.push(DataflowDiagnostic {
+                                message: format!(
+                                    "E-INIT-001: Cannot move uninitialized '{}'",
+                                    name
+                                ),
+                                block: block.id,
+                                is_error: true,
+                            });
+                        }
+                        _ => {}
                     }
                     incoming.move_out(name);
                 }

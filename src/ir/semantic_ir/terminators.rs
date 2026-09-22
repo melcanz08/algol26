@@ -68,12 +68,50 @@ impl Terminator {
                 v
             }
             Self::Spawn { entry_block } => vec![*entry_block],
-            Self::Fork { blocks, join_block } => {
-                let mut v = blocks.clone();
-                v.push(*join_block);
-                v
+            Self::Fork { blocks, .. } => {
+                // The join block is *not* a direct successor of the
+                // fork. Control reaches the join only after every
+                // branch has executed and jumped to it. The
+                // interpreter's `pending_forks` mechanism enforces
+                // this by intercepting each branch's jump to the
+                // join and running the next pending branch instead;
+                // only the final branch's jump is allowed through.
+                //
+                // Listing the join as a successor of the fork would
+                // let the CFG claim that pre-fork state can reach
+                // the join without executing a branch, which is a
+                // path no execution follows.
+                blocks.clone()
             }
             _ => vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fork_successors_do_not_include_join() {
+        let term = Terminator::Fork {
+            blocks: vec![1, 2],
+            join_block: 3,
+        };
+        let succs = term.successors();
+        assert_eq!(succs, vec![1, 2]);
+        assert!(
+            !succs.contains(&3),
+            "join block must not be a direct successor of the fork"
+        );
+    }
+
+    #[test]
+    fn fork_with_single_branch_has_single_successor() {
+        let term = Terminator::Fork {
+            blocks: vec![5],
+            join_block: 9,
+        };
+        assert_eq!(term.successors(), vec![5]);
     }
 }

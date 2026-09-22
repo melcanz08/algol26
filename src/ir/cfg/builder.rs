@@ -366,14 +366,16 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                             cfg.add_edge(from, *to);
                         }
                     }
-                    Terminator::Fork { blocks, join_block } => {
+                    Terminator::Fork { blocks, .. } => {
+                        // Edges go from the fork to each branch entry
+                        // only. The join block is reached from the
+                        // branch terminators; see
+                        // `Terminator::Fork::successors` for the
+                        // rationale.
                         for b in blocks {
                             if let Some(to) = block_id_map.get(b) {
                                 cfg.add_edge(from, *to);
                             }
-                        }
-                        if let Some(to) = block_id_map.get(join_block) {
-                            cfg.add_edge(from, *to);
                         }
                     }
                     Terminator::Return { .. } => {}

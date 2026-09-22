@@ -148,9 +148,20 @@ impl CompilerContext {
         self.diagnostics.push(Diagnostic::Warning(msg.into()));
     }
 
-    /// Only `Diagnostic::Error` is fatal. Warnings do not stop the pipeline.
+    /// Only `Diagnostic::Error` is fatal. Warnings do not stop the
+    /// pipeline.
     pub fn has_fatal_diagnostics(&self) -> bool {
         self.diagnostics
+            .iter()
+            .any(|d| matches!(d, Diagnostic::Error(_)))
+    }
+
+    /// Same as `has_fatal_diagnostics`, but only considers
+    /// diagnostics at index `start` or later. Used by the scheduler
+    /// so a reused context does not carry warnings from previous
+    /// pipeline runs into the fatal check.
+    pub fn has_fatal_diagnostics_since(&self, start: usize) -> bool {
+        self.diagnostics[start.min(self.diagnostics.len())..]
             .iter()
             .any(|d| matches!(d, Diagnostic::Error(_)))
     }
@@ -172,13 +183,15 @@ impl CompilerContext {
             .filter(|d| matches!(d, Diagnostic::Warning(_)))
             .count()
     }
-    // Render every diagnostic collected so far as a single string.
+
+    /// Render every diagnostic collected so far as a single string.
     ///
     /// Useful for a future `inspect` command or for error paths that
     /// want to print once rather than per-diagnostic.
     pub fn render_diagnostics(&self) -> String {
         crate::diagnostics::renderer::render_all(&self.diagnostics)
     }
+
     /// Check whether `program` uses only features the configured
     /// target backend supports.
     ///

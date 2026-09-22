@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-// src/compiler.rs updates for Semantic IR & Defer Lowering Integration
+// src/compiler.rs
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
+use crate::compiler::context::{CompilerConfig, CompilerContext};
+use crate::compiler::program::{AstPayload, Program};
 use crate::frontend::ast::Stmt;
 use crate::frontend::ast::{ImplBlock, TraitDecl, TypeSyntax};
 use crate::frontend::lexer::Lexer;
@@ -52,19 +54,15 @@ pub struct TypeInfo {
     pub types_checked: bool,
 }
 
-/// Per-pass durations returned by `run_optimize_pass`. A struct
-/// rather than a bare 3-tuple so the call site reads
-/// `timings.optimize` / `timings.verify` instead of positional
-/// destructuring — the field names are the documentation.
+/// Per-pass durations returned by `run_optimize_pass`.
 #[derive(Debug, Clone, Copy)]
 struct OptimizeTimings {
     optimize: std::time::Duration,
     verify: std::time::Duration,
 }
 
-/// TODO: OptimizationReport is orphaned after removing
-///SemanticIROptimized; either delete or reintroduce via
-///the optimizer's return value
+/// TODO: orphaned after removing `SemanticIROptimized`. Either
+/// delete or reintroduce via the optimizer's return value.
 #[derive(Debug, Default)]
 pub struct OptimizationReport {
     pub passes_run: Vec<String>,
@@ -85,8 +83,7 @@ impl Default for Compiler {
 /// **Invariant:** `functions` is shared by `Rc::clone`, not cloned
 /// deeply. The analyzer populates the type table keyed by the
 /// addresses it visits; those addresses must survive into the
-/// returned `TypedProgram`. See
-/// `docs/compiler/type-table-addressing.md`.
+/// returned `TypedProgram`. See `docs/compiler/type-table-addressing.md`.
 pub fn type_check_program(
     functions: &Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     traits: &[TraitDecl],
@@ -117,14 +114,9 @@ pub fn type_check_program(
 
 /// Build a `SemanticProgram` from the typed AST.
 ///
-/// This is the actual lowering step. `Compiler::build_semantic_ir`
-/// delegates to it and `BuildSemanticIRPass` calls it; the two paths
-/// share one implementation so the equivalence test is meaningful.
-///
-/// Returns `Err` on any diagnostic produced by the builder. Diagnostics
-/// are printed to stderr here for parity with the pre-pass behavior;
-/// once the compiler routes diagnostics through `CompilerContext`,
-/// this becomes a `Vec<Diagnostic>` in the error.
+/// This is the actual lowering step. Called by
+/// `BuildSemanticIRPass`; there is no second implementation to keep
+/// in sync.
 pub fn build_semantic_ir_program(
     functions: &[crate::frontend::ast::FunctionDecl],
     type_table: std::collections::HashMap<usize, crate::common::types::Type>,
@@ -154,30 +146,30 @@ impl Compiler {
         Compiler
     }
 
-    /// Runs the frontend + semantics phases up to and including IR
-    /// construction, returning the unverified `SemanticProgram`.
-    ///
-    /// This is the extracted prefix of `compile()`. It exists so the
-    /// pass pipeline and the equivalence test share exactly one
-    /// implementation of the frontend. When `compile()` is eventually
-    /// migrated to drive the pipeline, this method goes away — the
-    /// pipeline will be the implementation.
+    /// Frontend through IR construction, returning unverified IR.
+    /// Used by `inspect --ir`.
     pub fn build_semantic_ir_for(
         &mut self,
         source: &str,
         filename: &str,
     ) -> Result<SemanticProgram> {
         let typed = self.type_check_source_for(source, filename)?;
-        self.run_build_ir_pass(typed)
+
+        let mut program = Program::new(source, filename);
+        program.typed = Some(typed);
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+
+        self.run_build_ir_pass(&mut program, &mut ctx)?;
+
+        Ok(program
+            .semantic_ir
+            .take()
+            .expect("build pass left IR in place"))
     }
 
-    /// Runs the frontend up to and including monomorphization, stopping
-    /// before type checking. Used by equivalence tests that need the
-    /// same `ParsedProgram` the analyzer would see.
-    ///
-    /// The returned `ParsedProgram::functions` is the *final* allocation
-    /// before type checking — the one the analyzer will key its type
-    /// table against.
+    /// Frontend through monomorphization, stopping before type
+    /// checking. Used by equivalence tests that need the exact
+    /// allocation the analyzer will see.
     pub fn parse_source_for(&mut self, source: &str, filename: &str) -> Result<ParsedProgram> {
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
@@ -192,6 +184,7 @@ impl Compiler {
         self.lex(source)
     }
 
+    /// Frontend through type checking. Used by `inspect --type-table`.
     pub fn type_check_source_for(&mut self, source: &str, filename: &str) -> Result<TypedProgram> {
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
@@ -199,23 +192,35 @@ impl Compiler {
         let parsed = self.desugar(&parsed);
         let parsed = self.expand_impl_methods(&parsed);
         let parsed = self.monomorphize(&parsed);
-        self.type_check(&parsed)
+
+        let mut program = Program::new(source, filename);
+        program.ast = Some(AstPayload {
+            functions: Rc::clone(&parsed.functions),
+            traits: parsed.traits.clone(),
+            impls: parsed.impls.clone(),
+            span_map: std::collections::HashMap::new(),
+        });
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+
+        self.run_type_check_pass(&mut program, &mut ctx)?;
+
+        Ok(program
+            .typed
+            .take()
+            .expect("type_check pass left typed in place"))
     }
 
-    /// Runs `VerifyIrPass` on the given IR and returns a `VerifiedIR`.
-    ///
-    /// The return type is the safety property: after this call, the
-    /// IR is known to have passed verification, and the only way to
-    /// reach the optimizer or a backend is to hold a `VerifiedIR`.
+    /// Runs the IR verifier through the pass pipeline. On success,
+    /// `program.verified` is set to true and `program.semantic_ir`
+    /// still holds the verified IR.
     fn run_verify_pass(
         &self,
-        semantic_ir: crate::ir::semantic_ir::SemanticProgram,
+        program: &mut Program,
+        ctx: &mut CompilerContext,
         context_label: &str,
-    ) -> Result<VerifiedIR> {
-        use crate::compiler::context::{CompilerConfig, CompilerContext};
+    ) -> Result<()> {
         use crate::compiler::passes::verify_ir::VerifyIrPass;
         use crate::compiler::pipeline::Pipeline;
-        use crate::compiler::program::Program;
         use crate::compiler::scheduler::Scheduler;
 
         let pipeline = Pipeline::builder()
@@ -223,11 +228,7 @@ impl Compiler {
             .build()
             .expect("single-pass pipeline is trivially valid");
 
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
-        let mut program = Program::new("", "");
-        program.semantic_ir = Some(semantic_ir);
-
-        let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
+        let outcome = Scheduler::default().run(&pipeline, ctx, program);
 
         if let Some(err) = outcome.failure {
             return Err(CompileError::simple(
@@ -239,57 +240,32 @@ impl Compiler {
             ));
         }
 
-        let verified = program
-            .semantic_ir
-            .take()
-            .expect("verification pass left IR in place");
-
-        // `VerifyIrPass` just succeeded on this exact program. Wrap
-        // without re-running the verifier.
-        Ok(VerifiedIR::from_verify_pass(verified))
+        program.verified = true;
+        Ok(())
     }
 
-    /// Runs the IR optimizer on a `VerifiedIR`, re-verifies the
-    /// result, and returns a fresh `VerifiedIR`.
-    ///
-    /// The signature is the point: unverified IR cannot enter the
-    /// optimizer (only a `VerifiedIR` can be passed), and unverified
-    /// IR cannot leave it (the `mutate` call inside re-runs the
-    /// verifier before returning). Both properties are enforced by
-    /// the type system, not by convention.
-    fn run_optimize_pass(&self, verified: VerifiedIR) -> Result<(VerifiedIR, OptimizeTimings)> {
-        use crate::compiler::context::{CompilerConfig, CompilerContext};
+    /// Runs the optimizer, followed by a verifier, through the
+    /// scheduler. The scheduler refuses a `Transform` pass that is
+    /// not immediately followed by a `Verification`, so the pipeline
+    /// shape is enforced at run time, not by convention.
+    fn run_optimize_pass(
+        &self,
+        program: &mut Program,
+        ctx: &mut CompilerContext,
+    ) -> Result<OptimizeTimings> {
+        use crate::compiler::pass::PassId;
         use crate::compiler::passes::optimize::OptimizePass;
         use crate::compiler::passes::verify_ir::VerifyIrPass;
         use crate::compiler::pipeline::Pipeline;
-        use crate::compiler::program::Program;
         use crate::compiler::scheduler::Scheduler;
 
-        // Route through the pass pipeline so `Scheduler` enforces
-        // the `ir.optimize` contract: a `Transform` pass must be
-        // followed by a `Verification` at the same level. Before
-        // this change, `run_optimize_pass` called `Optimizer`
-        // directly via `VerifiedIR::mutate`, which re-verified the
-        // result but never triggered the scheduler's chain check.
-        // The contract was documented and the pass was registered,
-        // but the enforcement never ran on the compiler's actual
-        // optimize path.
         let pipeline = Pipeline::builder()
             .add(OptimizePass)
             .add(VerifyIrPass)
             .build()
             .expect("optimize + verify is a valid chain — see pass-contracts.md");
 
-        // `VerifiedIR` has no move-out by design (see the comment
-        // on `from_verify_pass`). Clone the program into a
-        // transient `Program`, run the pipeline, and re-wrap the
-        // result. The clone is cheap relative to LLVM lowering —
-        // one `SemanticProgram` copy vs. a clang subprocess.
-        let mut program = Program::new("", "");
-        program.semantic_ir = Some(verified.program().clone());
-
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
-        let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
+        let outcome = Scheduler::default().run(&pipeline, ctx, program);
 
         if let Some(err) = outcome.failure {
             return Err(CompileError::simple(
@@ -301,17 +277,6 @@ impl Compiler {
             ));
         }
 
-        let optimized = program
-            .semantic_ir
-            .take()
-            .expect("verify pass leaves IR in place");
-
-        // Extract per-pass durations from the scheduler's outcome so
-        // the driver's timing summary can report them separately.
-        // Before this change, the driver printed `Verify(2): 0.0000s`
-        // because the verify that runs inside this pipeline was
-        // hidden in the total `Optimize` duration.
-        use crate::compiler::pass::PassId;
         let optimize_dur = outcome
             .timings
             .iter()
@@ -325,30 +290,22 @@ impl Compiler {
             .map(|t| t.duration)
             .unwrap_or(std::time::Duration::ZERO);
 
-        let timings = OptimizeTimings {
+        // The pipeline ends with `VerifyIrPass`, so the program is
+        // verified after this returns.
+        program.verified = true;
+
+        Ok(OptimizeTimings {
             optimize: optimize_dur,
             verify: verify_dur,
-        };
-
-        Ok((VerifiedIR::from_verify_pass(optimized), timings))
+        })
     }
 
-    /// Runs `BuildSemanticIRPass` on the given typed AST.
-    ///
-    /// Shape matches `run_verify_pass` / `run_optimize_pass`:
-    /// construct the pipeline, load inputs into a transient `Program`,
-    /// run, and extract the output. The `Program` is throw-away here
-    /// because the driver (`Compiler::compile`) still threads IR
-    /// values by value; once the driver itself moves to a persistent
-    /// `Program`, these helpers collapse into pass invocations.
-    fn run_build_ir_pass(
-        &self,
-        typed: TypedProgram,
-    ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
-        use crate::compiler::context::{CompilerConfig, CompilerContext};
+    /// Runs `BuildSemanticIRPass` through the scheduler. On success,
+    /// `program.semantic_ir` holds the fresh unverified IR and
+    /// `program.verified` is cleared.
+    fn run_build_ir_pass(&self, program: &mut Program, ctx: &mut CompilerContext) -> Result<()> {
         use crate::compiler::passes::build_ir::BuildSemanticIRPass;
         use crate::compiler::pipeline::Pipeline;
-        use crate::compiler::program::Program;
         use crate::compiler::scheduler::Scheduler;
 
         let pipeline = Pipeline::builder()
@@ -356,11 +313,7 @@ impl Compiler {
             .build()
             .expect("single-pass pipeline is trivially valid");
 
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
-        let mut program = Program::new("", "");
-        program.typed = Some(typed);
-
-        let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
+        let outcome = Scheduler::default().run(&pipeline, ctx, program);
 
         if let Some(err) = outcome.failure {
             return Err(CompileError::simple(
@@ -372,34 +325,44 @@ impl Compiler {
             ));
         }
 
-        Ok(program
-            .semantic_ir
-            .take()
-            .expect("build pass left IR in place"))
+        program.verified = false;
+        Ok(())
     }
 
-    /// Compile through semantic IR, verify, then execute via the interpreter.
-    /// Skips LLVM and WASM codegen — used for programs that exercise IR
-    /// features the LLVM backend doesn't yet lower (Result, try/catch).
+    /// Compile through semantic IR, verify, then run through the
+    /// interpreter. Used for programs that exercise IR features the
+    /// LLVM backend does not lower (Result, try/catch).
     pub fn run_interpreter(&mut self, source: &str, filename: &str) -> Result<()> {
         use crate::backends::backend::Backend;
         use crate::backends::interpreter_backend::InterpreterBackend;
+
+        let mut program = Program::new(source, filename);
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
 
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
         let parsed = self.process_imports(&parsed, filename)?;
         let parsed = self.desugar(&parsed);
         let parsed = self.expand_impl_methods(&parsed);
-        let typed = self.type_check(&parsed)?;
+        let parsed = self.monomorphize(&parsed);
 
-        let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
+        program.ast = Some(AstPayload {
+            functions: Rc::clone(&parsed.functions),
+            traits: parsed.traits.clone(),
+            impls: parsed.impls.clone(),
+            span_map: std::collections::HashMap::new(),
+        });
 
-        // Route verification through the pass pipeline so the
-        // scheduler's contract enforcement runs. Before this change,
-        // `run_interpreter` called `semantic_ir.verify()` directly,
-        // bypassing the `ir.verify` pass contract. Same bug class as
-        // the earlier `run_optimize_pass` fix.
-        let verified = self.run_verify_pass(semantic_ir, "before interpreter lowering")?;
+        self.run_type_check_pass(&mut program, &mut ctx)?;
+        self.run_build_ir_pass(&mut program, &mut ctx)?;
+        self.run_verify_pass(&mut program, &mut ctx, "before interpreter lowering")?;
+
+        let verified = VerifiedIR::from_verify_pass(
+            program
+                .semantic_ir
+                .take()
+                .expect("pipeline left IR in place"),
+        );
 
         crate::backends::capabilities::check_backend(
             verified.program(),
@@ -415,22 +378,12 @@ impl Compiler {
         Ok(())
     }
 
-    /// Runs `TypeCheckPass` on the given parsed program.
-    ///
-    /// On failure, propagates the original `CompileError` (with its
-    /// `ErrorCode`) rather than reconstructing it — so a race
-    /// detection failure still surfaces as `E0007`.
-    fn run_type_check_pass(
-        &self,
-        functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
-        traits: Vec<TraitDecl>,
-        impls: Vec<ImplBlock>,
-        span_map: std::collections::HashMap<usize, (usize, usize)>,
-    ) -> Result<TypedProgram> {
-        use crate::compiler::context::{CompilerConfig, CompilerContext};
+    /// Runs `TypeCheckPass` through the scheduler. On success,
+    /// `program.typed` holds the analyzer output and the addressing
+    /// invariant is asserted.
+    fn run_type_check_pass(&self, program: &mut Program, ctx: &mut CompilerContext) -> Result<()> {
         use crate::compiler::passes::type_check::TypeCheckPass;
         use crate::compiler::pipeline::Pipeline;
-        use crate::compiler::program::{AstPayload, Program};
         use crate::compiler::scheduler::Scheduler;
 
         let pipeline = Pipeline::builder()
@@ -438,18 +391,11 @@ impl Compiler {
             .build()
             .expect("single-pass pipeline is trivially valid");
 
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
-        let mut program = Program::new("", "");
-        program.ast = Some(AstPayload {
-            functions,
-            traits,
-            impls,
-            span_map,
-        });
-
-        let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
+        let outcome = Scheduler::default().run(&pipeline, ctx, program);
 
         if let Some(err) = outcome.failure {
+            // Preserve the original CompileError if the pass wrapped
+            // one (so a race-detection E0007 does not become E0002).
             if let Some(cause) = err.cause {
                 return Err(*cause);
             }
@@ -462,22 +408,20 @@ impl Compiler {
             ));
         }
 
-        Ok(program
-            .typed
-            .take()
-            .expect("type_check pass left typed in place"))
+        program.assert_addressing_invariant();
+        Ok(())
     }
 
-    /// Runs `TypeTableCompletePass` on the typed AST.
-    ///
-    /// `Analysis` kind: reads `program.typed`, produces diagnostics,
-    /// never fails. Returns the number of warnings emitted so callers
-    /// can surface it (e.g. `inspect` or `--verbose`).
-    fn run_type_table_complete_pass(&self, typed: TypedProgram) -> Result<usize> {
-        use crate::compiler::context::{CompilerConfig, CompilerContext};
+    /// Runs `TypeTableCompletePass`. Analysis-only: emits warnings,
+    /// never fails. Returns the number of warnings produced in this
+    /// invocation.
+    fn run_type_table_complete_pass(
+        &self,
+        program: &mut Program,
+        ctx: &mut CompilerContext,
+    ) -> Result<usize> {
         use crate::compiler::passes::type_table_complete::TypeTableCompletePass;
         use crate::compiler::pipeline::Pipeline;
-        use crate::compiler::program::Program;
         use crate::compiler::scheduler::Scheduler;
 
         let pipeline = Pipeline::builder()
@@ -485,26 +429,26 @@ impl Compiler {
             .build()
             .expect("single-pass pipeline is trivially valid");
 
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
-        let mut program = Program::new("", "");
-        program.typed = Some(typed);
+        let start = ctx.diagnostics.len();
+        let _outcome = Scheduler::default().run(&pipeline, ctx, program);
 
-        let _outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
-
-        for d in ctx.diagnostics.iter() {
+        // Render only this pass's diagnostics, not earlier ones.
+        for d in &ctx.diagnostics[start..] {
             d.display();
         }
 
-        Ok(ctx.warning_count())
+        Ok(ctx.diagnostics[start..]
+            .iter()
+            .filter(|d| matches!(d, crate::common::diagnostics::Diagnostic::Warning(_)))
+            .count())
     }
 
     /// Public wrapper for `inspect --type-table`.
-    ///
-    /// `run_type_table_complete_pass` is private so only the driver
-    /// uses it; the CLI goes through this. Returns the number of
-    /// warnings the pass emitted (0 means the table is complete).
     pub fn run_type_table_complete_pass_public(&self, typed: TypedProgram) -> Result<usize> {
-        self.run_type_table_complete_pass(typed)
+        let mut program = Program::new("", "");
+        program.typed = Some(typed);
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        self.run_type_table_complete_pass(&mut program, &mut ctx)
     }
 
     pub fn compile(
@@ -519,6 +463,12 @@ impl Compiler {
         use std::time::Instant;
 
         let total_start = Instant::now();
+
+        // One Program and one CompilerContext for the whole pipeline.
+        // Passes read and write `program` in place; diagnostics
+        // accumulate across phases.
+        let mut program = Program::new(source, filename);
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
 
         // Phase 1: LEX
         let phase_start = Instant::now();
@@ -550,37 +500,50 @@ impl Compiler {
         let parsed = self.monomorphize(&parsed);
         let mono_time = phase_start.elapsed();
 
+        // Hand the parsed AST to the pipeline. Rc::clone keeps the
+        // same allocation the analyzer will key its type table
+        // against — see the addressing invariant in `program.rs`.
+        program.ast = Some(AstPayload {
+            functions: Rc::clone(&parsed.functions),
+            traits: parsed.traits.clone(),
+            impls: parsed.impls.clone(),
+            span_map: std::collections::HashMap::new(),
+        });
+
         // Phase 7: TYPE CHECK
         let phase_start = Instant::now();
-        let typed = self.type_check(&parsed)?;
+        self.run_type_check_pass(&mut program, &mut ctx)?;
         let type_check_time = phase_start.elapsed();
 
         // Phase 7.5: TYPE TABLE COMPLETENESS
         let phase_start = Instant::now();
-        let _warnings = self.run_type_table_complete_pass(typed.clone())?;
+        let _warnings = self.run_type_table_complete_pass(&mut program, &mut ctx)?;
         let type_table_check_time = phase_start.elapsed();
 
-        // Phase 8: SAFETY CHECK
+        // Phase 8: BUILD SEMANTIC IR
         let phase_start = Instant::now();
-        let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
+        self.run_build_ir_pass(&mut program, &mut ctx)?;
         let ir_build_time = phase_start.elapsed();
 
-        // Phase 9: VERIFY IR (pre-optimization) → VerifiedIR
+        // Phase 9: VERIFY IR (pre-optimization)
         let phase_start = Instant::now();
-        let verified_pre = self.run_verify_pass(semantic_ir, "after construction")?;
+        self.run_verify_pass(&mut program, &mut ctx, "after construction")?;
         let verify_pre_time = phase_start.elapsed();
 
-        // Phase 10: OPTIMIZE inside the verified wrapper → VerifiedIR.
-        // `run_optimize_pass` runs both the optimizer and a following
-        // verifier through the pass pipeline; the durations it returns
-        // are the per-pass times as recorded by the scheduler, not the
-        // outer pipeline-setup overhead.
-        let (verified_post, timings) = self.run_optimize_pass(verified_pre)?;
+        // Phase 10: OPTIMIZE. The pipeline includes a following
+        // VerifyIrPass; the scheduler enforces that ordering.
+        let timings = self.run_optimize_pass(&mut program, &mut ctx)?;
 
         // Phase 11: LOWER TO BACKEND
         let phase_start = Instant::now();
+        let verified = VerifiedIR::from_verify_pass(
+            program
+                .semantic_ir
+                .take()
+                .expect("optimize pass left IR in place"),
+        );
         self.lower_to_llvm(
-            &verified_post,
+            &verified,
             filename,
             output_name,
             emit_llvm,
@@ -590,9 +553,6 @@ impl Compiler {
 
         let total_time = total_start.elapsed();
 
-        // Print timing summary. Unconditionally when `--timing` is
-        // set; otherwise only when the compile took long enough that
-        // the phases are worth seeing.
         if timing || total_time.as_secs() > 1 {
             eprintln!("[Timing] Total: {:.2}s", total_time.as_secs_f64());
             eprintln!("  Lex:        {:.4}s", lex_time.as_secs_f64());
@@ -696,9 +656,9 @@ impl Compiler {
                         let mut parser = Parser::new(lexer.tokens);
                         let imported_program = parser.parse_program()?;
 
-                        // Add imported functions (skip any functions that already exist)
-                        let imported_funcs = imported_program.functions;
-                        for imported in imported_funcs {
+                        // Add imported functions (skip any functions
+                        // that already exist by name).
+                        for imported in imported_program.functions {
                             if !all_functions.iter().any(|f| f.name == imported.name) {
                                 all_functions.push(imported);
                             }
@@ -717,23 +677,6 @@ impl Compiler {
         })
     }
 
-    fn type_check(&self, parsed: &ParsedProgram) -> Result<TypedProgram> {
-        self.run_type_check_pass(
-            Rc::clone(&parsed.functions),
-            parsed.traits.clone(),
-            parsed.impls.clone(),
-            std::collections::HashMap::new(),
-        )
-    }
-
-    fn build_semantic_ir(
-        &self,
-        functions: &[crate::frontend::ast::FunctionDecl],
-        type_table: std::collections::HashMap<usize, crate::common::types::Type>,
-    ) -> Result<SemanticProgram> {
-        build_semantic_ir_program(functions, type_table)
-    }
-
     fn lower_to_llvm(
         &self,
         verified: &VerifiedIR,
@@ -748,9 +691,7 @@ impl Compiler {
         // Delegate LLVM emission to the backend trait. The same
         // code path is exercised by `tests/backends/`, so
         // `module.verify()` and the capability check both run on
-        // the production path. Before PR-13e this function
-        // reimplemented the codegen inline and never called
-        // `verify()`.
+        // the production path.
         let backend = LlvmBackend::new();
         let ir_path = match backend.compile(verified, output_name)? {
             BackendOutput::LlvmIr { path } => path,
@@ -791,21 +732,36 @@ impl Compiler {
         use crate::backends::backend::Backend;
         use crate::backends::wasm_backend::WasmBackend;
 
-        // Frontend phases: same as compile().
+        let mut program = Program::new(source, filename);
+        let mut ctx = CompilerContext::new(CompilerConfig::default());
+
+        // Frontend phases. Note: unlike `compile()` and
+        // `run_interpreter()`, this path does not call
+        // `monomorphize`. That is a pre-existing inconsistency,
+        // not a deliberate choice.
         let lexed = self.lex(source)?;
         let parsed = self.parse(lexed)?;
         let parsed = self.process_imports(&parsed, filename)?;
         let parsed = self.desugar(&parsed);
         let parsed = self.expand_impl_methods(&parsed);
-        let typed = self.type_check(&parsed)?;
 
-        // Use the *original* `parsed.functions` slice — the analyzer recorded
-        // type info keyed by these exact nodes, so addresses line up.
-        let semantic_ir = self.build_semantic_ir(&parsed.functions, typed.type_table.clone())?;
+        program.ast = Some(AstPayload {
+            functions: Rc::clone(&parsed.functions),
+            traits: parsed.traits.clone(),
+            impls: parsed.impls.clone(),
+            span_map: std::collections::HashMap::new(),
+        });
 
-        // Route verification through the pass pipeline — see
-        // `run_interpreter` for the rationale.
-        let verified = self.run_verify_pass(semantic_ir, "before WASM lowering")?;
+        self.run_type_check_pass(&mut program, &mut ctx)?;
+        self.run_build_ir_pass(&mut program, &mut ctx)?;
+        self.run_verify_pass(&mut program, &mut ctx, "before WASM lowering")?;
+
+        let verified = VerifiedIR::from_verify_pass(
+            program
+                .semantic_ir
+                .take()
+                .expect("pipeline left IR in place"),
+        );
 
         crate::backends::capabilities::check_backend(
             verified.program(),

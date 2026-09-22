@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 pub struct Scheduler {
     /// Stop the pipeline on the first fatal diagnostic / hard error.
     pub stop_on_error: bool,
-    /// Refuse to run a `Transform` unless the next non-analysis pass is a
-    /// `Verification` at the same level. This is the mechanism that keeps
-    /// `VerifiedIr -> transform -> VerifiedIr` honest.
+    /// Refuse to run a `Transform` unless the next non-analysis pass
+    /// is a `Verification` at the same level. This is the mechanism
+    /// that keeps `VerifiedIr -> transform -> VerifiedIr` honest.
     pub require_verification_after_transforms: bool,
 }
 
@@ -56,6 +56,14 @@ impl Scheduler {
         let mut timings = Vec::with_capacity(total);
         let mut completed = 0;
 
+        // Snapshot the diagnostics count at entry. Only diagnostics
+        // produced by *this* pipeline invocation count toward
+        // "should the scheduler stop." A context reused across
+        // multiple pipeline runs (see `compiler.rs::compile`)
+        // carries warnings from earlier runs; those must not trip
+        // the fatal check.
+        let start_diagnostics = ctx.diagnostics.len();
+
         for (i, stage) in stages.iter().enumerate() {
             let c = stage.contract();
 
@@ -80,7 +88,7 @@ impl Scheduler {
             let result = stage.run(ctx, program);
             let elapsed = start.elapsed();
 
-            let ok = result.is_ok() && !ctx.has_fatal_diagnostics();
+            let ok = result.is_ok() && !ctx.has_fatal_diagnostics_since(start_diagnostics);
             timings.push(StageTiming {
                 pass: c.id,
                 duration: elapsed,
@@ -89,7 +97,7 @@ impl Scheduler {
 
             match result {
                 Ok(()) => {
-                    if ctx.has_fatal_diagnostics() {
+                    if ctx.has_fatal_diagnostics_since(start_diagnostics) {
                         if self.stop_on_error {
                             return ScheduleOutcome {
                                 completed,
@@ -98,8 +106,8 @@ impl Scheduler {
                                 failure: Some(PassError::new(c.id, "fatal diagnostics emitted")),
                             };
                         }
-                        // Non-fatal diagnostics: keep going but don't count
-                        // the stage as "completed cleanly".
+                        // Non-fatal diagnostics: keep going but don't
+                        // count the stage as "completed cleanly".
                         continue;
                     }
                     completed += 1;

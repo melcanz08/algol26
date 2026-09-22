@@ -151,13 +151,31 @@ impl SemanticState {
             vars.insert(k, va.join(vb));
         }
 
+        // Borrows: union of both branches.
+        //
+        // A borrow that exists on either predecessor path persists
+        // into the joined state. If both branches have the same
+        // borrower with the same (place, kind), the joined entry is
+        // identical to either. If they differ, or if only one branch
+        // has the borrower, the borrow is still present — a
+        // subsequent use of the place must be rejected because at
+        // least one predecessor left it borrowed.
+        //
+        // The prior implementation iterated `a.vars.keys()` and
+        // required both branches to match. Those two properties
+        // combined to drop every borrow at a merge: variable keys
+        // are not borrower keys, so non-variable borrowers were
+        // skipped; and the intersection requirement meant a borrow
+        // in one branch alone disappeared. That is the wrong
+        // direction of conservatism for a soundness analysis.
         let mut borrows = HashMap::new();
-        for k in a.vars.keys() {
-            if let (Some(ba), Some(bb)) = (a.borrows.get(k), b.borrows.get(k)) {
-                if ba.place == bb.place && ba.kind == bb.kind {
-                    borrows.insert(k.clone(), ba.clone());
-                }
-            }
+        for (borrower, ba) in &a.borrows {
+            borrows.insert(borrower.clone(), ba.clone());
+        }
+        for (borrower, bb) in &b.borrows {
+            borrows
+                .entry(borrower.clone())
+                .or_insert_with(|| bb.clone());
         }
 
         let mut regions = HashMap::new();
@@ -545,5 +563,75 @@ mod tests {
             !outliving.is_empty(),
             "local outside borrowing inner should outlive"
         );
+    }
+
+    #[test]
+    fn join_preserves_borrow_from_one_branch() {
+        let mut a = SemanticState::new();
+        a.declare("x".into(), VarState::Available);
+        a.declare("p".into(), VarState::Available);
+        a.borrow(
+            "p".into(),
+            "x".into(),
+            BorrowKind::Shared,
+            BorrowLifetime::Local("p".into()),
+        );
+
+        let mut b = SemanticState::new();
+        b.declare("x".into(), VarState::Available);
+        b.declare("p".into(), VarState::Available);
+        // no borrow in b
+
+        let j = SemanticState::join(&a, &b);
+        assert!(
+            j.is_borrowed("x"),
+            "borrow created in one branch must survive the join"
+        );
+    }
+
+    #[test]
+    fn join_preserves_borrow_from_right_branch() {
+        let mut a = SemanticState::new();
+        a.declare("x".into(), VarState::Available);
+
+        let mut b = SemanticState::new();
+        b.declare("x".into(), VarState::Available);
+        b.borrow(
+            "r".into(),
+            "x".into(),
+            BorrowKind::Mutable,
+            BorrowLifetime::Local("r".into()),
+        );
+
+        let j = SemanticState::join(&a, &b);
+        assert!(
+            j.is_mutably_borrowed("x"),
+            "borrow created only in the right branch must survive the join"
+        );
+    }
+
+    #[test]
+    fn join_keeps_definite_borrow_when_both_branches_agree() {
+        let mut a = SemanticState::new();
+        a.declare("x".into(), VarState::Available);
+        a.borrow(
+            "p".into(),
+            "x".into(),
+            BorrowKind::Mutable,
+            BorrowLifetime::Local("p".into()),
+        );
+
+        let mut b = SemanticState::new();
+        b.declare("x".into(), VarState::Available);
+        b.borrow(
+            "p".into(),
+            "x".into(),
+            BorrowKind::Mutable,
+            BorrowLifetime::Local("p".into()),
+        );
+
+        let j = SemanticState::join(&a, &b);
+        assert!(j.is_borrowed("x"));
+        assert!(j.is_mutably_borrowed("x"));
     }
 }

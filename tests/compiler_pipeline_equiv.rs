@@ -304,7 +304,6 @@ fn type_check_pass_agrees_with_direct_call() {
 fn type_table_complete_passes_on_conformance_suite() {
     let dir = std::path::Path::new("tests/conformance/valid");
     let mut checked = 0usize;
-    let mut total_warnings = 0usize;
 
     for path in conformance_gol_files(dir) {
         let source = std::fs::read_to_string(&path).unwrap();
@@ -315,25 +314,12 @@ fn type_table_complete_passes_on_conformance_suite() {
             Ok(t) => t,
             Err(_) => continue,
         };
-        let warnings = compiler
+        compiler
             .run_type_table_complete_pass_public(typed)
-            .expect("pass cannot fail");
-        if warnings > 0 {
-            eprintln!(
-                "  {} file(s): {} warnings in {}",
-                filename, warnings, filename
-            );
-        }
-        total_warnings += warnings;
+            .unwrap_or_else(|e| panic!("type_table incomplete on {}: {:?}", filename, e));
         checked += 1;
     }
 
     assert!(checked > 0, "no files exercised");
-    eprintln!(
-        "type_table_complete: {} files checked, {} total warnings",
-        checked, total_warnings
-    );
-    // Assert at most one file has warnings — expected to be adjusted
-    // once we see the initial numbers.
-    // For now, informational only.
+    eprintln!("type_table_complete: {} files checked", checked);
 }

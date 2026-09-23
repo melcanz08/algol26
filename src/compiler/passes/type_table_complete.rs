@@ -10,9 +10,11 @@
 //! falls back to `Type::Unknown`, which the IR verifier tolerates but
 //! codegen does not — the `short_circuit.gol` bug.
 //!
-//! Missing entries are reported as warnings, not errors. Some node
-//! kinds may legitimately never be typed (`NullPtr`, `None`); until
-//! we've confirmed which, the pass reports without refusing.
+//! Missing entries fail the pass. Every reachable `Expr` must have a
+//! type; a missing entry is a real analyzer bug, not a legitimate
+//! exception. The previous warning-only behavior was a migration aid
+//! during the `ExprId` transition and has been retired now that the
+//! table is provably complete across the whole test suite.
 
 use crate::common::types::Type;
 use crate::compiler::context::CompilerContext;
@@ -31,15 +33,18 @@ impl Pass<Program> for TypeTableCompletePass {
             input: IrLevel::Ast,
             output: IrLevel::Ast,
             requires: &["typed AST with analyzer-produced type table"],
-            guarantees: &["every reachable Expr node is checked for a type_table entry"],
-            may_change: &["diagnostics"],
+            guarantees: &[
+                "every reachable Expr node has an ExprId-keyed type_table entry, \
+                 or the pass fails",
+            ],
+            may_change: &["diagnostics (via PassError on failure)"],
             must_preserve: &["program.ast", "program.typed"],
-            may_fail: false,
+            may_fail: true,
         };
         &C
     }
 
-    fn run(&self, ctx: &mut CompilerContext, program: &mut Program) -> PassResult {
+    fn run(&self, _ctx: &mut CompilerContext, program: &mut Program) -> PassResult {
         let typed = program.typed.as_ref().ok_or_else(|| {
             PassError::new(
                 PassId("ast.type_table_complete"),
@@ -73,13 +78,14 @@ impl Pass<Program> for TypeTableCompletePass {
             .collect();
         parts.sort();
 
-        ctx.push_warning(format!(
-            "type_table incomplete: {} expression(s) have no entry ({})",
-            walker.missing.len(),
-            parts.join(", ")
-        ));
-
-        Ok(())
+        Err(PassError::new(
+            PassId("ast.type_table_complete"),
+            format!(
+                "type table incomplete: {} expression(s) have no entry ({})",
+                walker.missing.len(),
+                parts.join(", ")
+            ),
+        ))
     }
 }
 

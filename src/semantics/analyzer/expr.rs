@@ -46,10 +46,11 @@ impl SemanticAnalyzer {
                     // the very borrow we just registered. `check_borrow_rules`
                     // will correctly reject a second mut-borrow of the same source.
                     self.check_borrow_rules(name, true)?;
-                    let inner_type = self
-                        .lookup_variable(name)
-                        .map(|(t, _)| t)
-                        .unwrap_or(Type::Unknown);
+                    // Mirror the Borrow arm: analyze the inner expression so its
+                    // type lands in the ExprId-keyed table. Returning a looked-up
+                    // type directly skips the table write and leaves `x` untyped
+                    // in `&mut x`, which the completeness check now rejects.
+                    let inner_type = self.analyze_expr(expr)?;
                     return Ok(Type::mut_borrow(inner_type));
                 }
                 let inner_type = self.analyze_expr(expr)?;

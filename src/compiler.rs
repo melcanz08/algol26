@@ -559,14 +559,13 @@ impl Compiler {
         Ok(())
     }
 
-    /// Runs `TypeTableCompletePass`. Analysis-only: emits warnings,
-    /// never fails. Returns the number of warnings produced in this
-    /// invocation.
+    /// Runs `TypeTableCompletePass`. Fails if any reachable expression
+    /// is missing from the ExprId-keyed type table.
     fn run_type_table_complete_pass(
         &self,
         program: &mut Program,
         ctx: &mut CompilerContext,
-    ) -> Result<usize> {
+    ) -> Result<()> {
         use crate::compiler::passes::type_table_complete::TypeTableCompletePass;
         use crate::compiler::pipeline::Pipeline;
         use crate::compiler::scheduler::Scheduler;
@@ -576,22 +575,28 @@ impl Compiler {
             .build()
             .expect("single-pass pipeline is trivially valid");
 
-        let start = ctx.diagnostics.len();
-        let _outcome = Scheduler::default().run(&pipeline, ctx, program);
+        let outcome = Scheduler::default().run(&pipeline, ctx, program);
 
-        // Render only this pass's diagnostics, not earlier ones.
-        for d in &ctx.diagnostics[start..] {
-            d.display();
+        if let Some(err) = outcome.failure {
+            // Preserve a wrapped CompileError if the pass produced one;
+            // otherwise surface the pass message as E0002.
+            if let Some(cause) = err.cause {
+                return Err(*cause);
+            }
+            return Err(CompileError::simple(
+                &err.message,
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
         }
 
-        Ok(ctx.diagnostics[start..]
-            .iter()
-            .filter(|d| matches!(d, crate::common::diagnostics::Diagnostic::Warning(_)))
-            .count())
+        Ok(())
     }
 
     /// Public wrapper for `inspect --type-table`.
-    pub fn run_type_table_complete_pass_public(&self, typed: TypedProgram) -> Result<usize> {
+    pub fn run_type_table_complete_pass_public(&self, typed: TypedProgram) -> Result<()> {
         let mut program = Program::new("", "");
         program.typed = Some(typed);
         let mut ctx = CompilerContext::new(CompilerConfig::default());
@@ -640,7 +645,7 @@ impl Compiler {
 
         // Phase 7.5: TYPE TABLE COMPLETENESS
         let phase_start = Instant::now();
-        let _warnings = self.run_type_table_complete_pass(&mut program, &mut ctx)?;
+        self.run_type_table_complete_pass(&mut program, &mut ctx)?;
         let type_table_check_time = phase_start.elapsed();
 
         // Phase 8: BUILD SEMANTIC IR

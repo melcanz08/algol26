@@ -428,18 +428,11 @@ fn inspect_type_table(compiler: &mut Compiler, source: &str, filename: &str) {
         Ok(typed) => {
             println!("{} function(s)", typed.functions.len());
             println!("{} type_table entries", typed.type_table_id.len());
-            let warnings = match compiler.run_type_table_complete_pass_public(typed) {
-                Ok(w) => w,
-                Err(e) => {
-                    e.display();
-                    std::process::exit(1);
-                }
-            };
-            if warnings == 0 {
-                println!("✓ type table complete");
-            } else {
-                println!("⚠ {} warning(s) above", warnings);
+            if let Err(e) = compiler.run_type_table_complete_pass_public(typed) {
+                e.display();
+                std::process::exit(1);
             }
+            println!("✓ type table complete");
         }
         Err(e) => {
             e.display();

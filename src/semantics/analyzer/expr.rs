@@ -960,6 +960,29 @@ impl SemanticAnalyzer {
                         )));
                     }
                 }
+                // Record a generic instantiation fact for Stage 3.2's
+                // monomorphizer. Only functions with non-empty
+                // `type_params` are recorded — a call to a non-generic
+                // function is fully resolved here and needs no entry.
+                //
+                // `type_args` may contain `Type::Unknown` if an
+                // argument's type could not be inferred; the
+                // executable-IR verifier (Stage 3.4) is responsible
+                // for rejecting such cases. See ADR 0013.
+                if !func_info.type_params.is_empty() {
+                    let type_params = func_info.type_params.clone();
+                    let type_args: Vec<Type> = type_params
+                        .iter()
+                        .map(|p| type_bindings.get(p).cloned().unwrap_or(Type::Unknown))
+                        .collect();
+                    self.instantiations.push(Instantiation {
+                        call_site: expr.id,
+                        function: clean_name.to_string(),
+                        type_params,
+                        type_args,
+                    });
+                }
+
                 let return_type = self.substitute_type_vars(&func_info.return_type, &type_bindings);
                 Ok(return_type)
             }

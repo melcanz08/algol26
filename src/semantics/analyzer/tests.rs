@@ -440,3 +440,112 @@ procedure main
 ";
     assert!(analyze(source).is_ok());
 }
+
+// ─── Stage 3.1: instantiation recording ────────────────────────────────
+
+#[test]
+fn records_instantiation_for_generic_call_with_int_argument() {
+    use crate::compiler::assign_expr_ids;
+
+    let source = "\
+function identity<T>(x: T) -> T
+    return x
+
+procedure main
+    val x := identity(42)
+    print(x)
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .expect("analysis should succeed");
+
+    let instantiations = analyzer.take_instantiations();
+    assert_eq!(
+        instantiations.len(),
+        1,
+        "expected exactly one instantiation record, got: {:?}",
+        instantiations
+    );
+    let inst = &instantiations[0];
+    assert_eq!(inst.function, "identity");
+    assert_eq!(inst.type_params, vec!["T".to_string()]);
+    assert_eq!(inst.type_args, vec![Type::Int]);
+}
+
+#[test]
+fn records_instantiation_for_generic_call_with_reference_argument() {
+    // The adversarial case from the ADR: `identity(p)` where
+    // `p := &v`. The pre-typecheck monomorphizer could not infer
+    // this argument's type; the analyzer can. Stage 3.1 records the
+    // fact so Stage 3.2's monomorphizer no longer needs to guess.
+    use crate::compiler::assign_expr_ids;
+
+    let source = "\
+function identity<T>(x: T) -> T
+    return x
+
+procedure main
+    val v := 1.0
+    val p := &v
+    val q := identity(p)
+    print(q)
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .expect("analysis should succeed");
+
+    let instantiations = analyzer.take_instantiations();
+    assert_eq!(
+        instantiations.len(),
+        1,
+        "expected exactly one instantiation record, got: {:?}",
+        instantiations
+    );
+    let inst = &instantiations[0];
+    assert_eq!(inst.function, "identity");
+    assert_eq!(inst.type_params, vec!["T".to_string()]);
+    assert_eq!(inst.type_args, vec![Type::borrow(Type::Float)]);
+}
+
+#[test]
+fn non_generic_calls_record_no_instantiation() {
+    use crate::compiler::assign_expr_ids;
+
+    let source = "\
+function add(x: Int, y: Int) -> Int
+    return x + y
+
+procedure main
+    val z := add(1, 2)
+    print(z)
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .expect("analysis should succeed");
+
+    assert!(
+        analyzer.take_instantiations().is_empty(),
+        "non-generic calls should not produce instantiation records"
+    );
+}

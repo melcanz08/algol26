@@ -62,6 +62,10 @@ pub struct SemanticAnalyzer {
     /// Written by `analyze_expr_with_context` on every expression the
     /// analyzer visits.
     pub type_table_id: HashMap<ExprId, Type>,
+    /// Generic instantiation facts recorded during analysis. Stage
+    /// 3.1 writes this list; no consumer reads it yet. See
+    /// `Instantiation` and ADR 0013.
+    instantiations: Vec<Instantiation>,
     // Single source of truth - unified with dataflow engine
     pub(crate) state: SemanticState,
     /// Span of the node currently being analyzed. Updated at the top
@@ -88,6 +92,37 @@ pub struct SemanticAnalyzer {
 struct FunctionInfo {
     params: Vec<(String, Type)>,
     return_type: Type,
+    /// Declared type parameter names, in declaration order. Empty
+    /// for non-generic functions. Used by `ExprKind::FunctionCall`
+    /// to record instantiation facts (Stage 3.1, ADR 0013).
+    type_params: Vec<String>,
+}
+
+/// A recorded generic instantiation. Produced by the analyzer when
+/// it resolves a call to a function with non-empty `type_params`;
+/// consumed by the monomorphizer in Stage 3.2 and by the IR builder
+/// in Stage 3.3. Keyed by the call site's stable `ExprId`.
+///
+/// See ADR 0013 (`docs/decisions/0013-executable-ir-generic-invariant.md`)
+/// for the full design.
+#[derive(Debug, Clone)]
+pub struct Instantiation {
+    /// The call expression where the instantiation occurs. The IR
+    /// builder will look up specializations by this ID.
+    pub call_site: ExprId,
+    /// The name of the generic function being called.
+    pub function: String,
+    /// The function's declared type parameter names, in declaration
+    /// order. `type_args[i]` binds `type_params[i]`. Needed so the
+    /// specialization plan can carry `T -> Int`-style mappings, not
+    /// just an ordered list of concrete types.
+    pub type_params: Vec<String>,
+    /// The concrete type arguments the analyzer inferred, in
+    /// declaration order. May contain `Type::Unknown` if the
+    /// analyzer could not determine an argument's type; the
+    /// executable-IR verifier (Stage 3.4) is responsible for
+    /// rejecting such cases.
+    pub type_args: Vec<Type>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -117,6 +152,7 @@ impl SemanticAnalyzer {
             deferred_captures: vec![HashSet::new()],
             variadic_functions: HashSet::new(),
             type_table_id: HashMap::new(),
+            instantiations: Vec::new(),
             state: SemanticState::new(),
             current_span: Span::default(),
             region_depth: 0,
@@ -149,6 +185,15 @@ impl SemanticAnalyzer {
     /// Take ownership of the type table so it can be handed to the IR builder.
     pub fn take_type_table_id(&mut self) -> HashMap<ExprId, Type> {
         std::mem::take(&mut self.type_table_id)
+    }
+    /// Read-only view of the recorded generic instantiations.
+    pub fn instantiations(&self) -> &[Instantiation] {
+        &self.instantiations
+    }
+    /// Take ownership of the instantiation list so it can be handed
+    /// to `TypedProgram`.
+    pub fn take_instantiations(&mut self) -> Vec<Instantiation> {
+        std::mem::take(&mut self.instantiations)
     }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {

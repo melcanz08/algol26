@@ -29,6 +29,7 @@ impl SemanticAnalyzer {
                         .map(|(n, t)| (n.to_string(), t))
                         .collect(),
                     return_type,
+                    type_params: Vec::new(),
                 },
             );
         }
@@ -61,6 +62,7 @@ impl SemanticAnalyzer {
                         .map(|(n, t)| (n.to_string(), t))
                         .collect(),
                     return_type,
+                    type_params: Vec::new(),
                 },
             );
         }
@@ -87,6 +89,7 @@ impl SemanticAnalyzer {
                         .map(|(n, t)| (n.to_string(), t))
                         .collect(),
                     return_type,
+                    type_params: Vec::new(),
                 },
             );
         }
@@ -122,6 +125,7 @@ impl SemanticAnalyzer {
                         .map(|(n, t)| (n.to_string(), t))
                         .collect(),
                     return_type,
+                    type_params: Vec::new(),
                 },
             );
         }
@@ -131,6 +135,7 @@ impl SemanticAnalyzer {
             FunctionInfo {
                 params: vec![("size".to_string(), Type::Int)],
                 return_type: Type::pointer(Type::Unknown),
+                type_params: Vec::new(),
             },
         );
         self.functions.insert(
@@ -138,6 +143,7 @@ impl SemanticAnalyzer {
             FunctionInfo {
                 params: vec![("ptr".to_string(), Type::pointer(Type::Unknown))],
                 return_type: Type::Void,
+                type_params: Vec::new(),
             },
         );
     }
@@ -170,6 +176,7 @@ impl SemanticAnalyzer {
                 FunctionInfo {
                     params,
                     return_type,
+                    type_params: func.type_params.clone(),
                 },
             );
         }

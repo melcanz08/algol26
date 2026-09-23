@@ -4,6 +4,11 @@ use super::*;
 
 impl SemanticAnalyzer {
     pub(super) fn analyze_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+        // Statement boundary: release any call-argument temporary
+        // borrows from the previous statement. `f(&mut x); g(&mut x)`
+        // therefore does not conflict; `f(&mut x) + g(&mut x)` does,
+        // because both are inside one statement.
+        self.state.clear_all_temporary_borrows();
         self.current_span = stmt.span();
         self.in_mut_borrow = false;
         match stmt {
@@ -166,7 +171,7 @@ impl SemanticAnalyzer {
                         target_type, value_type
                     )));
                 }
-                if self.mutable_borrows.iter().any(|m| m.contains_key(name)) {
+                if self.state.borrows.contains_key(name) {
                     self.release_mutable_borrow(name);
                 }
             }
@@ -187,37 +192,34 @@ impl SemanticAnalyzer {
                             ErrorCode::E0002,
                         ));
                     }
-                    let moved_before = self.moved_vars.last().cloned().unwrap_or_default();
 
-                    self.push_scope();
-                    let then_result = self.analyze_expr(then_branch);
-                    let moved_after_then = self.moved_vars.last().cloned().unwrap_or_default();
-                    self.pop_scope();
+                    // Snapshot once; both branches and the no-else path start here.
+                    let entry_state = self.state.fork();
+
+                    let (then_result, then_exit) = self.in_branch(|a| {
+                        a.push_scope();
+                        let r = a.analyze_expr(then_branch).map(|_| ());
+                        a.pop_scope();
+                        r
+                    });
                     then_result?;
 
-                    let moved_after_else = if let Some(else_expr) = else_branch {
-                        self.push_scope();
-                        let else_result = self.analyze_expr(else_expr);
-                        let moved_after = self.moved_vars.last().cloned().unwrap_or_default();
-                        self.pop_scope();
-                        else_result?;
-                        moved_after
-                    } else {
-                        moved_before.clone()
+                    let (else_result, else_exit) = match else_branch {
+                        Some(e) => {
+                            let (r, s) = self.in_branch(|a| {
+                                a.push_scope();
+                                let r = a.analyze_expr(e).map(|_| ());
+                                a.pop_scope();
+                                r
+                            });
+                            (r, s)
+                        }
+                        // No-else path is the entry path: nothing added, nothing removed.
+                        None => (Ok(()), entry_state),
                     };
+                    else_result?;
 
-                    if let Some(current_scope) = self.moved_vars.last_mut() {
-                        for var in &moved_after_then {
-                            if !current_scope.contains(var) {
-                                current_scope.push(var.clone());
-                            }
-                        }
-                        for var in &moved_after_else {
-                            if !current_scope.contains(var) {
-                                current_scope.push(var.clone());
-                            }
-                        }
-                    }
+                    self.state = SemanticState::join(&then_exit, &else_exit);
                 }
                 Expr::Match { .. } | Expr::TryCatch { .. } => {
                     self.push_scope();

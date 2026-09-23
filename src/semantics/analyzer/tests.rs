@@ -10,12 +10,7 @@ fn analyze(source: &str) -> Result<()> {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program()?;
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze_with_spans(
-        &program.functions,
-        &program.traits,
-        &program.impls,
-        &std::collections::HashMap::new(),
-    )
+    analyzer.analyze_with_spans(&program.functions, &program.traits, &program.impls)
 }
 
 #[test]

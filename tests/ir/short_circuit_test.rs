@@ -10,12 +10,7 @@ fn run(source: &str) -> String {
     let program = parser.parse_program().unwrap();
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(
-            &program.functions,
-            &program.traits,
-            &program.impls,
-            &std::collections::HashMap::new(),
-        )
+        .analyze_with_spans(&program.functions, &program.traits, &program.impls)
         .unwrap();
     let type_table = analyzer.take_type_table();
     let (ir, _) = SemanticIRBuilder::build(&program.functions, type_table);

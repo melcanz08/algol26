@@ -40,6 +40,26 @@ pub struct ParsedProgram {
     pub impls: Vec<ImplBlock>,
 }
 
+/// Output of the canonical frontend normalization.
+///
+/// Every entry point that reaches semantic analysis must produce its
+/// `ParsedProgram` through `prepare_frontend`. Adding a phase to the
+/// frontend means adding it here, once.
+pub struct FrontendPrep {
+    pub parsed: ParsedProgram,
+    pub timings: FrontendTimings,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrontendTimings {
+    pub lex: std::time::Duration,
+    pub parse: std::time::Duration,
+    pub imports: std::time::Duration,
+    pub desugar: std::time::Duration,
+    pub expand: std::time::Duration,
+    pub mono: std::time::Duration,
+}
+
 #[derive(Debug, Clone)]
 pub struct TypedProgram {
     pub functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
@@ -61,14 +81,6 @@ struct OptimizeTimings {
     verify: std::time::Duration,
 }
 
-/// TODO: orphaned after removing `SemanticIROptimized`. Either
-/// delete or reintroduce via the optimizer's return value.
-#[derive(Debug, Default)]
-pub struct OptimizationReport {
-    pub passes_run: Vec<String>,
-    pub instructions_removed: usize,
-}
-
 impl Default for Compiler {
     fn default() -> Self {
         Self::new()
@@ -88,10 +100,9 @@ pub fn type_check_program(
     functions: &Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     traits: &[TraitDecl],
     impls: &[ImplBlock],
-    span_map: &std::collections::HashMap<usize, (usize, usize)>,
 ) -> Result<TypedProgram> {
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze_with_traits(functions, traits, impls, span_map)?;
+    analyzer.analyze_with_traits(functions, traits, impls)?;
 
     let mut race_detector = RaceDetector::new();
     let races = race_detector.analyze(functions);
@@ -146,6 +157,53 @@ impl Compiler {
         Compiler
     }
 
+    /// The canonical frontend normalization sequence:
+    ///
+    ///   lex → parse → imports → desugar → expand impls → monomorphize
+    ///
+    /// Returns the resulting AST along with per-phase timings.
+    /// Callers that don't surface timings ignore the second field.
+    ///
+    fn prepare_frontend(&self, source: &str, filename: &str) -> Result<FrontendPrep> {
+        use std::time::Instant;
+
+        let start = Instant::now();
+        let lexed = self.lex(source)?;
+        let lex = start.elapsed();
+
+        let start = Instant::now();
+        let parsed = self.parse(lexed)?;
+        let parse = start.elapsed();
+
+        let start = Instant::now();
+        let parsed = self.process_imports(&parsed, filename)?;
+        let imports = start.elapsed();
+
+        let start = Instant::now();
+        let parsed = self.desugar(&parsed);
+        let desugar = start.elapsed();
+
+        let start = Instant::now();
+        let parsed = self.expand_impl_methods(&parsed);
+        let expand = start.elapsed();
+
+        let start = Instant::now();
+        let parsed = self.monomorphize(&parsed);
+        let mono = start.elapsed();
+
+        Ok(FrontendPrep {
+            parsed,
+            timings: FrontendTimings {
+                lex,
+                parse,
+                imports,
+                desugar,
+                expand,
+                mono,
+            },
+        })
+    }
+
     /// Frontend through IR construction, returning unverified IR.
     /// Used by `inspect --ir`.
     pub fn build_semantic_ir_for(
@@ -167,16 +225,8 @@ impl Compiler {
             .expect("build pass left IR in place"))
     }
 
-    /// Frontend through monomorphization, stopping before type
-    /// checking. Used by equivalence tests that need the exact
-    /// allocation the analyzer will see.
     pub fn parse_source_for(&mut self, source: &str, filename: &str) -> Result<ParsedProgram> {
-        let lexed = self.lex(source)?;
-        let parsed = self.parse(lexed)?;
-        let parsed = self.process_imports(&parsed, filename)?;
-        let parsed = self.desugar(&parsed);
-        let parsed = self.expand_impl_methods(&parsed);
-        Ok(self.monomorphize(&parsed))
+        Ok(self.prepare_frontend(source, filename)?.parsed)
     }
 
     /// Lex a source string. Used by `algol26 inspect --tokens`.
@@ -186,19 +236,14 @@ impl Compiler {
 
     /// Frontend through type checking. Used by `inspect --type-table`.
     pub fn type_check_source_for(&mut self, source: &str, filename: &str) -> Result<TypedProgram> {
-        let lexed = self.lex(source)?;
-        let parsed = self.parse(lexed)?;
-        let parsed = self.process_imports(&parsed, filename)?;
-        let parsed = self.desugar(&parsed);
-        let parsed = self.expand_impl_methods(&parsed);
-        let parsed = self.monomorphize(&parsed);
+        let prep = self.prepare_frontend(source, filename)?;
+        let parsed = prep.parsed;
 
         let mut program = Program::new(source, filename);
         program.ast = Some(AstPayload {
             functions: Rc::clone(&parsed.functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            span_map: std::collections::HashMap::new(),
         });
         let mut ctx = CompilerContext::new(CompilerConfig::default());
 
@@ -329,28 +374,20 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compile through semantic IR, verify, then run through the
-    /// interpreter. Used for programs that exercise IR features the
-    /// LLVM backend does not lower (Result, try/catch).
     pub fn run_interpreter(&mut self, source: &str, filename: &str) -> Result<()> {
         use crate::backends::backend::Backend;
         use crate::backends::interpreter_backend::InterpreterBackend;
 
+        let prep = self.prepare_frontend(source, filename)?;
+        let parsed = prep.parsed;
+
         let mut program = Program::new(source, filename);
         let mut ctx = CompilerContext::new(CompilerConfig::default());
-
-        let lexed = self.lex(source)?;
-        let parsed = self.parse(lexed)?;
-        let parsed = self.process_imports(&parsed, filename)?;
-        let parsed = self.desugar(&parsed);
-        let parsed = self.expand_impl_methods(&parsed);
-        let parsed = self.monomorphize(&parsed);
 
         program.ast = Some(AstPayload {
             functions: Rc::clone(&parsed.functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            span_map: std::collections::HashMap::new(),
         });
 
         self.run_type_check_pass(&mut program, &mut ctx)?;
@@ -470,35 +507,14 @@ impl Compiler {
         let mut program = Program::new(source, filename);
         let mut ctx = CompilerContext::new(CompilerConfig::default());
 
-        // Phase 1: LEX
-        let phase_start = Instant::now();
-        let lexed = self.lex(source)?;
-        let lex_time = phase_start.elapsed();
-
-        // Phase 2: PARSE
-        let phase_start = Instant::now();
-        let parsed = self.parse(lexed)?;
-        let parse_time = phase_start.elapsed();
-
-        // Phase 3: PROCESS IMPORTS
-        let phase_start = Instant::now();
-        let parsed = self.process_imports(&parsed, filename)?;
-        let imports_time = phase_start.elapsed();
-
-        // Phase 4: DESUGAR
-        let phase_start = Instant::now();
-        let parsed = self.desugar(&parsed);
-        let desugar_time = phase_start.elapsed();
-
-        // Phase 5: EXPAND IMPL METHODS
-        let phase_start = Instant::now();
-        let parsed = self.expand_impl_methods(&parsed);
-        let expand_time = phase_start.elapsed();
-
-        // Phase 6: MONOMORPHIZE
-        let phase_start = Instant::now();
-        let parsed = self.monomorphize(&parsed);
-        let mono_time = phase_start.elapsed();
+        let prep = self.prepare_frontend(source, filename)?;
+        let parsed = prep.parsed;
+        let lex_time = prep.timings.lex;
+        let parse_time = prep.timings.parse;
+        let imports_time = prep.timings.imports;
+        let desugar_time = prep.timings.desugar;
+        let expand_time = prep.timings.expand;
+        let mono_time = prep.timings.mono;
 
         // Hand the parsed AST to the pipeline. Rc::clone keeps the
         // same allocation the analyzer will key its type table
@@ -507,7 +523,6 @@ impl Compiler {
             functions: Rc::clone(&parsed.functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            span_map: std::collections::HashMap::new(),
         });
 
         // Phase 7: TYPE CHECK
@@ -732,24 +747,16 @@ impl Compiler {
         use crate::backends::backend::Backend;
         use crate::backends::wasm_backend::WasmBackend;
 
+        let prep = self.prepare_frontend(source, filename)?;
+        let parsed = prep.parsed;
+
         let mut program = Program::new(source, filename);
         let mut ctx = CompilerContext::new(CompilerConfig::default());
-
-        // Frontend phases. Note: unlike `compile()` and
-        // `run_interpreter()`, this path does not call
-        // `monomorphize`. That is a pre-existing inconsistency,
-        // not a deliberate choice.
-        let lexed = self.lex(source)?;
-        let parsed = self.parse(lexed)?;
-        let parsed = self.process_imports(&parsed, filename)?;
-        let parsed = self.desugar(&parsed);
-        let parsed = self.expand_impl_methods(&parsed);
 
         program.ast = Some(AstPayload {
             functions: Rc::clone(&parsed.functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            span_map: std::collections::HashMap::new(),
         });
 
         self.run_type_check_pass(&mut program, &mut ctx)?;

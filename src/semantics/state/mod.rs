@@ -194,6 +194,12 @@ impl SemanticState {
         Self::default()
     }
 
+    /// Snapshot for a branch. Clone today; if the state grows,
+    /// switch to persistent/structural sharing.
+    pub fn fork(&self) -> Self {
+        self.clone()
+    }
+
     pub fn fresh_call_id(&mut self) -> CallId {
         let id = CallId(self.next_call_id);
         self.next_call_id += 1;
@@ -328,6 +334,18 @@ impl SemanticState {
         }
     }
 
+    /// Join N branch states. Panics on empty input — a join point
+    /// with no predecessors is a construction bug, not a runtime case.
+    pub fn join_all(branches: &[Self]) -> Self {
+        assert!(
+            !branches.is_empty(),
+            "join_all requires at least one branch"
+        );
+        branches[1..]
+            .iter()
+            .fold(branches[0].clone(), |acc, b| Self::join(&acc, b))
+    }
+
     // --- Transfer helpers ---
 
     pub fn declare(&mut self, name: String, state: VarState) {
@@ -372,6 +390,14 @@ impl SemanticState {
     pub fn borrow_temporary(&mut self, _place: String, _kind: BorrowKind) -> BorrowLifetime {
         let call_id = self.fresh_call_id();
         BorrowLifetime::Temporary(call_id)
+    }
+
+    /// Drop every borrow with a `Temporary` lifetime. Called by the
+    /// analyzer at each statement boundary so that call-argument
+    /// borrows (`f(&mut x)`) are statement-scoped, not scope-scoped.
+    pub fn clear_all_temporary_borrows(&mut self) {
+        self.borrows
+            .retain(|_, b| !matches!(b.lifetime, BorrowLifetime::Temporary(_)));
     }
 
     pub fn end_temporary_borrows(&mut self, call_id: CallId) {

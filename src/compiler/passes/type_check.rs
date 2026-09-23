@@ -33,12 +33,7 @@ impl Pass<Program> for TypeCheckPass {
             )
         })?;
 
-        match crate::compiler::type_check_program(
-            &ast.functions,
-            &ast.traits,
-            &ast.impls,
-            &ast.span_map,
-        ) {
+        match crate::compiler::type_check_program(&ast.functions, &ast.traits, &ast.impls) {
             Ok(typed) => {
                 program.typed = Some(typed);
                 Ok(())

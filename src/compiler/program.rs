@@ -9,7 +9,6 @@
 use crate::compiler::TypedProgram;
 use crate::frontend::ast::{FunctionDecl, ImplBlock, TraitDecl};
 use crate::ir::semantic_ir::SemanticProgram;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Ast-level inputs consumed by `TypeCheckPass`.
@@ -21,12 +20,6 @@ pub struct AstPayload {
     pub functions: Rc<Vec<FunctionDecl>>,
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
-    /// Reserved for a per-node span table keyed by address. No
-    /// producer populates it today; every AST node carries its own
-    /// `Span` and that is what diagnostics use. See the status note
-    /// in `docs/decisions/0012-implicit-deref-convention.md` (search
-    /// "span_map") for the plan.
-    pub span_map: HashMap<usize, (usize, usize)>,
 }
 
 pub struct Program {
@@ -95,7 +88,7 @@ impl Program {
 mod tests {
     use super::*;
     use crate::compiler::TypeInfo;
-
+    use std::collections::HashMap;
     #[test]
     fn program_starts_empty() {
         let p = Program::new("src", "test.gol");
@@ -113,7 +106,6 @@ mod tests {
             functions: Rc::clone(&funcs),
             traits: Vec::new(),
             impls: Vec::new(),
-            span_map: HashMap::new(),
         });
         p.typed = Some(TypedProgram {
             functions: Rc::clone(&funcs),
@@ -131,7 +123,6 @@ mod tests {
             functions: Rc::new(Vec::new()),
             traits: Vec::new(),
             impls: Vec::new(),
-            span_map: HashMap::new(),
         });
         p.typed = Some(TypedProgram {
             functions: Rc::new(Vec::new()), // deliberately a different Rc

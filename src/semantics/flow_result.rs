@@ -38,13 +38,3 @@ pub enum CaptureMode {
     Write,
     Move,
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TerminatorKind {
-    Return,
-    Jump,
-    Branch,
-    Switch,
-    IteratorNext,
-    Fork,
-}

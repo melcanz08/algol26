@@ -64,3 +64,35 @@ fn test_wasm_backend_trait_contract() {
     assert!(!wasm.description().is_empty());
     assert!(!wasm.can_execute());
 }
+
+#[test]
+#[ignore = "blocked on Phase 3: generic instantiations must be discovered by the \
+            semantic analyzer, not the pre-typecheck monomorphizer. See \
+            docs/decisions/ for the pending invariant ADR."]
+fn generic_function_reaches_backend_with_resolved_types() {
+    use algol26::compiler::Compiler;
+
+    let source = r#"
+function identity<T>(x: T) -> T
+    return x
+
+val v := 1.0
+val p := &v
+val q := identity(p)
+"#;
+
+    let mut compiler = Compiler::new();
+    let dir = std::env::temp_dir().join(format!("algol26_wasm_mono_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let out = dir.join("mono_test");
+
+    let result = compiler.compile_to_wasm(source, "mono_test.gol", out.to_str().unwrap());
+
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        result.is_ok(),
+        "generic function with a reference argument failed to compile: {:?}",
+        result.err()
+    );
+}

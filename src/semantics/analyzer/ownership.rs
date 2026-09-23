@@ -1,78 +1,72 @@
 // src/semantics/analyzer/ownership.rs
 
 use super::*;
+
 impl SemanticAnalyzer {
-    pub(super) fn release_mutable_borrow(&mut self, reference: &str) {
-        let scope_idx = self
-            .mutable_borrows
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, map)| map.contains_key(reference))
-            .map(|(i, _)| i);
-        let Some(idx) = scope_idx else {
-            return;
-        };
-        let source = match self.mutable_borrows[idx].remove(reference) {
-            Some(src) => src,
-            None => return,
-        };
-        if let Some(set) = self.mutably_borrowed.get_mut(idx) {
-            set.remove(&source);
-        }
-        // NEW: also release in unified state
-        self.state.borrows.remove(reference);
+    /// Register a mutable borrow of `source` with `Temporary` lifetime,
+    /// for the duration of the current statement. Called by
+    /// `Expr::FunctionCall` after analyzing a `&mut x` argument.
+    ///
+    /// The borrow rules for the argument were already checked by
+    /// `Expr::MutBorrow`; this only installs the state entry.
+    pub(super) fn register_call_argument_mut_borrow(&mut self, source: &str) {
+        let call_id = self.state.fresh_call_id();
+        let reference = format!("__tmp_call_{}", call_id.0);
+        self.state.borrow(
+            reference,
+            source.to_string(),
+            BorrowKind::Mutable,
+            BorrowLifetime::Temporary(call_id),
+        );
     }
-    pub(super) fn all_moved_vars(&self) -> Vec<String> {
-        let mut result = Vec::new();
-        for scope in &self.moved_vars {
-            for var in scope {
-                if !result.contains(var) {
-                    result.push(var.clone());
-                }
+
+    /// If `arg` is `&mut <var>`, register the call-argument temporary.
+    /// Otherwise do nothing. Shared borrows (`&x`) are not registered
+    /// here — `mark_borrowed` already installs a lexical shared borrow
+    /// at the `Expr::Borrow` site, which is conservative enough to
+    /// reject the cases we care about (`f(&x, &mut x)`).
+    pub(super) fn register_call_arg_temporary(&mut self, arg: &Expr) {
+        if let Expr::MutBorrow { expr, .. } = arg {
+            if let Expr::Var(name, _) = expr.as_ref() {
+                self.register_call_argument_mut_borrow(name);
             }
         }
-        result
     }
     pub(super) fn is_moved(&self, name: &str) -> bool {
-        // FIX for conditional moves: only check lexical moved_vars stack
-        // state.vars is global and would cause second branch to see move from first branch
-        // The proper join happens after if via SemanticState::join
-        // We still check state.vars for moves that happened outside conditional (for soundness)
-        // but we need to allow moves in sibling branches
-        // For now, check stack only - state join will handle post-if state
-        // If var is in current or outer moved_vars, it's moved in this path
-        self.moved_vars
-            .iter()
-            .any(|scope| scope.iter().any(|v| v == name))
+        self.state.vars.get(name).is_some_and(|s| s.is_moved())
     }
+
     pub(super) fn mark_moved(&mut self, name: &str) {
-        if let Some(scope) = self.moved_vars.last_mut() {
-            if !scope.contains(&name.to_string()) {
-                scope.push(name.to_string());
-            }
-        }
         self.state.move_out(name);
     }
+
     pub(super) fn mark_borrowed(&mut self, name: &str) {
-        if let Some(scope) = self.borrowed_vars.last_mut() {
-            scope.insert(name.to_string());
-        }
+        // Shared borrows have no declaration site, so give each one a
+        // unique synthetic borrower key. Using a per-source key would
+        // collapse nested borrows of the same place into one entry and
+        // lose the outer borrow when the inner scope exits.
+        let borrower = format!("__shared_{}_{}", name, self.state.fresh_node_id().0);
+        let lt = if let Some(cur) = self.state.current_region().cloned() {
+            BorrowLifetime::Region(cur)
+        } else {
+            BorrowLifetime::Local(borrower.clone())
+        };
+        self.state
+            .borrow(borrower, name.to_string(), BorrowKind::Shared, lt);
     }
-    pub(super) fn mark_mutably_borrowed(&mut self, name: &str) {
-        if let Some(scope) = self.mutably_borrowed.last_mut() {
-            scope.insert(name.to_string());
-        }
-    }
+
     pub(super) fn is_mutably_borrowed(&self, name: &str) -> bool {
-        if self.state.is_mutably_borrowed(name) {
-            return true;
-        }
-        self.mutably_borrowed
-            .iter()
-            .rev()
-            .any(|scope| scope.contains(name))
+        self.state.is_mutably_borrowed(name)
     }
+
+    pub(super) fn is_borrowed(&self, name: &str) -> bool {
+        self.state.is_borrowed(name)
+    }
+
+    pub(super) fn release_mutable_borrow(&mut self, reference: &str) {
+        self.state.borrows.remove(reference);
+    }
+
     pub(super) fn register_mutable_borrow(&mut self, reference: &str, source: &str) -> Result<()> {
         match self.lookup_variable(source) {
             Some((_, false)) => {
@@ -121,34 +115,22 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("Wait for the immutable borrow to end"));
         }
-        self.mark_mutably_borrowed(source);
-        if let Some(scope) = self.mutable_borrows.last_mut() {
-            scope.insert(reference.to_string(), source.to_string());
-        }
-        // NEW: mirror into unified state with proper lifetime
         let lt = if let Some(cur) = self.state.current_region().cloned() {
-            crate::semantics::state::BorrowLifetime::Region(cur)
+            BorrowLifetime::Region(cur)
         } else {
-            crate::semantics::state::BorrowLifetime::Local(reference.to_string())
+            BorrowLifetime::Local(reference.to_string())
         };
         self.state.borrow(
             reference.to_string(),
             source.to_string(),
-            crate::semantics::state::BorrowKind::Mutable,
+            BorrowKind::Mutable,
             lt,
         );
         Ok(())
     }
-    pub(super) fn is_borrowed(&self, name: &str) -> bool {
-        if self.state.is_borrowed(name) {
-            return true;
-        }
-        self.borrowed_vars
-            .iter()
-            .rev()
-            .any(|scope| scope.contains(name))
-    }
+
     pub(super) fn check_borrow_rules(&self, name: &str, mutable: bool) -> Result<()> {
+        // Deferred-capture check unchanged.
         if let Some(scope) = self.deferred_captures.last() {
             if scope.contains(name) {
                 return Err(CompileError::simple(

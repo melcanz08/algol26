@@ -218,103 +218,122 @@ impl SemanticAnalyzer {
                         ErrorCode::E0002,
                     ));
                 }
-                self.push_scope();
-                let then_type = self.analyze_expr(then_branch)?;
-                self.pop_scope();
-                if let Some(else_expr) = else_branch {
-                    self.push_scope();
-                    let else_type = self.analyze_expr(else_expr)?;
-                    self.pop_scope();
 
-                    // A value-producing `if` must have both branches agree
-                    // on whether they produce a value. If one is Void and
-                    // the other isn't, the program is ill-formed — the
-                    // result type is neither a well-defined value nor a
-                    // deliberate void.
-                    let then_is_void = then_type == Type::Void;
-                    let else_is_void = else_type == Type::Void;
-                    if then_is_void != else_is_void {
-                        return Err(CompileError::simple(
-                            "if branches produce inconsistent results: one branch yields a value, the other does not",
-                            self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                        ).with_suggestion(
-                            "Ensure both branches end with an expression, or neither does",
-                        ));
+                let entry_state = self.state.fork();
+
+                let (then_result, then_exit) = self.in_branch(|a| {
+                    a.push_scope();
+                    let r = a.analyze_expr(then_branch);
+                    a.pop_scope();
+                    r
+                });
+                let then_type = then_result?;
+
+                let (else_type_opt, else_exit) = match else_branch {
+                    Some(else_expr) => {
+                        let (r, s) = self.in_branch(|a| {
+                            a.push_scope();
+                            let r = a.analyze_expr(else_expr);
+                            a.pop_scope();
+                            r
+                        });
+                        (Some(r?), s)
                     }
+                    None => (None, entry_state),
+                };
 
-                    Ok(then_type.common_supertype(&else_type))
-                } else {
-                    Ok(Type::Void)
-                }
-            }
-            Expr::Match { value, cases, .. } => {
-                let value_type = self.analyze_expr(value)?;
-                self.check_match_exhaustiveness(&value_type, cases)?;
-                if let Some(first_case) = cases.first() {
-                    self.check_pattern_type(&first_case.pattern, &value_type)?;
-                    self.push_scope();
-                    self.bind_pattern_variables(&first_case.pattern, &value_type)?;
-                    if let Pattern::Guarded { condition, .. } = &first_case.pattern {
-                        let cond_type = self.analyze_expr(condition)?;
-                        if cond_type != Type::Bool && cond_type != Type::Unknown {
+                let result_type = match else_type_opt {
+                    Some(else_type) => {
+                        let then_is_void = then_type == Type::Void;
+                        let else_is_void = else_type == Type::Void;
+                        if then_is_void != else_is_void {
                             return Err(CompileError::simple(
-                                "Pattern guard must be boolean",
+                                "if branches produce inconsistent results: one branch yields a value, the other does not",
                                 self.current_span.start_line,
                                 self.current_span.start_column,
                                 "",
                                 ErrorCode::E0002,
+                            )
+                            .with_suggestion(
+                                "Ensure both branches end with an expression, or neither does",
                             ));
                         }
+                        then_type.common_supertype(&else_type)
                     }
-                    let first_type = self.analyze_expr(&first_case.body)?;
-                    self.pop_scope();
-                    let first_is_void = first_type == Type::Void;
-                    let mut result_type = first_type.clone();
+                    None => Type::Void,
+                };
 
-                    for case in &cases[1..] {
-                        self.check_pattern_type(&case.pattern, &value_type)?;
-                        self.push_scope();
-                        self.bind_pattern_variables(&case.pattern, &value_type)?;
-                        if let Pattern::Guarded { condition, .. } = &case.pattern {
-                            let cond_type = self.analyze_expr(condition)?;
-                            if cond_type != Type::Bool && cond_type != Type::Unknown {
-                                return Err(CompileError::simple(
-                                    "Pattern guard must be boolean",
-                                    self.current_span.start_line,
-                                    self.current_span.start_column,
-                                    "",
-                                    ErrorCode::E0002,
-                                ));
-                            }
-                        }
-                        let case_type = self.analyze_expr(&case.body)?;
-                        self.pop_scope();
+                self.state = SemanticState::join(&then_exit, &else_exit);
+                Ok(result_type)
+            }
+            Expr::Match { value, cases, .. } => {
+                let value_type = self.analyze_expr(value)?;
+                self.check_match_exhaustiveness(&value_type, cases)?;
 
-                        // All match arms must agree on whether they
-                        // produce a value. A mix of Void and non-Void
-                        // is a semantic error, not an Unknown type.
-                        let case_is_void = case_type == Type::Void;
-                        if case_is_void != first_is_void {
-                            return Err(CompileError::simple(
-                                "match arms produce inconsistent results: some arms yield a value, others do not",
-                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                            ).with_suggestion(
-                                "Ensure all arms end with an expression, or none do",
-                            ));
-                        }
-
-                        result_type = result_type.common_supertype(&case_type);
-                    }
-                    Ok(result_type)
-                } else {
-                    Err(CompileError::simple(
+                if cases.is_empty() {
+                    return Err(CompileError::simple(
                         "Match expression must have at least one case",
                         self.current_span.start_line,
                         self.current_span.start_column,
                         "",
                         ErrorCode::E0002,
-                    ))
+                    ));
                 }
+
+                let mut arm_types: Vec<Type> = Vec::with_capacity(cases.len());
+                let mut arm_exits: Vec<SemanticState> = Vec::with_capacity(cases.len());
+
+                for case in cases {
+                    self.check_pattern_type(&case.pattern, &value_type)?;
+
+                    let (arm_result, arm_exit) = self.in_branch(|a| {
+                        a.push_scope();
+                        let r: Result<Type> = (|| {
+                            a.bind_pattern_variables(&case.pattern, &value_type)?;
+
+                            if let Pattern::Guarded { condition, .. } = &case.pattern {
+                                let cond_type = a.analyze_expr(condition)?;
+                                if cond_type != Type::Bool && cond_type != Type::Unknown {
+                                    return Err(CompileError::simple(
+                                        "Pattern guard must be boolean",
+                                        a.current_span.start_line,
+                                        a.current_span.start_column,
+                                        "",
+                                        ErrorCode::E0002,
+                                    ));
+                                }
+                            }
+
+                            a.analyze_expr(&case.body)
+                        })();
+                        a.pop_scope();
+                        r
+                    });
+
+                    arm_types.push(arm_result?);
+                    arm_exits.push(arm_exit);
+                }
+
+                let first_is_void = arm_types[0] == Type::Void;
+                for t in &arm_types[1..] {
+                    if (t == &Type::Void) != first_is_void {
+                        return Err(CompileError::simple(
+                            "match arms produce inconsistent results: some arms yield a value, others do not",
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion("Ensure all arms end with an expression, or none do"));
+                    }
+                }
+
+                let result_type = arm_types[1..]
+                    .iter()
+                    .fold(arm_types[0].clone(), |acc, t| acc.common_supertype(t));
+
+                self.state = SemanticState::join_all(&arm_exits);
+                Ok(result_type)
             }
             Expr::TryCatch {
                 try_branch,
@@ -407,51 +426,54 @@ impl SemanticAnalyzer {
                 } else {
                     Type::Unknown
                 };
-                let outer_borrowed = self.borrowed_vars.last().cloned().unwrap_or_default();
-                let outer_mutably_borrowed =
-                    self.mutably_borrowed.last().cloned().unwrap_or_default();
 
-                // Snapshot the names visible *before* entering the loop
-                // body. Only moves of these names are "move in loop
-                // body" — a variable declared inside the body is
-                // recreated each iteration and can be moved freely.
+                let entry_state = self.state.fork();
+
+                // Names visible before entering the loop body. Only moves of
+                // these names count as "move in loop body" — a variable declared
+                // inside the body is recreated each iteration and can be moved
+                // freely.
                 let outer_vars: HashSet<String> =
                     self.scopes.iter().flat_map(|s| s.keys().cloned()).collect();
 
-                self.loop_stack.push(LoopContext {
-                    region_depth_at_entry: self.region_depth,
+                let (body_result, body_exit) = self.in_branch(|a| {
+                    a.loop_stack.push(LoopContext {
+                        region_depth_at_entry: a.region_depth,
+                    });
+                    a.push_scope();
+                    let r: Result<Type> = (|| {
+                        a.declare_variable(var, elem_type.clone(), false)?;
+                        for s in body {
+                            a.analyze_stmt(s)?;
+                        }
+                        if let Some(expr) = trailing_expr {
+                            a.analyze_expr(expr)
+                        } else {
+                            Ok(Type::Void)
+                        }
+                    })();
+                    a.pop_scope();
+                    a.loop_stack.pop();
+                    r
                 });
-                self.push_scope();
-                self.declare_variable(var, elem_type, false)?;
-                let moves_before = self.all_moved_vars();
-                for s in body {
-                    self.analyze_stmt(s)?;
-                }
-                let moves_after = self.all_moved_vars();
-                let new_moves: Vec<String> = moves_after
+                let result_type = body_result?;
+
+                // `for` bodies execute at least once on any non-empty iterable,
+                // so a move of an outer variable would fire again on the next
+                // iteration. Detect by comparing the entry snapshot against the
+                // body exit: any outer variable that transitioned from
+                // not-moved to moved is a move-in-loop.
+                let new_moves: Vec<String> = outer_vars
                     .iter()
-                    .filter(|v| !moves_before.contains(v) && outer_vars.contains(*v))
+                    .filter(|name| {
+                        let was_owned = entry_state.vars.get(*name).map_or(true, |s| !s.is_moved());
+                        let now_moved = body_exit.vars.get(*name).is_some_and(|s| s.is_moved());
+                        was_owned && now_moved
+                    })
                     .cloned()
                     .collect();
 
-                let result_type = if let Some(expr) = trailing_expr {
-                    self.analyze_expr(expr)?
-                } else {
-                    Type::Void
-                };
-                self.pop_scope();
-                self.loop_stack.pop();
-                if let Some(scope) = self.borrowed_vars.last_mut() {
-                    *scope = outer_borrowed;
-                }
-                if let Some(scope) = self.mutably_borrowed.last_mut() {
-                    *scope = outer_mutably_borrowed;
-                }
-                // `for` bodies execute at least once on any non-empty
-                // iterable, so a move here would fire again on the next
-                // iteration. Reject rather than propagate.
-                if !new_moves.is_empty() {
-                    let moved_var = new_moves[0].clone();
+                if let Some(moved_var) = new_moves.first() {
                     return Err(CompileError::simple(
                         &format!("Cannot move '{}' in loop body", moved_var),
                         span.start_line,
@@ -460,6 +482,12 @@ impl SemanticAnalyzer {
                         ErrorCode::E0008,
                     ));
                 }
+
+                // No move of an outer variable happened (we rejected otherwise),
+                // so ownership agrees between entry and exit. Join anyway so
+                // borrows introduced in the body follow the loop-scope rule.
+                self.state = SemanticState::join(&entry_state, &body_exit);
+
                 Ok(result_type)
             }
             // See the module doc comment "Loop ownership analysis".
@@ -481,41 +509,37 @@ impl SemanticAnalyzer {
                         ErrorCode::E0002,
                     ));
                 }
-                let outer_borrowed = self.borrowed_vars.last().cloned().unwrap_or_default();
-                let outer_mutably_borrowed =
-                    self.mutably_borrowed.last().cloned().unwrap_or_default();
 
-                self.loop_stack.push(LoopContext {
-                    region_depth_at_entry: self.region_depth,
-                });
-                self.push_scope();
-                for s in body {
-                    self.analyze_stmt(s)?;
-                }
-                let moved_in_loop = self.moved_vars.last().cloned().unwrap_or_default();
-                let result_type = if let Some(expr) = trailing_expr {
-                    self.analyze_expr(expr)?
-                } else {
-                    Type::Void
-                };
-                self.pop_scope();
-                self.loop_stack.pop();
-                if let Some(scope) = self.borrowed_vars.last_mut() {
-                    *scope = outer_borrowed;
-                }
-                if let Some(scope) = self.mutably_borrowed.last_mut() {
-                    *scope = outer_mutably_borrowed;
-                }
-                // `while` may run zero times, so we cannot prove the move
-                // happened. Mark the variable as potentially moved in the
-                // enclosing scope; subsequent uses will error.
-                if let Some(parent_scope) = self.moved_vars.last_mut() {
-                    for var in &moved_in_loop {
-                        if !parent_scope.contains(var) {
-                            parent_scope.push(var.clone());
+                let entry_state = self.state.fork();
+
+                let (body_result, body_exit) = self.in_branch(|a| {
+                    a.loop_stack.push(LoopContext {
+                        region_depth_at_entry: a.region_depth,
+                    });
+                    a.push_scope();
+                    let r: Result<Type> = (|| {
+                        for s in body {
+                            a.analyze_stmt(s)?;
                         }
-                    }
-                }
+                        if let Some(expr) = trailing_expr {
+                            a.analyze_expr(expr)
+                        } else {
+                            Ok(Type::Void)
+                        }
+                    })();
+                    a.pop_scope();
+                    a.loop_stack.pop();
+                    r
+                });
+                let result_type = body_result?;
+
+                // The loop may run zero times. Joining entry with exit yields
+                // MaybeMoved for anything moved in the body — the same
+                // conservative answer the old code produced by hand, now
+                // derived from the state join. Fixpoint iteration belongs in
+                // Phase 3 (per-function CFG/dataflow), not here.
+                self.state = SemanticState::join(&entry_state, &body_exit);
+
                 Ok(result_type)
             }
             Expr::Var(name, span) => {
@@ -754,6 +778,7 @@ impl SemanticAnalyzer {
                                     // so its type is already known.
                                     for arg in args {
                                         self.analyze_expr(arg)?;
+                                        self.register_call_arg_temporary(arg);
                                     }
                                     // Optional strict check: if the built-in takes N
                                     // params and the receiver counts as one, then
@@ -794,6 +819,7 @@ impl SemanticAnalyzer {
                                     args.iter().zip(&method.params)
                                 {
                                     let arg_type = self.analyze_expr(arg)?;
+                                    self.register_call_arg_temporary(arg);
                                     let expected_type = match param_type {
                                         Some(s) => s.to_type(),
                                         None => Type::Unknown,
@@ -893,12 +919,14 @@ impl SemanticAnalyzer {
                 if is_variadic {
                     for arg in args.iter().skip(func_info.params.len()) {
                         self.analyze_expr(arg)?;
+                        self.register_call_arg_temporary(arg);
                     }
                 }
 
                 let mut type_bindings: HashMap<String, Type> = HashMap::new();
                 for (arg, (param_name, param_type)) in args.iter().zip(&func_info.params) {
                     let arg_type = self.analyze_expr_with_context(arg, Some(param_type))?;
+                    self.register_call_arg_temporary(arg);
                     let resolved_param_type = self.resolve_type(param_type);
                     if let Type::TypeVar(tv) = &resolved_param_type {
                         if let Some(existing_binding) = type_bindings.get(tv) {

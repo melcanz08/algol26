@@ -13,11 +13,7 @@ use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
     SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
 };
-use crate::semantics::control_flow::ControlFlowTranslator;
-use crate::semantics::flow_analyzer::FlowAnalyzer;
-use crate::semantics::flow_result::{
-    CaptureMode, DeferContext, FlowResult, LoopContext, TerminatorKind,
-};
+use crate::semantics::flow_result::{CaptureMode, DeferContext, FlowResult, LoopContext};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -133,6 +129,6 @@ impl SemanticIRBuilder {
         None
     }
     fn is_terminated(block: &SemanticBlock) -> bool {
-        FlowAnalyzer::is_terminated(block)
+        block.terminator.is_some()
     }
 }

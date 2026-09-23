@@ -17,12 +17,7 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let impls = program.impls;
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_traits(
-            &functions,
-            &traits,
-            &impls,
-            &std::collections::HashMap::new(),
-        )
+        .analyze_with_traits(&functions, &traits, &impls)
         .unwrap();
     let (ir, _) = SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
     ir
@@ -99,12 +94,7 @@ procedure main
 
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(
-            &program.functions,
-            &program.traits,
-            &program.impls,
-            &std::collections::HashMap::new(),
-        )
+        .analyze_with_spans(&program.functions, &program.traits, &program.impls)
         .unwrap();
     let type_table = analyzer.take_type_table();
 

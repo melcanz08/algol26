@@ -57,12 +57,7 @@ fn test_negative_type_mismatch() {
     let program = parser.parse_program().expect("parser failed");
 
     let mut analyzer = SemanticAnalyzer::new();
-    let result = analyzer.analyze_with_spans(
-        &program.functions,
-        &program.traits,
-        &program.impls,
-        &std::collections::HashMap::new(),
-    );
+    let result = analyzer.analyze_with_spans(&program.functions, &program.traits, &program.impls);
 
     assert!(
         result.is_err(),

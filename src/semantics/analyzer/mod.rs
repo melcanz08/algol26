@@ -53,7 +53,7 @@ use crate::common::types::Type;
 use crate::frontend::ast::{
     BinOp, Expr, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt, TraitDecl, WhereClause,
 };
-use crate::semantics::state::{NodeId, SemanticState, VarState};
+use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
 use std::collections::{HashMap, HashSet};
 
@@ -67,31 +67,19 @@ mod tests;
 
 // ─── Borrow-checking model ──────────────────────────────────────────────
 //
-// Borrow lifetimes are *lexical*. A borrow of `x` created inside scope S
-// stays alive until S is popped. This is the same model Rust used before
-// NLL (Non-Lexical Lifetimes) landed.
+// Borrow lifetimes are *lexical*: a borrow created inside scope S stays
+// alive until S is popped. Ownership, borrow, and initialization state
+// live in a single `SemanticState`, which is joined at every branch
+// point (`if`, `match`, loops) via `SemanticState::join`. The analyzer
+// does not maintain any parallel bookkeeping — `state` is the sole
+// authority.
 //
-// Bookkeeping lives in four parallel vectors, each one an entry per scope
-// on the scope stack:
-//
-//   borrowed_vars      — immutable borrows of a variable, per scope
-//   mutably_borrowed   — mutable borrows of a variable, per scope
-//   mutable_borrows    — reference-name → source-name, per scope
-//   moved_vars         — variables whose ownership was transferred, per scope
-//
-// Because each scope has its own entry, `pop_scope` releases all borrows
-// introduced in that scope automatically — no explicit cleanup needed.
-//
-// Known limitation: NLL is not implemented, so a borrow lives until the
-// end of its enclosing block, not until the last use of the reference.
-// Programs that rely on NLL may be rejected conservatively.
+// Known limitation: NLL is not implemented, so a borrow lives until
+// the end of its enclosing block, not until the last use of the
+// reference. Programs that rely on NLL may be rejected conservatively.
 // ────────────────────────────────────────────────────────────────────────
 pub struct SemanticAnalyzer {
-    span_map: std::collections::HashMap<usize, (usize, usize)>,
     scopes: Vec<HashMap<String, (Type, bool)>>,
-    moved_vars: Vec<Vec<String>>,
-    borrowed_vars: Vec<HashSet<String>>,
-    mutably_borrowed: Vec<HashSet<String>>,
     /// Variables whose value is statically known to be `null`. Only
     /// `val` bindings appear here: an immutable binding initialized to
     /// `null` cannot be reassigned, so it is permanently null. `var`
@@ -99,7 +87,6 @@ pub struct SemanticAnalyzer {
     /// analyzer does not perform value-flow tracking.
     null_bindings: Vec<HashSet<String>>,
     in_mut_borrow: bool,
-    mutable_borrows: Vec<HashMap<String, String>>,
     functions: HashMap<String, FunctionInfo>,
     current_return_type: Option<Type>,
     list_lengths: Vec<HashMap<String, usize>>,
@@ -117,9 +104,6 @@ pub struct SemanticAnalyzer {
     // Addresses are stable because the analyzer and IR builder walk the *same*
     // AST without cloning.
     pub type_table: HashMap<usize, Type>,
-    // ─── v0.9-D UNIFICATION ─── New: NodeId table + single SemanticState
-    // NodeId is the migration path from *const as usize (outsider item: type_table pointer identity)
-    pub type_table_nid: HashMap<NodeId, Type>,
     // Single source of truth - unified with dataflow engine
     pub(crate) state: SemanticState,
     /// Span of the node currently being analyzed. Updated at the top
@@ -162,14 +146,10 @@ impl Default for SemanticAnalyzer {
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         SemanticAnalyzer {
-            span_map: std::collections::HashMap::new(),
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
-            moved_vars: vec![Vec::new()],
-            borrowed_vars: vec![HashSet::new()],
-            mutably_borrowed: vec![HashSet::new()],
+            null_bindings: vec![HashSet::new()],
             in_mut_borrow: false,
-            mutable_borrows: vec![HashMap::new()],
             current_return_type: None,
             list_lengths: vec![HashMap::new()],
             list_values: vec![HashMap::new()],
@@ -177,12 +157,8 @@ impl SemanticAnalyzer {
             type_constraints: vec![HashMap::new()],
             trait_registry: TraitRegistry::new(),
             deferred_captures: vec![HashSet::new()],
-            null_bindings: vec![HashSet::new()],
             variadic_functions: HashSet::new(),
-            // ─── UNIFY TYPES ───
             type_table: HashMap::new(),
-            // ─── v0.9-D ───
-            type_table_nid: HashMap::new(),
             state: SemanticState::new(),
             current_span: Span::default(),
             region_depth: 0,
@@ -190,21 +166,31 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// Analyze `f` on a snapshot of the current state; restore the
+    /// entry state on return and hand back the branch's exit state.
+    /// The caller is responsible for joining branch exits.
+    ///
+    /// Panics inside `f` leave `self.state` forked, not restored.
+    /// The analyzer aborts on error anyway, so this is acceptable;
+    /// add a guard here if that ever changes.
+    fn in_branch<F, T>(&mut self, f: F) -> (T, SemanticState)
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let entry = self.state.fork();
+        let result = f(self);
+        let exit = std::mem::replace(&mut self.state, entry);
+        (result, exit)
+    }
+
     // ─── UNIFY TYPES ───────────────────────────────────────────────────────
     /// Look up the inferred type of an expression by its address.
     pub fn type_of(&self, expr: &Expr) -> Option<&Type> {
         self.type_table.get(&(expr as *const Expr as usize))
     }
-    /// New NodeId-based lookup (migration from pointer identity)
-    pub fn type_of_nid(&self, nid: NodeId) -> Option<&Type> {
-        self.type_table_nid.get(&nid)
-    }
     /// Take ownership of the type table so it can be handed to the IR builder.
     pub fn take_type_table(&mut self) -> HashMap<usize, Type> {
         std::mem::take(&mut self.type_table)
-    }
-    pub fn take_type_table_nid(&mut self) -> HashMap<NodeId, Type> {
-        std::mem::take(&mut self.type_table_nid)
     }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
@@ -245,7 +231,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        self.analyze_with_spans(functions, &[], &[], &std::collections::HashMap::new())
+        self.analyze_with_spans(functions, &[], &[])
     }
 
     pub fn analyze_with_spans(
@@ -253,9 +239,7 @@ impl SemanticAnalyzer {
         functions: &[FunctionDecl],
         traits: &[TraitDecl],
         impls: &[ImplBlock],
-        span_map: &std::collections::HashMap<usize, (usize, usize)>,
     ) -> Result<()> {
-        self.span_map = span_map.clone();
         self.register_builtin_functions();
         self.register_user_functions(functions);
 
@@ -282,9 +266,8 @@ impl SemanticAnalyzer {
         functions: &[FunctionDecl],
         traits: &[TraitDecl],
         impls: &[ImplBlock],
-        span_map: &std::collections::HashMap<usize, (usize, usize)>,
     ) -> Result<()> {
-        self.analyze_with_spans(functions, traits, impls, span_map)
+        self.analyze_with_spans(functions, traits, impls)
     }
 
     fn check_trait_bounds(

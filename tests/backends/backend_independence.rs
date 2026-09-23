@@ -14,9 +14,9 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
 
     // ─── UNIFY TYPES ─── run the analyzer so the IR builder has real types.
     let mut analyzer = SemanticAnalyzer::new();
-    let span_map = std::collections::HashMap::new();
+
     analyzer
-        .analyze_with_spans(&functions, &program.traits, &program.impls, &span_map)
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
         .expect("semantic analysis failed");
 
     let type_table = analyzer.take_type_table();

@@ -1,4 +1,4 @@
-// borrow_checker_extra.rs
+// tests/borrow_checker_extra.rs
 
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
@@ -238,6 +238,101 @@ procedure main
     assert!(
         r.is_err(),
         "Should fail: borrow after conditional move: {:?}",
+        r
+    );
+}
+
+#[test]
+fn test_two_mut_borrows_in_same_call_rejected() {
+    // Two `&mut x` arguments to the same call. The first installs a
+    // statement-scoped temporary borrow; the second hits it in
+    // `check_borrow_rules`. Must be rejected.
+    let source = r#"
+function take(a: &mut float, b: &mut float) -> float
+    return a
+
+procedure main
+    var x := 0.0
+    val y := take(&mut x, &mut x)
+    print(y)
+"#;
+    let r = analyze(source);
+    assert!(
+        r.is_err(),
+        "Should fail: two mutable borrows of x in one call: {:?}",
+        r
+    );
+}
+
+#[test]
+fn test_two_mut_borrows_in_same_statement_expression_rejected() {
+    // Both calls are in the same statement, so the first call's
+    // temporary is still live when the second call's argument is
+    // analyzed. Must be rejected.
+    let source = r#"
+function f(a: &mut float) -> float
+    return a
+
+function g(a: &mut float) -> float
+    return a
+
+procedure main
+    var x := 0.0
+    val y := f(&mut x) + g(&mut x)
+    print(y)
+"#;
+    let r = analyze(source);
+    assert!(
+        r.is_err(),
+        "Should fail: two mutable borrows of x in one statement: {:?}",
+        r
+    );
+}
+
+#[test]
+fn test_two_mut_borrows_in_separate_statements_accepted() {
+    // Separate statements: the first temporary is released at the
+    // statement boundary, so the second call sees no conflict.
+    let source = r#"
+function f(a: &mut float) -> float
+    return a
+
+function g(a: &mut float) -> float
+    return a
+
+procedure main
+    var x := 0.0
+    val y := f(&mut x)
+    val z := g(&mut x)
+    print(y + z)
+"#;
+    let r = analyze(source);
+    assert!(
+        r.is_ok(),
+        "Two mutable borrows in separate statements should be ok: {:?}",
+        r
+    );
+}
+
+#[test]
+fn test_mut_borrow_then_read_in_next_statement_accepted() {
+    // After the call returns, the temporary is released, so a
+    // subsequent read of x is not blocked by the earlier
+    // `&mut x` argument.
+    let source = r#"
+function f(a: &mut float) -> float
+    return a
+
+procedure main
+    var x := 0.0
+    val y := f(&mut x)
+    print(x)
+    print(y)
+"#;
+    let r = analyze(source);
+    assert!(
+        r.is_ok(),
+        "Reading x after a mut-borrow argument in a prior statement should be ok: {:?}",
         r
     );
 }

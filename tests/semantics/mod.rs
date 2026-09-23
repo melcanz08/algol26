@@ -1,4 +1,3 @@
-pub mod architecture_test;
 pub mod borrow_checker_extra_test;
 pub mod borrow_checker_test;
 pub mod semantic_validation;

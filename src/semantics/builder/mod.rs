@@ -45,7 +45,14 @@ pub struct SemanticIRBuilder {
     pub(super) list_values: HashMap<String, Vec<Expr>>,
     pub(super) pending_merge: Option<usize>,
     pub(super) type_table_id: HashMap<ExprId, Type>,
+    /// Type parameter bindings for the specialization currently
+    /// being emitted. Empty when lowering a non-generic function.
+    /// Set by Stage 3.2d when emitting each `SemanticFunction` for a
+    /// specialization; read by `type_of_expr` to substitute `T` in
+    /// the analyzer's recorded types under the correct environment.
+    pub(super) current_subst: HashMap<String, Type>,
 }
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(super) struct FunctionSignature {
@@ -68,6 +75,7 @@ impl SemanticIRBuilder {
             list_values: HashMap::new(),
             pending_merge: None,
             type_table_id,
+            current_subst: HashMap::new(),
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -92,8 +100,15 @@ impl SemanticIRBuilder {
         }
     }
     // ─── UNIFY TYPES ─── Lookup helper.
-    fn type_of_expr(&self, expr: &Expr) -> Option<&Type> {
-        self.type_table_id.get(&expr.id)
+    //
+    // Returns an owned `Type` because the substitution may construct
+    // a new type even when the analyzer's table holds a `TypeVar`.
+    // The substitution is a no-op when `current_subst` is empty,
+    // which is the case for every non-generic function.
+    pub(super) fn type_of_expr(&self, expr: &Expr) -> Option<Type> {
+        self.type_table_id
+            .get(&expr.id)
+            .map(|ty| ty.substitute(&self.current_subst))
     }
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -131,5 +146,67 @@ impl SemanticIRBuilder {
     }
     fn is_terminated(block: &SemanticBlock) -> bool {
         block.terminator.is_some()
+    }
+}
+
+#[cfg(test)]
+mod substitution_tests {
+    use super::*;
+    use crate::common::types::Type;
+    use crate::frontend::ast::{Expr, ExprId, ExprKind};
+
+    /// Build a blank builder with a single expression's type in
+    /// the table, and a substitution environment.
+    fn make_builder(
+        expr_id: ExprId,
+        recorded_type: Type,
+        subst: HashMap<String, Type>,
+    ) -> SemanticIRBuilder {
+        let mut type_table_id = HashMap::new();
+        type_table_id.insert(expr_id, recorded_type);
+        SemanticIRBuilder {
+            scopes: vec![HashMap::new()],
+            function_types: HashMap::new(),
+            iter_counter: 0,
+            diagnostics: Vec::new(),
+            loop_stack: Vec::new(),
+            defer_stack: Vec::new(),
+            list_values: HashMap::new(),
+            pending_merge: None,
+            type_table_id,
+            current_subst: subst,
+        }
+    }
+
+    #[test]
+    fn type_of_expr_returns_recorded_type_when_subst_empty() {
+        let expr = Expr::new(ExprKind::Int(0, Span::default()));
+        let builder = make_builder(expr.id, Type::Int, HashMap::new());
+        assert_eq!(builder.type_of_expr(&expr), Some(Type::Int));
+    }
+
+    #[test]
+    fn type_of_expr_substitutes_type_var_under_non_empty_env() {
+        let expr = Expr::new(ExprKind::Int(0, Span::default()));
+        let mut subst = HashMap::new();
+        subst.insert("T".to_string(), Type::Int);
+        let builder = make_builder(expr.id, Type::TypeVar("T".to_string()), subst);
+        assert_eq!(builder.type_of_expr(&expr), Some(Type::Int));
+    }
+
+    #[test]
+    fn type_of_expr_substitutes_nested_type_var() {
+        let expr = Expr::new(ExprKind::Int(0, Span::default()));
+        let mut subst = HashMap::new();
+        subst.insert("T".to_string(), Type::Float);
+        let builder = make_builder(expr.id, Type::list(Type::TypeVar("T".to_string())), subst);
+        assert_eq!(builder.type_of_expr(&expr), Some(Type::list(Type::Float)));
+    }
+
+    #[test]
+    fn type_of_expr_returns_none_for_unknown_expr() {
+        let expr = Expr::new(ExprKind::Int(0, Span::default()));
+        let builder = make_builder(ExprId(9999), Type::Int, HashMap::new());
+        assert_eq!(builder.type_of_expr(&expr), None);
     }
 }

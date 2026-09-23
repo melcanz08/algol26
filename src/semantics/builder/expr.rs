@@ -581,7 +581,6 @@ impl SemanticIRBuilder {
                 // ─── UNIFY TYPES ─── prefer analyzer type, fall back to local scope.
                 let ty = self
                     .type_of_expr(expr)
-                    .cloned()
                     .or_else(|| self.lookup_var(name).map(|i| i.type_.clone()))
                     .unwrap_or(Type::Unknown);
 
@@ -612,7 +611,7 @@ impl SemanticIRBuilder {
                 }
                 // ─── UNIFY TYPES ─── analyzer knows the list's element type.
                 let elem_type = match self.type_of_expr(expr) {
-                    Some(Type::List(inner)) => (**inner).clone(),
+                    Some(Type::List(inner)) => *inner,
                     _ => values.first().map(|v| v.type_of()).unwrap_or(Type::Unknown),
                 };
                 TypedIRValue::List(values, elem_type)
@@ -628,7 +627,7 @@ impl SemanticIRBuilder {
                     let r = self.translate_expr(program, func, current_block, right);
 
                     // ─── UNIFY TYPES ─── Type comes from the analyzer.
-                    let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
+                    let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
                     // Keep IR self-consistent by inserting Int→Float coercions.
                     let (cast_l, cast_r) = match (l.type_of(), r.type_of()) {
@@ -714,8 +713,7 @@ impl SemanticIRBuilder {
                                 }
 
                                 // ─── UNIFY TYPES ─── analyzer already inferred the return type.
-                                let return_type =
-                                    self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
+                                let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
                                 return TypedIRValue::Call {
                                     function: resolved_name,
@@ -740,7 +738,7 @@ impl SemanticIRBuilder {
                     .collect();
 
                 // ─── UNIFY TYPES ─── return type comes from the analyzer.
-                let return_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
+                let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
                 let coerced_args = if let Some(sig) = self.function_types.get(clean_name).cloned() {
                     typed_args
@@ -779,7 +777,6 @@ impl SemanticIRBuilder {
                 // ─── UNIFY TYPES ─── read the outer Option type from the table.
                 let option_type = self
                     .type_of_expr(expr)
-                    .cloned()
                     .unwrap_or(Type::option(Type::Unknown));
                 TypedIRValue::None { option_type }
             }
@@ -787,7 +784,6 @@ impl SemanticIRBuilder {
                 let inner = self.translate_expr(program, func, current_block, value);
                 let result_type = self
                     .type_of_expr(expr)
-                    .cloned()
                     .unwrap_or(Type::result(Type::Unknown, Type::Unknown));
                 TypedIRValue::Ok {
                     value: Box::new(inner),
@@ -798,7 +794,6 @@ impl SemanticIRBuilder {
                 let inner = self.translate_expr(program, func, current_block, value);
                 let result_type = self
                     .type_of_expr(expr)
-                    .cloned()
                     .unwrap_or(Type::result(Type::Unknown, Type::Unknown));
                 TypedIRValue::Error {
                     value: Box::new(inner),
@@ -880,7 +875,7 @@ impl SemanticIRBuilder {
                 ..
             } => {
                 // ─── UNIFY TYPES ───
-                let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
+                let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
                 let result_var = self.allocate_result_var(func, current_block, result_type.clone());
 
@@ -909,7 +904,7 @@ impl SemanticIRBuilder {
                 let match_value = self.translate_expr(program, func, current_block, value);
 
                 // ─── UNIFY TYPES ───
-                let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
+                let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
                 // Allocate a result variable in the current scope
                 let result_var = self.allocate_result_var(func, current_block, result_type.clone());
@@ -1085,7 +1080,7 @@ impl SemanticIRBuilder {
                 //   err_block: translate catch body; result_var := its value; Jump merge
                 //   merge: result_var holds the value
 
-                let result_type = self.type_of_expr(expr).cloned().unwrap_or(Type::Unknown);
+                let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
                 let result_var = self.allocate_result_var(func, current_block, result_type.clone());
 

@@ -1,4 +1,6 @@
+// tests/ir/short_circuit_test.rs
 use algol26::backends::interpreter::Interpreter;
+use algol26::compiler::assign_expr_ids;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::semantics::analyzer::SemanticAnalyzer;
@@ -8,12 +10,16 @@ fn run(source: &str) -> String {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
+
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&program.functions, &program.traits, &program.impls)
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
         .unwrap();
     let type_table = analyzer.take_type_table_id();
-    let (ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
+    let (ir, _) = SemanticIRBuilder::build(&functions, type_table);
     Interpreter::new(ir).run().unwrap()
 }
 

@@ -65,7 +65,6 @@ pub struct FrontendTimings {
 pub struct TypedProgram {
     pub functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     pub type_info: TypeInfo,
-    pub type_table: std::collections::HashMap<usize, crate::common::types::Type>,
     pub type_table_id:
         std::collections::HashMap<crate::frontend::ast::ExprId, crate::common::types::Type>,
 }
@@ -190,11 +189,6 @@ pub fn assert_all_numbered(functions: &[FunctionDecl]) -> bool {
 ///
 /// Returns `CompileError` (with its original `ErrorCode`) on failure
 /// so the pass wrapper can round-trip it through `PassError::cause`.
-///
-/// **Invariant:** `functions` is shared by `Rc::clone`, not cloned
-/// deeply. The analyzer populates the type table keyed by the
-/// addresses it visits; those addresses must survive into the
-/// returned `TypedProgram`. See `docs/compiler/type-table-addressing.md`.
 pub fn type_check_program(
     functions: &Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     traits: &[TraitDecl],
@@ -214,7 +208,6 @@ pub fn type_check_program(
         return Err(CompileError::simple(&race, 0, 0, "", ErrorCode::E0007));
     }
 
-    let type_table = analyzer.take_type_table();
     let type_table_id = analyzer.take_type_table_id();
 
     Ok(TypedProgram {
@@ -224,7 +217,6 @@ pub fn type_check_program(
             total_variables: 0,
             types_checked: true,
         },
-        type_table,
         type_table_id,
     })
 }
@@ -564,8 +556,6 @@ impl Compiler {
                 ErrorCode::E0002,
             ));
         }
-
-        program.assert_addressing_invariant();
         Ok(())
     }
 
@@ -636,9 +626,7 @@ impl Compiler {
         let expand_time = prep.timings.expand;
         let mono_time = prep.timings.mono;
 
-        // Hand the parsed AST to the pipeline. Rc::clone keeps the
-        // same allocation the analyzer will key its type table
-        // against — see the addressing invariant in `program.rs`.
+        // Hand the parsed AST to the pipeline.
         program.ast = Some(AstPayload {
             functions: Rc::clone(&parsed.functions),
             traits: parsed.traits.clone(),

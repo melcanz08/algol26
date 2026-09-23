@@ -1,4 +1,4 @@
-// tests/borrow_deref_addrof_test.rs - FIXED
+// tests/borrow_deref_addrof_test.rs
 use algol26::common::diagnostics::Result;
 use algol26::compiler::Compiler;
 
@@ -55,6 +55,7 @@ procedure main
 
 #[test]
 fn test_double_borrow_fails() {
+    use algol26::compiler::assign_expr_ids;
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
     use algol26::semantics::analyzer::SemanticAnalyzer;
@@ -66,8 +67,11 @@ fn test_double_borrow_fails() {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().expect("parser failed");
 
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
-    let result = analyzer.analyze_with_spans(&program.functions, &program.traits, &program.impls);
+    let result = analyzer.analyze_with_spans(&functions, &program.traits, &program.impls);
 
     assert!(
         result.is_err(),
@@ -113,6 +117,7 @@ procedure main
 
 #[test]
 fn test_method_call_desugars_to_function_call() {
+    use algol26::compiler::assign_expr_ids;
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
     use algol26::ir::semantic_ir::TypedIRValue;
@@ -128,13 +133,16 @@ procedure main
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
 
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&program.functions, &program.traits, &program.impls)
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
+    let (ir, _) = SemanticIRBuilder::build(&functions, type_table);
 
     // Walk the IR and look for a Call to "List.length" with 1 argument.
     let mut found = false;
@@ -161,6 +169,7 @@ procedure main
 
 #[test]
 fn test_if_expr_in_vardecl_keeps_following_statements() {
+    use algol26::compiler::assign_expr_ids;
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
     use algol26::ir::semantic_ir::Instruction;
@@ -179,13 +188,16 @@ procedure main
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
 
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&program.functions, &program.traits, &program.impls)
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
+    let (ir, _) = SemanticIRBuilder::build(&functions, type_table);
 
     // The print must be present somewhere in the IR, not dropped.
     let has_print = ir.functions.iter().any(|f| {

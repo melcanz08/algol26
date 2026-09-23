@@ -9,8 +9,14 @@ fn analyze(source: &str) -> Result<()> {
     let lexer = Lexer::new(source.to_string())?;
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program()?;
+
+    // Number the AST before semantic analysis — this helper bypasses
+    // `prepare_frontend`, so `assign_expr_ids` doesn't run automatically.
+    let mut functions = program.functions;
+    crate::compiler::assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze_with_spans(&program.functions, &program.traits, &program.impls)
+    analyzer.analyze_with_spans(&functions, &program.traits, &program.impls)
 }
 
 #[test]

@@ -2,7 +2,7 @@
 
 //! `TypeTableCompletePass` — an `Analysis` pass that walks the typed
 //! AST and asserts every reachable `Expr` has an entry in the
-//! analyzer-produced `type_table`.
+//! analyzer-produced `type_table_id`.
 //!
 //! The failure mode this catches: `SemanticAnalyzer` skips typing an
 //! expression (a code path where `self.type_of` is never populated).
@@ -48,17 +48,15 @@ impl Pass<Program> for TypeTableCompletePass {
         })?;
 
         let mut walker = Walker {
-            type_table: &typed.type_table,
             type_table_id: &typed.type_table_id,
             missing: Vec::new(),
-            divergent: Vec::new(),
         };
 
         for func in typed.functions.iter() {
             walker.visit_function(func);
         }
 
-        if walker.missing.is_empty() && walker.divergent.is_empty() {
+        if walker.missing.is_empty() {
             return Ok(());
         }
 
@@ -69,31 +67,17 @@ impl Pass<Program> for TypeTableCompletePass {
             *counts.entry(kind).or_insert(0) += 1;
         }
 
-        if !counts.is_empty() {
-            let mut parts: Vec<String> = counts
-                .iter()
-                .map(|(k, n)| format!("{} × {}", n, k))
-                .collect();
-            parts.sort();
-            ctx.push_warning(format!(
-                "type_table incomplete: {} expression(s) have no entry ({})",
-                walker.missing.len(),
-                parts.join(", ")
-            ));
-        }
+        let mut parts: Vec<String> = counts
+            .iter()
+            .map(|(k, n)| format!("{} × {}", n, k))
+            .collect();
+        parts.sort();
 
-        if !walker.divergent.is_empty() {
-            let first = &walker.divergent[0];
-            ctx.push_warning(format!(
-                "type_table divergence: {} expression(s) have inconsistent \
-                 pointer-keyed and ExprId-keyed entries. First: ExprId {:?} \
-                 pointer={:?} id={:?}",
-                walker.divergent.len(),
-                first.0,
-                first.1,
-                first.2,
-            ));
-        }
+        ctx.push_warning(format!(
+            "type_table incomplete: {} expression(s) have no entry ({})",
+            walker.missing.len(),
+            parts.join(", ")
+        ));
 
         Ok(())
     }
@@ -102,14 +86,9 @@ impl Pass<Program> for TypeTableCompletePass {
 // ─── Walker ─────────────────────────────────────────────────────────────
 
 struct Walker<'a> {
-    type_table: &'a HashMap<usize, Type>,
     type_table_id: &'a HashMap<ExprId, Type>,
     /// Short kind name for each missing node, in visitation order.
     missing: Vec<&'static str>,
-    /// Expressions whose pointer-keyed and ExprId-keyed entries
-    /// disagree. Populated during the migration; empty once the
-    /// pointer table is deleted.
-    divergent: Vec<(ExprId, Option<Type>, Option<Type>)>,
 }
 
 impl<'a> Walker<'a> {
@@ -166,24 +145,9 @@ impl<'a> Walker<'a> {
     }
 
     fn visit_expr(&mut self, expr: &Expr) {
-        let addr = expr as *const Expr as usize;
-        let by_addr = self.type_table.get(&addr);
-        let by_id = self.type_table_id.get(&expr.id);
-
-        if by_id.is_none() {
+        if !self.type_table_id.contains_key(&expr.id) {
             self.missing.push(expr_kind(expr));
         }
-
-        // Consistency check: both tables must agree on every expression
-        // that has any entry at all. This is the migration's proof step
-        // — if the ExprId table diverges from the pointer table, every
-        // reader switch in the next commit would silently produce wrong
-        // types.
-        if by_addr != by_id {
-            self.divergent
-                .push((expr.id, by_addr.cloned(), by_id.cloned()));
-        }
-
         self.visit_expr_children(expr);
     }
 
@@ -402,12 +366,9 @@ mod tests {
             span: Span::default(),
         });
         let table = HashMap::new();
-        let table_id = HashMap::new();
         let mut w = Walker {
-            type_table: &table,
-            type_table_id: &table_id,
+            type_table_id: &table,
             missing: Vec::new(),
-            divergent: Vec::new(),
         };
         w.visit_expr(&ast);
         // Both the Block and the Int(42) should be reported.
@@ -418,35 +379,69 @@ mod tests {
 
     #[test]
     fn walker_silent_when_table_complete() {
-        let inner = Expr::new(ExprKind::Int(42, Span::default()));
-        let outer = Expr::new(ExprKind::Block {
-            statements: vec![],
-            trailing_expr: Some(Expr::boxed(ExprKind::Int(1, Span::default()))),
-            span: Span::default(),
-        });
+        // Build a two-node AST, number it, and populate the ID table
+        // with an entry for every reachable expression. The walker
+        // should report nothing.
+        use crate::compiler::assign_expr_ids;
+
+        let mut functions = vec![crate::frontend::ast::FunctionDecl {
+            name: "f".into(),
+            params: vec![],
+            return_type: None,
+            body: vec![Stmt::Expression(Expr::new(ExprKind::Block {
+                statements: vec![],
+                trailing_expr: Some(Expr::boxed(ExprKind::Int(42, Span::default()))),
+                span: Span::default(),
+            }))],
+            is_extern: false,
+            ffi_info: None,
+            type_params: vec![],
+            where_clauses: vec![],
+        }];
+        assign_expr_ids(&mut functions);
+
+        // Collect every ID in the AST. The AST shape here is
+        // Block { trailing: Int }, so both nodes are reachable from
+        // the outer `Stmt::Expression`.
+        let mut ids = Vec::new();
+        fn collect(expr: &Expr, ids: &mut Vec<ExprId>) {
+            ids.push(expr.id);
+            if let ExprKind::Block {
+                statements,
+                trailing_expr,
+                ..
+            } = &expr.kind
+            {
+                for s in statements {
+                    if let Stmt::Expression(e) = s {
+                        collect(e, ids);
+                    }
+                }
+                if let Some(e) = trailing_expr {
+                    collect(e, ids);
+                }
+            }
+        }
+        if let Stmt::Expression(e) = &functions[0].body[0] {
+            collect(e, &mut ids);
+        }
+
         let mut table = HashMap::new();
-        table.insert(&inner as *const Expr as usize, Type::Int);
-        table.insert(&outer as *const Expr as usize, Type::Int);
-        let table_id = HashMap::new();
-        // Note: the inner Boxed Int lives on the heap; the outer walker
-        // visits it via the Box. Address-based insertion here uses the
-        // *outer* address of the Box's referent, which is stable.
+        for id in ids {
+            table.insert(id, Type::Int);
+        }
+
         let mut w = Walker {
-            type_table: &table,
-            type_table_id: &table_id,
+            type_table_id: &table,
             missing: Vec::new(),
-            divergent: Vec::new(),
         };
-        w.visit_expr(&outer);
-        // The inner Int inside the Box is a different address than
-        // `inner`, so it will still be reported. This test is
-        // illustrative, not a full completeness check.
-        //
-        // Both tables are empty for `table_id`, so every entry in
-        // `table` shows up as divergent. The test asserts nothing
-        // about `missing`, but the `divergent` vec will be populated
-        // — that's fine, the test only checks the walker visits.
-        let _ = inner;
+        w.visit_stmt(&functions[0].body[0]);
+
+        assert!(
+            w.missing.is_empty(),
+            "expected no missing entries, got {:?}",
+            w.missing
+        );
     }
 
     #[test]
@@ -462,12 +457,9 @@ mod tests {
             span: Span::default(),
         }));
         let table = HashMap::new();
-        let table_id = HashMap::new();
         let mut w = Walker {
-            type_table: &table,
-            type_table_id: &table_id,
+            type_table_id: &table,
             missing: Vec::new(),
-            divergent: Vec::new(),
         };
         w.visit_stmt(&stmt);
 

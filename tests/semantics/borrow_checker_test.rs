@@ -9,7 +9,12 @@ fn analyze(source: &str) -> Result<(), String> {
     let lexer = Lexer::new(source.to_string()).map_err(|e| e.message.to_string())?;
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().map_err(|e| e.message.to_string())?;
-    let functions = program.functions;
+
+    // Number the AST before analysis — this helper bypasses
+    // prepare_frontend, so assign_expr_ids doesn't run automatically.
+    let mut functions = program.functions;
+    algol26::compiler::assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
         .analyze(&functions)

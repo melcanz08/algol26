@@ -18,11 +18,7 @@ impl SemanticAnalyzer {
         // have the node in hand. No save/restore — the innermost
         // error site should use the innermost node's span.
         self.current_span = expr.span();
-
         let ty = self.analyze_expr_inner(expr, expected_type)?;
-
-        self.type_table
-            .insert(expr as *const Expr as usize, ty.clone());
         self.type_table_id.insert(expr.id, ty.clone());
         Ok(ty)
     }

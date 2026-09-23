@@ -44,6 +44,7 @@ fn test_negative_undefined_variable() {
 }
 #[test]
 fn test_negative_type_mismatch() {
+    use algol26::compiler::assign_expr_ids;
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
     use algol26::semantics::analyzer::SemanticAnalyzer;
@@ -56,8 +57,11 @@ fn test_negative_type_mismatch() {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().expect("parser failed");
 
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
-    let result = analyzer.analyze_with_spans(&program.functions, &program.traits, &program.impls);
+    let result = analyzer.analyze_with_spans(&functions, &program.traits, &program.impls);
 
     assert!(
         result.is_err(),
@@ -113,6 +117,7 @@ procedure main
 }
 #[test]
 fn test_negative_corpus_no_ice() {
+    use algol26::compiler::assign_expr_ids;
     use std::{fs, path::Path};
     let dir = Path::new("tests/integration/negative");
     assert!(dir.exists());
@@ -138,10 +143,12 @@ fn test_negative_corpus_no_ice() {
                 return (true, true);
             }
             let prog = prog_res.unwrap();
+            let mut functions = prog.functions;
+            assign_expr_ids(&mut functions);
             let (_ir, diags) =
-                SemanticIRBuilder::build(&prog.functions, std::collections::HashMap::new());
+                SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
             let mut analyzer = algol26::semantics::analyzer::SemanticAnalyzer::new();
-            let analyzer_invalid = analyzer.analyze(&prog.functions).is_err();
+            let analyzer_invalid = analyzer.analyze(&functions).is_err();
             let is_invalid = !diags.is_empty() || analyzer_invalid;
             (true, is_invalid)
         });

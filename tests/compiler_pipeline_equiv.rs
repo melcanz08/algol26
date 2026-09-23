@@ -223,12 +223,12 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
 
 /// Canonical string form of a `TypedProgram` for comparison.
 ///
-/// `TypedProgram::type_table` is a `HashMap`, whose `Debug` output
+/// `TypedProgram::type_table_id` is a `HashMap`, whose `Debug` output
 /// depends on internal iteration order. Sort entries by key so two
 /// tables with the same contents compare equal.
 fn canonical_typed(typed: &algol26::compiler::TypedProgram) -> String {
-    let mut entries: Vec<(usize, String)> = typed
-        .type_table
+    let mut entries: Vec<(algol26::frontend::ast::ExprId, String)> = typed
+        .type_table_id
         .iter()
         .map(|(k, v)| (*k, format!("{:?}", v)))
         .collect();
@@ -254,8 +254,7 @@ fn type_check_pass_agrees_with_direct_call() {
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
         // Run the frontend *once*. Both paths below consume this same
-        // `parsed` allocation, so type_table keys (which are addresses)
-        // are comparable.
+        // `parsed` value.
         let mut compiler = Compiler;
         let parsed = match compiler.parse_source_for(&source, &filename) {
             Ok(p) => p,
@@ -291,18 +290,6 @@ fn type_check_pass_agrees_with_direct_call() {
             canonical_typed(&direct),
             canonical_typed(&via_pass),
             "typed AST diverges on {}",
-            filename
-        );
-
-        // Both outputs must share the input's allocation.
-        assert!(
-            Rc::ptr_eq(&parsed.functions, &direct.functions),
-            "free function violated addressing invariant on {}",
-            filename
-        );
-        assert!(
-            Rc::ptr_eq(&parsed.functions, &via_pass.functions),
-            "pass violated addressing invariant on {}",
             filename
         );
 

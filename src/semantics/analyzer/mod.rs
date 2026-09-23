@@ -4,49 +4,6 @@
 // scope-based lifetime rules. Produces a type table keyed by AST node
 // address, which the IR builder consumes to avoid re-inferring types.
 
-//! Loop ownership analysis.
-//!
-//! Both `for` and `while` bodies are analyzed once, even though they
-//! execute repeatedly. The analyzer therefore has to reason about what
-//! invariants hold across iterations and what state is visible *after*
-//! the loop.
-//!
-//! Borrows (immutable and mutable) are always restored to the state
-//! that existed before the loop began. A borrow created inside the
-//! loop dies with the loop body's scope — the same rule that applies
-//! to any nested block.
-//!
-//! Moves are treated differently in the two loop forms because the
-//! two forms have different iteration semantics:
-//!
-//! `for x in <iterable>`:
-//!   The iterable is a list of known or unknown length. If it is
-//!   non-empty (which the compiler cannot always rule out), the body
-//!   executes at least once. If the body moves a non-Copy variable,
-//!   the next iteration would re-execute the move on an already-moved
-//!   value — a use-after-move error the compiler can prove will occur.
-//!   So the move is rejected outright: "Cannot move 'x' in loop body".
-//!
-//! `while cond`:
-//!   The condition may be false on entry, in which case the body never
-//!   runs and no move occurs. The compiler cannot decide at compile
-//!   time whether the loop runs, so it cannot prove the move is always
-//!   a problem, nor that it never is. The conservative sound choice is
-//!   to mark any variable moved in the body as "potentially moved" in
-//!   the enclosing scope: any subsequent use of that variable errors
-//!   (because it might have been moved), but the loop itself is
-//!   accepted.
-//!
-//! In short: `for` rejects unconditionally (if the move happens on
-//! iteration 1, it happens again on iteration 2); `while` propagates
-//! the uncertainty to the caller's scope.
-//!
-//! Both choices are conservative — they reject some programs that a
-//! more precise analysis would accept (e.g. a `for` loop over a list
-//! of statically known length 1 that moves its element). Neither
-//! choice is unsound: no program that would cause a runtime
-//! use-after-move is accepted.
-
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
 use crate::common::types::Type;
@@ -101,14 +58,9 @@ pub struct SemanticAnalyzer {
     /// least N" for those functions.
     variadic_functions: HashSet<String>,
 
-    // ─── UNIFY TYPES ─── New: inferred type of each expression, keyed by address.
-    // Addresses are stable because the analyzer and IR builder walk the *same*
-    // AST without cloning.
-    pub type_table: HashMap<usize, Type>,
-    /// ExprId-keyed mirror of `type_table`. Written on every analysis;
-    /// read side is added in the follow-up commit. Kept in sync with
-    /// the pointer-keyed table so the migration can prove both agree
-    /// before any reader switches.
+    /// Inferred type of each expression, keyed by its stable `ExprId`.
+    /// Written by `analyze_expr_with_context` on every expression the
+    /// analyzer visits.
     pub type_table_id: HashMap<ExprId, Type>,
     // Single source of truth - unified with dataflow engine
     pub(crate) state: SemanticState,
@@ -164,7 +116,6 @@ impl SemanticAnalyzer {
             trait_registry: TraitRegistry::new(),
             deferred_captures: vec![HashSet::new()],
             variadic_functions: HashSet::new(),
-            type_table: HashMap::new(),
             type_table_id: HashMap::new(),
             state: SemanticState::new(),
             current_span: Span::default(),
@@ -191,14 +142,11 @@ impl SemanticAnalyzer {
     }
 
     // ─── UNIFY TYPES ───────────────────────────────────────────────────────
-    /// Look up the inferred type of an expression by its address.
+    /// Look up the inferred type of an expression by its `ExprId`.
     pub fn type_of(&self, expr: &Expr) -> Option<&Type> {
         self.type_table_id.get(&expr.id)
     }
     /// Take ownership of the type table so it can be handed to the IR builder.
-    pub fn take_type_table(&mut self) -> HashMap<usize, Type> {
-        std::mem::take(&mut self.type_table)
-    }
     pub fn take_type_table_id(&mut self) -> HashMap<ExprId, Type> {
         std::mem::take(&mut self.type_table_id)
     }
@@ -250,6 +198,11 @@ impl SemanticAnalyzer {
         traits: &[TraitDecl],
         impls: &[ImplBlock],
     ) -> Result<()> {
+        debug_assert!(
+            crate::compiler::assert_all_numbered(functions),
+            "SemanticAnalyzer::analyze_with_spans called with unnumbered AST — \
+             call assign_expr_ids(&mut functions) before analyzing"
+        );
         self.register_builtin_functions();
         self.register_user_functions(functions);
 

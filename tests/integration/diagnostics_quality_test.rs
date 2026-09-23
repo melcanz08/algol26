@@ -1,4 +1,5 @@
 use algol26::common::diagnostics::ErrorCode;
+use algol26::compiler::assign_expr_ids;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::semantics::analyzer::SemanticAnalyzer;
@@ -8,8 +9,10 @@ fn analyze_source(src: &str) -> Result<(), algol26::common::diagnostics::Compile
     let lexer = Lexer::new(src.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze(&program.functions)
+    analyzer.analyze(&functions)
 }
 
 #[test]
@@ -76,8 +79,10 @@ fn test_all_negative_corpus_produce_structured_errors() {
                 continue;
             }
         };
+        let mut functions = prog.functions;
+        assign_expr_ids(&mut functions);
         let mut analyzer = SemanticAnalyzer::new();
-        match analyzer.analyze(&prog.functions) {
+        match analyzer.analyze(&functions) {
             Ok(_) => {
                 if path.to_str().unwrap().contains("double_borrow")
                     || path.to_str().unwrap().contains("use_after_move")
@@ -121,9 +126,11 @@ procedure main
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
     let mut analyzer = SemanticAnalyzer::new();
     let err = analyzer
-        .analyze(&program.functions)
+        .analyze(&functions)
         .expect_err("expected 'If condition must be Bool' error");
 
     // The condition `x` is at line 3, column 8 (4-indent + "if ").

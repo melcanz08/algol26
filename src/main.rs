@@ -427,7 +427,7 @@ fn inspect_type_table(compiler: &mut Compiler, source: &str, filename: &str) {
     match compiler.type_check_source_for(source, filename) {
         Ok(typed) => {
             println!("{} function(s)", typed.functions.len());
-            println!("{} type_table entries", typed.type_table.len());
+            println!("{} type_table entries", typed.type_table_id.len());
             let warnings = match compiler.run_type_table_complete_pass_public(typed) {
                 Ok(w) => w,
                 Err(e) => {

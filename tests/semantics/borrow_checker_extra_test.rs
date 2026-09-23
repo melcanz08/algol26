@@ -8,9 +8,13 @@ fn analyze(source: &str) -> Result<(), String> {
     let lexer = Lexer::new(source.to_string()).map_err(|e| e.message.to_string())?;
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().map_err(|e| e.message.to_string())?;
+
+    let mut functions = program.functions;
+    algol26::compiler::assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze(&program.functions)
+        .analyze(&functions)
         .map_err(|e| e.message.to_string())
 }
 

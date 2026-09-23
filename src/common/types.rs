@@ -539,6 +539,43 @@ impl Type {
         }
     }
 
+    /// True if the type contains `Unknown` anywhere.
+    ///
+    /// Companion to `contains_type_var`. Together they define the
+    /// "unresolved" predicate the instantiation plan uses to
+    /// distinguish concrete type arguments from symbolic ones.
+    pub fn contains_unknown(&self) -> bool {
+        match self {
+            Type::Unknown => true,
+            Type::List(inner)
+            | Type::Array(inner, _)
+            | Type::Option(inner)
+            | Type::Pointer(inner)
+            | Type::Borrow(inner)
+            | Type::MutBorrow(inner)
+            | Type::Channel(inner) => inner.contains_unknown(),
+            Type::Tuple(elements) => elements.iter().any(|e| e.contains_unknown()),
+            Type::Result { ok, error } => ok.contains_unknown() || error.contains_unknown(),
+            Type::Generic { args, .. } => args.iter().any(|a| a.contains_unknown()),
+            Type::Function {
+                params,
+                return_type,
+            } => params.iter().any(|p| p.contains_unknown()) || return_type.contains_unknown(),
+            _ => false,
+        }
+    }
+
+    /// True if the type contains a `TypeVar` or `Unknown` anywhere.
+    ///
+    /// The instantiation plan uses this to decide whether a recorded
+    /// `type_args` entry is concrete enough to produce a
+    /// `Specialization`. Symbolic entries (calls inside another
+    /// generic's body) fail this check and are recorded only as
+    /// call-site instantiations.
+    pub fn contains_unresolved(&self) -> bool {
+        self.contains_type_var() || self.contains_unknown()
+    }
+
     // NEW: Substitute type variables
     pub fn substitute(&self, substitutions: &std::collections::HashMap<String, Type>) -> Type {
         match self {
@@ -803,6 +840,37 @@ mod tests {
         assert!(Type::TypeVar("T".to_string()).contains_type_var());
         assert!(Type::list(Type::TypeVar("T".to_string())).contains_type_var());
         assert!(!Type::list(Type::Int).contains_type_var());
+    }
+
+    #[test]
+    fn test_contains_unknown() {
+        assert!(Type::Unknown.contains_unknown());
+        assert!(Type::list(Type::Unknown).contains_unknown());
+        assert!(!Type::list(Type::Int).contains_unknown());
+        // Critical: Unknown nested inside Function / Generic must be seen.
+        assert!(Type::Function {
+            params: vec![Type::Unknown],
+            return_type: Box::new(Type::Int),
+        }
+        .contains_unknown());
+        assert!(Type::generic("Box", vec![Type::Unknown]).contains_unknown());
+    }
+
+    #[test]
+    fn test_contains_unresolved_covers_function_and_generic() {
+        // The two cases the initial `InstantiationPlan` implementation
+        // missed: a TypeVar nested inside Function or Generic.
+        assert!(Type::Function {
+            params: vec![Type::TypeVar("T".to_string())],
+            return_type: Box::new(Type::TypeVar("T".to_string())),
+        }
+        .contains_unresolved());
+        assert!(Type::generic("Box", vec![Type::TypeVar("T".to_string())]).contains_unresolved());
+        assert!(!Type::Function {
+            params: vec![Type::Int],
+            return_type: Box::new(Type::Float),
+        }
+        .contains_unresolved());
     }
 
     #[test]

@@ -10,16 +10,18 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
-    let functions = program.functions;
+    let mut functions = program.functions;
 
-    // ─── UNIFY TYPES ─── run the analyzer so the IR builder has real types.
+    // Number the AST before semantic analysis — this helper bypasses
+    // `prepare_frontend`, so `assign_expr_ids` doesn't run automatically.
+    algol26::compiler::assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
-
     analyzer
         .analyze_with_spans(&functions, &program.traits, &program.impls)
-        .expect("semantic analysis failed");
+        .unwrap();
 
-    let type_table = analyzer.take_type_table();
+    let type_table = analyzer.take_type_table_id();
     SemanticIRBuilder::build(&functions, type_table)
 }
 

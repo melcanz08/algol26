@@ -7,7 +7,9 @@
 
 use crate::common::span::Span;
 use crate::common::types::Type;
-use crate::frontend::ast::{BinOp, Expr, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, Stmt};
+use crate::frontend::ast::{
+    BinOp, Expr, ExprId, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, Stmt,
+};
 use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
     SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
@@ -42,7 +44,7 @@ pub struct SemanticIRBuilder {
     pub(super) defer_stack: Vec<DeferContext>,
     pub(super) list_values: HashMap<String, Vec<Expr>>,
     pub(super) pending_merge: Option<usize>,
-    pub(super) type_table: HashMap<usize, Type>,
+    pub(super) type_table_id: HashMap<ExprId, Type>,
 }
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -54,7 +56,7 @@ pub(super) struct FunctionSignature {
 impl SemanticIRBuilder {
     pub fn build(
         functions: &[FunctionDecl],
-        type_table: HashMap<usize, Type>,
+        type_table_id: HashMap<ExprId, Type>,
     ) -> (SemanticProgram, Vec<String>) {
         let mut builder = SemanticIRBuilder {
             scopes: vec![HashMap::new()],
@@ -65,7 +67,7 @@ impl SemanticIRBuilder {
             defer_stack: Vec::new(),
             list_values: HashMap::new(),
             pending_merge: None,
-            type_table, // ─── UNIFY TYPES ───
+            type_table_id,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -91,7 +93,7 @@ impl SemanticIRBuilder {
     }
     // ─── UNIFY TYPES ─── Lookup helper.
     fn type_of_expr(&self, expr: &Expr) -> Option<&Type> {
-        self.type_table.get(&(expr as *const Expr as usize))
+        self.type_table_id.get(&expr.id)
     }
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());

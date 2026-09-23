@@ -38,8 +38,10 @@ impl Pass<Program> for BuildSemanticIRPass {
             )
         })?;
 
-        match crate::compiler::build_semantic_ir_program(&typed.functions, typed.type_table.clone())
-        {
+        match crate::compiler::build_semantic_ir_program(
+            &typed.functions,
+            typed.type_table_id.clone(),
+        ) {
             Ok(sem) => {
                 program.semantic_ir = Some(sem);
                 Ok(())

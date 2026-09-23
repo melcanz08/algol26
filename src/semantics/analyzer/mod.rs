@@ -277,6 +277,11 @@ impl SemanticAnalyzer {
         traits: &[TraitDecl],
         impls: &[ImplBlock],
     ) -> Result<()> {
+        debug_assert!(
+            crate::compiler::assert_all_numbered(functions),
+            "SemanticAnalyzer::analyze_with_traits called with unnumbered AST — \
+             call assign_expr_ids(&mut functions) before analyzing"
+        );
         self.analyze_with_spans(functions, traits, impls)
     }
 

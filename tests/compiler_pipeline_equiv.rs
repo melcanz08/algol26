@@ -185,7 +185,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
         // Path A: direct call to the extracted free function.
         let direct = match algol26::compiler::build_semantic_ir_program(
             &typed.functions,
-            typed.type_table.clone(),
+            typed.type_table_id.clone(),
         ) {
             Ok(p) => p,
             Err(_) => continue,

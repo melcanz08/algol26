@@ -12,7 +12,7 @@ fn run(source: &str) -> String {
     analyzer
         .analyze_with_spans(&program.functions, &program.traits, &program.impls)
         .unwrap();
-    let type_table = analyzer.take_type_table();
+    let type_table = analyzer.take_type_table_id();
     let (ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
     Interpreter::new(ir).run().unwrap()
 }

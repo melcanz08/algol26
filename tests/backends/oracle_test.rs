@@ -11,12 +11,15 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
-    let functions = program.functions;
-    let traits = program.traits;
-    let impls = program.impls;
+    let mut functions = program.functions;
+
+    // Number the AST before semantic analysis — this helper bypasses
+    // `prepare_frontend`, so `assign_expr_ids` doesn't run automatically.
+    algol26::compiler::assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_traits(&functions, &traits, &impls)
+        .analyze_with_traits(&functions, &program.traits, &program.impls)
         .unwrap();
     let (ir, _) = SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
     ir

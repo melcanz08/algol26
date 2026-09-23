@@ -2,6 +2,7 @@
 // INVARIANT: execute(original_ir) == execute(optimized_ir)
 
 use algol26::backends::interpreter::Interpreter;
+use algol26::compiler::assign_expr_ids;
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::optimizer::Optimizer;
@@ -12,9 +13,10 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
-    let functions = program.functions;
+    let mut functions = program.functions;
     let traits = program.traits;
     let impls = program.impls;
+    assign_expr_ids(&mut functions);
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
         .analyze_with_traits(&functions, &traits, &impls)
@@ -92,13 +94,16 @@ procedure main
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
 
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&program.functions, &program.traits, &program.impls)
+        .analyze_with_spans(&functions, &program.traits, &program.impls)
         .unwrap();
-    let type_table = analyzer.take_type_table();
+    let type_table = analyzer.take_type_table_id();
 
-    let (mut ir, _) = SemanticIRBuilder::build(&program.functions, type_table);
+    let (mut ir, _) = SemanticIRBuilder::build(&functions, type_table);
 
     let mut opt = Optimizer::new();
     opt.optimize(&mut ir);

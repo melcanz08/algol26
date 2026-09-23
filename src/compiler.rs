@@ -90,7 +90,7 @@ impl Default for Compiler {
     }
 }
 
-fn assert_all_numbered(functions: &[FunctionDecl]) -> bool {
+pub fn assert_all_numbered(functions: &[FunctionDecl]) -> bool {
     fn walk_expr(e: &Expr) -> bool {
         if !e.id.is_assigned() {
             return false;
@@ -236,12 +236,15 @@ pub fn type_check_program(
 /// in sync.
 pub fn build_semantic_ir_program(
     functions: &[crate::frontend::ast::FunctionDecl],
-    type_table: std::collections::HashMap<usize, crate::common::types::Type>,
+    type_table_id: std::collections::HashMap<
+        crate::frontend::ast::ExprId,
+        crate::common::types::Type,
+    >,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
 
-    let (program, diagnostics) = SemanticIRBuilder::build(functions, type_table);
+    let (program, diagnostics) = SemanticIRBuilder::build(functions, type_table_id);
 
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
@@ -905,7 +908,7 @@ impl Compiler {
 /// after the last AST transformation. Called by `prepare_frontend`
 /// once, after `monomorphize`, before the AST is handed to semantic
 /// analysis.
-fn assign_expr_ids(functions: &mut [FunctionDecl]) {
+pub fn assign_expr_ids(functions: &mut [FunctionDecl]) {
     let mut next = 0u32;
     for func in functions.iter_mut() {
         number_stmts(&mut func.body, &mut next);

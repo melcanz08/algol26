@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 // src/compiler.rs
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};

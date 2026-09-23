@@ -18,7 +18,7 @@ use crate::common::types::Type;
 use crate::compiler::context::CompilerContext;
 use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
 use crate::compiler::program::Program;
-use crate::frontend::ast::{Expr, ExprKind, FunctionDecl, Pattern, Stmt};
+use crate::frontend::ast::{Expr, ExprId, ExprKind, FunctionDecl, Pattern, Stmt};
 use std::collections::HashMap;
 
 pub struct TypeTableCompletePass;
@@ -49,14 +49,16 @@ impl Pass<Program> for TypeTableCompletePass {
 
         let mut walker = Walker {
             type_table: &typed.type_table,
+            type_table_id: &typed.type_table_id,
             missing: Vec::new(),
+            divergent: Vec::new(),
         };
 
         for func in typed.functions.iter() {
             walker.visit_function(func);
         }
 
-        if walker.missing.is_empty() {
+        if walker.missing.is_empty() && walker.divergent.is_empty() {
             return Ok(());
         }
 
@@ -67,17 +69,31 @@ impl Pass<Program> for TypeTableCompletePass {
             *counts.entry(kind).or_insert(0) += 1;
         }
 
-        let mut parts: Vec<String> = counts
-            .iter()
-            .map(|(k, n)| format!("{} × {}", n, k))
-            .collect();
-        parts.sort();
+        if !counts.is_empty() {
+            let mut parts: Vec<String> = counts
+                .iter()
+                .map(|(k, n)| format!("{} × {}", n, k))
+                .collect();
+            parts.sort();
+            ctx.push_warning(format!(
+                "type_table incomplete: {} expression(s) have no entry ({})",
+                walker.missing.len(),
+                parts.join(", ")
+            ));
+        }
 
-        ctx.push_warning(format!(
-            "type_table incomplete: {} expression(s) have no entry ({})",
-            walker.missing.len(),
-            parts.join(", ")
-        ));
+        if !walker.divergent.is_empty() {
+            let first = &walker.divergent[0];
+            ctx.push_warning(format!(
+                "type_table divergence: {} expression(s) have inconsistent \
+                 pointer-keyed and ExprId-keyed entries. First: ExprId {:?} \
+                 pointer={:?} id={:?}",
+                walker.divergent.len(),
+                first.0,
+                first.1,
+                first.2,
+            ));
+        }
 
         Ok(())
     }
@@ -87,8 +103,13 @@ impl Pass<Program> for TypeTableCompletePass {
 
 struct Walker<'a> {
     type_table: &'a HashMap<usize, Type>,
+    type_table_id: &'a HashMap<ExprId, Type>,
     /// Short kind name for each missing node, in visitation order.
     missing: Vec<&'static str>,
+    /// Expressions whose pointer-keyed and ExprId-keyed entries
+    /// disagree. Populated during the migration; empty once the
+    /// pointer table is deleted.
+    divergent: Vec<(ExprId, Option<Type>, Option<Type>)>,
 }
 
 impl<'a> Walker<'a> {
@@ -146,9 +167,23 @@ impl<'a> Walker<'a> {
 
     fn visit_expr(&mut self, expr: &Expr) {
         let addr = expr as *const Expr as usize;
-        if !self.type_table.contains_key(&addr) {
+        let by_addr = self.type_table.get(&addr);
+        let by_id = self.type_table_id.get(&expr.id);
+
+        if by_addr.is_none() {
             self.missing.push(expr_kind(expr));
         }
+
+        // Consistency check: both tables must agree on every expression
+        // that has any entry at all. This is the migration's proof step
+        // — if the ExprId table diverges from the pointer table, every
+        // reader switch in the next commit would silently produce wrong
+        // types.
+        if by_addr != by_id {
+            self.divergent
+                .push((expr.id, by_addr.cloned(), by_id.cloned()));
+        }
+
         self.visit_expr_children(expr);
     }
 
@@ -367,9 +402,12 @@ mod tests {
             span: Span::default(),
         });
         let table = HashMap::new();
+        let table_id = HashMap::new();
         let mut w = Walker {
             type_table: &table,
+            type_table_id: &table_id,
             missing: Vec::new(),
+            divergent: Vec::new(),
         };
         w.visit_expr(&ast);
         // Both the Block and the Int(42) should be reported.
@@ -389,17 +427,25 @@ mod tests {
         let mut table = HashMap::new();
         table.insert(&inner as *const Expr as usize, Type::Int);
         table.insert(&outer as *const Expr as usize, Type::Int);
+        let table_id = HashMap::new();
         // Note: the inner Boxed Int lives on the heap; the outer walker
         // visits it via the Box. Address-based insertion here uses the
         // *outer* address of the Box's referent, which is stable.
         let mut w = Walker {
             type_table: &table,
+            type_table_id: &table_id,
             missing: Vec::new(),
+            divergent: Vec::new(),
         };
         w.visit_expr(&outer);
         // The inner Int inside the Box is a different address than
         // `inner`, so it will still be reported. This test is
         // illustrative, not a full completeness check.
+        //
+        // Both tables are empty for `table_id`, so every entry in
+        // `table` shows up as divergent. The test asserts nothing
+        // about `missing`, but the `divergent` vec will be populated
+        // — that's fine, the test only checks the walker visits.
         let _ = inner;
     }
 
@@ -416,9 +462,12 @@ mod tests {
             span: Span::default(),
         }));
         let table = HashMap::new();
+        let table_id = HashMap::new();
         let mut w = Walker {
             type_table: &table,
+            type_table_id: &table_id,
             missing: Vec::new(),
+            divergent: Vec::new(),
         };
         w.visit_stmt(&stmt);
 

@@ -51,8 +51,8 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::{
-    BinOp, Expr, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt, TraitDecl,
-    WhereClause,
+    BinOp, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt,
+    TraitDecl, WhereClause,
 };
 use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
@@ -105,6 +105,11 @@ pub struct SemanticAnalyzer {
     // Addresses are stable because the analyzer and IR builder walk the *same*
     // AST without cloning.
     pub type_table: HashMap<usize, Type>,
+    /// ExprId-keyed mirror of `type_table`. Written on every analysis;
+    /// read side is added in the follow-up commit. Kept in sync with
+    /// the pointer-keyed table so the migration can prove both agree
+    /// before any reader switches.
+    pub type_table_id: HashMap<ExprId, Type>,
     // Single source of truth - unified with dataflow engine
     pub(crate) state: SemanticState,
     /// Span of the node currently being analyzed. Updated at the top
@@ -160,6 +165,7 @@ impl SemanticAnalyzer {
             deferred_captures: vec![HashSet::new()],
             variadic_functions: HashSet::new(),
             type_table: HashMap::new(),
+            type_table_id: HashMap::new(),
             state: SemanticState::new(),
             current_span: Span::default(),
             region_depth: 0,
@@ -192,6 +198,9 @@ impl SemanticAnalyzer {
     /// Take ownership of the type table so it can be handed to the IR builder.
     pub fn take_type_table(&mut self) -> HashMap<usize, Type> {
         std::mem::take(&mut self.type_table)
+    }
+    pub fn take_type_table_id(&mut self) -> HashMap<ExprId, Type> {
+        std::mem::take(&mut self.type_table_id)
     }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {

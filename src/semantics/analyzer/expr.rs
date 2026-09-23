@@ -23,6 +23,7 @@ impl SemanticAnalyzer {
 
         self.type_table
             .insert(expr as *const Expr as usize, ty.clone());
+        self.type_table_id.insert(expr.id, ty.clone());
         Ok(ty)
     }
 

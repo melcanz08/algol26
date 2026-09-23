@@ -111,6 +111,7 @@ mod tests {
             functions: Rc::clone(&funcs),
             type_info: TypeInfo::default(),
             type_table: HashMap::new(),
+            type_table_id: HashMap::new(),
         });
         p.assert_addressing_invariant();
     }
@@ -128,6 +129,7 @@ mod tests {
             functions: Rc::new(Vec::new()), // deliberately a different Rc
             type_info: TypeInfo::default(),
             type_table: HashMap::new(),
+            type_table_id: HashMap::new(), // ← add this
         });
         p.assert_addressing_invariant();
     }

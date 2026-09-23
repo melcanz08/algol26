@@ -66,6 +66,8 @@ pub struct TypedProgram {
     pub functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     pub type_info: TypeInfo,
     pub type_table: std::collections::HashMap<usize, crate::common::types::Type>,
+    pub type_table_id:
+        std::collections::HashMap<crate::frontend::ast::ExprId, crate::common::types::Type>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -213,6 +215,7 @@ pub fn type_check_program(
     }
 
     let type_table = analyzer.take_type_table();
+    let type_table_id = analyzer.take_type_table_id();
 
     Ok(TypedProgram {
         functions: Rc::clone(functions),
@@ -222,6 +225,7 @@ pub fn type_check_program(
             types_checked: true,
         },
         type_table,
+        type_table_id,
     })
 }
 

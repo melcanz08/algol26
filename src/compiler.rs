@@ -9,10 +9,11 @@ use crate::frontend::ast::{
 use crate::frontend::lexer::Lexer;
 use crate::frontend::module_loader::ModuleLoader;
 use crate::frontend::parser::Parser;
+use crate::ir::instantiation_plan::InstantiationPlan;
 use crate::ir::monomorphize::Monomorphizer;
 use crate::ir::semantic_ir::SemanticProgram;
 use crate::ir::verified_ir::VerifiedIR;
-use crate::semantics::analyzer::{Instantiation, SemanticAnalyzer};
+use crate::semantics::analyzer::SemanticAnalyzer;
 use crate::semantics::race::RaceDetector;
 use std::rc::Rc;
 
@@ -64,9 +65,10 @@ pub struct TypedProgram {
     pub type_info: TypeInfo,
     pub type_table_id:
         std::collections::HashMap<crate::frontend::ast::ExprId, crate::common::types::Type>,
-    /// Generic instantiation facts recorded by the analyzer. Stage
-    /// 3.1 writes this field; no consumer reads it yet. See ADR 0013.
-    pub instantiations: Vec<Instantiation>,
+    /// The generic specialization plan derived from the analyzer's
+    /// instantiation records. Consumed by the IR builder in later
+    /// stages of ADR 0013; unused by consumers today.
+    pub plan: InstantiationPlan,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -210,6 +212,7 @@ pub fn type_check_program(
 
     let type_table_id = analyzer.take_type_table_id();
     let instantiations = analyzer.take_instantiations();
+    let plan = InstantiationPlan::from_instantiations(&instantiations);
 
     Ok(TypedProgram {
         functions: Rc::clone(functions),
@@ -219,7 +222,7 @@ pub fn type_check_program(
             types_checked: true,
         },
         type_table_id,
-        instantiations,
+        plan,
     })
 }
 

@@ -2,7 +2,7 @@
 
 use crate::common::types::Type;
 use crate::frontend::ast::BinOp;
-use crate::frontend::ast::{Expr, FunctionDecl, Stmt, TypeSyntax};
+use crate::frontend::ast::{Expr, ExprKind, FunctionDecl, Stmt, TypeSyntax};
 use std::collections::HashMap;
 
 pub struct Monomorphizer {
@@ -64,8 +64,8 @@ impl Monomorphizer {
     }
 
     fn collect_from_expr(&mut self, expr: &Expr) {
-        match expr {
-            Expr::FunctionCall { name, args, .. } => {
+        match &expr.kind {
+            ExprKind::FunctionCall { name, args, .. } => {
                 let mut type_args = Vec::new();
                 for arg in args {
                     type_args.push(self.infer_expr_type(arg));
@@ -81,11 +81,11 @@ impl Monomorphizer {
                     self.collect_from_expr(arg);
                 }
             }
-            Expr::Binary { left, right, .. } => {
+            ExprKind::Binary { left, right, .. } => {
                 self.collect_from_expr(left);
                 self.collect_from_expr(right);
             }
-            Expr::If {
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
@@ -97,7 +97,7 @@ impl Monomorphizer {
                     self.collect_from_expr(e);
                 }
             }
-            Expr::Block {
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 ..
@@ -109,25 +109,25 @@ impl Monomorphizer {
                     self.collect_from_expr(e);
                 }
             }
-            Expr::List(elements, _) => {
+            ExprKind::List(elements, _) => {
                 for e in elements {
                     self.collect_from_expr(e);
                 }
             }
-            Expr::Some { value, .. } => self.collect_from_expr(value),
-            Expr::Ok { value, .. } => self.collect_from_expr(value),
-            Expr::Error { value, .. } => self.collect_from_expr(value),
+            ExprKind::Some { value, .. } => self.collect_from_expr(value),
+            ExprKind::Ok { value, .. } => self.collect_from_expr(value),
+            ExprKind::Error { value, .. } => self.collect_from_expr(value),
             _ => {}
         }
     }
 
     fn infer_expr_type(&self, expr: &Expr) -> Type {
-        match expr {
-            Expr::Int(_, _) => Type::Int,
-            Expr::Number(_, _) => Type::Float,
-            Expr::String(_, _) => Type::String,
-            Expr::Bool(_, _) => Type::Bool,
-            Expr::List(elements, _) => {
+        match &expr.kind {
+            ExprKind::Int(_, _) => Type::Int,
+            ExprKind::Number(_, _) => Type::Float,
+            ExprKind::String(_, _) => Type::String,
+            ExprKind::Bool(_, _) => Type::Bool,
+            ExprKind::List(elements, _) => {
                 if elements.is_empty() {
                     return Type::list(Type::Unknown);
                 }
@@ -138,7 +138,7 @@ impl Monomorphizer {
                 }
                 Type::list(common)
             }
-            Expr::Binary {
+            ExprKind::Binary {
                 left, op, right, ..
             } => {
                 let lt = self.infer_expr_type(left);
@@ -162,7 +162,7 @@ impl Monomorphizer {
                     BinOp::And | BinOp::Or => Type::Bool,
                 }
             }
-            Expr::FunctionCall { name, args, .. } => {
+            ExprKind::FunctionCall { name, args, .. } => {
                 if let Some(instantiations) = self.instantiations.get(name) {
                     let arg_types: Vec<Type> =
                         args.iter().map(|a| self.infer_expr_type(a)).collect();
@@ -180,22 +180,24 @@ impl Monomorphizer {
                     _ => Type::Unknown,
                 }
             }
-            Expr::Some { value, .. } => Type::option(self.infer_expr_type(value)),
-            Expr::None(_) => Type::option(Type::Unknown),
-            Expr::Ok { value, .. } => Type::result(self.infer_expr_type(value), Type::Unknown),
-            Expr::Error { value, .. } => Type::result(Type::Unknown, self.infer_expr_type(value)),
-            Expr::ArrayAccess { array, .. } => match self.infer_expr_type(array) {
+            ExprKind::Some { value, .. } => Type::option(self.infer_expr_type(value)),
+            ExprKind::None(_) => Type::option(Type::Unknown),
+            ExprKind::Ok { value, .. } => Type::result(self.infer_expr_type(value), Type::Unknown),
+            ExprKind::Error { value, .. } => {
+                Type::result(Type::Unknown, self.infer_expr_type(value))
+            }
+            ExprKind::ArrayAccess { array, .. } => match self.infer_expr_type(array) {
                 Type::List(inner) => *inner,
                 Type::Array(inner, _) => *inner,
                 _ => Type::Unknown,
             },
-            Expr::Borrow { expr, .. } => Type::borrow(self.infer_expr_type(expr)),
-            Expr::MutBorrow { expr, .. } => Type::mut_borrow(self.infer_expr_type(expr)),
-            Expr::Deref { expr, .. } => match self.infer_expr_type(expr) {
+            ExprKind::Borrow { expr, .. } => Type::borrow(self.infer_expr_type(expr)),
+            ExprKind::MutBorrow { expr, .. } => Type::mut_borrow(self.infer_expr_type(expr)),
+            ExprKind::Deref { expr, .. } => match self.infer_expr_type(expr) {
                 Type::Borrow(inner) | Type::MutBorrow(inner) | Type::Pointer(inner) => *inner,
                 _ => Type::Unknown,
             },
-            Expr::AddrOf { expr, .. } => Type::pointer(self.infer_expr_type(expr)),
+            ExprKind::AddrOf { expr, .. } => Type::pointer(self.infer_expr_type(expr)),
             _ => Type::Unknown,
         }
     }
@@ -383,8 +385,8 @@ impl Monomorphizer {
     }
 
     fn substitute_in_expr(&self, expr: &Expr, type_bindings: &HashMap<String, Type>) -> Expr {
-        match expr {
-            Expr::FunctionCall { name, args, span } => {
+        match &expr.kind {
+            ExprKind::FunctionCall { name, args, span } => {
                 let new_args: Vec<Expr> = args
                     .iter()
                     .map(|a| self.substitute_in_expr(a, type_bindings))
@@ -400,46 +402,46 @@ impl Monomorphizer {
                     }
                 }
 
-                Expr::FunctionCall {
+                Expr::new(ExprKind::FunctionCall {
                     name: new_name,
                     args: new_args,
                     span: *span,
-                }
+                })
             }
-            Expr::Binary {
+            ExprKind::Binary {
                 left,
                 op,
                 right,
                 span,
-            } => Expr::Binary {
+            } => Expr::new(ExprKind::Binary {
                 left: Box::new(self.substitute_in_expr(left, type_bindings)),
                 op: op.clone(),
                 right: Box::new(self.substitute_in_expr(right, type_bindings)),
                 span: *span,
-            },
-            Expr::Unary { op, expr, span } => Expr::Unary {
+            }),
+            ExprKind::Unary { op, expr, span } => Expr::new(ExprKind::Unary {
                 op: op.clone(),
                 expr: Box::new(self.substitute_in_expr(expr, type_bindings)),
                 span: *span,
-            },
-            Expr::If {
+            }),
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
                 span,
-            } => Expr::If {
+            } => Expr::new(ExprKind::If {
                 condition: Box::new(self.substitute_in_expr(condition, type_bindings)),
                 then_branch: Box::new(self.substitute_in_expr(then_branch, type_bindings)),
                 else_branch: else_branch
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
                 span: *span,
-            },
-            Expr::Block {
+            }),
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 span,
-            } => Expr::Block {
+            } => Expr::new(ExprKind::Block {
                 statements: statements
                     .iter()
                     .map(|s| self.substitute_in_stmt(s, type_bindings))
@@ -448,48 +450,48 @@ impl Monomorphizer {
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
                 span: *span,
-            },
-            Expr::List(elements, span) => Expr::List(
+            }),
+            ExprKind::List(elements, span) => Expr::new(ExprKind::List(
                 elements
                     .iter()
                     .map(|e| self.substitute_in_expr(e, type_bindings))
                     .collect(),
                 *span,
-            ),
-            Expr::ArrayAccess { array, index, span } => Expr::ArrayAccess {
+            )),
+            ExprKind::ArrayAccess { array, index, span } => Expr::new(ExprKind::ArrayAccess {
                 array: Box::new(self.substitute_in_expr(array, type_bindings)),
                 index: Box::new(self.substitute_in_expr(index, type_bindings)),
                 span: *span,
-            },
-            Expr::Borrow { expr, span } => Expr::Borrow {
+            }),
+            ExprKind::Borrow { expr, span } => Expr::new(ExprKind::Borrow {
                 expr: Box::new(self.substitute_in_expr(expr, type_bindings)),
                 span: *span,
-            },
-            Expr::MutBorrow { expr, span } => Expr::MutBorrow {
+            }),
+            ExprKind::MutBorrow { expr, span } => Expr::new(ExprKind::MutBorrow {
                 expr: Box::new(self.substitute_in_expr(expr, type_bindings)),
                 span: *span,
-            },
-            Expr::Deref { expr, span } => Expr::Deref {
+            }),
+            ExprKind::Deref { expr, span } => Expr::new(ExprKind::Deref {
                 expr: Box::new(self.substitute_in_expr(expr, type_bindings)),
                 span: *span,
-            },
-            Expr::AddrOf { expr, span } => Expr::AddrOf {
+            }),
+            ExprKind::AddrOf { expr, span } => Expr::new(ExprKind::AddrOf {
                 expr: Box::new(self.substitute_in_expr(expr, type_bindings)),
                 span: *span,
-            },
-            Expr::Some { value, span } => Expr::Some {
+            }),
+            ExprKind::Some { value, span } => Expr::new(ExprKind::Some {
                 value: Box::new(self.substitute_in_expr(value, type_bindings)),
                 span: *span,
-            },
-            Expr::Ok { value, span } => Expr::Ok {
+            }),
+            ExprKind::Ok { value, span } => Expr::new(ExprKind::Ok {
                 value: Box::new(self.substitute_in_expr(value, type_bindings)),
                 span: *span,
-            },
-            Expr::Error { value, span } => Expr::Error {
+            }),
+            ExprKind::Error { value, span } => Expr::new(ExprKind::Error {
                 value: Box::new(self.substitute_in_expr(value, type_bindings)),
                 span: *span,
-            },
-            Expr::Match { value, cases, span } => Expr::Match {
+            }),
+            ExprKind::Match { value, cases, span } => Expr::new(ExprKind::Match {
                 value: Box::new(self.substitute_in_expr(value, type_bindings)),
                 cases: cases
                     .iter()
@@ -499,14 +501,14 @@ impl Monomorphizer {
                     })
                     .collect(),
                 span: *span,
-            },
-            Expr::TryCatch {
+            }),
+            ExprKind::TryCatch {
                 try_branch,
                 catch_var,
                 catch_branch,
                 finally_body,
                 span,
-            } => Expr::TryCatch {
+            } => Expr::new(ExprKind::TryCatch {
                 try_branch: Box::new(self.substitute_in_expr(try_branch, type_bindings)),
                 catch_var: catch_var.clone(),
                 catch_branch: Box::new(self.substitute_in_expr(catch_branch, type_bindings)),
@@ -516,14 +518,14 @@ impl Monomorphizer {
                         .collect()
                 }),
                 span: *span,
-            },
-            Expr::For {
+            }),
+            ExprKind::For {
                 var,
                 iterable,
                 body,
                 trailing_expr,
                 span,
-            } => Expr::For {
+            } => Expr::new(ExprKind::For {
                 var: var.clone(),
                 iterable: Box::new(self.substitute_in_expr(iterable, type_bindings)),
                 body: body
@@ -534,13 +536,13 @@ impl Monomorphizer {
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
                 span: *span,
-            },
-            Expr::While {
+            }),
+            ExprKind::While {
                 condition,
                 body,
                 trailing_expr,
                 span,
-            } => Expr::While {
+            } => Expr::new(ExprKind::While {
                 condition: Box::new(self.substitute_in_expr(condition, type_bindings)),
                 body: body
                     .iter()
@@ -550,13 +552,13 @@ impl Monomorphizer {
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
                 span: *span,
-            },
-            Expr::Range {
+            }),
+            ExprKind::Range {
                 start,
                 end,
                 inclusive,
                 span,
-            } => Expr::Range {
+            } => Expr::new(ExprKind::Range {
                 start: start
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
@@ -565,16 +567,16 @@ impl Monomorphizer {
                     .map(|e| Box::new(self.substitute_in_expr(e, type_bindings))),
                 inclusive: *inclusive,
                 span: *span,
-            },
-            Expr::FieldAccess {
+            }),
+            ExprKind::FieldAccess {
                 object,
                 field,
                 span,
-            } => Expr::FieldAccess {
+            } => Expr::new(ExprKind::FieldAccess {
                 object: Box::new(self.substitute_in_expr(object, type_bindings)),
                 field: field.clone(),
                 span: *span,
-            },
+            }),
             _ => expr.clone(),
         }
     }
@@ -770,8 +772,8 @@ impl Monomorphizer {
     }
 
     fn substitute_in_expr_with_instantiations(&self, expr: &Expr) -> Expr {
-        match expr {
-            Expr::FunctionCall { name, args, span } => {
+        match &expr.kind {
+            ExprKind::FunctionCall { name, args, span } => {
                 let new_args: Vec<Expr> = args
                     .iter()
                     .map(|a| self.substitute_in_expr_with_instantiations(a))
@@ -782,54 +784,54 @@ impl Monomorphizer {
                     let arg_types: Vec<Type> =
                         new_args.iter().map(|a| self.infer_expr_type(a)).collect();
                     if let Some(specialized) = instantiations.get(&arg_types) {
-                        return Expr::FunctionCall {
+                        return Expr::new(ExprKind::FunctionCall {
                             name: specialized.clone(),
                             args: new_args,
                             span: *span,
-                        };
+                        });
                     }
                 }
 
-                Expr::FunctionCall {
+                Expr::new(ExprKind::FunctionCall {
                     name: clean_name.to_string(),
                     args: new_args,
                     span: *span,
-                }
+                })
             }
-            Expr::Binary {
+            ExprKind::Binary {
                 left,
                 op,
                 right,
                 span,
-            } => Expr::Binary {
+            } => Expr::new(ExprKind::Binary {
                 left: Box::new(self.substitute_in_expr_with_instantiations(left)),
                 op: op.clone(),
                 right: Box::new(self.substitute_in_expr_with_instantiations(right)),
                 span: *span,
-            },
-            Expr::Unary { op, expr, span } => Expr::Unary {
+            }),
+            ExprKind::Unary { op, expr, span } => Expr::new(ExprKind::Unary {
                 op: op.clone(),
                 expr: Box::new(self.substitute_in_expr_with_instantiations(expr)),
                 span: *span,
-            },
-            Expr::If {
+            }),
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
                 span,
-            } => Expr::If {
+            } => Expr::new(ExprKind::If {
                 condition: Box::new(self.substitute_in_expr_with_instantiations(condition)),
                 then_branch: Box::new(self.substitute_in_expr_with_instantiations(then_branch)),
                 else_branch: else_branch
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
                 span: *span,
-            },
-            Expr::Block {
+            }),
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 span,
-            } => Expr::Block {
+            } => Expr::new(ExprKind::Block {
                 statements: statements
                     .iter()
                     .map(|s| self.substitute_in_stmt_with_instantiations(s))
@@ -838,48 +840,48 @@ impl Monomorphizer {
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
                 span: *span,
-            },
-            Expr::List(elements, span) => Expr::List(
+            }),
+            ExprKind::List(elements, span) => Expr::new(ExprKind::List(
                 elements
                     .iter()
                     .map(|e| self.substitute_in_expr_with_instantiations(e))
                     .collect(),
                 *span,
-            ),
-            Expr::ArrayAccess { array, index, span } => Expr::ArrayAccess {
+            )),
+            ExprKind::ArrayAccess { array, index, span } => Expr::new(ExprKind::ArrayAccess {
                 array: Box::new(self.substitute_in_expr_with_instantiations(array)),
                 index: Box::new(self.substitute_in_expr_with_instantiations(index)),
                 span: *span,
-            },
-            Expr::Borrow { expr, span } => Expr::Borrow {
+            }),
+            ExprKind::Borrow { expr, span } => Expr::new(ExprKind::Borrow {
                 expr: Box::new(self.substitute_in_expr_with_instantiations(expr)),
                 span: *span,
-            },
-            Expr::MutBorrow { expr, span } => Expr::MutBorrow {
+            }),
+            ExprKind::MutBorrow { expr, span } => Expr::new(ExprKind::MutBorrow {
                 expr: Box::new(self.substitute_in_expr_with_instantiations(expr)),
                 span: *span,
-            },
-            Expr::Deref { expr, span } => Expr::Deref {
+            }),
+            ExprKind::Deref { expr, span } => Expr::new(ExprKind::Deref {
                 expr: Box::new(self.substitute_in_expr_with_instantiations(expr)),
                 span: *span,
-            },
-            Expr::AddrOf { expr, span } => Expr::AddrOf {
+            }),
+            ExprKind::AddrOf { expr, span } => Expr::new(ExprKind::AddrOf {
                 expr: Box::new(self.substitute_in_expr_with_instantiations(expr)),
                 span: *span,
-            },
-            Expr::Some { value, span } => Expr::Some {
+            }),
+            ExprKind::Some { value, span } => Expr::new(ExprKind::Some {
                 value: Box::new(self.substitute_in_expr_with_instantiations(value)),
                 span: *span,
-            },
-            Expr::Ok { value, span } => Expr::Ok {
+            }),
+            ExprKind::Ok { value, span } => Expr::new(ExprKind::Ok {
                 value: Box::new(self.substitute_in_expr_with_instantiations(value)),
                 span: *span,
-            },
-            Expr::Error { value, span } => Expr::Error {
+            }),
+            ExprKind::Error { value, span } => Expr::new(ExprKind::Error {
                 value: Box::new(self.substitute_in_expr_with_instantiations(value)),
                 span: *span,
-            },
-            Expr::Match { value, cases, span } => Expr::Match {
+            }),
+            ExprKind::Match { value, cases, span } => Expr::new(ExprKind::Match {
                 value: Box::new(self.substitute_in_expr_with_instantiations(value)),
                 cases: cases
                     .iter()
@@ -889,14 +891,14 @@ impl Monomorphizer {
                     })
                     .collect(),
                 span: *span,
-            },
-            Expr::TryCatch {
+            }),
+            ExprKind::TryCatch {
                 try_branch,
                 catch_var,
                 catch_branch,
                 finally_body,
                 span,
-            } => Expr::TryCatch {
+            } => Expr::new(ExprKind::TryCatch {
                 try_branch: Box::new(self.substitute_in_expr_with_instantiations(try_branch)),
                 catch_var: catch_var.clone(),
                 catch_branch: Box::new(self.substitute_in_expr_with_instantiations(catch_branch)),
@@ -906,14 +908,14 @@ impl Monomorphizer {
                         .collect()
                 }),
                 span: *span,
-            },
-            Expr::For {
+            }),
+            ExprKind::For {
                 var,
                 iterable,
                 body,
                 trailing_expr,
                 span,
-            } => Expr::For {
+            } => Expr::new(ExprKind::For {
                 var: var.clone(),
                 iterable: Box::new(self.substitute_in_expr_with_instantiations(iterable)),
                 body: body
@@ -924,13 +926,13 @@ impl Monomorphizer {
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
                 span: *span,
-            },
-            Expr::While {
+            }),
+            ExprKind::While {
                 condition,
                 body,
                 trailing_expr,
                 span,
-            } => Expr::While {
+            } => Expr::new(ExprKind::While {
                 condition: Box::new(self.substitute_in_expr_with_instantiations(condition)),
                 body: body
                     .iter()
@@ -940,13 +942,13 @@ impl Monomorphizer {
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
                 span: *span,
-            },
-            Expr::Range {
+            }),
+            ExprKind::Range {
                 start,
                 end,
                 inclusive,
                 span,
-            } => Expr::Range {
+            } => Expr::new(ExprKind::Range {
                 start: start
                     .as_ref()
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
@@ -955,16 +957,16 @@ impl Monomorphizer {
                     .map(|e| Box::new(self.substitute_in_expr_with_instantiations(e))),
                 inclusive: *inclusive,
                 span: *span,
-            },
-            Expr::FieldAccess {
+            }),
+            ExprKind::FieldAccess {
                 object,
                 field,
                 span,
-            } => Expr::FieldAccess {
+            } => Expr::new(ExprKind::FieldAccess {
                 object: Box::new(self.substitute_in_expr_with_instantiations(object)),
                 field: field.clone(),
                 span: *span,
-            },
+            }),
             _ => expr.clone(),
         }
     }
@@ -1073,14 +1075,14 @@ procedure main
             .expect("main function was dropped by monomorphizer");
 
         fn contains_call_named(expr: &Expr, name: &str) -> bool {
-            match expr {
-                Expr::FunctionCall { name: n, args, .. } => {
+            match &expr.kind {
+                ExprKind::FunctionCall { name: n, args, .. } => {
                     if n == name {
                         return true;
                     }
                     args.iter().any(|a| contains_call_named(a, name))
                 }
-                Expr::Block { statements, .. } => statements.iter().any(|s| {
+                ExprKind::Block { statements, .. } => statements.iter().any(|s| {
                     matches!(s, Stmt::VarDecl { value, .. } if contains_call_named(value, name))
                         || matches!(s, Stmt::Expression(e) if contains_call_named(e, name))
                 }),

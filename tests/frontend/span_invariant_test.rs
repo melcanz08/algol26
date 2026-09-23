@@ -5,7 +5,7 @@
 // PR-4 established; if it ever regresses, diagnostics silently become
 // useless again.
 
-use algol26::frontend::ast::{Expr, FunctionDecl, Stmt};
+use algol26::frontend::ast::{Expr, ExprKind, FunctionDecl, Stmt};
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 
@@ -24,8 +24,8 @@ fn check_expr_spans(expr: &Expr, path: &str) {
         expr_kind(expr),
     );
 
-    match expr {
-        Expr::Block {
+    match &expr.kind {
+        ExprKind::Block {
             statements,
             trailing_expr,
             ..
@@ -37,7 +37,7 @@ fn check_expr_spans(expr: &Expr, path: &str) {
                 check_expr_spans(e, &format!("{}/block.trailing", path));
             }
         }
-        Expr::If {
+        ExprKind::If {
             condition,
             then_branch,
             else_branch,
@@ -49,34 +49,34 @@ fn check_expr_spans(expr: &Expr, path: &str) {
                 check_expr_spans(e, &format!("{}/if.else", path));
             }
         }
-        Expr::Binary { left, right, .. } => {
+        ExprKind::Binary { left, right, .. } => {
             check_expr_spans(left, &format!("{}/bin.left", path));
             check_expr_spans(right, &format!("{}/bin.right", path));
         }
-        Expr::Unary { expr, .. } => {
+        ExprKind::Unary { expr, .. } => {
             check_expr_spans(expr, &format!("{}/unary", path));
         }
-        Expr::List(items, _) => {
+        ExprKind::List(items, _) => {
             for (i, e) in items.iter().enumerate() {
                 check_expr_spans(e, &format!("{}/list[{}]", path, i));
             }
         }
-        Expr::FunctionCall { args, .. } => {
+        ExprKind::FunctionCall { args, .. } => {
             for (i, e) in args.iter().enumerate() {
                 check_expr_spans(e, &format!("{}/call.arg[{}]", path, i));
             }
         }
-        Expr::ArrayAccess { array, index, .. } => {
+        ExprKind::ArrayAccess { array, index, .. } => {
             check_expr_spans(array, &format!("{}/access.array", path));
             check_expr_spans(index, &format!("{}/access.index", path));
         }
-        Expr::Match { value, cases, .. } => {
+        ExprKind::Match { value, cases, .. } => {
             check_expr_spans(value, &format!("{}/match.value", path));
             for (i, c) in cases.iter().enumerate() {
                 check_expr_spans(&c.body, &format!("{}/match.case[{}]", path, i));
             }
         }
-        Expr::For {
+        ExprKind::For {
             iterable,
             trailing_expr,
             ..
@@ -86,7 +86,7 @@ fn check_expr_spans(expr: &Expr, path: &str) {
                 check_expr_spans(e, &format!("{}/for.trailing", path));
             }
         }
-        Expr::While {
+        ExprKind::While {
             condition,
             trailing_expr,
             ..
@@ -96,16 +96,16 @@ fn check_expr_spans(expr: &Expr, path: &str) {
                 check_expr_spans(e, &format!("{}/while.trailing", path));
             }
         }
-        Expr::Borrow { expr, .. }
-        | Expr::MutBorrow { expr, .. }
-        | Expr::Deref { expr, .. }
-        | Expr::AddrOf { expr, .. }
-        | Expr::Some { value: expr, .. }
-        | Expr::Ok { value: expr, .. }
-        | Expr::Error { value: expr, .. } => {
+        ExprKind::Borrow { expr, .. }
+        | ExprKind::MutBorrow { expr, .. }
+        | ExprKind::Deref { expr, .. }
+        | ExprKind::AddrOf { expr, .. }
+        | ExprKind::Some { value: expr, .. }
+        | ExprKind::Ok { value: expr, .. }
+        | ExprKind::Error { value: expr, .. } => {
             check_expr_spans(expr, &format!("{}/wrap", path));
         }
-        Expr::TryCatch {
+        ExprKind::TryCatch {
             try_branch,
             catch_branch,
             ..
@@ -163,35 +163,35 @@ fn check_stmt_spans(stmt: &Stmt, path: &str) {
 }
 
 fn expr_kind(e: &Expr) -> &'static str {
-    match e {
-        Expr::Number(..) => "Number",
-        Expr::Int(..) => "Int",
-        Expr::String(..) => "String",
-        Expr::Bool(..) => "Bool",
-        Expr::Var(..) => "Var",
-        Expr::Block { .. } => "Block",
-        Expr::If { .. } => "If",
-        Expr::Match { .. } => "Match",
-        Expr::Borrow { .. } => "Borrow",
-        Expr::MutBorrow { .. } => "MutBorrow",
-        Expr::Deref { .. } => "Deref",
-        Expr::AddrOf { .. } => "AddrOf",
-        Expr::List(..) => "List",
-        Expr::ArrayAccess { .. } => "ArrayAccess",
-        Expr::Binary { .. } => "Binary",
-        Expr::Unary { .. } => "Unary",
-        Expr::FunctionCall { .. } => "FunctionCall",
-        Expr::Some { .. } => "Some",
-        Expr::None(..) => "None",
-        Expr::Ok { .. } => "Ok",
-        Expr::Error { .. } => "Error",
-        Expr::TryCatch { .. } => "TryCatch",
-        Expr::For { .. } => "For",
-        Expr::While { .. } => "While",
-        Expr::PtrLiteral(..) => "PtrLiteral",
-        Expr::NullPtr(..) => "NullPtr",
-        Expr::Range { .. } => "Range",
-        Expr::FieldAccess { .. } => "FieldAccess",
+    match &e.kind {
+        ExprKind::Number(..) => "Number",
+        ExprKind::Int(..) => "Int",
+        ExprKind::String(..) => "String",
+        ExprKind::Bool(..) => "Bool",
+        ExprKind::Var(..) => "Var",
+        ExprKind::Block { .. } => "Block",
+        ExprKind::If { .. } => "If",
+        ExprKind::Match { .. } => "Match",
+        ExprKind::Borrow { .. } => "Borrow",
+        ExprKind::MutBorrow { .. } => "MutBorrow",
+        ExprKind::Deref { .. } => "Deref",
+        ExprKind::AddrOf { .. } => "AddrOf",
+        ExprKind::List(..) => "List",
+        ExprKind::ArrayAccess { .. } => "ArrayAccess",
+        ExprKind::Binary { .. } => "Binary",
+        ExprKind::Unary { .. } => "Unary",
+        ExprKind::FunctionCall { .. } => "FunctionCall",
+        ExprKind::Some { .. } => "Some",
+        ExprKind::None(..) => "None",
+        ExprKind::Ok { .. } => "Ok",
+        ExprKind::Error { .. } => "Error",
+        ExprKind::TryCatch { .. } => "TryCatch",
+        ExprKind::For { .. } => "For",
+        ExprKind::While { .. } => "While",
+        ExprKind::PtrLiteral(..) => "PtrLiteral",
+        ExprKind::NullPtr(..) => "NullPtr",
+        ExprKind::Range { .. } => "Range",
+        ExprKind::FieldAccess { .. } => "FieldAccess",
     }
 }
 

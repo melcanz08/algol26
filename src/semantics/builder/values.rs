@@ -90,8 +90,8 @@ impl SemanticIRBuilder {
 
     #[allow(dead_code)]
     pub(super) fn expr_has_complex_cf(expr: &Expr) -> bool {
-        match expr {
-            Expr::Block {
+        match &expr.kind {
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 ..
@@ -101,7 +101,7 @@ impl SemanticIRBuilder {
                         .as_ref()
                         .is_some_and(|e| Self::expr_has_complex_cf(e))
             }
-            Expr::If {
+            ExprKind::If {
                 then_branch,
                 else_branch,
                 ..
@@ -111,13 +111,15 @@ impl SemanticIRBuilder {
                         .as_ref()
                         .is_some_and(|e| Self::expr_has_complex_cf(e))
             }
-            Expr::Match { cases, .. } => cases.iter().any(|c| Self::expr_has_complex_cf(&c.body)),
-            Expr::TryCatch {
+            ExprKind::Match { cases, .. } => {
+                cases.iter().any(|c| Self::expr_has_complex_cf(&c.body))
+            }
+            ExprKind::TryCatch {
                 try_branch,
                 catch_branch,
                 ..
             } => Self::expr_has_complex_cf(try_branch) || Self::expr_has_complex_cf(catch_branch),
-            Expr::For {
+            ExprKind::For {
                 body,
                 trailing_expr,
                 ..
@@ -127,7 +129,7 @@ impl SemanticIRBuilder {
                         .as_ref()
                         .is_some_and(|e| Self::expr_has_complex_cf(e))
             }
-            Expr::While {
+            ExprKind::While {
                 body,
                 trailing_expr,
                 ..

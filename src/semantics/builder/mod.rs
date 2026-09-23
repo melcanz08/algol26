@@ -7,8 +7,7 @@
 
 use crate::common::span::Span;
 use crate::common::types::Type;
-use crate::frontend::ast::Pattern;
-use crate::frontend::ast::{BinOp, Expr, FunctionDecl, MatchCaseExpr, Stmt};
+use crate::frontend::ast::{BinOp, Expr, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, Stmt};
 use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
     SemanticPattern, SemanticProgram, Terminator, TypedIRValue,

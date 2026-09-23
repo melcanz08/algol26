@@ -19,7 +19,7 @@ impl Parser {
             Token::Send => self.parse_send(),
             Token::Receive => self.parse_receive(),
             Token::Match => {
-                self.advance(); // consume 'match'
+                self.advance();
                 Ok(Stmt::Expression(self.parse_match_expr()?))
             }
             Token::Break => {
@@ -40,11 +40,11 @@ impl Parser {
                     self.advance();
                     let size = self.parse_expr()?;
                     self.expect_token(Token::RParen, "')'")?;
-                    Ok(Stmt::Expression(Expr::FunctionCall {
+                    Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
                         name: "alloc".to_string(),
                         args: vec![size],
                         span,
-                    }))
+                    })))
                 } else {
                     Err(self.error("Expected '(' after alloc"))
                 }
@@ -56,11 +56,11 @@ impl Parser {
                     self.advance();
                     let ptr = self.parse_expr()?;
                     self.expect_token(Token::RParen, "')'")?;
-                    Ok(Stmt::Expression(Expr::FunctionCall {
+                    Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
                         name: "free".to_string(),
                         args: vec![ptr],
                         span,
-                    }))
+                    })))
                 } else {
                     Err(self.error("Expected '(' after free"))
                 }
@@ -80,28 +80,26 @@ impl Parser {
 
     pub(super) fn parse_defer(&mut self) -> Result<Stmt> {
         let start_span = self.current_span();
-        self.advance(); // consume 'defer'
+        self.advance();
 
         if matches!(self.peek(), Token::Indent) {
-            // Block form: `defer` followed by an indented body.
-            self.advance(); // consume Indent
+            self.advance();
             let mut stmts = Vec::new();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
                 stmts.push(self.parse_stmt()?);
             }
             if matches!(self.peek(), Token::Dedent) {
-                self.advance(); // consume Dedent
+                self.advance();
             }
             Ok(Stmt::Defer {
-                stmt: Box::new(Stmt::Expression(Expr::Block {
+                stmt: Box::new(Stmt::Expression(Expr::new(ExprKind::Block {
                     statements: stmts,
                     trailing_expr: None,
                     span: start_span,
-                })),
+                }))),
                 span: start_span,
             })
         } else {
-            // Inline form: `defer print(...)` on one line.
             let stmt = self.parse_stmt()?;
             Ok(Stmt::Defer {
                 stmt: Box::new(stmt),
@@ -112,11 +110,11 @@ impl Parser {
 
     pub(super) fn parse_block(&mut self) -> Result<Vec<Stmt>> {
         let block_expr = self.parse_block_expr()?;
-        if let Expr::Block {
+        if let ExprKind::Block {
             mut statements,
             trailing_expr,
             ..
-        } = block_expr
+        } = block_expr.kind
         {
             if let Some(expr) = trailing_expr {
                 statements.push(Stmt::Expression(*expr));
@@ -138,13 +136,13 @@ impl Parser {
             let trailing_expr = match statements.last() {
                 Some(Stmt::Expression(expr))
                     if !matches!(
-                        expr,
-                        Expr::Block { .. }
-                            | Expr::If { .. }
-                            | Expr::Match { .. }
-                            | Expr::For { .. }
-                            | Expr::While { .. }
-                            | Expr::TryCatch { .. }
+                        &expr.kind,
+                        ExprKind::Block { .. }
+                            | ExprKind::If { .. }
+                            | ExprKind::Match { .. }
+                            | ExprKind::For { .. }
+                            | ExprKind::While { .. }
+                            | ExprKind::TryCatch { .. }
                     ) =>
                 {
                     match statements.pop() {
@@ -213,12 +211,12 @@ impl Parser {
     }
 
     pub(super) fn parse_for(&mut self) -> Result<Stmt> {
-        self.advance(); // consume 'for'
+        self.advance();
         Ok(Stmt::Expression(self.parse_for_expr()?))
     }
 
     pub(super) fn parse_while(&mut self) -> Result<Stmt> {
-        self.advance(); // consume 'while'
+        self.advance();
         Ok(Stmt::Expression(self.parse_while_expr()?))
     }
 
@@ -295,10 +293,6 @@ impl Parser {
         })
     }
 
-    /// Parse a `match` expression. Assumes `match` has already been
-    /// consumed by the caller. Returns `Expr::Match` so it can be used
-    /// both in value position (`parse_primary`) and statement position
-    /// (`parse_stmt` wraps the result in `Stmt::Expression`).
     pub(super) fn parse_match_expr(&mut self) -> Result<Expr> {
         let start_span = self.last_span();
         let value = self.parse_expr()?;
@@ -306,18 +300,17 @@ impl Parser {
         let mut cases = Vec::new();
 
         if let Token::Indent = self.peek() {
-            self.advance(); // indent to case level
+            self.advance();
 
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
                 if !matches!(self.peek(), Token::Case) {
                     return Err(self.error("Expected 'case' in match arm"));
                 }
                 let case_span = self.current_span();
-                self.advance(); // consume 'case'
+                self.advance();
 
                 let mut pattern = self.parse_pattern()?;
 
-                // pattern guard
                 if matches!(self.peek(), Token::If) {
                     self.advance();
                     let condition = self.parse_expr()?;
@@ -327,26 +320,26 @@ impl Parser {
                     };
                 }
 
-                // Arm body — same shape as any block: statements plus an
-                // optional trailing expression. `parse_block_expr` handles
-                // the trailing-expression extraction (a `print(...)` stays
-                // a statement; a bare `42.0` becomes the trailing value).
                 let body = self.parse_block_expr()?;
 
-                // If `parse_block_expr` fell through without a span (empty
-                // arm), give it the case's span so the analyzer can point
-                // diagnostics at the `case` keyword.
-                let body = match body {
-                    Expr::Block {
+                let body = match body.kind {
+                    ExprKind::Block {
                         statements,
                         trailing_expr,
                         span,
-                    } if span == Span::default() => Expr::Block {
-                        statements,
-                        trailing_expr,
-                        span: case_span,
-                    },
-                    other => other,
+                    } => {
+                        let span = if span == Span::default() {
+                            case_span
+                        } else {
+                            span
+                        };
+                        Expr::new(ExprKind::Block {
+                            statements,
+                            trailing_expr,
+                            span,
+                        })
+                    }
+                    other => Expr::new(other),
                 };
 
                 cases.push(MatchCaseExpr { pattern, body });
@@ -357,11 +350,11 @@ impl Parser {
             }
         }
 
-        Ok(Expr::Match {
+        Ok(Expr::new(ExprKind::Match {
             value: Box::new(value),
             cases,
             span: start_span,
-        })
+        }))
     }
 
     pub(super) fn parse_return(&mut self) -> Result<Stmt> {
@@ -401,7 +394,6 @@ impl Parser {
     }
 
     pub(super) fn parse_try_catch(&mut self) -> Result<Stmt> {
-        // Called from parse_stmt, which peeks — consume 'try' here.
         self.advance();
         Ok(Stmt::Expression(self.parse_try_catch_expr()?))
     }
@@ -421,11 +413,11 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RParen, "')'")?;
-                Ok(Stmt::Expression(Expr::FunctionCall {
+                Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
                     name,
                     args,
                     span: ident_span,
-                }))
+                })))
             }
             Token::LBracket => {
                 self.advance();
@@ -442,11 +434,11 @@ impl Parser {
                         span: ident_span,
                     })
                 } else {
-                    Ok(Stmt::Expression(Expr::ArrayAccess {
-                        array: Box::new(Expr::Var(name, ident_span)),
+                    Ok(Stmt::Expression(Expr::new(ExprKind::ArrayAccess {
+                        array: Expr::boxed(ExprKind::Var(name, ident_span)),
                         index: Box::new(index),
                         span: ident_span,
-                    }))
+                    })))
                 }
             }
             Token::Assign => {
@@ -459,7 +451,7 @@ impl Parser {
                 })
             }
             Token::Dot => {
-                self.advance(); // consume dot
+                self.advance();
                 let method_name = self.expect_identifier("method name")?;
 
                 if matches!(self.peek(), Token::LParen) {
@@ -472,27 +464,20 @@ impl Parser {
                         }
                     }
                     self.expect_token(Token::RParen, "')'")?;
-                    Ok(Stmt::Expression(Expr::FunctionCall {
+                    Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
                         name: format!("{}.{}", name, method_name),
                         args,
                         span: ident_span,
-                    }))
+                    })))
                 } else {
-                    // Bare method syntax (`s.length`) — no parens. Desugar to a
-                    // zero-arg dotted call so it matches the parens form and the
-                    // expression parser's handling.
-                    //
-                    // NOTE: when struct support lands, this needs a discriminator
-                    // to tell `s.length` (method) from `point.x` (field). Today
-                    // nothing produces a valid FieldAccess, so no case is lost.
-                    Ok(Stmt::Expression(Expr::FunctionCall {
+                    Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
                         name: format!("{}.{}", name, method_name),
                         args: Vec::new(),
                         span: ident_span,
-                    }))
+                    })))
                 }
             }
-            _ => Ok(Stmt::Expression(Expr::Var(name, ident_span))),
+            _ => Ok(Stmt::Expression(Expr::new(ExprKind::Var(name, ident_span)))),
         }
     }
 }

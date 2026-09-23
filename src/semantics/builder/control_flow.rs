@@ -26,23 +26,27 @@ impl SemanticIRBuilder {
             }
 
             current_flow = match stmt {
-                Stmt::Expression(Expr::If {
-                    condition,
-                    then_branch,
-                    else_branch,
+                Stmt::Expression(Expr {
+                    kind:
+                        ExprKind::If {
+                            condition,
+                            then_branch,
+                            else_branch,
+                            ..
+                        },
                     ..
                 }) => {
                     // Borrow branch statements directly from the AST.
                     // Cloning them would allocate new nodes whose
                     // addresses don't match the analyzer's type-table
                     // keys, silently breaking type lookups inside.
-                    let then_stmts: &[Stmt] = match then_branch.as_ref() {
-                        Expr::Block { statements, .. } => statements.as_slice(),
+                    let then_stmts: &[Stmt] = match &then_branch.as_ref().kind {
+                        ExprKind::Block { statements, .. } => statements.as_slice(),
                         _ => &[],
                     };
                     let else_stmts: Option<&[Stmt]> =
-                        else_branch.as_ref().map(|e| match e.as_ref() {
-                            Expr::Block { statements, .. } => statements.as_slice(),
+                        else_branch.as_ref().map(|e| match &e.as_ref().kind {
+                            ExprKind::Block { statements, .. } => statements.as_slice(),
                             _ => &[],
                         });
                     self.translate_if(
@@ -54,11 +58,15 @@ impl SemanticIRBuilder {
                         else_stmts,
                     )
                 }
-                Stmt::Expression(Expr::For {
-                    var,
-                    iterable,
-                    body,
-                    trailing_expr,
+                Stmt::Expression(Expr {
+                    kind:
+                        ExprKind::For {
+                            var,
+                            iterable,
+                            body,
+                            trailing_expr,
+                            ..
+                        },
                     ..
                 }) => {
                     let _val = self.translate_for_expr(
@@ -76,10 +84,14 @@ impl SemanticIRBuilder {
                         FlowResult::Reachable(current_block)
                     }
                 }
-                Stmt::Expression(Expr::While {
-                    condition,
-                    body,
-                    trailing_expr,
+                Stmt::Expression(Expr {
+                    kind:
+                        ExprKind::While {
+                            condition,
+                            body,
+                            trailing_expr,
+                            ..
+                        },
                     ..
                 }) => {
                     let _val = self.translate_while_expr(
@@ -321,15 +333,15 @@ impl SemanticIRBuilder {
         // type-table keys, silently breaking type lookups inside.
         self.push_scope();
         let then_final = {
-            let then_stmts: Cow<'_, [Stmt]> = match then_branch {
-                Expr::Block { statements, .. } => Cow::Borrowed(statements.as_slice()),
+            let then_stmts: Cow<'_, [Stmt]> = match &then_branch.kind {
+                ExprKind::Block { statements, .. } => Cow::Borrowed(statements.as_slice()),
                 // Parser guarantees Block for if-branches. This fallback
                 // is defensive only; the synthesized node's type-table
                 // entry will not exist, but the parser prevents this path.
-                other => Cow::Owned(vec![Stmt::Expression(other.clone())]),
+                _ => Cow::Owned(vec![Stmt::Expression(then_branch.clone())]),
             };
-            let then_trailing: Option<&Expr> = match then_branch {
-                Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
+            let then_trailing: Option<&Expr> = match &then_branch.kind {
+                ExprKind::Block { trailing_expr, .. } => trailing_expr.as_deref(),
                 _ => None,
             };
             self.translate_block_with_result(
@@ -354,12 +366,12 @@ impl SemanticIRBuilder {
         if let Some(else_expr) = else_branch {
             self.push_scope();
             let else_final = {
-                let else_stmts: Cow<'_, [Stmt]> = match else_expr {
-                    Expr::Block { statements, .. } => Cow::Borrowed(statements.as_slice()),
-                    other => Cow::Owned(vec![Stmt::Expression(other.clone())]),
+                let else_stmts: Cow<'_, [Stmt]> = match &else_expr.kind {
+                    ExprKind::Block { statements, .. } => Cow::Borrowed(statements.as_slice()),
+                    _ => Cow::Owned(vec![Stmt::Expression(else_expr.clone())]),
                 };
-                let else_trailing: Option<&Expr> = match else_expr {
-                    Expr::Block { trailing_expr, .. } => trailing_expr.as_deref(),
+                let else_trailing: Option<&Expr> = match &else_expr.kind {
+                    ExprKind::Block { trailing_expr, .. } => trailing_expr.as_deref(),
                     _ => None,
                 };
                 self.translate_block_with_result(
@@ -1031,9 +1043,9 @@ impl SemanticIRBuilder {
                 _ => {}
             }
 
-            let body_stmts = match &body {
-                Expr::Block { statements, .. } => statements.clone(),
-                other => vec![Stmt::Expression((*other).clone())],
+            let body_stmts = match &body.kind {
+                ExprKind::Block { statements, .. } => statements.clone(),
+                _ => vec![Stmt::Expression(body.clone())],
             };
             let case_flow = self.translate_block(program, func, *case_id, &body_stmts);
             self.pop_scope();

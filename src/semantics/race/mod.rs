@@ -1,6 +1,6 @@
 // algol26/src/race/mod.rs
 
-use crate::frontend::ast::{Expr, FunctionDecl, Stmt};
+use crate::frontend::ast::{Expr, ExprKind, FunctionDecl, Stmt};
 use std::collections::HashMap;
 
 mod analyze;

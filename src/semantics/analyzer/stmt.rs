@@ -21,25 +21,25 @@ impl SemanticAnalyzer {
             } => {
                 // Detect mut-borrow before analyzing so we can set the "allow
                 // read during this declaration" flag.
-                let mut_borrow_source: Option<String> = if let Expr::MutBorrow { expr, .. } = value
-                {
-                    if let Expr::Var(source_name, _) = expr.as_ref() {
-                        Some(source_name.clone())
+                let mut_borrow_source: Option<String> =
+                    if let ExprKind::MutBorrow { expr, .. } = &value.kind {
+                        if let ExprKind::Var(source_name, _) = &expr.as_ref().kind {
+                            Some(source_name.clone())
+                        } else {
+                            None
+                        }
                     } else {
                         None
-                    }
-                } else {
-                    None
-                };
+                    };
 
                 if mut_borrow_source.is_some() {
                     self.in_mut_borrow = true;
                 }
 
-                if let Expr::List(elements, _) = value {
+                if let ExprKind::List(elements, _) = &value.kind {
                     self.declare_list_length(name, elements.len());
                     self.declare_list_values(name, elements.clone());
-                } else if let Expr::Var(source, _) = value {
+                } else if let ExprKind::Var(source, _) = &value.kind {
                     if let Some(len) = self.lookup_list_length(source) {
                         self.declare_list_length(name, len);
                     }
@@ -67,7 +67,10 @@ impl SemanticAnalyzer {
 
                 if let Some(annotated) = type_annotation {
                     let expected = annotated.to_type();
-                    let is_borrow = matches!(value, Expr::Borrow { .. } | Expr::MutBorrow { .. });
+                    let is_borrow = matches!(
+                        &value.kind,
+                        ExprKind::Borrow { .. } | ExprKind::MutBorrow { .. }
+                    );
                     if !is_borrow
                         && expected != Type::Unknown
                         && !value_type.can_coerce_to(&expected)
@@ -93,14 +96,14 @@ impl SemanticAnalyzer {
                 // A `val` bound to `null` is statically known to hold
                 // null forever. Record it so a later deref can be
                 // rejected at compile time.
-                if !*mutable && matches!(value, Expr::NullPtr(_)) {
+                if !*mutable && matches!(&value.kind, ExprKind::NullPtr(_)) {
                     if let Some(scope) = self.null_bindings.last_mut() {
                         scope.insert(name.clone());
                     }
                 }
                 self.in_mut_borrow = false;
 
-                if let Expr::Var(source, _) = value {
+                if let ExprKind::Var(source, _) = &value.kind {
                     if let Some(scope) = self.deferred_captures.last() {
                         if scope.contains(source) {
                             return Err(CompileError::simple(
@@ -175,8 +178,8 @@ impl SemanticAnalyzer {
                     self.release_mutable_borrow(name);
                 }
             }
-            Stmt::Expression(expr) => match expr {
-                Expr::If {
+            Stmt::Expression(expr) => match &expr.kind {
+                ExprKind::If {
                     then_branch,
                     else_branch,
                     condition,
@@ -221,13 +224,13 @@ impl SemanticAnalyzer {
 
                     self.state = SemanticState::join(&then_exit, &else_exit);
                 }
-                Expr::Match { .. } | Expr::TryCatch { .. } => {
+                ExprKind::Match { .. } | ExprKind::TryCatch { .. } => {
                     self.push_scope();
                     let result = self.analyze_expr(expr);
                     self.pop_scope();
                     result?;
                 }
-                Expr::For { .. } | Expr::While { .. } => {
+                ExprKind::For { .. } | ExprKind::While { .. } => {
                     self.analyze_expr(expr)?;
                 }
                 _ => {
@@ -459,9 +462,9 @@ impl SemanticAnalyzer {
                 }
 
                 // Literal index: bounds-check against known list length.
-                let literal_index: Option<i64> = match index {
-                    Expr::Int(v, _) => Some(*v),
-                    Expr::Number(f, _) => Some(*f as i64),
+                let literal_index: Option<i64> = match &index.kind {
+                    ExprKind::Int(v, _) => Some(*v),
+                    ExprKind::Number(f, _) => Some(*f as i64),
                     _ => None,
                 };
                 if let Some(idx_val) = literal_index {

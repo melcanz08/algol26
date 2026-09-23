@@ -2,8 +2,56 @@
 
 use crate::common::span::Span;
 
+/// Stable identity for an AST expression node.
+///
+/// Assigned exactly once by `assign_expr_ids`, after the last AST
+/// transformation (monomorphize) and before semantic analysis.
+/// `UNASSIGNED` is the construction-time sentinel; any node reachable
+/// from the typed AST must have a real ID by the time the analyzer runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExprId(pub u32);
+
+impl ExprId {
+    /// Sentinel for a freshly constructed node that has not yet been
+    /// numbered. The numbering pass replaces every occurrence.
+    pub const UNASSIGNED: Self = Self(u32::MAX);
+
+    pub fn is_assigned(self) -> bool {
+        self != Self::UNASSIGNED
+    }
+}
+
+/// An expression node: stable identity + structural kind.
 #[derive(Clone, Debug)]
-pub enum Expr {
+pub struct Expr {
+    pub id: ExprId,
+    pub kind: ExprKind,
+}
+
+impl Expr {
+    /// Construct a node with the `UNASSIGNED` sentinel. The numbering
+    /// pass replaces it before the AST reaches semantic analysis.
+    pub fn new(kind: ExprKind) -> Self {
+        Self {
+            id: ExprId::UNASSIGNED,
+            kind,
+        }
+    }
+
+    /// Convenience for the very common `Box::new(Expr::new(kind))` shape.
+    pub fn boxed(kind: ExprKind) -> Box<Self> {
+        Box::new(Self::new(kind))
+    }
+
+    /// Source span of this expression node.
+    pub fn span(&self) -> Span {
+        self.kind.span()
+    }
+}
+
+/// The structural content of an expression, without its identity.
+#[derive(Clone, Debug)]
+pub enum ExprKind {
     // ─── Literals ───
     Number(f64, Span),
     Int(i64, Span),
@@ -115,6 +163,44 @@ pub enum Expr {
     },
 }
 
+impl ExprKind {
+    /// Source span of this expression kind.
+    pub fn span(&self) -> Span {
+        match self {
+            ExprKind::Number(_, s) => *s,
+            ExprKind::Int(_, s) => *s,
+            ExprKind::String(_, s) => *s,
+            ExprKind::Bool(_, s) => *s,
+            ExprKind::NullPtr(s) => *s,
+            ExprKind::PtrLiteral(_, s) => *s,
+            ExprKind::Var(_, s) => *s,
+            ExprKind::Block { span, .. } => *span,
+            ExprKind::If { span, .. } => *span,
+            ExprKind::Match { span, .. } => *span,
+            ExprKind::Borrow { span, .. } => *span,
+            ExprKind::MutBorrow { span, .. } => *span,
+            ExprKind::Deref { span, .. } => *span,
+            ExprKind::AddrOf { span, .. } => *span,
+            ExprKind::List(_, s) => *s,
+            ExprKind::ArrayAccess { span, .. } => *span,
+            ExprKind::Binary { span, .. } => *span,
+            ExprKind::Unary { span, .. } => *span,
+            ExprKind::FunctionCall { span, .. } => *span,
+            ExprKind::Some { span, .. } => *span,
+            ExprKind::None(s) => *s,
+            ExprKind::Ok { span, .. } => *span,
+            ExprKind::Error { span, .. } => *span,
+            ExprKind::TryCatch { span, .. } => *span,
+            ExprKind::For { span, .. } => *span,
+            ExprKind::While { span, .. } => *span,
+            ExprKind::Range { span, .. } => *span,
+            ExprKind::FieldAccess { span, .. } => *span,
+        }
+    }
+}
+
+// Everything below this line is unchanged from the current file.
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnaryOp {
     Negate,
@@ -209,42 +295,6 @@ pub enum Stmt {
     /// Wraps any expression in statement position. The inner `Expr`
     /// already carries its own span; no separate span on this variant.
     Expression(Expr),
-}
-
-impl Expr {
-    /// Source span of this expression node.
-    pub fn span(&self) -> Span {
-        match self {
-            Expr::Number(_, s) => *s,
-            Expr::Int(_, s) => *s,
-            Expr::String(_, s) => *s,
-            Expr::Bool(_, s) => *s,
-            Expr::NullPtr(s) => *s,
-            Expr::PtrLiteral(_, s) => *s,
-            Expr::Var(_, s) => *s,
-            Expr::Block { span, .. } => *span,
-            Expr::If { span, .. } => *span,
-            Expr::Match { span, .. } => *span,
-            Expr::Borrow { span, .. } => *span,
-            Expr::MutBorrow { span, .. } => *span,
-            Expr::Deref { span, .. } => *span,
-            Expr::AddrOf { span, .. } => *span,
-            Expr::List(_, s) => *s,
-            Expr::ArrayAccess { span, .. } => *span,
-            Expr::Binary { span, .. } => *span,
-            Expr::Unary { span, .. } => *span,
-            Expr::FunctionCall { span, .. } => *span,
-            Expr::Some { span, .. } => *span,
-            Expr::None(s) => *s,
-            Expr::Ok { span, .. } => *span,
-            Expr::Error { span, .. } => *span,
-            Expr::TryCatch { span, .. } => *span,
-            Expr::For { span, .. } => *span,
-            Expr::While { span, .. } => *span,
-            Expr::Range { span, .. } => *span,
-            Expr::FieldAccess { span, .. } => *span,
-        }
-    }
 }
 
 impl Stmt {

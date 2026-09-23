@@ -52,30 +52,38 @@ impl RaceDetector {
                 }
                 self.analyze_expr(value, in_spawn);
             }
-            Stmt::Expression(Expr::If {
-                condition,
-                then_branch,
-                else_branch,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::If {
+                        condition,
+                        then_branch,
+                        else_branch,
+                        ..
+                    },
                 ..
             }) => {
                 self.analyze_expr(condition, in_spawn);
-                if let Expr::Block { statements, .. } = then_branch.as_ref() {
+                if let ExprKind::Block { statements, .. } = &then_branch.as_ref().kind {
                     for s in statements {
                         self.analyze_stmt(s, in_spawn);
                     }
                 }
                 if let Some(else_stmts) = else_branch {
-                    if let Expr::Block { statements, .. } = else_stmts.as_ref() {
+                    if let ExprKind::Block { statements, .. } = &else_stmts.as_ref().kind {
                         for s in statements {
                             self.analyze_stmt(s, in_spawn);
                         }
                     }
                 }
             }
-            Stmt::Expression(Expr::For {
-                var,
-                iterable,
-                body,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::For {
+                        var,
+                        iterable,
+                        body,
+                        ..
+                    },
                 ..
             }) => {
                 if in_spawn {
@@ -90,8 +98,11 @@ impl RaceDetector {
                     self.analyze_stmt(s, in_spawn);
                 }
             }
-            Stmt::Expression(Expr::While {
-                condition, body, ..
+            Stmt::Expression(Expr {
+                kind: ExprKind::While {
+                    condition, body, ..
+                },
+                ..
             }) => {
                 self.analyze_expr(condition, in_spawn);
                 for s in body {
@@ -143,38 +154,49 @@ impl RaceDetector {
             Stmt::Print { expr, .. } => {
                 self.collect_expr_accesses(expr, accesses);
             }
-            Stmt::Expression(Expr::If {
-                condition,
-                then_branch,
-                else_branch,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::If {
+                        condition,
+                        then_branch,
+                        else_branch,
+                        ..
+                    },
                 ..
             }) => {
                 self.collect_expr_accesses(condition, accesses);
-                if let Expr::Block { statements, .. } = then_branch.as_ref() {
+                if let ExprKind::Block { statements, .. } = &then_branch.as_ref().kind {
                     for s in statements {
                         self.analyze_stmt_in_collection(s, accesses);
                     }
                 }
                 if let Some(else_stmts) = else_branch {
-                    if let Expr::Block { statements, .. } = else_stmts.as_ref() {
+                    if let ExprKind::Block { statements, .. } = &else_stmts.as_ref().kind {
                         for s in statements {
                             self.analyze_stmt_in_collection(s, accesses);
                         }
                     }
                 }
             }
-            Stmt::Expression(Expr::While {
-                condition, body, ..
+            Stmt::Expression(Expr {
+                kind: ExprKind::While {
+                    condition, body, ..
+                },
+                ..
             }) => {
                 self.collect_expr_accesses(condition, accesses);
                 for s in body {
                     self.analyze_stmt_in_collection(s, accesses);
                 }
             }
-            Stmt::Expression(Expr::For {
-                var,
-                iterable,
-                body,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::For {
+                        var,
+                        iterable,
+                        body,
+                        ..
+                    },
                 ..
             }) => {
                 Self::merge_access_map(accesses, var, AccessType::ReadWrite);
@@ -188,8 +210,8 @@ impl RaceDetector {
     }
 
     pub(super) fn analyze_expr(&mut self, expr: &Expr, in_spawn: bool) {
-        match expr {
-            Expr::Var(name, _) => {
+        match &expr.kind {
+            ExprKind::Var(name, _) => {
                 let target = if in_spawn {
                     if let Some(accesses) = self.spawned_accesses.last_mut() {
                         accesses
@@ -201,19 +223,19 @@ impl RaceDetector {
                 };
                 Self::merge_access_map(target, name, AccessType::Read);
             }
-            Expr::Binary { left, right, .. } => {
+            ExprKind::Binary { left, right, .. } => {
                 self.analyze_expr(left, in_spawn);
                 self.analyze_expr(right, in_spawn);
             }
-            Expr::Unary { expr, .. } => {
+            ExprKind::Unary { expr, .. } => {
                 self.analyze_expr(expr, in_spawn);
             }
-            Expr::FunctionCall { args, .. } => {
+            ExprKind::FunctionCall { args, .. } => {
                 for arg in args {
                     self.analyze_expr(arg, in_spawn);
                 }
             }
-            Expr::ArrayAccess {
+            ExprKind::ArrayAccess {
                 array: collection,
                 index,
                 ..
@@ -221,15 +243,15 @@ impl RaceDetector {
                 self.analyze_expr(collection, in_spawn);
                 self.analyze_expr(index, in_spawn);
             }
-            Expr::List(elements, _) => {
+            ExprKind::List(elements, _) => {
                 for elem in elements {
                     self.analyze_expr(elem, in_spawn);
                 }
             }
-            Expr::Deref { expr, .. } => {
+            ExprKind::Deref { expr, .. } => {
                 self.analyze_expr(expr, in_spawn);
             }
-            Expr::AddrOf { expr, .. } => {
+            ExprKind::AddrOf { expr, .. } => {
                 self.analyze_expr(expr, in_spawn);
             }
             _ => {}

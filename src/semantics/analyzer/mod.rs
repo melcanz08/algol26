@@ -51,7 +51,8 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::{
-    BinOp, Expr, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt, TraitDecl, WhereClause,
+    BinOp, Expr, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt, TraitDecl,
+    WhereClause,
 };
 use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;

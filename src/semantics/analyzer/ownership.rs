@@ -26,8 +26,8 @@ impl SemanticAnalyzer {
     /// at the `Expr::Borrow` site, which is conservative enough to
     /// reject the cases we care about (`f(&x, &mut x)`).
     pub(super) fn register_call_arg_temporary(&mut self, arg: &Expr) {
-        if let Expr::MutBorrow { expr, .. } = arg {
-            if let Expr::Var(name, _) = expr.as_ref() {
+        if let ExprKind::MutBorrow { expr, .. } = &arg.kind {
+            if let ExprKind::Var(name, _) = &expr.as_ref().kind {
                 self.register_call_argument_mut_borrow(name);
             }
         }
@@ -239,47 +239,47 @@ impl SemanticAnalyzer {
         }
     }
     pub(super) fn collect_expr_captures(&self, expr: &Expr, captured: &mut HashSet<String>) {
-        match expr {
-            Expr::Var(name, _) => {
+        match &expr.kind {
+            ExprKind::Var(name, _) => {
                 captured.insert(name.clone());
             }
-            Expr::Number(_, _)
-            | Expr::Int(_, _)
-            | Expr::String(_, _)
-            | Expr::Bool(_, _)
-            | Expr::NullPtr(_)
-            | Expr::PtrLiteral(_, _)
-            | Expr::None(_) => {}
-            Expr::Binary { left, right, .. } => {
+            ExprKind::Number(_, _)
+            | ExprKind::Int(_, _)
+            | ExprKind::String(_, _)
+            | ExprKind::Bool(_, _)
+            | ExprKind::NullPtr(_)
+            | ExprKind::PtrLiteral(_, _)
+            | ExprKind::None(_) => {}
+            ExprKind::Binary { left, right, .. } => {
                 self.collect_expr_captures(left, captured);
                 self.collect_expr_captures(right, captured);
             }
-            Expr::Unary { expr, .. }
-            | Expr::Deref { expr, .. }
-            | Expr::AddrOf { expr, .. }
-            | Expr::Borrow { expr, .. }
-            | Expr::MutBorrow { expr, .. }
-            | Expr::Some { value: expr, .. }
-            | Expr::Ok { value: expr, .. }
-            | Expr::Error { value: expr, .. }
-            | Expr::FieldAccess { object: expr, .. } => {
+            ExprKind::Unary { expr, .. }
+            | ExprKind::Deref { expr, .. }
+            | ExprKind::AddrOf { expr, .. }
+            | ExprKind::Borrow { expr, .. }
+            | ExprKind::MutBorrow { expr, .. }
+            | ExprKind::Some { value: expr, .. }
+            | ExprKind::Ok { value: expr, .. }
+            | ExprKind::Error { value: expr, .. }
+            | ExprKind::FieldAccess { object: expr, .. } => {
                 self.collect_expr_captures(expr, captured);
             }
-            Expr::FunctionCall { args, .. } => {
+            ExprKind::FunctionCall { args, .. } => {
                 for arg in args {
                     self.collect_expr_captures(arg, captured);
                 }
             }
-            Expr::ArrayAccess { array, index, .. } => {
+            ExprKind::ArrayAccess { array, index, .. } => {
                 self.collect_expr_captures(array, captured);
                 self.collect_expr_captures(index, captured);
             }
-            Expr::List(items, _) => {
+            ExprKind::List(items, _) => {
                 for item in items {
                     self.collect_expr_captures(item, captured);
                 }
             }
-            Expr::If {
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
@@ -291,13 +291,13 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(e, captured);
                 }
             }
-            Expr::Match { value, cases, .. } => {
+            ExprKind::Match { value, cases, .. } => {
                 self.collect_expr_captures(value, captured);
                 for case in cases {
                     self.collect_expr_captures(&case.body, captured);
                 }
             }
-            Expr::Block {
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 ..
@@ -309,7 +309,7 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(e, captured);
                 }
             }
-            Expr::TryCatch {
+            ExprKind::TryCatch {
                 try_branch,
                 catch_branch,
                 finally_body,
@@ -323,7 +323,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Expr::For {
+            ExprKind::For {
                 iterable,
                 body,
                 trailing_expr,
@@ -337,7 +337,7 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(e, captured);
                 }
             }
-            Expr::While {
+            ExprKind::While {
                 condition,
                 body,
                 trailing_expr,
@@ -351,7 +351,7 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(e, captured);
                 }
             }
-            Expr::Range { start, end, .. } => {
+            ExprKind::Range { start, end, .. } => {
                 if let Some(e) = start {
                     self.collect_expr_captures(e, captured);
                 }

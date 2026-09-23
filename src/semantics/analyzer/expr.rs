@@ -32,9 +32,9 @@ impl SemanticAnalyzer {
         expr: &Expr,
         expected_type: Option<&Type>,
     ) -> Result<Type> {
-        match expr {
-            Expr::Borrow { expr, .. } => {
-                if let Expr::Var(name, _) = expr.as_ref() {
+        match &expr.kind {
+            ExprKind::Borrow { expr, .. } => {
+                if let ExprKind::Var(name, _) = &expr.as_ref().kind {
                     self.check_borrow_rules(name, false)?;
                     self.mark_borrowed(name);
                     let inner_type = self.analyze_expr(expr)?;
@@ -43,8 +43,8 @@ impl SemanticAnalyzer {
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::borrow(inner_type))
             }
-            Expr::MutBorrow { expr, .. } => {
-                if let Expr::Var(name, _) = expr.as_ref() {
+            ExprKind::MutBorrow { expr, .. } => {
+                if let ExprKind::Var(name, _) = &expr.as_ref().kind {
                     // Do NOT release existing borrows here — that would undo
                     // the very borrow we just registered. `check_borrow_rules`
                     // will correctly reject a second mut-borrow of the same source.
@@ -58,12 +58,12 @@ impl SemanticAnalyzer {
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::mut_borrow(inner_type))
             }
-            Expr::Deref { expr, .. } => {
+            ExprKind::Deref { expr, .. } => {
                 // Rule: dereferencing a value statically known to be
                 // null is a compile-time safety error. The language
                 // permits `null` as a value of type `Ptr`; it does not
                 // permit a deref whose operand is provably null.
-                if matches!(expr.as_ref(), Expr::NullPtr(_)) {
+                if matches!(&expr.as_ref().kind, ExprKind::NullPtr(_)) {
                     return Err(CompileError::simple(
                         "Cannot dereference a null pointer",
                         self.current_span.start_line,
@@ -76,7 +76,7 @@ impl SemanticAnalyzer {
                          e.g. with `if p != null then ...`",
                     ));
                 }
-                if let Expr::Var(name, _) = expr.as_ref() {
+                if let ExprKind::Var(name, _) = &expr.as_ref().kind {
                     let is_known_null = self
                         .null_bindings
                         .iter()
@@ -108,16 +108,16 @@ impl SemanticAnalyzer {
                     _ => Ok(Type::Unknown),
                 }
             }
-            Expr::AddrOf { expr, .. } => {
+            ExprKind::AddrOf { expr, .. } => {
                 // Only expressions with stable storage can be
                 // addressed. `&x` where x is a variable is fine;
                 // `&(a + b)` or `&f()` are not.
                 if !matches!(
-                    expr.as_ref(),
-                    Expr::Var(_, _)
-                        | Expr::ArrayAccess { .. }
-                        | Expr::FieldAccess { .. }
-                        | Expr::Deref { .. }
+                    &expr.as_ref().kind,
+                    ExprKind::Var(_, _)
+                        | ExprKind::ArrayAccess { .. }
+                        | ExprKind::FieldAccess { .. }
+                        | ExprKind::Deref { .. }
                 ) {
                     return Err(CompileError::simple(
                         "Cannot take the address of a temporary value; \
@@ -136,11 +136,11 @@ impl SemanticAnalyzer {
                 let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::pointer(inner_type))
             }
-            Expr::Number(_, _) => Ok(Type::Float),
-            Expr::Int(_, _) => Ok(Type::Int),
-            Expr::String(_, _) => Ok(Type::String),
-            Expr::Bool(_, _) => Ok(Type::Bool),
-            Expr::List(elements, _) => {
+            ExprKind::Number(_, _) => Ok(Type::Float),
+            ExprKind::Int(_, _) => Ok(Type::Int),
+            ExprKind::String(_, _) => Ok(Type::String),
+            ExprKind::Bool(_, _) => Ok(Type::Bool),
+            ExprKind::List(elements, _) => {
                 if elements.is_empty() {
                     return Ok(Type::list(Type::Unknown));
                 }
@@ -152,18 +152,18 @@ impl SemanticAnalyzer {
                 }
                 Ok(Type::list(list_type))
             }
-            Expr::Some { value, .. } => {
+            ExprKind::Some { value, .. } => {
                 let inner = self.analyze_expr(value)?;
                 Ok(Type::option(inner))
             }
-            Expr::None(_) => {
+            ExprKind::None(_) => {
                 if let Some(Type::Option(inner)) = expected_type {
                     Ok(Type::option((**inner).clone()))
                 } else {
                     Ok(Type::option(Type::Unknown))
                 }
             }
-            Expr::Ok { value, .. } => {
+            ExprKind::Ok { value, .. } => {
                 // Compute the payload type independently. `expected_type`
                 // is used only to learn the error type of the enclosing
                 // Result, not to influence the payload's analysis.
@@ -176,7 +176,7 @@ impl SemanticAnalyzer {
 
                 Ok(Type::result(inner, error_type))
             }
-            Expr::Error { value, .. } => {
+            ExprKind::Error { value, .. } => {
                 let inner = self.analyze_expr(value)?;
 
                 let ok_type = match expected_type {
@@ -186,7 +186,7 @@ impl SemanticAnalyzer {
 
                 Ok(Type::result(ok_type, inner))
             }
-            Expr::Block {
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 ..
@@ -201,7 +201,7 @@ impl SemanticAnalyzer {
                 };
                 Ok(result)
             }
-            Expr::If {
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
@@ -266,7 +266,7 @@ impl SemanticAnalyzer {
                 self.state = SemanticState::join(&then_exit, &else_exit);
                 Ok(result_type)
             }
-            Expr::Match { value, cases, .. } => {
+            ExprKind::Match { value, cases, .. } => {
                 let value_type = self.analyze_expr(value)?;
                 self.check_match_exhaustiveness(&value_type, cases)?;
 
@@ -335,7 +335,7 @@ impl SemanticAnalyzer {
                 self.state = SemanticState::join_all(&arm_exits);
                 Ok(result_type)
             }
-            Expr::TryCatch {
+            ExprKind::TryCatch {
                 try_branch,
                 catch_var,
                 catch_branch,
@@ -405,7 +405,7 @@ impl SemanticAnalyzer {
             // See the module doc comment "Loop ownership analysis".
             // Borrows are restored to the pre-loop state; moves
             // inside the body are rejected (see below).
-            Expr::For {
+            ExprKind::For {
                 var,
                 iterable,
                 body,
@@ -493,7 +493,7 @@ impl SemanticAnalyzer {
             // See the module doc comment "Loop ownership analysis".
             // Borrows are restored; moves are propagated outward
             // because the loop may run zero times.
-            Expr::While {
+            ExprKind::While {
                 condition,
                 body,
                 trailing_expr,
@@ -542,7 +542,7 @@ impl SemanticAnalyzer {
 
                 Ok(result_type)
             }
-            Expr::Var(name, span) => {
+            ExprKind::Var(name, span) => {
                 let line = span.start_line;
                 let column = span.start_column;
                 if self.is_moved(name) {
@@ -581,7 +581,7 @@ impl SemanticAnalyzer {
                     ))
                 })
             }
-            Expr::ArrayAccess { array, index, .. } => {
+            ExprKind::ArrayAccess { array, index, .. } => {
                 let array_type = self.analyze_expr(array)?;
                 let element_type = match array_type {
                     Type::List(element_type) => *element_type,
@@ -599,20 +599,20 @@ impl SemanticAnalyzer {
                 let index_type = self.analyze_expr(index)?;
 
                 let mut out_of_bounds: Option<(i64, usize, String)> = None;
-                let literal_index: Option<i64> = match index.as_ref() {
-                    Expr::Int(v, _) => Some(*v),
-                    Expr::Number(f, _) => Some(*f as i64),
+                let literal_index: Option<i64> = match &index.as_ref().kind {
+                    ExprKind::Int(v, _) => Some(*v),
+                    ExprKind::Number(f, _) => Some(*f as i64),
                     _ => None,
                 };
                 if let Some(idx_val) = literal_index {
-                    if let Expr::Var(var_name, _) = array.as_ref() {
+                    if let ExprKind::Var(var_name, _) = &array.as_ref().kind {
                         if let Some(list_len) = self.lookup_list_length(var_name) {
                             if idx_val < 0 || (idx_val as usize) >= list_len {
                                 out_of_bounds = Some((idx_val, list_len, var_name.clone()));
                             }
                         }
                     }
-                    if let Expr::List(elements, _) = array.as_ref() {
+                    if let ExprKind::List(elements, _) = &array.as_ref().kind {
                         let list_len = elements.len();
                         if idx_val < 0 || (idx_val as usize) >= list_len {
                             out_of_bounds = Some((idx_val, list_len, "list literal".to_string()));
@@ -645,7 +645,7 @@ impl SemanticAnalyzer {
                 }
                 Ok(element_type)
             }
-            Expr::Binary {
+            ExprKind::Binary {
                 left, op, right, ..
             } => {
                 let mut left_type = self.analyze_expr(left)?;
@@ -756,7 +756,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Expr::FunctionCall { name, args, .. } => {
+            ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
 
                 if clean_name.contains('.') {
@@ -965,7 +965,7 @@ impl SemanticAnalyzer {
                 let return_type = self.substitute_type_vars(&func_info.return_type, &type_bindings);
                 Ok(return_type)
             }
-            Expr::Unary { op, expr, .. } => {
+            ExprKind::Unary { op, expr, .. } => {
                 let operand_type = self.analyze_expr_with_context(expr, expected_type)?;
                 match op {
                     crate::frontend::ast::UnaryOp::Negate => {
@@ -998,11 +998,11 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Expr::PtrLiteral(_, _) => Ok(Type::Ptr),
-            Expr::NullPtr(_) => Ok(Type::Ptr),
+            ExprKind::PtrLiteral(_, _) => Ok(Type::Ptr),
+            ExprKind::NullPtr(_) => Ok(Type::Ptr),
 
             // ─── UNIFY TYPES ─── give Range and FieldAccess proper inferred types.
-            Expr::Range { start, end, .. } => {
+            ExprKind::Range { start, end, .. } => {
                 let start_type = match start {
                     Some(e) => self.analyze_expr(e)?,
                     None => Type::Int,
@@ -1013,7 +1013,7 @@ impl SemanticAnalyzer {
                 };
                 Ok(Type::list(start_type.common_supertype(&end_type)))
             }
-            Expr::FieldAccess { object, field, .. } => {
+            ExprKind::FieldAccess { object, field, .. } => {
                 // No struct system yet — analyze the object, then report.
                 let _obj_type = self.analyze_expr(object)?;
                 Err(CompileError::simple(
@@ -1116,11 +1116,11 @@ impl SemanticAnalyzer {
                 }
             }
             Pattern::Literal(lit) => {
-                let lit_type = match lit {
-                    crate::frontend::ast::Expr::Int(_, _) => Type::Int,
-                    crate::frontend::ast::Expr::Number(_, _) => Type::Float,
-                    crate::frontend::ast::Expr::String(_, _) => Type::String,
-                    crate::frontend::ast::Expr::Bool(_, _) => Type::Bool,
+                let lit_type = match &lit.kind {
+                    crate::frontend::ast::ExprKind::Int(_, _) => Type::Int,
+                    crate::frontend::ast::ExprKind::Number(_, _) => Type::Float,
+                    crate::frontend::ast::ExprKind::String(_, _) => Type::String,
+                    crate::frontend::ast::ExprKind::Bool(_, _) => Type::Bool,
                     _ => Type::Unknown,
                 };
                 if lit_type.can_coerce_to(value_type) {
@@ -1178,8 +1178,14 @@ impl SemanticAnalyzer {
                 Pattern::None => has_none = true,
                 Pattern::Ok(_) | Pattern::OkNested(_) => has_ok = true,
                 Pattern::Error(_) | Pattern::ErrorNested(_) => has_error = true,
-                Pattern::Literal(crate::frontend::ast::Expr::Bool(true, _)) => has_true = true,
-                Pattern::Literal(crate::frontend::ast::Expr::Bool(false, _)) => has_false = true,
+                Pattern::Literal(Expr {
+                    kind: ExprKind::Bool(true, _),
+                    ..
+                }) => has_true = true,
+                Pattern::Literal(Expr {
+                    kind: ExprKind::Bool(false, _),
+                    ..
+                }) => has_false = true,
                 Pattern::Wildcard | Pattern::Binding(_) => has_fallback = true,
                 _ => {}
             }

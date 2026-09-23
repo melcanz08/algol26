@@ -6,8 +6,9 @@
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::compiler::context::{CompilerConfig, CompilerContext};
 use crate::compiler::program::{AstPayload, Program};
-use crate::frontend::ast::Stmt;
-use crate::frontend::ast::{ImplBlock, TraitDecl, TypeSyntax};
+use crate::frontend::ast::{
+    Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, Stmt, TraitDecl, TypeSyntax,
+};
 use crate::frontend::lexer::Lexer;
 use crate::frontend::module_loader::ModuleLoader;
 use crate::frontend::parser::Parser;
@@ -87,6 +88,102 @@ impl Default for Compiler {
     }
 }
 
+fn assert_all_numbered(functions: &[FunctionDecl]) -> bool {
+    fn walk_expr(e: &Expr) -> bool {
+        if !e.id.is_assigned() {
+            return false;
+        }
+        match &e.kind {
+            ExprKind::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                statements.iter().all(walk_stmt)
+                    && trailing_expr.as_ref().map_or(true, |x| walk_expr(x))
+            }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_expr(condition)
+                    && walk_expr(then_branch)
+                    && else_branch.as_ref().map_or(true, |x| walk_expr(x))
+            }
+            ExprKind::Match { value, cases, .. } => {
+                walk_expr(value) && cases.iter().all(|c| walk_expr(&c.body))
+            }
+            ExprKind::Borrow { expr, .. }
+            | ExprKind::MutBorrow { expr, .. }
+            | ExprKind::Deref { expr, .. }
+            | ExprKind::AddrOf { expr, .. }
+            | ExprKind::Unary { expr, .. } => walk_expr(expr),
+            ExprKind::Some { value, .. }
+            | ExprKind::Ok { value, .. }
+            | ExprKind::Error { value, .. } => walk_expr(value),
+            ExprKind::List(items, _) => items.iter().all(walk_expr),
+            ExprKind::ArrayAccess { array, index, .. } => walk_expr(array) && walk_expr(index),
+            ExprKind::Binary { left, right, .. } => walk_expr(left) && walk_expr(right),
+            ExprKind::FunctionCall { args, .. } => args.iter().all(walk_expr),
+            ExprKind::TryCatch {
+                try_branch,
+                catch_branch,
+                finally_body,
+                ..
+            } => {
+                walk_expr(try_branch)
+                    && walk_expr(catch_branch)
+                    && finally_body
+                        .as_ref()
+                        .map_or(true, |b| b.iter().all(walk_stmt))
+            }
+            ExprKind::For {
+                iterable,
+                body,
+                trailing_expr,
+                ..
+            }
+            | ExprKind::While {
+                condition: iterable,
+                body,
+                trailing_expr,
+                ..
+            } => {
+                walk_expr(iterable)
+                    && body.iter().all(walk_stmt)
+                    && trailing_expr.as_ref().map_or(true, |x| walk_expr(x))
+            }
+            ExprKind::Range { start, end, .. } => {
+                start.as_ref().map_or(true, |x| walk_expr(x))
+                    && end.as_ref().map_or(true, |x| walk_expr(x))
+            }
+            ExprKind::FieldAccess { object, .. } => walk_expr(object),
+            _ => true,
+        }
+    }
+
+    fn walk_stmt(s: &Stmt) -> bool {
+        match s {
+            Stmt::VarDecl { value, .. } | Stmt::Assign { value, .. } => walk_expr(value),
+            Stmt::ArrayAssign { index, value, .. } => walk_expr(index) && walk_expr(value),
+            Stmt::Return { value: Some(e), .. } => walk_expr(e),
+            Stmt::Print { expr, .. } => walk_expr(expr),
+            Stmt::Defer { stmt, .. } => walk_stmt(stmt),
+            Stmt::Spawn { body, .. }
+            | Stmt::RegionBlock { body, .. }
+            | Stmt::UnsafeBlock { body, .. } => body.iter().all(walk_stmt),
+            Stmt::Parallel { blocks, .. } => blocks.iter().all(|b| b.iter().all(walk_stmt)),
+            Stmt::Send { value, .. } => walk_expr(value),
+            Stmt::Expression(e) => walk_expr(e),
+            _ => true,
+        }
+    }
+
+    functions.iter().all(|f| f.body.iter().all(walk_stmt))
+}
+
 /// Runs the semantic analyzer and race detector, producing a typed AST.
 ///
 /// Returns `CompileError` (with its original `ErrorCode`) on failure
@@ -102,6 +199,11 @@ pub fn type_check_program(
     impls: &[ImplBlock],
 ) -> Result<TypedProgram> {
     let mut analyzer = SemanticAnalyzer::new();
+    debug_assert!(
+        assert_all_numbered(functions),
+        "type_check_program reached with an UNASSIGNED ExprId — \
+         some AST construction path bypassed prepare_frontend"
+    );
     analyzer.analyze_with_traits(functions, traits, impls)?;
 
     let mut race_detector = RaceDetector::new();
@@ -190,6 +292,17 @@ impl Compiler {
         let start = Instant::now();
         let parsed = self.monomorphize(&parsed);
         let mono = start.elapsed();
+
+        // Assign stable ExprId to every node. After this point no AST
+        // transformation may construct new Expr nodes; `type_check_program`
+        // enforces this.
+        let mut functions = (*parsed.functions).clone();
+        assign_expr_ids(&mut functions);
+        let parsed = ParsedProgram {
+            functions: Rc::new(functions),
+            traits: parsed.traits,
+            impls: parsed.impls,
+        };
 
         Ok(FrontendPrep {
             parsed,
@@ -779,5 +892,163 @@ impl Compiler {
         backend.compile(&verified, output_name)?;
 
         Ok(())
+    }
+}
+
+// ─── ExprId numbering ─────────────────────────────────────────────────
+
+/// Assign a unique `ExprId` to every expression node, in preorder,
+/// after the last AST transformation. Called by `prepare_frontend`
+/// once, after `monomorphize`, before the AST is handed to semantic
+/// analysis.
+fn assign_expr_ids(functions: &mut [FunctionDecl]) {
+    let mut next = 0u32;
+    for func in functions.iter_mut() {
+        number_stmts(&mut func.body, &mut next);
+    }
+}
+
+fn number_stmts(stmts: &mut [Stmt], next: &mut u32) {
+    for stmt in stmts.iter_mut() {
+        number_stmt(stmt, next);
+    }
+}
+
+fn number_stmt(stmt: &mut Stmt, next: &mut u32) {
+    match stmt {
+        Stmt::VarDecl { value, .. } => number_expr(value, next),
+        Stmt::Assign { value, .. } => number_expr(value, next),
+        Stmt::ArrayAssign { index, value, .. } => {
+            number_expr(index, next);
+            number_expr(value, next);
+        }
+        Stmt::Return { value: Some(e), .. } => number_expr(e, next),
+        Stmt::Print { expr, .. } => number_expr(expr, next),
+        Stmt::Defer { stmt, .. } => number_stmt(stmt, next),
+        Stmt::Spawn { body, .. }
+        | Stmt::RegionBlock { body, .. }
+        | Stmt::UnsafeBlock { body, .. } => number_stmts(body, next),
+        Stmt::Parallel { blocks, .. } => {
+            for b in blocks {
+                number_stmts(b, next);
+            }
+        }
+        Stmt::Send { value, .. } => number_expr(value, next),
+        Stmt::Expression(e) => number_expr(e, next),
+        _ => {}
+    }
+}
+
+fn number_expr(expr: &mut Expr, next: &mut u32) {
+    expr.id = ExprId(*next);
+    *next += 1;
+    match &mut expr.kind {
+        ExprKind::Block {
+            statements,
+            trailing_expr,
+            ..
+        } => {
+            number_stmts(statements, next);
+            if let Some(e) = trailing_expr {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            number_expr(condition, next);
+            number_expr(then_branch, next);
+            if let Some(e) = else_branch {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::Match { value, cases, .. } => {
+            number_expr(value, next);
+            for c in cases {
+                number_expr(&mut c.body, next);
+            }
+        }
+        ExprKind::Borrow { expr, .. }
+        | ExprKind::MutBorrow { expr, .. }
+        | ExprKind::Deref { expr, .. }
+        | ExprKind::AddrOf { expr, .. }
+        | ExprKind::Unary { expr, .. } => number_expr(expr, next),
+        ExprKind::Some { value, .. }
+        | ExprKind::Ok { value, .. }
+        | ExprKind::Error { value, .. } => number_expr(value, next),
+        ExprKind::List(items, _) => {
+            for e in items {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::ArrayAccess { array, index, .. } => {
+            number_expr(array, next);
+            number_expr(index, next);
+        }
+        ExprKind::Binary { left, right, .. } => {
+            number_expr(left, next);
+            number_expr(right, next);
+        }
+        ExprKind::FunctionCall { args, .. } => {
+            for e in args {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::TryCatch {
+            try_branch,
+            catch_branch,
+            finally_body,
+            ..
+        } => {
+            number_expr(try_branch, next);
+            number_expr(catch_branch, next);
+            if let Some(body) = finally_body {
+                number_stmts(body, next);
+            }
+        }
+        ExprKind::For {
+            iterable,
+            body,
+            trailing_expr,
+            ..
+        } => {
+            number_expr(iterable, next);
+            number_stmts(body, next);
+            if let Some(e) = trailing_expr {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::While {
+            condition,
+            body,
+            trailing_expr,
+            ..
+        } => {
+            number_expr(condition, next);
+            number_stmts(body, next);
+            if let Some(e) = trailing_expr {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::Range { start, end, .. } => {
+            if let Some(e) = start {
+                number_expr(e, next);
+            }
+            if let Some(e) = end {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::FieldAccess { object, .. } => number_expr(object, next),
+        ExprKind::Number(..)
+        | ExprKind::Int(..)
+        | ExprKind::String(..)
+        | ExprKind::Bool(..)
+        | ExprKind::NullPtr(..)
+        | ExprKind::PtrLiteral(..)
+        | ExprKind::Var(..)
+        | ExprKind::None(..) => {}
     }
 }

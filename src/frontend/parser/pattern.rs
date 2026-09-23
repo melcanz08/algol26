@@ -136,7 +136,7 @@ impl Parser {
                 let lit_span = self.last_span();
                 if matches!(self.peek(), Token::DotDot) {
                     self.advance();
-                    let start = Some(Box::new(Expr::Int(n, lit_span)));
+                    let start = Some(Expr::boxed(ExprKind::Int(n, lit_span)));
                     let end = if matches!(self.peek(), Token::IntLit(_) | Token::FloatLit(_)) {
                         Some(Box::new(self.parse_expr()?))
                     } else {
@@ -146,7 +146,7 @@ impl Parser {
                 }
                 if matches!(self.peek(), Token::DotDotEqual) {
                     self.advance();
-                    let start = Some(Box::new(Expr::Int(n, lit_span)));
+                    let start = Some(Expr::boxed(ExprKind::Int(n, lit_span)));
                     let end = if matches!(self.peek(), Token::IntLit(_) | Token::FloatLit(_)) {
                         Some(Box::new(self.parse_expr()?))
                     } else {
@@ -155,14 +155,14 @@ impl Parser {
                     // Inclusive range pattern? We'll treat as exclusive for now.
                     return Ok(Pattern::Range { start, end });
                 }
-                Ok(Pattern::Literal(Expr::Int(n, lit_span)))
+                Ok(Pattern::Literal(Expr::new(ExprKind::Int(n, lit_span))))
             }
             Token::FloatLit(f) => {
                 self.advance();
                 let lit_span = self.last_span();
                 if matches!(self.peek(), Token::DotDot) {
                     self.advance();
-                    let start = Some(Box::new(Expr::Number(f, lit_span)));
+                    let start = Some(Expr::boxed(ExprKind::Number(f, lit_span)));
                     let end = if matches!(self.peek(), Token::IntLit(_) | Token::FloatLit(_)) {
                         Some(Box::new(self.parse_expr()?))
                     } else {
@@ -172,7 +172,7 @@ impl Parser {
                 }
                 if matches!(self.peek(), Token::DotDotEqual) {
                     self.advance();
-                    let start = Some(Box::new(Expr::Number(f, lit_span)));
+                    let start = Some(Expr::boxed(ExprKind::Number(f, lit_span)));
                     let end = if matches!(self.peek(), Token::IntLit(_) | Token::FloatLit(_)) {
                         Some(Box::new(self.parse_expr()?))
                     } else {
@@ -180,22 +180,22 @@ impl Parser {
                     };
                     return Ok(Pattern::Range { start, end });
                 }
-                Ok(Pattern::Literal(Expr::Number(f, lit_span)))
+                Ok(Pattern::Literal(Expr::new(ExprKind::Number(f, lit_span))))
             }
             Token::StringLit(s) => {
                 self.advance();
                 let lit_span = self.last_span();
-                Ok(Pattern::Literal(Expr::String(s, lit_span)))
+                Ok(Pattern::Literal(Expr::new(ExprKind::String(s, lit_span))))
             }
             Token::True => {
                 self.advance();
                 let lit_span = self.last_span();
-                Ok(Pattern::Literal(Expr::Bool(true, lit_span)))
+                Ok(Pattern::Literal(Expr::new(ExprKind::Bool(true, lit_span))))
             }
             Token::False => {
                 self.advance();
                 let lit_span = self.last_span();
-                Ok(Pattern::Literal(Expr::Bool(false, lit_span)))
+                Ok(Pattern::Literal(Expr::new(ExprKind::Bool(false, lit_span))))
             }
             Token::Identifier(name) if name == "_" => {
                 self.advance();

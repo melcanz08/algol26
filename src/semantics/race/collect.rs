@@ -13,30 +13,40 @@ impl RaceDetector {
             Stmt::VarDecl { name, mutable, .. } => {
                 self.variable_mutability.insert(name.clone(), *mutable);
             }
-            Stmt::Expression(Expr::If {
-                then_branch,
-                else_branch,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::If {
+                        then_branch,
+                        else_branch,
+                        ..
+                    },
                 ..
             }) => {
-                if let Expr::Block { statements, .. } = then_branch.as_ref() {
+                if let ExprKind::Block { statements, .. } = &then_branch.as_ref().kind {
                     for s in statements {
                         self.collect_declarations_from_stmt(s);
                     }
                 }
                 if let Some(else_stmts) = else_branch {
-                    if let Expr::Block { statements, .. } = else_stmts.as_ref() {
+                    if let ExprKind::Block { statements, .. } = &else_stmts.as_ref().kind {
                         for s in statements {
                             self.collect_declarations_from_stmt(s);
                         }
                     }
                 }
             }
-            Stmt::Expression(Expr::While { body, .. }) => {
+            Stmt::Expression(Expr {
+                kind: ExprKind::While { body, .. },
+                ..
+            }) => {
                 for s in body {
                     self.collect_declarations_from_stmt(s);
                 }
             }
-            Stmt::Expression(Expr::For { body, .. }) => {
+            Stmt::Expression(Expr {
+                kind: ExprKind::For { body, .. },
+                ..
+            }) => {
                 for s in body {
                     self.collect_declarations_from_stmt(s);
                 }
@@ -62,23 +72,23 @@ impl RaceDetector {
         expr: &Expr,
         accesses: &mut HashMap<String, AccessType>,
     ) {
-        match expr {
-            Expr::Var(name, _) => {
+        match &expr.kind {
+            ExprKind::Var(name, _) => {
                 Self::merge_access_map(accesses, name, AccessType::Read);
             }
-            Expr::Binary { left, right, .. } => {
+            ExprKind::Binary { left, right, .. } => {
                 self.collect_expr_accesses(left, accesses);
                 self.collect_expr_accesses(right, accesses);
             }
-            Expr::Unary { expr, .. } => {
+            ExprKind::Unary { expr, .. } => {
                 self.collect_expr_accesses(expr, accesses);
             }
-            Expr::FunctionCall { args, .. } => {
+            ExprKind::FunctionCall { args, .. } => {
                 for arg in args {
                     self.collect_expr_accesses(arg, accesses);
                 }
             }
-            Expr::ArrayAccess {
+            ExprKind::ArrayAccess {
                 array: collection,
                 index,
                 ..
@@ -86,15 +96,15 @@ impl RaceDetector {
                 self.collect_expr_accesses(collection, accesses);
                 self.collect_expr_accesses(index, accesses);
             }
-            Expr::List(elements, _) => {
+            ExprKind::List(elements, _) => {
                 for elem in elements {
                     self.collect_expr_accesses(elem, accesses);
                 }
             }
-            Expr::Deref { expr, .. } => {
+            ExprKind::Deref { expr, .. } => {
                 self.collect_expr_accesses(expr, accesses);
             }
-            Expr::AddrOf { expr, .. } => {
+            ExprKind::AddrOf { expr, .. } => {
                 self.collect_expr_accesses(expr, accesses);
             }
             _ => {}

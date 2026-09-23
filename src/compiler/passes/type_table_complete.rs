@@ -18,7 +18,7 @@ use crate::common::types::Type;
 use crate::compiler::context::CompilerContext;
 use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
 use crate::compiler::program::Program;
-use crate::frontend::ast::{Expr, FunctionDecl, Pattern, Stmt};
+use crate::frontend::ast::{Expr, ExprKind, FunctionDecl, Pattern, Stmt};
 use std::collections::HashMap;
 
 pub struct TypeTableCompletePass;
@@ -160,17 +160,17 @@ impl<'a> Walker<'a> {
     }
 
     fn visit_expr_children(&mut self, expr: &Expr) {
-        match expr {
-            Expr::Number(_, _)
-            | Expr::Int(_, _)
-            | Expr::String(_, _)
-            | Expr::Bool(_, _)
-            | Expr::Var(_, _)
-            | Expr::None(_)
-            | Expr::NullPtr(_)
-            | Expr::PtrLiteral(_, _) => {}
+        match &expr.kind {
+            ExprKind::Number(_, _)
+            | ExprKind::Int(_, _)
+            | ExprKind::String(_, _)
+            | ExprKind::Bool(_, _)
+            | ExprKind::Var(_, _)
+            | ExprKind::None(_)
+            | ExprKind::NullPtr(_)
+            | ExprKind::PtrLiteral(_, _) => {}
 
-            Expr::Block {
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 ..
@@ -182,7 +182,7 @@ impl<'a> Walker<'a> {
                     self.visit_expr(e);
                 }
             }
-            Expr::If {
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
@@ -194,42 +194,42 @@ impl<'a> Walker<'a> {
                     self.visit_expr(e);
                 }
             }
-            Expr::Match { value, cases, .. } => {
+            ExprKind::Match { value, cases, .. } => {
                 self.visit_expr(value);
                 for c in cases {
                     self.visit_pattern(&c.pattern);
                     self.visit_expr(&c.body);
                 }
             }
-            Expr::Borrow { expr, .. }
-            | Expr::MutBorrow { expr, .. }
-            | Expr::Deref { expr, .. }
-            | Expr::AddrOf { expr, .. }
-            | Expr::Some { value: expr, .. }
-            | Expr::Ok { value: expr, .. }
-            | Expr::Error { value: expr, .. }
-            | Expr::Unary { expr, .. } => {
+            ExprKind::Borrow { expr, .. }
+            | ExprKind::MutBorrow { expr, .. }
+            | ExprKind::Deref { expr, .. }
+            | ExprKind::AddrOf { expr, .. }
+            | ExprKind::Some { value: expr, .. }
+            | ExprKind::Ok { value: expr, .. }
+            | ExprKind::Error { value: expr, .. }
+            | ExprKind::Unary { expr, .. } => {
                 self.visit_expr(expr);
             }
-            Expr::List(items, _) => {
+            ExprKind::List(items, _) => {
                 for e in items {
                     self.visit_expr(e);
                 }
             }
-            Expr::ArrayAccess { array, index, .. } => {
+            ExprKind::ArrayAccess { array, index, .. } => {
                 self.visit_expr(array);
                 self.visit_expr(index);
             }
-            Expr::Binary { left, right, .. } => {
+            ExprKind::Binary { left, right, .. } => {
                 self.visit_expr(left);
                 self.visit_expr(right);
             }
-            Expr::FunctionCall { args, .. } => {
+            ExprKind::FunctionCall { args, .. } => {
                 for e in args {
                     self.visit_expr(e);
                 }
             }
-            Expr::TryCatch {
+            ExprKind::TryCatch {
                 try_branch,
                 catch_branch,
                 finally_body,
@@ -243,7 +243,7 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            Expr::For {
+            ExprKind::For {
                 iterable,
                 body,
                 trailing_expr,
@@ -257,7 +257,7 @@ impl<'a> Walker<'a> {
                     self.visit_expr(e);
                 }
             }
-            Expr::While {
+            ExprKind::While {
                 condition,
                 body,
                 trailing_expr,
@@ -271,7 +271,7 @@ impl<'a> Walker<'a> {
                     self.visit_expr(e);
                 }
             }
-            Expr::Range { start, end, .. } => {
+            ExprKind::Range { start, end, .. } => {
                 if let Some(e) = start {
                     self.visit_expr(e);
                 }
@@ -279,7 +279,7 @@ impl<'a> Walker<'a> {
                     self.visit_expr(e);
                 }
             }
-            Expr::FieldAccess { object, .. } => {
+            ExprKind::FieldAccess { object, .. } => {
                 self.visit_expr(object);
             }
         }
@@ -322,35 +322,35 @@ impl<'a> Walker<'a> {
 }
 
 fn expr_kind(e: &Expr) -> &'static str {
-    match e {
-        Expr::Number(_, _) => "number",
-        Expr::Int(_, _) => "int",
-        Expr::String(_, _) => "string",
-        Expr::Bool(_, _) => "bool",
-        Expr::Var(_, _) => "var",
-        Expr::Block { .. } => "block",
-        Expr::If { .. } => "if",
-        Expr::Match { .. } => "match",
-        Expr::Borrow { .. } => "borrow",
-        Expr::MutBorrow { .. } => "mut_borrow",
-        Expr::Deref { .. } => "deref",
-        Expr::AddrOf { .. } => "addr_of",
-        Expr::List(_, _) => "list",
-        Expr::ArrayAccess { .. } => "array_access",
-        Expr::Binary { .. } => "binary",
-        Expr::Unary { .. } => "unary",
-        Expr::FunctionCall { .. } => "call",
-        Expr::Some { .. } => "some",
-        Expr::None(_) => "none",
-        Expr::Ok { .. } => "ok",
-        Expr::TryCatch { .. } => "try_catch",
-        Expr::Error { .. } => "error",
-        Expr::For { .. } => "for",
-        Expr::While { .. } => "while",
-        Expr::PtrLiteral(_, _) => "ptr_literal",
-        Expr::NullPtr(_) => "null_ptr",
-        Expr::Range { .. } => "range",
-        Expr::FieldAccess { .. } => "field_access",
+    match &e.kind {
+        ExprKind::Number(_, _) => "number",
+        ExprKind::Int(_, _) => "int",
+        ExprKind::String(_, _) => "string",
+        ExprKind::Bool(_, _) => "bool",
+        ExprKind::Var(_, _) => "var",
+        ExprKind::Block { .. } => "block",
+        ExprKind::If { .. } => "if",
+        ExprKind::Match { .. } => "match",
+        ExprKind::Borrow { .. } => "borrow",
+        ExprKind::MutBorrow { .. } => "mut_borrow",
+        ExprKind::Deref { .. } => "deref",
+        ExprKind::AddrOf { .. } => "addr_of",
+        ExprKind::List(_, _) => "list",
+        ExprKind::ArrayAccess { .. } => "array_access",
+        ExprKind::Binary { .. } => "binary",
+        ExprKind::Unary { .. } => "unary",
+        ExprKind::FunctionCall { .. } => "call",
+        ExprKind::Some { .. } => "some",
+        ExprKind::None(_) => "none",
+        ExprKind::Ok { .. } => "ok",
+        ExprKind::TryCatch { .. } => "try_catch",
+        ExprKind::Error { .. } => "error",
+        ExprKind::For { .. } => "for",
+        ExprKind::While { .. } => "while",
+        ExprKind::PtrLiteral(_, _) => "ptr_literal",
+        ExprKind::NullPtr(_) => "null_ptr",
+        ExprKind::Range { .. } => "range",
+        ExprKind::FieldAccess { .. } => "field_access",
     }
 }
 
@@ -361,11 +361,11 @@ mod tests {
 
     #[test]
     fn walker_reports_every_leaf_node() {
-        let ast = Expr::Block {
+        let ast = Expr::new(ExprKind::Block {
             statements: vec![],
-            trailing_expr: Some(Box::new(Expr::Int(42, Span::default()))),
+            trailing_expr: Some(Expr::boxed(ExprKind::Int(42, Span::default()))),
             span: Span::default(),
-        };
+        });
         let table = HashMap::new();
         let mut w = Walker {
             type_table: &table,
@@ -380,12 +380,12 @@ mod tests {
 
     #[test]
     fn walker_silent_when_table_complete() {
-        let inner = Expr::Int(42, Span::default());
-        let outer = Expr::Block {
+        let inner = Expr::new(ExprKind::Int(42, Span::default()));
+        let outer = Expr::new(ExprKind::Block {
             statements: vec![],
-            trailing_expr: Some(Box::new(Expr::Int(1, Span::default()))),
+            trailing_expr: Some(Expr::boxed(ExprKind::Int(1, Span::default()))),
             span: Span::default(),
-        };
+        });
         let mut table = HashMap::new();
         table.insert(&inner as *const Expr as usize, Type::Int);
         table.insert(&outer as *const Expr as usize, Type::Int);
@@ -405,16 +405,16 @@ mod tests {
 
     #[test]
     fn statement_position_expr_is_not_checked() {
-        let stmt = Stmt::Expression(Expr::If {
-            condition: Box::new(Expr::Bool(true, Span::default())),
-            then_branch: Box::new(Expr::Block {
+        let stmt = Stmt::Expression(Expr::new(ExprKind::If {
+            condition: Expr::boxed(ExprKind::Bool(true, Span::default())),
+            then_branch: Expr::boxed(ExprKind::Block {
                 statements: vec![],
-                trailing_expr: Some(Box::new(Expr::Int(1, Span::default()))),
+                trailing_expr: Some(Expr::boxed(ExprKind::Int(1, Span::default()))),
                 span: Span::default(),
             }),
             else_branch: None,
             span: Span::default(),
-        });
+        }));
         let table = HashMap::new();
         let mut w = Walker {
             type_table: &table,

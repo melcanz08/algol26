@@ -1,7 +1,7 @@
 // src/ir/loop_desugar.rs
 
 use crate::common::span::Span;
-use crate::frontend::ast::{BinOp, Expr, FunctionDecl, Stmt};
+use crate::frontend::ast::{BinOp, Expr, ExprKind, FunctionDecl, Stmt};
 use std::collections::HashMap;
 
 pub fn desugar_loops(functions: &mut [FunctionDecl]) {
@@ -77,7 +77,7 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 let desugared_value = desugar_expr(value, env);
                 // Track the new list value. A non-list initializer
                 // invalidates any prior list binding for this name.
-                if let Expr::List(elements, _) = &desugared_value {
+                if let ExprKind::List(elements, _) = &desugared_value.kind {
                     env.insert(name.clone(), elements.clone());
                 } else {
                     env.remove(&name);
@@ -96,7 +96,7 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                 // re-record it; otherwise remove the stale entry so
                 // subsequent loops don't unroll over the old list.
                 let desugared_value = desugar_expr(value, env);
-                if let Expr::List(elements, _) = &desugared_value {
+                if let ExprKind::List(elements, _) = &desugared_value.kind {
                     env.insert(name.clone(), elements.clone());
                 } else {
                     env.remove(&name);
@@ -125,16 +125,20 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                     span,
                 });
             }
-            Stmt::Expression(Expr::For {
-                var,
-                iterable,
-                body,
-                trailing_expr,
-                span,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::For {
+                        var,
+                        iterable,
+                        body,
+                        trailing_expr,
+                        span,
+                    },
+                ..
             }) => {
                 let resolved_iterable = resolve_iterable(&iterable, env);
 
-                if let Expr::List(elements, _) = &resolved_iterable {
+                if let ExprKind::List(elements, _) = &resolved_iterable.kind {
                     // Unroll if known list and no complex control flow
                     if !has_complex_cf(&body) && trailing_expr.is_none() {
                         for elem in elements {
@@ -171,38 +175,42 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                         // Keep loop with resolved iterable. The body
                         // is a fresh scope.
                         let desugared_body = desugar_scoped_stmts(body, env);
-                        result.push(Stmt::Expression(Expr::For {
+                        result.push(Stmt::Expression(Expr::new(ExprKind::For {
                             var,
                             iterable: Box::new(resolved_iterable),
                             body: desugared_body,
                             trailing_expr,
                             span,
-                        }));
+                        })));
                     }
                 } else {
                     let desugared_body = desugar_scoped_stmts(body, env);
-                    result.push(Stmt::Expression(Expr::For {
+                    result.push(Stmt::Expression(Expr::new(ExprKind::For {
                         var,
                         iterable: Box::new(resolved_iterable),
                         body: desugared_body,
                         trailing_expr,
                         span,
-                    }));
+                    })));
                 }
             }
-            Stmt::Expression(Expr::While {
-                condition,
-                body,
-                trailing_expr,
-                span,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::While {
+                        condition,
+                        body,
+                        trailing_expr,
+                        span,
+                    },
+                ..
             }) => {
                 let desugared_body = desugar_scoped_stmts(body, env);
-                result.push(Stmt::Expression(Expr::While {
+                result.push(Stmt::Expression(Expr::new(ExprKind::While {
                     condition,
                     body: desugared_body,
                     trailing_expr,
                     span,
-                }));
+                })));
             }
             Stmt::Expression(expr) => {
                 let desugared = desugar_expr(expr, env);
@@ -255,8 +263,12 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
 }
 
 fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
-    match expr {
-        Expr::For {
+    // Discard the incoming id; it is UNASSIGNED at this stage (numbering
+    // runs after monomorphize). Reconstructed nodes get UNASSIGNED via
+    // `Expr::new` and will be numbered later.
+    let Expr { id: _, kind } = expr;
+    match kind {
+        ExprKind::For {
             var,
             iterable,
             body,
@@ -264,7 +276,7 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
             span,
         } => {
             let resolved = resolve_iterable(&iterable, env);
-            if let Expr::List(elements, _) = &resolved {
+            if let ExprKind::List(elements, _) = &resolved.kind {
                 if !has_complex_cf(&body) {
                     if let Some(te) = trailing_expr.as_ref() {
                         if let Some(last) = elements.last() {
@@ -275,15 +287,15 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
             }
             let desugared_body = desugar_scoped_stmts(body, env);
             let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
-            Expr::For {
+            Expr::new(ExprKind::For {
                 var,
                 iterable: Box::new(resolved),
                 body: desugared_body,
                 trailing_expr: desugared_trailing,
                 span,
-            }
+            })
         }
-        Expr::While {
+        ExprKind::While {
             condition,
             body,
             trailing_expr,
@@ -291,14 +303,14 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
         } => {
             let desugared_body = desugar_scoped_stmts(body, env);
             let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
-            Expr::While {
+            Expr::new(ExprKind::While {
                 condition,
                 body: desugared_body,
                 trailing_expr: desugared_trailing,
                 span,
-            }
+            })
         }
-        Expr::Block {
+        ExprKind::Block {
             statements,
             trailing_expr,
             span,
@@ -309,43 +321,43 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
             let desugared_statements = desugar_stmts(statements, env);
             let desugared_trailing = trailing_expr.map(|te| Box::new(desugar_expr(*te, env)));
             *env = saved;
-            Expr::Block {
+            Expr::new(ExprKind::Block {
                 statements: desugared_statements,
                 trailing_expr: desugared_trailing,
                 span,
-            }
+            })
         }
-        Expr::If {
+        ExprKind::If {
             condition,
             then_branch,
             else_branch,
             span,
-        } => Expr::If {
+        } => Expr::new(ExprKind::If {
             condition: Box::new(desugar_expr(*condition, env)),
             then_branch: Box::new(desugar_expr(*then_branch, env)),
             else_branch: else_branch.map(|e| Box::new(desugar_expr(*e, env))),
             span,
-        },
-        Expr::Binary {
+        }),
+        ExprKind::Binary {
             left,
             op,
             right,
             span,
-        } => Expr::Binary {
+        } => Expr::new(ExprKind::Binary {
             left: Box::new(desugar_expr(*left, env)),
             op,
             right: Box::new(desugar_expr(*right, env)),
             span,
-        },
-        other => other,
+        }),
+        other => Expr::new(other),
     }
 }
 
 fn resolve_iterable(iterable: &Expr, env: &HashMap<String, Vec<Expr>>) -> Expr {
-    match iterable {
-        Expr::Var(vname, _) => {
+    match &iterable.kind {
+        ExprKind::Var(vname, _) => {
             if let Some(elems) = env.get(vname) {
-                Expr::List(elems.clone(), Span::default())
+                Expr::new(ExprKind::List(elems.clone(), Span::default()))
             } else {
                 iterable.clone()
             }
@@ -373,7 +385,11 @@ fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
         // ability to reject moves-in-loops correctly.
         Stmt::VarDecl {
             name,
-            value: Expr::Var(src, _),
+            value:
+                Expr {
+                    kind: ExprKind::Var(src, _),
+                    ..
+                },
             ..
         } if name != src => true,
         Stmt::Expression(expr) => expr_has_complex_cf(expr),
@@ -386,8 +402,8 @@ fn stmt_has_complex_cf(stmt: &Stmt) -> bool {
 }
 
 fn expr_has_complex_cf(expr: &Expr) -> bool {
-    match expr {
-        Expr::Block {
+    match &expr.kind {
+        ExprKind::Block {
             statements,
             trailing_expr,
             ..
@@ -397,19 +413,19 @@ fn expr_has_complex_cf(expr: &Expr) -> bool {
                     .as_ref()
                     .is_some_and(|e| expr_has_complex_cf(e))
         }
-        Expr::If { .. } => true,
-        Expr::Match { cases, .. } => cases.iter().any(|c| expr_has_complex_cf(&c.body)),
-        Expr::TryCatch {
+        ExprKind::If { .. } => true,
+        ExprKind::Match { cases, .. } => cases.iter().any(|c| expr_has_complex_cf(&c.body)),
+        ExprKind::TryCatch {
             try_branch,
             catch_branch,
             ..
         } => expr_has_complex_cf(try_branch) || expr_has_complex_cf(catch_branch),
-        Expr::For {
+        ExprKind::For {
             body,
             trailing_expr,
             ..
         }
-        | Expr::While {
+        | ExprKind::While {
             body,
             trailing_expr,
             ..
@@ -429,15 +445,19 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
 
     for stmt in stmts {
         match stmt {
-            Stmt::Expression(Expr::If {
-                condition,
-                then_branch,
-                else_branch,
-                span,
+            Stmt::Expression(Expr {
+                kind:
+                    ExprKind::If {
+                        condition,
+                        then_branch,
+                        else_branch,
+                        span,
+                    },
+                ..
             }) => {
                 if let Some(cond_val) = eval_const_expr(&condition) {
                     if cond_val {
-                        if let Expr::Block { statements, .. } = then_branch.as_ref() {
+                        if let ExprKind::Block { statements, .. } = &then_branch.kind {
                             for s in statements {
                                 if matches!(s, Stmt::Break(_)) {
                                     return result;
@@ -446,7 +466,7 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
                             }
                         }
                     } else if let Some(else_br) = else_branch {
-                        if let Expr::Block { statements, .. } = else_br.as_ref() {
+                        if let ExprKind::Block { statements, .. } = &else_br.kind {
                             for s in statements {
                                 if matches!(s, Stmt::Break(_)) {
                                     return result;
@@ -456,12 +476,12 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
                         }
                     }
                 } else {
-                    result.push(Stmt::Expression(Expr::If {
+                    result.push(Stmt::Expression(Expr::new(ExprKind::If {
                         condition,
                         then_branch,
                         else_branch,
                         span,
-                    }));
+                    })));
                 }
             }
             _ => result.push(stmt),
@@ -472,9 +492,9 @@ fn fold_constant_ifs(stmts: Vec<Stmt>) -> Vec<Stmt> {
 }
 
 fn eval_const_expr(expr: &Expr) -> Option<bool> {
-    match expr {
-        Expr::Bool(b, _) => Some(*b),
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Bool(b, _) => Some(*b),
+        ExprKind::Binary {
             left, op, right, ..
         } => {
             let l = eval_const_num(left)?;
@@ -494,9 +514,9 @@ fn eval_const_expr(expr: &Expr) -> Option<bool> {
 }
 
 fn eval_const_num(expr: &Expr) -> Option<f64> {
-    match expr {
-        Expr::Number(n, _) => Some(*n),
-        Expr::Int(i, _) => Some(*i as f64),
+    match &expr.kind {
+        ExprKind::Number(n, _) => Some(*n),
+        ExprKind::Int(i, _) => Some(*i as f64),
         _ => None,
     }
 }
@@ -594,55 +614,55 @@ fn substitute_var_literal(stmts: &[Stmt], old_name: &str, literal: &Expr) -> Vec
 }
 
 fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr {
-    match expr {
-        Expr::Var(name, _) if name == old_name => literal.clone(),
-        Expr::Var(name, span) => Expr::Var(name.clone(), *span),
-        Expr::Binary {
+    match &expr.kind {
+        ExprKind::Var(name, _) if name == old_name => literal.clone(),
+        ExprKind::Var(name, span) => Expr::new(ExprKind::Var(name.clone(), *span)),
+        ExprKind::Binary {
             left,
             op,
             right,
             span,
-        } => Expr::Binary {
+        } => Expr::new(ExprKind::Binary {
             left: Box::new(substitute_expr_literal(left, old_name, literal)),
             op: op.clone(),
             right: Box::new(substitute_expr_literal(right, old_name, literal)),
             span: *span,
-        },
-        Expr::If {
+        }),
+        ExprKind::If {
             condition,
             then_branch,
             else_branch,
             span,
-        } => Expr::If {
+        } => Expr::new(ExprKind::If {
             condition: Box::new(substitute_expr_literal(condition, old_name, literal)),
             then_branch: Box::new(substitute_expr_literal(then_branch, old_name, literal)),
             else_branch: else_branch
                 .as_ref()
                 .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
             span: *span,
-        },
-        Expr::Block {
+        }),
+        ExprKind::Block {
             statements,
             trailing_expr,
             span,
         } => {
             let new_stmts = substitute_var_literal(statements, old_name, literal);
-            Expr::Block {
+            Expr::new(ExprKind::Block {
                 statements: new_stmts,
                 trailing_expr: trailing_expr
                     .as_ref()
                     .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
                 span: *span,
-            }
+            })
         }
-        Expr::FunctionCall { name, args, span } => Expr::FunctionCall {
+        ExprKind::FunctionCall { name, args, span } => Expr::new(ExprKind::FunctionCall {
             name: name.clone(),
             args: args
                 .iter()
                 .map(|a| substitute_expr_literal(a, old_name, literal))
                 .collect(),
             span: *span,
-        },
+        }),
         _ => expr.clone(),
     }
 }
@@ -663,10 +683,15 @@ mod tests {
     }
 
     fn still_has_for(funcs: &[FunctionDecl]) -> bool {
-        funcs[0]
-            .body
-            .iter()
-            .any(|s| matches!(s, Stmt::Expression(Expr::For { .. })))
+        funcs[0].body.iter().any(|s| {
+            matches!(
+                s,
+                Stmt::Expression(Expr {
+                    kind: ExprKind::For { .. },
+                    ..
+                })
+            )
+        })
     }
 
     #[test]
@@ -741,7 +766,11 @@ procedure main
 
         match last {
             Stmt::Print {
-                expr: Expr::Number(f, _),
+                expr:
+                    Expr {
+                        kind: ExprKind::Number(f, _),
+                        ..
+                    },
                 ..
             } => {
                 assert_eq!(
@@ -773,7 +802,11 @@ procedure main
 
         match last {
             Stmt::Print {
-                expr: Expr::Number(f, _),
+                expr:
+                    Expr {
+                        kind: ExprKind::Number(f, _),
+                        ..
+                    },
                 ..
             } => {
                 assert_eq!(*f, 5.0, "loop unrolled with stale pre-reassignment list");
@@ -806,7 +839,11 @@ procedure main
         match body.last().unwrap() {
             Stmt::RegionBlock { body: inner, .. } => match inner.last() {
                 Some(Stmt::Print {
-                    expr: Expr::Number(f, _),
+                    expr:
+                        Expr {
+                            kind: ExprKind::Number(f, _),
+                            ..
+                        },
                     ..
                 }) => {
                     assert_eq!(*f, 2.0, "loop var not substituted in region block");

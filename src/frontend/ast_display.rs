@@ -13,8 +13,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::ast::{
-    BinOp, Expr, FunctionDecl, ImplBlock, Pattern, Stmt, TraitDecl, TraitMethod, TypeSyntax,
-    UnaryOp,
+    BinOp, Expr, ExprKind, FunctionDecl, ImplBlock, Pattern, Stmt, TraitDecl, TraitMethod,
+    TypeSyntax, UnaryOp,
 };
 use std::fmt::Write;
 
@@ -238,11 +238,11 @@ fn format_stmt(out: &mut String, level: usize, stmt: &Stmt) {
         Stmt::Expression(expr) => {
             // Bare block in statement position is transparent — its
             // statements render at the same level, no extra indent.
-            if let Expr::Block {
+            if let ExprKind::Block {
                 statements,
                 trailing_expr,
                 ..
-            } = expr
+            } = &expr.kind
             {
                 for s in statements {
                     format_stmt(out, level, s);
@@ -324,48 +324,48 @@ fn format_stmt(out: &mut String, level: usize, stmt: &Stmt) {
 }
 
 fn format_expr(out: &mut String, level: usize, expr: &Expr) {
-    match expr {
-        Expr::Int(i, _) => write!(out, "{}", i).unwrap(),
-        Expr::Number(f, _) => write!(out, "{}", f).unwrap(),
-        Expr::String(s, _) => write!(out, "{:?}", s).unwrap(),
-        Expr::Bool(b, _) => write!(out, "{}", b).unwrap(),
-        Expr::NullPtr(_) => out.push_str("null"),
-        Expr::PtrLiteral(p, _) => write!(out, "0x{:x}", p).unwrap(),
-        Expr::Var(name, _) => out.push_str(name),
-        Expr::Borrow { expr, .. } => {
+    match &expr.kind {
+        ExprKind::Int(i, _) => write!(out, "{}", i).unwrap(),
+        ExprKind::Number(f, _) => write!(out, "{}", f).unwrap(),
+        ExprKind::String(s, _) => write!(out, "{:?}", s).unwrap(),
+        ExprKind::Bool(b, _) => write!(out, "{}", b).unwrap(),
+        ExprKind::NullPtr(_) => out.push_str("null"),
+        ExprKind::PtrLiteral(p, _) => write!(out, "0x{:x}", p).unwrap(),
+        ExprKind::Var(name, _) => out.push_str(name),
+        ExprKind::Borrow { expr, .. } => {
             out.push('&');
             format_expr(out, level, expr);
         }
-        Expr::MutBorrow { expr, .. } => {
+        ExprKind::MutBorrow { expr, .. } => {
             out.push_str("&mut ");
             format_expr(out, level, expr);
         }
-        Expr::Deref { expr, .. } => {
+        ExprKind::Deref { expr, .. } => {
             out.push('*');
             format_expr(out, level, expr);
         }
-        Expr::AddrOf { expr, .. } => {
+        ExprKind::AddrOf { expr, .. } => {
             out.push_str("addr_of(");
             format_expr(out, level, expr);
             out.push(')');
         }
-        Expr::Some { value, .. } => {
+        ExprKind::Some { value, .. } => {
             out.push_str("Some(");
             format_expr(out, level, value);
             out.push(')');
         }
-        Expr::None(_) => out.push_str("None"),
-        Expr::Ok { value, .. } => {
+        ExprKind::None(_) => out.push_str("None"),
+        ExprKind::Ok { value, .. } => {
             out.push_str("Ok(");
             format_expr(out, level, value);
             out.push(')');
         }
-        Expr::Error { value, .. } => {
+        ExprKind::Error { value, .. } => {
             out.push_str("Error(");
             format_expr(out, level, value);
             out.push(')');
         }
-        Expr::List(items, _) => {
+        ExprKind::List(items, _) => {
             out.push('[');
             for (i, e) in items.iter().enumerate() {
                 if i > 0 {
@@ -375,24 +375,24 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
             }
             out.push(']');
         }
-        Expr::ArrayAccess { array, index, .. } => {
+        ExprKind::ArrayAccess { array, index, .. } => {
             format_expr(out, level, array);
             out.push('[');
             format_expr(out, level, index);
             out.push(']');
         }
-        Expr::Binary {
+        ExprKind::Binary {
             left, op, right, ..
         } => {
             format_expr(out, level, left);
             write!(out, " {} ", binop_str(op)).unwrap();
             format_expr(out, level, right);
         }
-        Expr::Unary { op, expr, .. } => {
+        ExprKind::Unary { op, expr, .. } => {
             out.push_str(unop_str(op));
             format_expr(out, level, expr);
         }
-        Expr::FunctionCall { name, args, .. } => {
+        ExprKind::FunctionCall { name, args, .. } => {
             write!(out, "{}(", name).unwrap();
             for (i, a) in args.iter().enumerate() {
                 if i > 0 {
@@ -402,7 +402,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
             }
             out.push(')');
         }
-        Expr::Block {
+        ExprKind::Block {
             statements,
             trailing_expr,
             ..
@@ -416,7 +416,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
                 end_line(out);
             }
         }
-        Expr::If {
+        ExprKind::If {
             condition,
             then_branch,
             else_branch,
@@ -433,7 +433,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
                 format_expr_block(out, level + 1, eb);
             }
         }
-        Expr::Match { value, cases, .. } => {
+        ExprKind::Match { value, cases, .. } => {
             out.push_str("match ");
             format_expr(out, level, value);
             end_line(out);
@@ -445,7 +445,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
                 format_expr_block(out, level + 1, &c.body);
             }
         }
-        Expr::TryCatch {
+        ExprKind::TryCatch {
             try_branch,
             catch_var,
             catch_branch,
@@ -471,7 +471,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
                 }
             }
         }
-        Expr::For {
+        ExprKind::For {
             var,
             iterable,
             body,
@@ -490,7 +490,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
                 end_line(out);
             }
         }
-        Expr::While {
+        ExprKind::While {
             condition,
             body,
             trailing_expr,
@@ -508,7 +508,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
                 end_line(out);
             }
         }
-        Expr::Range {
+        ExprKind::Range {
             start,
             end,
             inclusive,
@@ -522,7 +522,7 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
                 format_expr(out, level, e);
             }
         }
-        Expr::FieldAccess { object, field, .. } => {
+        ExprKind::FieldAccess { object, field, .. } => {
             format_expr(out, level, object);
             out.push('.');
             out.push_str(field);
@@ -533,11 +533,11 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
 /// Render an expression as a block — used where the grammar requires
 /// block syntax (then/else branches, match arms, try/catch bodies).
 fn format_expr_block(out: &mut String, level: usize, expr: &Expr) {
-    if let Expr::Block {
+    if let ExprKind::Block {
         statements,
         trailing_expr,
         ..
-    } = expr
+    } = &expr.kind
     {
         for s in statements {
             format_stmt(out, level, s);
@@ -656,7 +656,7 @@ mod tests {
         let f = mk_fn(
             "main",
             vec![Stmt::Print {
-                expr: Expr::String("hello".into(), Span::default()),
+                expr: Expr::new(ExprKind::String("hello".into(), Span::default())),
                 span: Span::default(),
             }],
         );
@@ -672,14 +672,14 @@ mod tests {
             vec![
                 Stmt::VarDecl {
                     name: "y".into(),
-                    value: Expr::Int(5, Span::default()),
+                    value: Expr::new(ExprKind::Int(5, Span::default())),
                     type_annotation: None,
                     mutable: true,
                     span: Span::default(),
                 },
                 Stmt::Assign {
                     name: "y".into(),
-                    value: Expr::Int(6, Span::default()),
+                    value: Expr::new(ExprKind::Int(6, Span::default())),
                     span: Span::default(),
                 },
             ],
@@ -691,30 +691,30 @@ mod tests {
 
     #[test]
     fn if_else() {
-        let then_block = Expr::Block {
+        let then_block = Expr::new(ExprKind::Block {
             statements: vec![Stmt::Print {
-                expr: Expr::String("a".into(), Span::default()),
+                expr: Expr::new(ExprKind::String("a".into(), Span::default())),
                 span: Span::default(),
             }],
             trailing_expr: None,
             span: Span::default(),
-        };
-        let else_block = Expr::Block {
+        });
+        let else_block = Expr::new(ExprKind::Block {
             statements: vec![Stmt::Print {
-                expr: Expr::String("b".into(), Span::default()),
+                expr: Expr::new(ExprKind::String("b".into(), Span::default())),
                 span: Span::default(),
             }],
             trailing_expr: None,
             span: Span::default(),
-        };
+        });
         let f = mk_fn(
             "main",
-            vec![Stmt::Expression(Expr::If {
-                condition: Box::new(Expr::Bool(true, Span::default())),
+            vec![Stmt::Expression(Expr::new(ExprKind::If {
+                condition: Expr::boxed(ExprKind::Bool(true, Span::default())),
                 then_branch: Box::new(then_block),
                 else_branch: Some(Box::new(else_block)),
                 span: Span::default(),
-            })],
+            }))],
         );
         let out = format_program(&[f], &[], &[]);
         assert!(out.contains("if true"), "got:\n{}", out);

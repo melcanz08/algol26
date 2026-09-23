@@ -304,8 +304,8 @@ impl SemanticAnalyzer {
     /// produce a value without returning, or might diverge, and
     /// this check is conservative by design.
     fn expr_guarantees_return(&self, expr: &Expr) -> bool {
-        match expr {
-            Expr::Block {
+        match &expr.kind {
+            ExprKind::Block {
                 statements,
                 trailing_expr,
                 ..
@@ -315,20 +315,20 @@ impl SemanticAnalyzer {
                         .as_ref()
                         .is_some_and(|te| self.expr_guarantees_return(te))
             }
-            Expr::If {
+            ExprKind::If {
                 then_branch,
                 else_branch: Some(else_branch),
                 ..
             } => {
                 self.expr_guarantees_return(then_branch) && self.expr_guarantees_return(else_branch)
             }
-            Expr::If {
+            ExprKind::If {
                 else_branch: None, ..
             } => false,
-            Expr::Match { cases, .. } => {
+            ExprKind::Match { cases, .. } => {
                 !cases.is_empty() && cases.iter().all(|c| self.expr_guarantees_return(&c.body))
             }
-            Expr::TryCatch {
+            ExprKind::TryCatch {
                 try_branch,
                 catch_branch,
                 ..

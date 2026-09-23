@@ -170,7 +170,7 @@ impl<'a> Walker<'a> {
         let by_addr = self.type_table.get(&addr);
         let by_id = self.type_table_id.get(&expr.id);
 
-        if by_addr.is_none() {
+        if by_id.is_none() {
             self.missing.push(expr_kind(expr));
         }
 

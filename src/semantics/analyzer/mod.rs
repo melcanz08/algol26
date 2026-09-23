@@ -193,7 +193,7 @@ impl SemanticAnalyzer {
     // ─── UNIFY TYPES ───────────────────────────────────────────────────────
     /// Look up the inferred type of an expression by its address.
     pub fn type_of(&self, expr: &Expr) -> Option<&Type> {
-        self.type_table.get(&(expr as *const Expr as usize))
+        self.type_table_id.get(&expr.id)
     }
     /// Take ownership of the type table so it can be handed to the IR builder.
     pub fn take_type_table(&mut self) -> HashMap<usize, Type> {

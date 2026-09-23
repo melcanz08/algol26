@@ -1,15 +1,22 @@
-> **Superseded.** This document is kept for historical context only.
-> The current reference is [`../language-reference.md`](../language-reference.md).
+> **Superseded (2026-09-23).** This document describes the
+> pointer-address contract that the type table used before Phase 2.
+> That contract no longer exists — the type table is now keyed by
+> `ExprId`, `Rc::ptr_eq` is no longer required between `ast.functions`
+> and `typed.functions`, and `TypedProgram::type_table` has been
+> removed. See
+> [`../decisions/0013-executable-ir-generic-invariant.md`](../decisions/0013-executable-ir-generic-invariant.md)
+> for the current architecture. Retained for historical context.
 >
-> _Archived 2026-09-18._
+> _Archived 2026-09-18. Revised 2026-09-23._
 
 ---
 
 # Type Table Addressing
 
-**Status:** Active invariant. Violating it produces wrong codegen
-silently. Read before touching any phase that consumes
-`ParsedProgram::functions` or `TypedProgram::functions`.
+**Status (historical).** This was an active invariant through
+v0.1.0. It was removed by the Phase 2 `ExprId` migration; the
+description below is preserved to explain why the old design was
+structured as it was.
 
 ## The problem
 

@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Date:** 2026-09-23
 **Supersedes:** —
-**Related:** 0009 (unsafe), 0012 (implicit deref convention), `docs/compiler/type-table-addressing.md`
+**Related:** 0009 (unsafe), 0012 (implicit deref convention), `docs/archive/type-table-addressing.md` (historical)
 
 ## Context
 

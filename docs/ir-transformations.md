@@ -239,5 +239,4 @@ The verifier runs in two layers:
 - `pass-contracts.md` — the pass registry and pipeline rules.
 - `decisions/0011-phase4-task-model.md` — the `Fork` shape rules.
 - `IMPLEMENTATION_STATUS.md` — current state of each transformation.
-- `type-table-addressing.md` — invariant any pass carrying AST-level
   data must preserve.

@@ -297,12 +297,17 @@ pub const MATRIX: &[FeatureRow] = &[
     FeatureRow {
         name: "channel",
         conformance_dir: None,
-        interpreter: Support::Partial,
+        interpreter: Support::Refused,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_channels", "llvm_rejects_channels"],
-        notes: "No conformance fixture. Interpreter has channel instructions \
-                as silent no-ops (see docs/features/channel.md).",
+        refusal_tests: &[
+            "interpreter_rejects_channels",
+            "wasm_rejects_channels",
+            "llvm_rejects_channels",
+        ],
+        notes: "No conformance fixture. All three backends refuse channels at \
+                the capability boundary. No backend models channels yet — the \
+                feature is specified but unimplemented end-to-end.",
     },
     FeatureRow {
         name: "spawn",
@@ -468,7 +473,7 @@ fn missing_conformance_dir_has_notes() {
 
 #[test]
 fn every_feature_works_somewhere() {
-    const KNOWN_UNFINISHED: &[&str] = &["range"];
+    const KNOWN_UNFINISHED: &[&str] = &["range", "channel"];
 
     for row in MATRIX {
         if KNOWN_UNFINISHED.contains(&row.name) {

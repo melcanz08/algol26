@@ -119,7 +119,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("region", Maturity::Universal),
     ("alloc_free", Maturity::InterpreterAndLlvm),
     // concurrency
-    ("channel", Maturity::InterpreterOnly),
+    ("channel", Maturity::Unfinished),
     ("spawn", Maturity::InterpreterOnly),
     ("parallel", Maturity::InterpreterOnly),
     // compile-time-only

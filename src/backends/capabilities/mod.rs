@@ -168,7 +168,10 @@ impl BackendCapabilities {
         supported.insert(Feature::Result);
         supported.insert(Feature::Spawn);
         supported.insert(Feature::Fork);
-        supported.insert(Feature::Channels);
+        // ADR 0020. Channels were advertised as supported but the
+        // interpreter executed the three channel instructions as
+        // silent no-ops. Removing the claim makes the capability
+        // check the refusal point.
         supported.insert(Feature::StringFunctions);
         supported.insert(Feature::FileFunctions);
         supported.insert(Feature::ListAggregates);

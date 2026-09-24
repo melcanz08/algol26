@@ -12,7 +12,11 @@
 //   - parallel execution. Spawn and Fork run sequentially; the
 //     interpreter does not create OS threads.
 //   - foreign function calls.
-//   - channel send/receive (no-op instructions).
+//   - channel declarations, sends, and receives. The capability
+//     check refuses these before execution; the instruction
+//     arms are defensive guards.
+//   - reference operations (`&x`, `&mut x`, `*r`). Also refused
+//     by the capability check before execution.
 //
 // Errors: `execute_function` returns `Result<(), EvalError>`.
 // `run()` is the public boundary and converts to `String` for
@@ -414,13 +418,31 @@ impl Interpreter {
                     hint: "use the LLVM backend (--interpreter does not model references)",
                 });
             }
-            // Channel operations are not modeled. The capability
-            // matrix should refuse any program that would reach
-            // here. Listed explicitly (rather than `_ =>`) so a
-            // future IR variant forces a decision at compile time.
-            Instruction::ChannelDecl { .. } => {}
-            Instruction::SendChannel { .. } => {}
-            Instruction::ReceiveChannel { .. } => {}
+            // ADR 0020. Channels are not modeled by any backend.
+            // The capability check refuses any program that would
+            // reach these arms — but they return `Unsupported`
+            // anyway, as a defensive guard, matching the shape of
+            // the `WriteReference` arm above. Listed explicitly
+            // (rather than `_ =>`) so a future IR variant forces
+            // a decision at compile time.
+            Instruction::ChannelDecl { .. } => {
+                return Err(EvalError::Unsupported {
+                    construct: "channel declaration",
+                    hint: "channels are not yet implemented in any backend",
+                });
+            }
+            Instruction::SendChannel { .. } => {
+                return Err(EvalError::Unsupported {
+                    construct: "channel send",
+                    hint: "channels are not yet implemented in any backend",
+                });
+            }
+            Instruction::ReceiveChannel { .. } => {
+                return Err(EvalError::Unsupported {
+                    construct: "channel receive",
+                    hint: "channels are not yet implemented in any backend",
+                });
+            }
         }
         Ok(())
     }

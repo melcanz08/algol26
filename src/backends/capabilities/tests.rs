@@ -616,3 +616,20 @@ fn reference_parameter_requires_capability() {
         err.message
     );
 }
+
+#[test]
+fn interpreter_rejects_channels() {
+    let program = program_with(
+        Instruction::ChannelDecl {
+            name: "ch".to_string(),
+            type_: Type::channel(Type::Int),
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
+    assert!(
+        err.message.contains("channels"),
+        "expected channel diagnostic, got: {}",
+        err.message
+    );
+}

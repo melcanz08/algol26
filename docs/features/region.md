@@ -76,10 +76,14 @@ in.
    `return`), every recorded handle is freed. Freeing is a batch
    operation, not a per-`free()` cost.
 
-3. **Bounds pointer lifetime.** A pointer created in region `r`
-   cannot be stored in a location that outlives `r`. The analyzer
-   checks this via the region hierarchy — see the borrow contract
-   for the `outlives_region` rule.
+3. **Bounds *borrow* lifetime, and only at region exit.** The
+   analyzer tracks borrows (`&x`, `&mut x`) created inside a region.
+   When the region exits, `SemanticState::exit_region` iterates the
+   live borrow set and reports any borrow whose lifetime outlives the
+   region's storage. This is `E-REGION-001`. It does not track
+   pointers — a pointer from `alloc(n)` is not a `BorrowShared` or
+   `BorrowMutable` node, so it never enters the borrow set. See
+   "Enforcement boundary" below for what this misses.
 
 4. **Anchors borrow lifetimes.** A borrow whose borrower is declared
    inside region `r` gets `BorrowLifetime::Region("r")`. The analyzer
@@ -194,8 +198,16 @@ E-REGION-001: Reference outlives region 'NAME': PLACE (borrowed by BORROWER live
 | Backend | Support | Evidence |
 |---|---|---|
 | Interpreter | Supported | `RegionFrame` in `src/backends/interpreter/mod.rs`; `interpreter_accepts_raw_memory` in capability tests |
-| LLVM | **Unsupported** | Treats `RegionEnter`/`RegionExit` as no-ops; capability check refuses programs that actually alloc |
-| WASM | **Unsupported** | No region lowering; capability check refuses (unverified which code path) |
+| LLVM | Partial | `RegionEnter`/`RegionExit` push/pop a `region_frames` stack; `Allocate` lowers to `malloc`, `Free` to `free`, and region exit emits guarded frees. `llvm_accepts_raw_memory` in capability tests. |
+| WASM | Refused | Reuses `IRCodeGen` (so the LLVM lowering code applies), but the WASM capability set is empty and refuses `RawMemory` before codegen. |
+
+Regions themselves are a compile-time scoping construct; only their
+runtime effect (auto-free of allocations) differs per backend. On the
+interpreter, `RegionFrame` records allocation handles and frees them
+at exit. On LLVM, `LRegionFrame` records the allocas holding
+`malloc`'d pointers and emits guarded `free` calls at region exit and
+at any `Return` inside the region. Both models are described in
+`src/backends/interpreter/mod.rs` and `src/backends/llvm_codegen/instruction.rs`.
 
 ### Interpreter
 
@@ -287,22 +299,82 @@ will grow — that is a Tier 2 follow-up.
 
 ## Safety
 
-- No garbage collector. Region exit is the sole reclamation
-  mechanism for region-owned allocations.
-- No use-after-free inside a region: allocations are freed only on
-  region exit, and the region's scope is lexical, so no code path
-  can reference a freed handle within the region.
-- Across region boundaries, escape analysis enforces that a pointer
-  or reference created in region `r` does not outlive `r`.
-- No panics on bad region operations. Mismatched enters/exits,
-  double-enters, and exits without matching enters all produce
-  `EvalError` or `DataflowDiagnostic`, not panics.
+### What is enforced today
 
-The safety model is sound under the assumption that the analyzer's
-`outlives_region` check is correct. It was strengthened this session
-by fixing `SemanticState::borrow` to stop relocating the borrower
-into the current region — see the borrow contract for that
-discussion.
+- **No garbage collector.** Region exit is the sole reclamation
+  mechanism for region-owned allocations.
+- **No use-after-free inside a region.** Allocations are freed only
+  at region exit, and the region's scope is lexical, so no code path
+  can reference a freed handle within the region.
+- **No `break`/`continue` across a region boundary.** The analyzer
+  rejects these, because they would skip the region's `RegionExit`
+  and leak every allocation on the current iteration. See the
+  `Stmt::Break` and `Stmt::Continue` arms in
+  `src/semantics/analyzer/stmt.rs`.
+- **Returned borrows are rejected.** If a function's `Return`
+  terminator carries a `BorrowShared` or `BorrowMutable` value, the
+  CFG builder emits `CfgInstruction::ReturnRef`, and the dataflow
+  engine reports `E-ESCAPE-001`.
+- **Live borrows that outlive a region at exit are rejected.** When
+  `RegionExit` runs, `SemanticState::exit_region` walks the current
+  borrow set and reports any borrow whose lifetime outlives the
+  region's storage as `E-REGION-001`.
+- **No panics on bad region operations.** Mismatched enters/exits,
+  double-enters, and exits without matching enters all produce
+  `EvalError` or `DataflowDiagnostic`.
+
+### What is not enforced today
+
+The following shapes are syntactically legal and semantically
+unsound. They are not caught by any current check. They are the
+concrete gap between what this document claims and what the compiler
+verifies:
+
+- **Returning a pointer created inside a region.** `alloc(n)` inside
+  `region r` produces a `Pointer<T>` value, not a `BorrowShared` /
+  `BorrowMutable` value. `E-ESCAPE-001` fires on the latter, not the
+  former. A function whose body allocates inside a region and returns
+  the pointer compiles. The pointer is dangling after the function
+  returns.
+
+- **Storing a region-scoped pointer in an outer-scope variable.** The
+  `var_region` map records where each variable was declared, but no
+  check compares a pointer's source region against its destination
+  variable's region on assignment. `var outer := p` where `p` was
+  allocated inside `region r` is not rejected.
+
+- **Returning a reference stored inside an aggregate.** A reference
+  placed inside a `List`, `Option`, or `Result` and then returned is
+  not visible to `E-ESCAPE-001`, because the returned value's top-level
+  node is the aggregate, not a `BorrowShared`/`BorrowMutable`.
+
+- **Pointer arithmetic escape.** `AddrOf` on a region allocation,
+  followed by arithmetic and a return, tracks no provenance. The
+  resulting value is a `Pointer` and is subject to the same gaps as
+  the pointer-return case.
+
+The region's auto-free behavior is correct in all these cases: the
+region does free its allocations. What is missing is enforcement that
+nothing outlives them.
+
+### Status of the enforcement boundary
+
+The safety model is sound for programs that do not use pointers to
+escape region scope. The four unenforced shapes above are the
+concrete list of what would need to be added to make the stronger
+claim in earlier revisions of this document true. Until they are,
+the region contract's guarantee is:
+
+> Region exit frees every allocation made inside the region. A
+> borrow that outlives the region and is still live at exit is
+> rejected. Whether a pointer value can legally outlive the region
+> is not currently checked.
+
+Adding general pointer-lifetime enforcement is a feature, not a
+bug fix. It requires tracking pointer provenance through assignments,
+returns, and aggregate construction — the same work the deleted
+`escape.rs` module would have done, and the same work ADR 0011
+defers as a "future language-semantics ADR."
 
 ## Optimizer rules
 
@@ -423,11 +495,12 @@ owns the lifetime of something), you need to touch:
 ## Open questions
 
 - **Can a pointer into a region be returned from the enclosing
-  function?** The natural answer is no — the region's lifetime ends
-  at function return, so any pointer into it becomes dangling. The
-  analyzer's `E-ESCAPE-001` / `E-REGION-001` checks are meant to
-  catch this, but I have not seen the specific test. This should be
-  confirmed with a small fixture.
+  function?** Yes, in the current implementation. The checks
+  referenced in earlier revisions of this document — `E-ESCAPE-001`
+  and `E-REGION-001` — do not fire on pointer values; they fire on
+  borrow values. See "What is not enforced today" in the Safety
+  section above. Closing this gap is a future feature, not a
+  documentation fix.
 
 - **Should regions be first-class values?** Currently they are
   purely lexical. A `Region` value type with methods like

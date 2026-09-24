@@ -8,7 +8,9 @@
 > body, and `alloc(n)` (not `allocate(n)`).
 
 ## Status
-🔲 Planned (module created, not integrated)
+🟨 Partial — semantics and interpreter implemented; general pointer-
+lifetime enforcement not implemented (see `docs/features/region.md`
+for the enforcement boundary).
 
 ## Decision
 Region-based memory management for grouped allocations.

@@ -142,7 +142,11 @@ procedure main
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (ir, _) = SemanticIRBuilder::build(&functions, type_table);
+    let (ir, _) = SemanticIRBuilder::build(
+        &functions,
+        type_table,
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
 
     // Walk the IR and look for a Call to "List.length" with 1 argument.
     let mut found = false;
@@ -197,7 +201,11 @@ procedure main
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (ir, _) = SemanticIRBuilder::build(&functions, type_table);
+    let (ir, _) = SemanticIRBuilder::build(
+        &functions,
+        type_table,
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
 
     // The print must be present somewhere in the IR, not dropped.
     let has_print = ir.functions.iter().any(|f| {

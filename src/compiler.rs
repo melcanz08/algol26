@@ -10,7 +10,6 @@ use crate::frontend::lexer::Lexer;
 use crate::frontend::module_loader::ModuleLoader;
 use crate::frontend::parser::Parser;
 use crate::ir::instantiation_plan::InstantiationPlan;
-use crate::ir::monomorphize::Monomorphizer;
 use crate::ir::semantic_ir::SemanticProgram;
 use crate::ir::verified_ir::VerifiedIR;
 use crate::semantics::analyzer::SemanticAnalyzer;
@@ -56,7 +55,6 @@ pub struct FrontendTimings {
     pub imports: std::time::Duration,
     pub desugar: std::time::Duration,
     pub expand: std::time::Duration,
-    pub mono: std::time::Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -237,12 +235,12 @@ pub fn build_semantic_ir_program(
         crate::frontend::ast::ExprId,
         crate::common::types::Type,
     >,
+    plan: crate::ir::instantiation_plan::InstantiationPlan,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
 
-    let (program, diagnostics) = SemanticIRBuilder::build(functions, type_table_id);
-
+    let (program, diagnostics) = SemanticIRBuilder::build(functions, type_table_id, plan);
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
             Diagnostic::Warning(diag.to_string()).display();
@@ -293,10 +291,6 @@ impl Compiler {
         let parsed = self.expand_impl_methods(&parsed);
         let expand = start.elapsed();
 
-        let start = Instant::now();
-        let parsed = self.monomorphize(&parsed);
-        let mono = start.elapsed();
-
         // Assign stable ExprId to every node. After this point no AST
         // transformation may construct new Expr nodes; `type_check_program`
         // enforces this.
@@ -316,7 +310,6 @@ impl Compiler {
                 imports,
                 desugar,
                 expand,
-                mono,
             },
         })
     }
@@ -634,7 +627,6 @@ impl Compiler {
         let imports_time = prep.timings.imports;
         let desugar_time = prep.timings.desugar;
         let expand_time = prep.timings.expand;
-        let mono_time = prep.timings.mono;
 
         // Hand the parsed AST to the pipeline.
         program.ast = Some(AstPayload {
@@ -693,7 +685,6 @@ impl Compiler {
             eprintln!("  Imports:    {:.4}s", imports_time.as_secs_f64());
             eprintln!("  Desugar:    {:.4}s", desugar_time.as_secs_f64());
             eprintln!("  Expand:     {:.4}s", expand_time.as_secs_f64());
-            eprintln!("  Mono:       {:.4}s", mono_time.as_secs_f64());
             eprintln!("  TypeCheck:  {:.4}s", type_check_time.as_secs_f64());
             eprintln!("  IR Build:   {:.4}s", ir_build_time.as_secs_f64());
             eprintln!("  Verify(1):  {:.4}s", verify_pre_time.as_secs_f64());
@@ -729,18 +720,6 @@ impl Compiler {
 
         ParsedProgram {
             functions: Rc::new(all_functions),
-            traits: parsed.traits.clone(),
-            impls: parsed.impls.clone(),
-        }
-    }
-
-    fn monomorphize(&self, parsed: &ParsedProgram) -> ParsedProgram {
-        let mut monomorphizer = Monomorphizer::new();
-        monomorphizer.collect_instantiations(&parsed.functions);
-        let specialized_functions = monomorphizer.monomorphize(&parsed.functions);
-
-        ParsedProgram {
-            functions: Rc::new(specialized_functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
         }

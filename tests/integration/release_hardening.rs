@@ -11,7 +11,11 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
-    SemanticIRBuilder::build(&program.functions, std::collections::HashMap::new())
+    SemanticIRBuilder::build(
+        &program.functions,
+        std::collections::HashMap::new(),
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    )
 }
 fn run_interp(prog: SemanticProgram) -> String {
     let mut interp = Interpreter::new(prog);
@@ -145,8 +149,11 @@ fn test_negative_corpus_no_ice() {
             let prog = prog_res.unwrap();
             let mut functions = prog.functions;
             assign_expr_ids(&mut functions);
-            let (_ir, diags) =
-                SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
+            let (_ir, diags) = SemanticIRBuilder::build(
+                &functions,
+                std::collections::HashMap::new(),
+                algol26::ir::instantiation_plan::InstantiationPlan::default(),
+            );
             let mut analyzer = algol26::semantics::analyzer::SemanticAnalyzer::new();
             let analyzer_invalid = analyzer.analyze(&functions).is_err();
             let is_invalid = !diags.is_empty() || analyzer_invalid;

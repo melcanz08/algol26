@@ -41,6 +41,7 @@ impl Pass<Program> for BuildSemanticIRPass {
         match crate::compiler::build_semantic_ir_program(
             &typed.functions,
             typed.type_table_id.clone(),
+            typed.plan.clone(),
         ) {
             Ok(sem) => {
                 program.semantic_ir = Some(sem);

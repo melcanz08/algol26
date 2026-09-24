@@ -26,7 +26,11 @@ fn build_and_run(source: &str) -> (SemanticProgram, Vec<String>, String) {
         .expect("semantic analysis failed");
     let type_table = analyzer.take_type_table_id();
 
-    let (ir, diagnostics) = SemanticIRBuilder::build(&functions, type_table);
+    let (ir, diagnostics) = SemanticIRBuilder::build(
+        &functions,
+        type_table,
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
 
     let mut interpreter = Interpreter::new(ir.clone());
     let output = interpreter.run().unwrap_or_default();

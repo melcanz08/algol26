@@ -10,6 +10,7 @@ use crate::common::types::Type;
 use crate::frontend::ast::{
     BinOp, Expr, ExprId, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, Stmt,
 };
+use crate::ir::instantiation_plan::{InstantiationPlan, Specialization};
 use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
     SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
@@ -51,6 +52,11 @@ pub struct SemanticIRBuilder {
     /// specialization; read by `type_of_expr` to substitute `T` in
     /// the analyzer's recorded types under the correct environment.
     pub(super) current_subst: HashMap<String, Type>,
+    /// The specialization plan produced by the analyzer. Read by
+    /// `build_impl` to emit one `SemanticFunction` per concrete
+    /// specialization, and by `resolved_callee_name` to rewrite
+    /// generic call sites to their mangled symbols. Stage 3.2d.
+    pub(super) plan: InstantiationPlan,
 }
 
 #[allow(dead_code)]
@@ -64,6 +70,7 @@ impl SemanticIRBuilder {
     pub fn build(
         functions: &[FunctionDecl],
         type_table_id: HashMap<ExprId, Type>,
+        plan: InstantiationPlan,
     ) -> (SemanticProgram, Vec<String>) {
         let mut builder = SemanticIRBuilder {
             scopes: vec![HashMap::new()],
@@ -76,9 +83,50 @@ impl SemanticIRBuilder {
             pending_merge: None,
             type_table_id,
             current_subst: HashMap::new(),
+            plan,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
+    }
+    /// Resolve a syntactic callee name to the name that should
+    /// actually be emitted. If the call site has a plan entry, this
+    /// substitutes the enclosing specialization's bindings into the
+    /// recorded type arguments and looks up the specialization's
+    /// mangled name. Diagnostics are pushed (rather than silently
+    /// falling back) when the call is generic but the plan cannot
+    /// resolve it — the call-site invariant from ADR 0013.
+    pub(super) fn resolved_callee_name(&mut self, expr: &Expr, fallback: &str) -> String {
+        let Some(csi) = self.plan.call_sites.get(&expr.id).cloned() else {
+            return fallback.to_string();
+        };
+
+        let concrete_args: Vec<Type> = csi
+            .type_args
+            .iter()
+            .map(|t| t.substitute(&self.current_subst))
+            .collect();
+
+        if concrete_args.iter().any(|t| t.contains_unresolved()) {
+            self.diagnostics.push(format!(
+                "Generic call to `{}` still has unresolved type arguments \
+                 after substitution; transitive specialization discovery \
+                 is not yet implemented (Stage 3.2e)",
+                csi.function,
+            ));
+            return fallback.to_string();
+        }
+
+        match self.plan.specialization_for(&csi.function, &concrete_args) {
+            Some(spec) => spec.mangled_name.clone(),
+            None => {
+                self.diagnostics.push(format!(
+                    "Generic call to `{}` has no matching specialization in the plan; \
+                     the analyzer did not record this instantiation",
+                    csi.function,
+                ));
+                fallback.to_string()
+            }
+        }
     }
     /// Base name of a type, ignoring generic arguments: `List<Float>` → `"List"`.
     fn base_type_name(ty: &Type) -> Option<&'static str> {
@@ -175,6 +223,7 @@ mod substitution_tests {
             pending_merge: None,
             type_table_id,
             current_subst: subst,
+            plan: InstantiationPlan::default(),
         }
     }
 
@@ -208,5 +257,14 @@ mod substitution_tests {
         let expr = Expr::new(ExprKind::Int(0, Span::default()));
         let builder = make_builder(ExprId(9999), Type::Int, HashMap::new());
         assert_eq!(builder.type_of_expr(&expr), None);
+    }
+
+    #[test]
+    fn resolved_callee_name_returns_fallback_for_non_generic_call() {
+        use crate::frontend::ast::{Expr, ExprKind};
+        let expr = Expr::new(ExprKind::Int(0, Span::default()));
+        let mut builder = make_builder(expr.id, Type::Int, HashMap::new());
+        builder.plan = InstantiationPlan::default();
+        assert_eq!(builder.resolved_callee_name(&expr, "foo"), "foo");
     }
 }

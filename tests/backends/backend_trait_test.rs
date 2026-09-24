@@ -20,7 +20,11 @@ fn build_semantic_ir(
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
     let functions = program.functions;
-    let (ir, diagnostics) = SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
+    let (ir, diagnostics) = SemanticIRBuilder::build(
+        &functions,
+        std::collections::HashMap::new(),
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
     (ir, diagnostics, functions)
 }
 

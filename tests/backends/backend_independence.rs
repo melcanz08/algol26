@@ -22,7 +22,11 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         .unwrap();
 
     let type_table = analyzer.take_type_table_id();
-    SemanticIRBuilder::build(&functions, type_table)
+    SemanticIRBuilder::build(
+        &functions,
+        type_table,
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    )
 }
 
 #[test]

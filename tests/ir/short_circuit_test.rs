@@ -19,7 +19,11 @@ fn run(source: &str) -> String {
         .analyze_with_spans(&functions, &program.traits, &program.impls)
         .unwrap();
     let type_table = analyzer.take_type_table_id();
-    let (ir, _) = SemanticIRBuilder::build(&functions, type_table);
+    let (ir, _) = SemanticIRBuilder::build(
+        &functions,
+        type_table,
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
     Interpreter::new(ir).run().unwrap()
 }
 

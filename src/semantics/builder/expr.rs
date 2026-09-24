@@ -153,11 +153,12 @@ impl SemanticIRBuilder {
                         .iter()
                         .map(|a| self.translate_expr(program, func, current_block, a))
                         .collect();
+                    let emitted_name = self.resolved_callee_name(value, func_name);
                     self.safe_push_instruction(
                         func,
                         current_block,
                         Instruction::Call {
-                            func: func_name.clone(),
+                            func: emitted_name,
                             args: typed_args,
                             result: Some(name.clone()),
                         },
@@ -459,11 +460,12 @@ impl SemanticIRBuilder {
                         .iter()
                         .map(|a| self.translate_expr(program, func, current_block, a))
                         .collect();
+                    let emitted_name = self.resolved_callee_name(expr, func_name);
                     self.safe_push_instruction(
                         func,
                         current_block,
                         Instruction::Call {
-                            func: func_name.clone(),
+                            func: emitted_name,
                             args: typed_args,
                             result: None,
                         },
@@ -740,18 +742,30 @@ impl SemanticIRBuilder {
                 // ─── UNIFY TYPES ─── return type comes from the analyzer.
                 let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
-                let coerced_args = if let Some(sig) = self.function_types.get(clean_name).cloned() {
-                    typed_args
-                        .into_iter()
-                        .zip(sig.params.iter())
-                        .map(|(a, (_, t))| self.coerce_value(a, t))
-                        .collect()
-                } else {
-                    typed_args
-                };
+                // Rewrite the callee to its mangled specialization name
+                // if this call has a plan entry. For non-generic calls
+                // this returns `clean_name` unchanged.
+                let emitted_name = self.resolved_callee_name(expr, clean_name);
+
+                let coerced_args =
+                    if let Some(sig) = self.function_types.get(&emitted_name).cloned() {
+                        typed_args
+                            .into_iter()
+                            .zip(sig.params.iter())
+                            .map(|(a, (_, t))| self.coerce_value(a, t))
+                            .collect()
+                    } else if let Some(sig) = self.function_types.get(clean_name).cloned() {
+                        typed_args
+                            .into_iter()
+                            .zip(sig.params.iter())
+                            .map(|(a, (_, t))| self.coerce_value(a, t))
+                            .collect()
+                    } else {
+                        typed_args
+                    };
 
                 TypedIRValue::Call {
-                    function: clean_name.to_string(),
+                    function: emitted_name,
                     args: coerced_args,
                     return_type,
                 }

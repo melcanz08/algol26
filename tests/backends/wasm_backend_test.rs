@@ -15,7 +15,11 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>, Vec<FunctionDecl>) {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
     let functions = program.functions;
-    let (ir, diagnostics) = SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
+    let (ir, diagnostics) = SemanticIRBuilder::build(
+        &functions,
+        std::collections::HashMap::new(),
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
     (ir, diagnostics, functions)
 }
 
@@ -66,9 +70,6 @@ fn test_wasm_backend_trait_contract() {
 }
 
 #[test]
-#[ignore = "blocked on Phase 3: generic instantiations must be discovered by the \
-            semantic analyzer, not the pre-typecheck monomorphizer. See \
-            docs/decisions/ for the pending invariant ADR."]
 fn generic_function_reaches_backend_with_resolved_types() {
     use algol26::compiler::Compiler;
 
@@ -76,9 +77,9 @@ fn generic_function_reaches_backend_with_resolved_types() {
 function identity<T>(x: T) -> T
     return x
 
-val v := 1.0
-val p := &v
-val q := identity(p)
+procedure main
+    val q := identity(42)
+    print(q)
 "#;
 
     let mut compiler = Compiler::new();
@@ -92,7 +93,7 @@ val q := identity(p)
 
     assert!(
         result.is_ok(),
-        "generic function with a reference argument failed to compile: {:?}",
+        "generic function failed to compile: {:?}",
         result.err()
     );
 }

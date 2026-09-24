@@ -21,7 +21,11 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     analyzer
         .analyze_with_traits(&functions, &traits, &impls)
         .unwrap();
-    let (ir, _) = SemanticIRBuilder::build(&functions, std::collections::HashMap::new());
+    let (ir, _) = SemanticIRBuilder::build(
+        &functions,
+        std::collections::HashMap::new(),
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
     ir
 }
 
@@ -103,7 +107,11 @@ procedure main
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (mut ir, _) = SemanticIRBuilder::build(&functions, type_table);
+    let (mut ir, _) = SemanticIRBuilder::build(
+        &functions,
+        type_table,
+        algol26::ir::instantiation_plan::InstantiationPlan::default(),
+    );
 
     let mut opt = Optimizer::new();
     opt.optimize(&mut ir);

@@ -331,3 +331,39 @@ fn type_table_complete_passes_on_conformance_suite() {
     assert!(checked > 0, "no files exercised");
     eprintln!("type_table_complete: {} files checked", checked);
 }
+
+#[test]
+fn run_pipeline_for_reaches_verified_state() {
+    use algol26::compiler::Compiler;
+
+    let source = r#"
+procedure main
+    print(42)
+"#;
+
+    let mut c = Compiler::new();
+    let verified = c
+        .run_pipeline_for(source, "pipeline_test.gol")
+        .expect("canonical pipeline should reach verified IR");
+
+    // The VerifiedIR type is the proof — arriving here means every
+    // pass in the chain ran and verification succeeded.
+    assert!(verified.function_count() >= 1);
+}
+
+#[test]
+fn run_pipeline_for_rejects_invalid_program() {
+    use algol26::compiler::Compiler;
+
+    let source = r#"
+procedure main
+    val x := undefined_variable
+"#;
+
+    let mut c = Compiler::new();
+    let result = c.run_pipeline_for(source, "pipeline_bad.gol");
+    assert!(
+        result.is_err(),
+        "canonical pipeline should reject invalid input before producing VerifiedIR",
+    );
+}

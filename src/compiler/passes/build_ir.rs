@@ -2,7 +2,7 @@
 
 use crate::compiler::context::CompilerContext;
 use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
-use crate::compiler::program::Program;
+use crate::compiler::program::{IrState, Program};
 
 pub struct BuildSemanticIRPass;
 
@@ -19,7 +19,7 @@ impl Pass<Program> for BuildSemanticIRPass {
                 "every expression has an assigned block id",
                 "the resulting program passes cfg verification",
             ],
-            may_change: &["program.semantic_ir"],
+            may_change: &["program.ir"],
             must_preserve: &["program.ast", "program.typed", "source spans"],
             may_fail: true,
         };
@@ -44,7 +44,7 @@ impl Pass<Program> for BuildSemanticIRPass {
             typed.plan.clone(),
         ) {
             Ok(sem) => {
-                program.semantic_ir = Some(sem);
+                program.ir = IrState::Built(sem);
                 Ok(())
             }
             Err(e) => Err(PassError::new(PassId("ir.build"), e.message)),

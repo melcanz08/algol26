@@ -2,7 +2,8 @@
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::compiler::context::{CompilerConfig, CompilerContext};
-use crate::compiler::program::{AstPayload, Program};
+use crate::compiler::passes::verify_ir::ReVerifyPass;
+use crate::compiler::program::{AstPayload, IrState, Program};
 use crate::frontend::ast::{
     Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, Stmt, TraitDecl, TypeSyntax,
 };
@@ -264,7 +265,7 @@ impl Compiler {
 
     /// The canonical frontend normalization sequence:
     ///
-    ///   lex → parse → imports → desugar → expand impls → monomorphize
+    ///   lex → parse → imports → desugar → expand impls → assign ExprIds
     ///
     /// Returns the resulting AST along with per-phase timings.
     /// Callers that don't surface timings ignore the second field.
@@ -330,10 +331,16 @@ impl Compiler {
 
         self.run_build_ir_pass(&mut program, &mut ctx)?;
 
-        Ok(program
-            .semantic_ir
-            .take()
-            .expect("build pass left IR in place"))
+        match std::mem::replace(&mut program.ir, IrState::Absent) {
+            IrState::Built(p) => Ok(p),
+            _ => Err(CompileError::simple(
+                "internal: build_ir pass did not produce unverified IR",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )),
+        }
     }
 
     pub fn parse_source_for(&mut self, source: &str, filename: &str) -> Result<ParsedProgram> {
@@ -366,9 +373,8 @@ impl Compiler {
             .expect("type_check pass left typed in place"))
     }
 
-    /// Runs the IR verifier through the pass pipeline. On success,
-    /// `program.verified` is set to true and `program.semantic_ir`
-    /// still holds the verified IR.
+    /// Runs `VerifyIrPass`. On success, `program.ir` is promoted
+    /// from `IrState::Built` to `IrState::Verified`.
     fn run_verify_pass(
         &self,
         program: &mut Program,
@@ -395,8 +401,6 @@ impl Compiler {
                 ErrorCode::E0002,
             ));
         }
-
-        program.verified = true;
         Ok(())
     }
 
@@ -411,13 +415,12 @@ impl Compiler {
     ) -> Result<OptimizeTimings> {
         use crate::compiler::pass::PassId;
         use crate::compiler::passes::optimize::OptimizePass;
-        use crate::compiler::passes::verify_ir::VerifyIrPass;
         use crate::compiler::pipeline::Pipeline;
         use crate::compiler::scheduler::Scheduler;
 
         let pipeline = Pipeline::builder()
             .add(OptimizePass)
-            .add(VerifyIrPass)
+            .add(ReVerifyPass)
             .build()
             .expect("optimize + verify is a valid chain — see pass-contracts.md");
 
@@ -442,13 +445,9 @@ impl Compiler {
         let verify_dur = outcome
             .timings
             .iter()
-            .find(|t| t.pass == PassId("ir.verify"))
+            .find(|t| t.pass == PassId("ir.reverify"))
             .map(|t| t.duration)
             .unwrap_or(std::time::Duration::ZERO);
-
-        // The pipeline ends with `VerifyIrPass`, so the program is
-        // verified after this returns.
-        program.verified = true;
 
         Ok(OptimizeTimings {
             optimize: optimize_dur,
@@ -457,8 +456,7 @@ impl Compiler {
     }
 
     /// Runs `BuildSemanticIRPass` through the scheduler. On success,
-    /// `program.semantic_ir` holds the fresh unverified IR and
-    /// `program.verified` is cleared.
+    /// `program.ir` holds `IrState::Built` with fresh unverified IR.
     fn run_build_ir_pass(&self, program: &mut Program, ctx: &mut CompilerContext) -> Result<()> {
         use crate::compiler::passes::build_ir::BuildSemanticIRPass;
         use crate::compiler::pipeline::Pipeline;
@@ -480,8 +478,6 @@ impl Compiler {
                 ErrorCode::E0002,
             ));
         }
-
-        program.verified = false;
         Ok(())
     }
 
@@ -505,12 +501,18 @@ impl Compiler {
         self.run_build_ir_pass(&mut program, &mut ctx)?;
         self.run_verify_pass(&mut program, &mut ctx, "before interpreter lowering")?;
 
-        let verified = VerifiedIR::from_verify_pass(
-            program
-                .semantic_ir
-                .take()
-                .expect("pipeline left IR in place"),
-        );
+        let verified = match std::mem::replace(&mut program.ir, IrState::Absent) {
+            IrState::Verified(v) => v,
+            _ => {
+                return Err(CompileError::simple(
+                    "internal: interpreter pipeline did not reach verified IR",
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0009,
+                ));
+            }
+        };
 
         crate::backends::capabilities::check_backend(
             verified.program(),
@@ -662,12 +664,18 @@ impl Compiler {
 
         // Phase 11: LOWER TO BACKEND
         let phase_start = Instant::now();
-        let verified = VerifiedIR::from_verify_pass(
-            program
-                .semantic_ir
-                .take()
-                .expect("optimize pass left IR in place"),
-        );
+        let verified = match std::mem::replace(&mut program.ir, IrState::Absent) {
+            IrState::Verified(v) => v,
+            _ => {
+                return Err(CompileError::simple(
+                    "internal: compile pipeline did not reach verified IR",
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0009,
+                ));
+            }
+        };
         self.lower_to_llvm(
             &verified,
             filename,
@@ -861,12 +869,18 @@ impl Compiler {
         self.run_build_ir_pass(&mut program, &mut ctx)?;
         self.run_verify_pass(&mut program, &mut ctx, "before WASM lowering")?;
 
-        let verified = VerifiedIR::from_verify_pass(
-            program
-                .semantic_ir
-                .take()
-                .expect("pipeline left IR in place"),
-        );
+        let verified = match std::mem::replace(&mut program.ir, IrState::Absent) {
+            IrState::Verified(v) => v,
+            _ => {
+                return Err(CompileError::simple(
+                    "internal: WASM pipeline did not reach verified IR",
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0009,
+                ));
+            }
+        };
 
         crate::backends::capabilities::check_backend(
             verified.program(),
@@ -884,7 +898,7 @@ impl Compiler {
 
 /// Assign a unique `ExprId` to every expression node, in preorder,
 /// after the last AST transformation. Called by `prepare_frontend`
-/// once, after `monomorphize`, before the AST is handed to semantic
+/// once, after impl expansion, before the AST is handed to semantic
 /// analysis.
 pub fn assign_expr_ids(functions: &mut [FunctionDecl]) {
     let mut next = 0u32;

@@ -15,7 +15,7 @@ use algol26::compiler::passes::build_ir::BuildSemanticIRPass;
 use algol26::compiler::passes::optimize::OptimizePass;
 use algol26::compiler::passes::type_check::TypeCheckPass;
 use algol26::compiler::passes::type_table_complete::TypeTableCompletePass;
-use algol26::compiler::passes::verify_ir::VerifyIrPass;
+use algol26::compiler::passes::verify_ir::{ReVerifyPass, VerifyIrPass};
 use algol26::compiler::program::Program;
 use algol26::compiler::registry::PassRegistry;
 
@@ -26,6 +26,7 @@ fn registry() -> PassRegistry<Program> {
     reg.register(BuildSemanticIRPass);
     reg.register(OptimizePass);
     reg.register(VerifyIrPass);
+    reg.register(ReVerifyPass);
     reg
 }
 
@@ -120,8 +121,9 @@ fn canonical_pipeline_builds() {
         PassId("ast.type_check"),
         PassId("ast.type_table_complete"),
         PassId("ir.build"),
-        PassId("ir.optimize"),
         PassId("ir.verify"),
+        PassId("ir.optimize"),
+        PassId("ir.reverify"),
     ];
     registry()
         .build_pipeline(&ids)

@@ -6,12 +6,13 @@
 //! `compile()` now routes through the pass; the direct call is kept
 //! here as an independent oracle. If this test ever fails, the pass
 //! is not a faithful adapter and something in the pipeline is wrong.
+
 use algol26::compiler::context::{CompilerConfig, CompilerContext};
 use algol26::compiler::pass::{Pass, PassKind};
 use algol26::compiler::passes::build_ir::BuildSemanticIRPass;
 use algol26::compiler::passes::optimize::OptimizePass;
-use algol26::compiler::passes::verify_ir::VerifyIrPass;
-use algol26::compiler::program::Program;
+use algol26::compiler::passes::verify_ir::{ReVerifyPass, VerifyIrPass};
+use algol26::compiler::program::{IrState, Program};
 use algol26::compiler::Compiler;
 use algol26::ir::optimizer::Optimizer;
 use algol26::ir::semantic_ir::SemanticProgram;
@@ -72,9 +73,9 @@ fn verify_pass_agrees_with_direct_call_on_conformance_valid() {
         // Path B: through the pass.
         let mut ctx = CompilerContext::new(CompilerConfig::default());
         let mut program = Program::new(&source, &filename);
-        program.semantic_ir = Some(sem);
+        program.ir = IrState::Built(sem);
         let pass = VerifyIrPass;
-        assert_eq!(pass.contract().kind, PassKind::Verification);
+        assert_eq!(pass.contract().kind, PassKind::Lowering);
         let new = pass.run(&mut ctx, &mut program);
 
         assert_eq!(
@@ -132,13 +133,14 @@ fn optimize_pass_produces_identical_ir_to_direct_call() {
 
         // Path B: through the pass.
         let pipeline = Pipeline::builder()
-            .add(OptimizePass)
             .add(VerifyIrPass)
+            .add(OptimizePass)
+            .add(ReVerifyPass)
             .build()
             .unwrap();
         let mut ctx = CompilerContext::new(CompilerConfig::default());
         let mut program = Program::new("", "");
-        program.semantic_ir = Some(ir_b);
+        program.ir = IrState::Built(ir_b);
         let outcome = Scheduler::default().run(&pipeline, &mut ctx, &mut program);
         assert!(
             outcome.succeeded(),
@@ -146,8 +148,10 @@ fn optimize_pass_produces_identical_ir_to_direct_call() {
             filename,
             outcome.failure
         );
-        let ir_b = program.semantic_ir.take().unwrap();
-
+        let ir_b = match program.ir {
+            IrState::Verified(v) => v.program().clone(),
+            _ => panic!("optimize pipeline did not produce verified IR"),
+        };
         assert_eq!(
             format!("{:?}", ir_a),
             format!("{:?}", ir_b),
@@ -207,7 +211,10 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
             filename,
             outcome.failure
         );
-        let via_pass: SemanticProgram = program.semantic_ir.take().unwrap();
+        let via_pass: SemanticProgram = match program.ir {
+            IrState::Built(p) => p,
+            _ => panic!("build_ir pass did not produce unverified IR"),
+        };
 
         assert_eq!(
             format!("{:?}", direct),

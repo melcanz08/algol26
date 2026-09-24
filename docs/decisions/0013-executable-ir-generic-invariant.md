@@ -368,3 +368,42 @@ Both must go.
   deletes.
 - `tests/backends/wasm_backend_test.rs::generic_function_reaches_backend_with_resolved_types`
   — the acceptance test.
+## Call-site instantiation diagnostic
+
+The executable-IR invariant has a call-site corollary:
+
+> Every generic call in executable IR resolves to a concrete
+> specialization present in the InstantiationPlan. A generic call
+> whose plan entry is missing, symbolic, or names a specialization
+> the plan does not contain is a compiler error at the call site.
+
+This corollary is enforced indirectly by three components:
+
+1. `InstantiationPlan::close` establishes it by construction:
+   after `close`, every symbolic call site inside a specialization's
+   body is substituted under that specialization's bindings and, if
+   concrete, materialized as a new specialization in the same plan.
+
+2. `resolved_callee_name` in the IR builder consults
+   `plan.call_sites` and returns the specialization's mangled name.
+   When the entry is symbolic (contains `TypeVar` or `Unknown` after
+   substitution) or when the plan lacks the corresponding
+   specialization, it pushes a structured diagnostic and returns
+   the bare template name as a fallback.
+
+3. The fallback name is not registered in the executable program, so
+   `SemanticProgram::verify` rejects it with "Call to undefined
+   function 'X'". Verification fails before any backend runs.
+
+A direct check -- walk every generic call in executable IR, look up
+its ExprId in `plan.call_sites`, assert the specialization exists --
+is not possible in the current architecture because
+`SemanticInstruction` and `TypedIRValue` do not carry ExprIds. The
+verifier cannot match a call in executable IR to a plan entry.
+
+The three-step enforcement above is what the architecture supports
+today. It is fail-closed: any break in the chain produces a named
+compiler error before codegen. If a future refactor threads ExprIds
+into executable IR, the direct check becomes possible and the
+`resolved_callee_name` fallback can be replaced by a hard error at
+build time.

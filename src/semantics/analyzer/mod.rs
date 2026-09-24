@@ -86,6 +86,12 @@ pub struct SemanticAnalyzer {
     /// loop's entry depth — that shape would skip the region's
     /// `RegionExit` and leak its allocations until function return.
     loop_stack: Vec<LoopContext>,
+    /// Unsafe-block depth. Zero outside any `unsafe { ... }`. The
+    /// operations gated by ADR 0015 — raw pointer deref, `alloc`,
+    /// `free` — are permitted only when this is greater than zero.
+    /// A depth counter rather than a bool because unsafe blocks
+    /// nest.
+    unsafe_depth: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +163,7 @@ impl SemanticAnalyzer {
             current_span: Span::default(),
             region_depth: 0,
             loop_stack: Vec::new(),
+            unsafe_depth: 0,
         }
     }
 

@@ -394,10 +394,19 @@ impl SemanticAnalyzer {
                 }
             }
             Stmt::UnsafeBlock { body, .. } => {
+                // ADR 0015: unsafe blocks are the only context in which
+                // raw pointer dereference, `alloc`, and `free` are
+                // permitted. The depth counter is incremented before the
+                // body and decremented after; nested unsafe blocks nest
+                // the counter. Matches the RegionBlock arm's shape — on
+                // an error, `?` aborts the analysis, so the counter's
+                // final value does not matter.
                 self.push_scope();
+                self.unsafe_depth += 1;
                 for s in body {
                     self.analyze_stmt(s)?;
                 }
+                self.unsafe_depth -= 1;
                 self.pop_scope();
             }
             Stmt::RegionBlock { name: _, body, .. } => {

@@ -549,3 +549,122 @@ procedure main
         "non-generic calls should not produce instantiation records"
     );
 }
+
+// ─── ADR 0015: unsafe enforcement ──────────────────────────────
+//
+// Two operations are gated by `unsafe` blocks: raw pointer
+// dereference and the `alloc`/`free` builtins. `AddrOf` on a
+// non-place expression is already rejected unconditionally and
+// is not affected by these tests.
+
+/// Parse `source`, assign ExprIds, run the analyzer. Local to
+/// this test group so it does not collide with the module's
+/// other helpers.
+fn analyze_unsafe(source: &str) -> Result<()> {
+    use crate::compiler::assign_expr_ids;
+    use crate::frontend::lexer::Lexer;
+    use crate::frontend::parser::Parser;
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer.analyze_with_traits(&functions, &program.traits, &program.impls)
+}
+
+#[test]
+fn test_alloc_outside_unsafe_rejected() {
+    let source = r#"
+procedure main
+    val p := alloc(4)
+"#;
+    let err = analyze_unsafe(source).unwrap_err();
+    assert!(
+        err.message.contains("unsafe"),
+        "expected `unsafe` diagnostic, got: {}",
+        err.message,
+    );
+}
+
+#[test]
+fn test_alloc_inside_unsafe_accepted() {
+    let source = r#"
+procedure main
+    unsafe
+        val p := alloc(4)
+"#;
+    analyze_unsafe(source).expect("alloc inside unsafe should be accepted");
+}
+
+#[test]
+fn test_free_inside_unsafe_accepted() {
+    let source = r#"
+procedure main
+    unsafe
+        val p := alloc(4)
+        free(p)
+"#;
+    analyze_unsafe(source).expect("free inside unsafe should be accepted");
+}
+
+#[test]
+fn test_nested_unsafe_depth() {
+    // A free nested inside two unsafe blocks sees unsafe_depth == 2
+    // and is accepted. Exercises the increment/decrement pairing.
+    let source = r#"
+procedure main
+    unsafe
+        unsafe
+            val p := alloc(4)
+            free(p)
+"#;
+    analyze_unsafe(source).expect("nested unsafe blocks should be accepted");
+}
+
+#[test]
+fn test_unsafe_does_not_leak_across_block_boundary() {
+    // After an unsafe block ends, unsafe_depth returns to zero,
+    // so an operation in a subsequent statement is rejected.
+    let source = r#"
+procedure main
+    unsafe
+        val q := alloc(4)
+        free(q)
+    val p := alloc(8)
+"#;
+    let err = analyze_unsafe(source).unwrap_err();
+    assert!(
+        err.message.contains("unsafe"),
+        "expected `unsafe` diagnostic after block close, got: {}",
+        err.message,
+    );
+}
+
+#[test]
+fn test_deref_pointer_parameter_outside_unsafe_rejected() {
+    // Dereferencing a parameter of raw-pointer type is gated the
+    // same way `alloc` is. If the type-annotation parser does
+    // not accept `Pointer<Int>` as a parameter type, replace
+    // with the syntax the language actually uses.
+    let source = r#"
+procedure use_pointer(p: Pointer<Int>)
+    val x := *p
+"#;
+    let err = analyze_unsafe(source).unwrap_err();
+    assert!(
+        err.message.contains("unsafe"),
+        "expected `unsafe` diagnostic for pointer deref, got: {}",
+        err.message,
+    );
+}
+
+#[test]
+fn test_deref_pointer_parameter_inside_unsafe_accepted() {
+    let source = r#"
+procedure use_pointer(p: Pointer<Int>)
+    unsafe
+        val x := *p
+"#;
+    analyze_unsafe(source).expect("pointer deref inside unsafe should be accepted");
+}

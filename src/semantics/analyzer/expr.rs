@@ -100,7 +100,28 @@ impl SemanticAnalyzer {
 
                 let inner_type = self.analyze_expr(expr)?;
                 match inner_type {
-                    Type::Pointer(t) => Ok(*t),
+                    Type::Pointer(t) => {
+                        // ADR 0015: raw pointer dereference requires
+                        // an unsafe block. `Borrow<T>` and `MutBorrow<T>`
+                        // are the safe reference forms and pass through
+                        // unchecked; only the raw-pointer variant is
+                        // gated. The null checks above fire first, so
+                        // `*null` still reports the null deref.
+                        if self.unsafe_depth == 0 {
+                            return Err(CompileError::simple(
+                                "Cannot dereference a raw pointer outside `unsafe`",
+                                self.current_span.start_line,
+                                self.current_span.start_column,
+                                "",
+                                ErrorCode::E0007,
+                            )
+                            .with_suggestion(
+                                "Wrap the dereference in `unsafe { ... }`, or \
+                                 use `&T` / `&mut T` for a checked reference",
+                            ));
+                        }
+                        Ok(*t)
+                    }
                     Type::Borrow(t) => Ok(*t),
                     Type::MutBorrow(t) => Ok(*t),
                     _ => Ok(Type::Unknown),
@@ -859,6 +880,27 @@ impl SemanticAnalyzer {
                             )));
                         }
                     }
+                }
+
+                // ADR 0015: `alloc` and `free` manipulate raw memory
+                // directly and require an unsafe block. Both are
+                // registered builtins, so `clean_name` is stable.
+                // Checked before the arity check — "you need unsafe"
+                // is a more useful first diagnostic than "wrong
+                // argument count" when the surrounding code is
+                // already outside a safety boundary.
+                if (clean_name == "alloc" || clean_name == "free") && self.unsafe_depth == 0 {
+                    return Err(CompileError::simple(
+                        &format!("`{}` requires an `unsafe` block", clean_name),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(&format!(
+                        "Wrap the `{}` call in `unsafe {{ ... }}`",
+                        clean_name,
+                    )));
                 }
 
                 let func_info = self.functions.get(clean_name).cloned().ok_or_else(|| {

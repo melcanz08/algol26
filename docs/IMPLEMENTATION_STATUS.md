@@ -1,10 +1,39 @@
 # ALGOL26 Implementation Status
 
-Last updated: 2026-09-21
+Last updated: 2026-09-24
 
 This document records what actually works, verified by the differential
 corpus in `tests/corpus/`. A feature is only listed as "works" if there
 is at least one corpus program exercising it end-to-end.
+
+## Changes since 2026-09-21
+
+Convergence work: Phases 0–7 of the migration in
+`ALGOL26_CONVERGENCE_MAP.md`.
+
+- **Compiler pipeline.** One canonical pipeline
+  (`Compiler::run_pipeline`) shared by `compile`, `run_interpreter`,
+  and `compile_to_wasm`. See ADR 0018.
+- **VerifiedIR typestate.** `Program::verified: bool` replaced by an
+  `IrState` enum (`Absent` / `Built` / `Verified`). See ADR 0017.
+- **Per-function dataflow.** Every function is analyzed;
+  parameters seed the entry state; diagnostics are deduplicated.
+  See ADR 0016.
+- **Executable-IR invariant check.** `crate::ir::verifier::invariants`
+  rejects `Type::TypeVar` in executable IR. See ADR 0014.
+- **Generic instantiation closure.** `InstantiationPlan::close`
+  materializes transitive specializations. The pipeline no longer
+  calls a pre-typecheck `Monomorphizer`. See ADR 0013.
+- **Unsafe enforcement.** Raw pointer dereference, `alloc`, and
+  `free` are permitted only inside `unsafe` blocks. See ADR 0015.
+- **Backend capability truth.** `Feature::References`,
+  `Feature::Channels` refusal, and iterator-metadata fail-closed
+  behavior. See ADRs 0019–0021.
+- **Removed:** dormant `CaptureMode` field on `VariableInfo`.
+- **Removed:** `escape.rs`, `flow_analyzer.rs`, `control_flow.rs`,
+  `span_map`, `TerminatorKind`, `OptimizationReport`.
+- **Docs:** `docs/features/region.md` and `docs/features/unsafe.md`
+  corrected to describe what is enforced, not what was intended.
 
 ## Changes since 2026-09-14
 
@@ -124,10 +153,10 @@ the pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | `try` / `catch` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | Traits + impls | ✅ | ✅ | ✅ | ⚠️ | 28, 29, 37 |
-| `region` | ✅ | ✅ | ✅ | ⚠️ | 30, 31 |
-| `unsafe` | ✅ | ✅ | ✅ | ⚠️ | 32, 33 |
+| `region` | ✅ | ✅ | ✅ | ✅ | 30, 31 |
+| `unsafe` | ✅ | ✅ | ✅ | ✅ | 32, 33 |
 | `spawn` / `parallel` | ✅ | ✅ | ✅ | ⛔ | — |
-| `channel` / `send` / `receive` | ✅ | ✅ | ❌ | ❌ | 23–26 |
+| `channel` / `send` / `receive` | ✅ | ✅ | ⛔ | ⛔ | 23–26 |
 | `alloc` in `var` position | ✅ | ❓ | ❓ | ❓ | — |
 | `alloc(x)` as statement | ✅ | ✅ | ✅ | ❓ | — |
 | `free` | ✅ | ✅ | ✅ | ❓ | — |
@@ -169,17 +198,12 @@ programs.
   runtime — references are addresses, not aliased Rust-style
   references — but looser than Rust.
 
-- **`escape.rs` is not wired into the pipeline.** The module
-  implements a reference-outlives-scope analysis, but no pass
-  constructs an `EscapeAnalyzer` or consumes its output. Escape
-  detection is therefore not part of the compiler's safety story
-  yet, despite being referenced by ADR 0005. Either wire it up or
-  delete it; right now it is unused.
-
-- **`flow_analyzer.rs` is a stub.** Definite-assignment analysis,
-  reachability of variable uses, and borrow-state joins at CFG
-  merge points are not implemented. See the module doc comment for
-  the explicit statement of scope.
+- **No general pointer-lifetime enforcement.** Region exit frees
+  allocations, but no check rejects a pointer value that outlives
+  its source region. Returning a region-allocated pointer, storing
+  one in an outer-scope variable, or returning a reference inside
+  an aggregate are all accepted. See `docs/features/region.md`,
+  section "What is not enforced today".
 
 ### IR correctness
 
@@ -213,15 +237,14 @@ Fixed in the Canonical IR session (2026-09-19 / 2026-09-20):
 
 Deferred (design/cleanup, not correctness bugs):
 
-- `VerifiedIR::from_verify_pass` is a `pub(crate)` typestate hole;
-  relies on caller discipline.
 - `builtins.rs` signature table is hand-synced with
   `builder/build.rs`; no test enforces the sync.
 - Dominance-aware constant propagation would allow cross-block
   folding (currently disabled to preserve correctness).
-- Data-flow joins at CFG merges use first-visited-wins, not a
-  proper fixed-point.
-- `Spawn`/`Fork` capture semantics are not verified.
+- `Spawn`/`Fork` capture semantics are not verified. The
+  `CaptureMode` field intended to carry this information was
+  removed in this session. Adding real capture verification
+  requires its own ADR. See `docs/decisions/0008-concurrency-model.md`.
 
 ### Backend audit
 
@@ -255,10 +278,6 @@ Fixed (cumulative through 2026-09-21):
 
 Open (not fixed):
 
-- `IteratorNext` fallback guesses arrays when `IteratorInit` did
-  not record the iterator. Root cause: list-typed function
-  parameters are not handled by `IteratorInit`. Two corpus
-  programs hit this. Fix requires extending `IteratorInit`.
 - WASM output has unresolved C library imports (`printf`, `exit`,
   `sqrt`, `strlen`, `strcat`). Module is not executable without a
   host shim. Needs a design decision.
@@ -289,9 +308,9 @@ Open (not fixed):
 
 - **Channels** (`corpus_23`–`corpus_26`). Parser and analyzer
   support `channel c: T`, `send c, v`, and `receive c into x`.
-  The IR builder pushes `SemanticInstruction::SendChannel` /
-  `ReceiveChannel`, but no backend executes them. `send` and
-  `receive` are effectively no-ops.
+  All three backends refuse channel programs at the capability
+  boundary. The interpreter's channel instruction arms return
+  `EvalError::Unsupported` as a defensive guard. See ADR 0020.
 
 ## Conventions
 

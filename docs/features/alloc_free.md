@@ -284,11 +284,12 @@ program, the LLVM codegen will produce the corresponding C
 
 ### WASM
 
-Raw memory is supported in WASM (WASM has a linear memory model),
-but I have not read the WASM lowering code for `alloc`/`free`.
-The capability matrix presumably accepts raw memory on WASM; this
-should be verified before treating WASM as a supported backend
-for this feature.
+WASM refuses `alloc` and `free` at the capability boundary. The
+WASM capability set is empty, so `Feature::RawMemory` is not
+supported. A program using `alloc` or `free` fails the capability
+check before codegen. The WASM codegen shares `IRCodeGen` with
+LLVM and would lower `malloc` / `free` if reached, but the
+capability check prevents that path.
 
 ## Diagnostics
 
@@ -469,11 +470,13 @@ outside them), you need to touch:
   reject any use of a `Freed` pointer. Not currently implemented.
 
 - **Should `alloc` inside a region be allowed to escape the region?**
-  Currently, no — a pointer allocated in region `r` cannot be stored
-  in a location that outlives `r`. This is enforced by the region
-  escape analysis. A future extension could allow `leak(p)` to
-  detach an allocation from its region and promote it to the caller's
-  region, but this is not currently supported.
+  Currently, yes — a pointer allocated in region `r` can be stored
+  in a location that outlives `r`. The region escape analysis does
+  not track pointer values; it tracks borrows. See
+  `docs/features/region.md`, section "What is not enforced today".
+  A future extension could add `leak(p)` to detach an allocation
+  from its region and promote it to the caller's region; not
+  currently planned.
 
 - **How does the runtime module `region_memory.rs` relate to the
   interpreter's heap model?** They are parallel implementations of

@@ -168,45 +168,29 @@ See `src/ir/cfg/builder.rs` for the translation, and
 
 | Backend | Support | Evidence |
 |---|---|---|
-| Interpreter | **Partial** — declaration, send, receive all no-op | See below |
-| LLVM | **Unsupported** | No lowering; capability check refuses |
-| WASM | **Unsupported** | `wasm_rejects_channels` in `src/backends/capabilities/tests.rs` |
+| Interpreter | **Refused** | `interpreter_rejects_channels` in `src/backends/capabilities/tests.rs` |
+| LLVM | **Refused** | `llvm_rejects_channels` in `src/backends/capabilities/tests.rs` |
+| WASM | **Refused** | `wasm_rejects_channels` in `src/backends/capabilities/tests.rs` |
 
 ### Interpreter behavior
 
-The interpreter's module doc says:
-
-> Not supported:
-> - channel send/receive (no-op instructions).
-
-In `src/backends/interpreter/mod.rs`, the channel instruction arms are:
+The interpreter refuses channel programs at the capability boundary.
+The three channel instruction arms return `EvalError::Unsupported`
+as a defensive guard:
 
 ```rust
-Instruction::ChannelDecl { .. } => {}
-Instruction::Send { .. } => {}
-Instruction::Receive { .. } => {}
-Instruction::ChannelSend { .. } => {}
-Instruction::ChannelReceive { .. } => {}
+Instruction::ChannelDecl { .. } => Err(EvalError::Unsupported { ... }),
+Instruction::SendChannel { .. } => Err(EvalError::Unsupported { ... }),
+Instruction::ReceiveChannel { .. } => Err(EvalError::Unsupported { ... }),
 ```
+The capability check runs before execution, so a channel program
+never reaches these arms. They exist as a second line of defense
+in case a future producer bypasses the check.
 
-**These are silent no-ops, not fail-closed errors.** A program that
-sends on a channel and then receives will receive `Void` (or whatever
-the target's default is), not the sent value. This is a Tier 2
-(fail-closed) gap: the interpreter should return
-`EvalError::Unsupported` for these instructions until a real queue
-implementation exists.
-
-The corpus tests `corpus_23_channel_int.gol`,
-`corpus_24_channel_string.gol`, `corpus_25_two_channels.gol`,
-`corpus_26_spawn_channel.gol` currently pass — because they only
-exercise the *analyzer* (which accepts the channel constructs) and
-not the *runtime semantics* (which would fail if the interpreter had
-a real queue). Once the interpreter's no-ops become errors, those
-corpus tests will need to be re-examined.
-
-This is the most important open issue in this contract. The channel
-feature is Stable in the analyzer and partial in the runtime, and
-the gap is silent.
+The four corpus programs corpus_23_channel_int.gol,
+corpus_24_channel_string.gol, corpus_25_two_channels.gol, and
+corpus_26_spawn_channel.gol exercise the analyzer. They do not
+execute on any backend. See ADR 0020 for the decision.
 
 ### LLVM and WASM refusal
 

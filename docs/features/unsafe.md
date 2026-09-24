@@ -3,17 +3,17 @@
 > Per-feature contract, following the pattern described in `docs/architecture-direction.md`.
 > This file is the authoritative answer to "what is `unsafe` in ALGOL26, and where does it live?"
 
-## Status: partial — parsed, not enforced
+## Status: enforced (ADR 0015)
 
-**This is the only feature contract in this directory whose status is
-not "Stable."** The reason is simple: `unsafe` is currently a
-syntactic construct with no semantics. It parses, it appears in the
-AST, and then it does nothing. The analyzer, the IR, and every
-backend treat `unsafe { ... }` identically to a plain block.
+The `unsafe` keyword is enforced for two operations: raw pointer
+dereference and the `alloc` / `free` builtins. Operations that
+require an unsafe block outside one are rejected at analysis time.
+`AddrOf` on a non-place expression is rejected unconditionally —
+inside and outside unsafe blocks — by a pre-existing check that
+ADR 0015 does not change.
 
-This contract documents the current state, the intended design (per
-ADR 0009), and the concrete work needed to bridge the two. It is a
-Tier 2 item, not a Tier 1 stable feature.
+See `docs/decisions/0015-unsafe-enforcement.md` for the decision
+and `docs/decisions/0009-unsafe.md` for the original design intent.
 
 ## Summary
 
@@ -37,14 +37,14 @@ promise that the author has manually verified the local invariants.
 
 | Layer | Present? | Location |
 |---|---|---|
-| Lexer keyword | yes | `src/frontend/lexer/mod.rs:198` — `m.insert("unsafe", Token::Unsafe)` |
-| Parser | yes | `src/frontend/parser/stmt.rs:381` — `parse_unsafe()` |
-| AST node | assumed | the parser produces some `Stmt` variant for the block (unverified which) |
-| Analyzer | **no** | no `unsafe` handling anywhere in `src/semantics/` |
-| IR | **no** | no `Instruction` or `TypedIRValue` variant for `unsafe` |
-| Verifier | **no** | no rule distinguishing unsafe blocks |
-| Backends | **no** | no per-backend handling |
-| Capability matrix | **no** | no capability entry |
+| Lexer keyword | yes | `src/frontend/lexer/mod.rs` |
+| Parser | yes | `src/frontend/parser/stmt.rs` |
+| AST node | yes | `Stmt::UnsafeBlock` |
+| Analyzer | yes | `unsafe_depth` counter on `SemanticAnalyzer` |
+| IR | not needed | blocks are unwrapped before IR |
+| Verifier | not needed | the analyzer is the enforcement point |
+| Backends | not needed | the IR sees plain instructions |
+| Capability matrix | not needed | compile-time-only feature |
 
 The grep across `src/` returns exactly two ALGOL26-level hits: the
 lexer keyword and the parser entry point. Everything else in the
@@ -57,15 +57,9 @@ the ALGOL26 `unsafe` keyword.
 
 ```gol
 procedure main
+    val p := alloc(4)          // rejected: alloc requires unsafe
     unsafe
-        print("inside")
-```
-
-and
-
-```gol
-procedure main
-    print("inside")
+        val q := alloc(4)      // accepted
 ```
 
 compile to identical IR, produce identical output, and have identical
@@ -132,69 +126,41 @@ channels                 FFI
 type safety              hardware access
 ```
 
-## What would need to change
+## Enforcement
 
-Bridging the current state to the intended state is a Tier 2
-project. The work items, in order:
+The two operations gated by `unsafe`:
 
-### 1. Define the set of unsafe-only operations
+1. **Raw pointer dereference.** `*p` where `p: Pointer<T>`.
+   `Borrow<T>` and `MutBorrow<T>` remain safe to dereference.
+   The existing null-deref checks fire first.
 
-Currently undecided. Candidate operations, based on the ADR:
+2. **`alloc` and `free`.** Both are recognized by name in the
+   builtin dispatch and require an `unsafe` block.
 
-- `Deref` on a raw `*T` (the `TypedIRValue::Deref` variant, but
-  only when the target is not a region-tracked pointer).
-- `AddrOf` outside a region.
-- `alloc` outside a region (see Open Question 1).
-- Pointer arithmetic operations, if any exist (I have not seen a
-  `TypedIRValue` variant for pointer arithmetic).
-- Any `extern "C"` call.
+`AddrOf` on non-place expressions is rejected unconditionally by
+the analyzer, inside and outside unsafe blocks. This check predates
+ADR 0015 and is unchanged.
 
-The set should be a single `const` in the analyzer so that the
-definition is one place, not scattered through the code.
+Implementation:
 
-### 2. Track the current unsafe context
+- `SemanticAnalyzer` has an `unsafe_depth: usize` counter.
+- The `Stmt::UnsafeBlock` arm increments it before analyzing the
+  body, decrements after. Nesting works via the counter.
+- The `ExprKind::Deref` arm rejects `Pointer<T>` derefs when
+  `unsafe_depth == 0`. The `ExprKind::FunctionCall` arm rejects
+  `alloc` / `free` calls when `unsafe_depth == 0`.
 
-The analyzer needs a per-scope flag: are we inside an `unsafe` block?
-This fits naturally into the existing scope stack in
-`src/semantics/analyzer/scopes.rs`. When entering an `unsafe` block,
-push a marker; when exiting, pop it.
+Checks are at analysis time. The IR builder and backends are
+unchanged — the boundary is a front-end distinction.
 
-### 3. Enforce at the analyzer
+Diagnostic code: `E0007` (the ownership / memory-safety bucket).
+The concrete diagnostic is carried in the message text.
 
-Every candidate unsafe operation must be checked against the current
-unsafe context. If the operation is used outside an `unsafe` block,
-the analyzer rejects the program with a new diagnostic.
+## History: the original design sketch
 
-New diagnostic code (see Diagnostics below): `E-UNSAFE-001` —
-"operation X requires an `unsafe` block".
-
-### 4. Preserve in IR or resolve before IR
-
-Two design options:
-
-**Option A: resolve before IR.** Once the analyzer has verified that
-all unsafe operations are inside `unsafe` blocks, the blocks are
-unwrapped — the IR sees only ordinary instructions. This is the
-same discipline as traits, generics, and defer, and it means every
-backend supports `unsafe` for free.
-
-**Option B: preserve in IR.** Add `Instruction::UnsafeEnter` and
-`Instruction::UnsafeExit` (analogous to `RegionEnter`/`RegionExit`).
-This lets the verifier re-check the invariant, but adds per-backend
-no-op instructions.
-
-Option A is more consistent with the codebase's existing pattern and
-is what the observer's architecture direction prefers (resolve at
-compile time, don't spread across backends). Option A is
-recommended.
-
-### 5. Capability matrix entry
-
-Once `unsafe` has semantics, add a capability entry. Since the
-feature is compile-time-only under Option A, no backend rejects it
-— the capability test is empty. If Option B is chosen, add
-`UnsafeEnter`/`UnsafeExit` handling to the interpreter as no-ops and
-either accept or refuse on LLVM/WASM.
+The sections below preserve the pre-0015 planning that described a
+larger Tier 2 project. The project was scoped down by ADR 0015 to
+the two operations above.
 
 ## Diagnostics
 

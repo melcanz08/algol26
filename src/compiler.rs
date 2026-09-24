@@ -210,7 +210,8 @@ pub fn type_check_program(
 
     let type_table_id = analyzer.take_type_table_id();
     let instantiations = analyzer.take_instantiations();
-    let plan = InstantiationPlan::from_instantiations(&instantiations);
+    let mut plan = InstantiationPlan::from_instantiations(&instantiations);
+    plan.close(functions);
 
     Ok(TypedProgram {
         functions: Rc::clone(functions),

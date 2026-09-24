@@ -327,3 +327,37 @@ procedure main
     assert_eq!(spec.params[0].1, Type::borrow(Type::Float));
     assert_eq!(spec.return_type, Type::borrow(Type::Float));
 }
+
+#[test]
+fn transitive_generic_call_closure_emits_both_specializations() {
+    use algol26::compiler::Compiler;
+
+    let source = r#"
+function outer<T>(x: T) -> T
+    return inner(x)
+
+function inner<T>(x: T) -> T
+    return x
+
+procedure main
+    val q := outer(42)
+    print(q)
+"#;
+
+    let mut compiler = Compiler::new();
+    let ir = compiler
+        .build_semantic_ir_for(source, "closure.gol")
+        .expect("transitive generic program failed to lower");
+
+    let names: Vec<&str> = ir.functions.iter().map(|f| f.name.as_str()).collect();
+
+    // Both specializations must be emitted. `outer_Int` comes from
+    // the concrete call in main; `inner_Int` only exists because
+    // close() walked outer's body under T -> Int.
+    assert!(names.contains(&"outer_Int"), "names: {:?}", names);
+    assert!(names.contains(&"inner_Int"), "names: {:?}", names);
+
+    // Neither template reaches executable IR.
+    assert!(!names.contains(&"outer"), "template leaked: {:?}", names);
+    assert!(!names.contains(&"inner"), "template leaked: {:?}", names);
+}

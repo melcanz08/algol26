@@ -7,9 +7,9 @@
 // See docs/decisions/0013-executable-ir-generic-invariant.md.
 
 use crate::common::types::Type;
-use crate::frontend::ast::ExprId;
+use crate::frontend::ast::{Expr, ExprId, ExprKind, FunctionDecl, Stmt};
 use crate::semantics::analyzer::Instantiation;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A concrete specialization of a generic function, e.g.
 /// `identity<Borrow<Float>>` mangled to `identity_Borrow_Float`.
@@ -153,6 +153,111 @@ impl InstantiationPlan {
         plan
     }
 
+    /// Transitively close the plan under generic-to-generic calls.
+    ///
+    /// The analyzer records symbolic call-site entries (containing
+    /// `TypeVar` or `Unknown`) for calls inside generic function
+    /// bodies. `from_instantiations` cannot materialize those as
+    /// concrete specializations because their type arguments aren't
+    /// yet known. `close` walks each concrete specialization's body
+    /// under that specialization's bindings, substitutes symbolic
+    /// type arguments into concrete ones, and iterates to fixpoint.
+    ///
+    /// The invariant this establishes:
+    ///
+    /// > For every concrete specialization in the plan, every
+    /// > generic call reachable from its declaration body is
+    /// > resolved to a concrete specialization in the same plan.
+    ///
+    /// After `close`, `resolved_callee_name` in the IR builder sees
+    /// a plan entry for every well-formed generic call, and its
+    /// symbolic branch becomes a fail-closed safety net rather than
+    /// an expected path.
+    ///
+    /// No new type inference happens here. Substitution under known
+    /// bindings is a pure structural rewrite; the only inference in
+    /// the generics pipeline is the analyzer's original resolution
+    /// of a call's concrete type arguments.
+    pub fn close(&mut self, functions: &[FunctionDecl]) {
+        // Work queue seeded with every already-concrete
+        // specialization. Deduplicated by mangled name so a
+        // specialization that appears once is walked once.
+        let mut queue: Vec<String> = self.specializations.keys().cloned().collect();
+        let mut in_queue: HashSet<String> = queue.iter().cloned().collect();
+
+        while let Some(name) = queue.pop() {
+            in_queue.remove(&name);
+
+            let Some(spec) = self.specializations.get(&name).cloned() else {
+                continue;
+            };
+            let Some(func) = functions.iter().find(|f| f.name == spec.function) else {
+                continue;
+            };
+
+            let bindings = spec.bindings();
+            let new_keys = self.closure_step(&bindings, &func.body, functions);
+
+            for key in new_keys {
+                if in_queue.insert(key.clone()) {
+                    queue.push(key);
+                }
+            }
+        }
+    }
+
+    /// One step of the closure fixpoint: given a specialization's
+    /// bindings and its declaration body, materialize every
+    /// concrete specialization reachable from a symbolic call in
+    /// that body. Returns the mangled names of newly-added
+    /// specializations so the caller can queue them for their own
+    /// step.
+    fn closure_step(
+        &mut self,
+        bindings: &HashMap<String, Type>,
+        body: &[Stmt],
+        functions: &[FunctionDecl],
+    ) -> Vec<String> {
+        let call_ids = collect_function_call_ids(body);
+        let mut added = Vec::new();
+
+        for expr_id in call_ids {
+            let Some(csi) = self.call_sites.get(&expr_id).cloned() else {
+                continue;
+            };
+
+            let concrete_args: Vec<Type> = csi
+                .type_args
+                .iter()
+                .map(|t| t.substitute(bindings))
+                .collect();
+
+            if concrete_args.iter().any(|t| t.contains_unresolved()) {
+                continue;
+            }
+
+            let Some(callee) = functions.iter().find(|f| f.name == csi.function) else {
+                continue;
+            };
+
+            let candidate = Specialization::new(
+                csi.function.clone(),
+                callee.type_params.clone(),
+                concrete_args,
+            );
+
+            if self.specializations.contains_key(&candidate.mangled_name) {
+                continue;
+            }
+
+            let key = candidate.mangled_name.clone();
+            self.specializations.insert(key.clone(), candidate);
+            added.push(key);
+        }
+
+        added
+    }
+
     fn insert_specialization(&mut self, spec: Specialization) {
         // The key is the mangled name. Two specializations with
         // distinct `type_args` produce distinct mangled names
@@ -288,6 +393,158 @@ pub fn mangled_type_name(ty: &Type) -> String {
             let parts: Vec<String> = args.iter().map(mangled_type_name).collect();
             format!("Generic_{}_{}_{}", name, args.len(), parts.join("_"))
         }
+    }
+}
+
+/// Collect the `ExprId` of every `FunctionCall` node reachable from
+/// `body`, in preorder. Used by `InstantiationPlan::close` to
+/// locate generic call sites inside a specialization's declaration
+/// body.
+fn collect_function_call_ids(body: &[Stmt]) -> Vec<ExprId> {
+    let mut out = Vec::new();
+    for stmt in body {
+        collect_stmt_call_ids(stmt, &mut out);
+    }
+    out
+}
+
+fn collect_stmt_call_ids(stmt: &Stmt, out: &mut Vec<ExprId>) {
+    match stmt {
+        Stmt::VarDecl { value, .. } | Stmt::Assign { value, .. } => {
+            collect_expr_call_ids(value, out);
+        }
+        Stmt::ArrayAssign { index, value, .. } => {
+            collect_expr_call_ids(index, out);
+            collect_expr_call_ids(value, out);
+        }
+        Stmt::Return { value: Some(e), .. } => collect_expr_call_ids(e, out),
+        Stmt::Print { expr, .. } => collect_expr_call_ids(expr, out),
+        Stmt::Defer { stmt, .. } => collect_stmt_call_ids(stmt, out),
+        Stmt::Spawn { body, .. }
+        | Stmt::RegionBlock { body, .. }
+        | Stmt::UnsafeBlock { body, .. } => {
+            for s in body {
+                collect_stmt_call_ids(s, out);
+            }
+        }
+        Stmt::Parallel { blocks, .. } => {
+            for block in blocks {
+                for s in block {
+                    collect_stmt_call_ids(s, out);
+                }
+            }
+        }
+        Stmt::Send { value, .. } => collect_expr_call_ids(value, out),
+        Stmt::Expression(e) => collect_expr_call_ids(e, out),
+        _ => {}
+    }
+}
+
+fn collect_expr_call_ids(expr: &Expr, out: &mut Vec<ExprId>) {
+    if let ExprKind::FunctionCall { args, .. } = &expr.kind {
+        out.push(expr.id);
+        for a in args {
+            collect_expr_call_ids(a, out);
+        }
+        return;
+    }
+
+    match &expr.kind {
+        ExprKind::Block {
+            statements,
+            trailing_expr,
+            ..
+        } => {
+            for s in statements {
+                collect_stmt_call_ids(s, out);
+            }
+            if let Some(e) = trailing_expr {
+                collect_expr_call_ids(e, out);
+            }
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_expr_call_ids(condition, out);
+            collect_expr_call_ids(then_branch, out);
+            if let Some(e) = else_branch {
+                collect_expr_call_ids(e, out);
+            }
+        }
+        ExprKind::Match { value, cases, .. } => {
+            collect_expr_call_ids(value, out);
+            for c in cases {
+                collect_expr_call_ids(&c.body, out);
+            }
+        }
+        ExprKind::Borrow { expr, .. }
+        | ExprKind::MutBorrow { expr, .. }
+        | ExprKind::Deref { expr, .. }
+        | ExprKind::AddrOf { expr, .. }
+        | ExprKind::Unary { expr, .. } => collect_expr_call_ids(expr, out),
+        ExprKind::Some { value, .. }
+        | ExprKind::Ok { value, .. }
+        | ExprKind::Error { value, .. } => collect_expr_call_ids(value, out),
+        ExprKind::List(items, _) => {
+            for e in items {
+                collect_expr_call_ids(e, out);
+            }
+        }
+        ExprKind::ArrayAccess { array, index, .. } => {
+            collect_expr_call_ids(array, out);
+            collect_expr_call_ids(index, out);
+        }
+        ExprKind::Binary { left, right, .. } => {
+            collect_expr_call_ids(left, out);
+            collect_expr_call_ids(right, out);
+        }
+        ExprKind::TryCatch {
+            try_branch,
+            catch_branch,
+            finally_body,
+            ..
+        } => {
+            collect_expr_call_ids(try_branch, out);
+            collect_expr_call_ids(catch_branch, out);
+            if let Some(body) = finally_body {
+                for s in body {
+                    collect_stmt_call_ids(s, out);
+                }
+            }
+        }
+        ExprKind::For {
+            iterable,
+            body,
+            trailing_expr,
+            ..
+        }
+        | ExprKind::While {
+            condition: iterable,
+            body,
+            trailing_expr,
+            ..
+        } => {
+            collect_expr_call_ids(iterable, out);
+            for s in body {
+                collect_stmt_call_ids(s, out);
+            }
+            if let Some(e) = trailing_expr {
+                collect_expr_call_ids(e, out);
+            }
+        }
+        ExprKind::Range { start, end, .. } => {
+            if let Some(e) = start {
+                collect_expr_call_ids(e, out);
+            }
+            if let Some(e) = end {
+                collect_expr_call_ids(e, out);
+            }
+        }
+        ExprKind::FieldAccess { object, .. } => collect_expr_call_ids(object, out),
+        _ => {}
     }
 }
 
@@ -522,5 +779,186 @@ mod tests {
             mangled_type_name(&Type::Ptr),
             mangled_type_name(&Type::Unknown)
         );
+    }
+
+    // ─── Transitive closure ───────────────────────────────────────
+
+    /// Parse `source`, assign ExprIds, run the real analyzer, and
+    /// build a plan from what the analyzer recorded. This is the
+    /// same sequence `type_check_program` performs, minus the
+    /// `close` call, so tests exercise the same ExprId space the
+    /// compiler will.
+    fn analyze_to_plan(source: &str) -> (Vec<FunctionDecl>, InstantiationPlan) {
+        use crate::compiler::assign_expr_ids;
+        use crate::frontend::lexer::Lexer;
+        use crate::frontend::parser::Parser;
+        use crate::semantics::analyzer::SemanticAnalyzer;
+
+        let lexer = Lexer::new(source.to_string()).unwrap();
+        let mut parser = Parser::new(lexer.tokens);
+        let program = parser.parse_program().unwrap();
+        let mut functions = program.functions;
+        assign_expr_ids(&mut functions);
+
+        let mut analyzer = SemanticAnalyzer::new();
+        analyzer
+            .analyze_with_traits(&functions, &program.traits, &program.impls)
+            .expect("analysis failed");
+
+        let instantiations = analyzer.take_instantiations();
+        let plan = InstantiationPlan::from_instantiations(&instantiations);
+
+        (functions, plan)
+    }
+
+    #[test]
+    fn closure_materializes_single_hop_specialization() {
+        let source = r#"
+function f<T>(x: T) -> T
+    return g(x)
+
+function g<T>(x: T) -> T
+    return x
+
+procedure main
+    val y := f(42)
+    print(y)
+"#;
+
+        let (functions, mut plan) = analyze_to_plan(source);
+
+        // Before close: only f_Int is concrete. g has a call-site
+        // entry inside f's body but no specialization.
+        assert!(plan.specialization_for("f", &[Type::Int]).is_some());
+        assert!(plan.specialization_for("g", &[Type::Int]).is_none());
+
+        plan.close(&functions);
+
+        assert!(plan.specialization_for("f", &[Type::Int]).is_some());
+        assert!(plan.specialization_for("g", &[Type::Int]).is_some());
+    }
+
+    #[test]
+    fn closure_materializes_two_hop_specialization() {
+        let source = r#"
+function f<T>(x: T) -> T
+    return g(x)
+
+function g<T>(x: T) -> T
+    return h(x)
+
+function h<T>(x: T) -> T
+    return x
+
+procedure main
+    val y := f(42)
+    print(y)
+"#;
+
+        let (functions, mut plan) = analyze_to_plan(source);
+        plan.close(&functions);
+
+        assert!(plan.specialization_for("f", &[Type::Int]).is_some());
+        assert!(plan.specialization_for("g", &[Type::Int]).is_some());
+        assert!(plan.specialization_for("h", &[Type::Int]).is_some());
+    }
+
+    #[test]
+    fn closure_with_composite_type_argument() {
+        let source = r#"
+function outer<T>(x: T) -> T
+    return inner(x)
+
+function inner<T>(x: T) -> T
+    return x
+
+procedure main
+    val list := [1, 2, 3]
+    val y := outer(list)
+    print(y)
+"#;
+
+        let (functions, mut plan) = analyze_to_plan(source);
+        plan.close(&functions);
+
+        assert!(
+            plan.specialization_for("outer", &[Type::list(Type::Int)])
+                .is_some(),
+            "outer_List_Int missing after close",
+        );
+        assert!(
+            plan.specialization_for("inner", &[Type::list(Type::Int)])
+                .is_some(),
+            "inner_List_Int missing after close",
+        );
+    }
+
+    #[test]
+    fn closure_handles_multiple_concrete_calls() {
+        let source = r#"
+function outer<T>(x: T) -> T
+    return inner(x)
+
+function inner<T>(x: T) -> T
+    return x
+
+procedure main
+    val a := outer(1)
+    val b := outer("hello")
+    print(a)
+    print(b)
+"#;
+
+        let (functions, mut plan) = analyze_to_plan(source);
+        plan.close(&functions);
+
+        assert!(plan.specialization_for("outer", &[Type::Int]).is_some());
+        assert!(plan.specialization_for("outer", &[Type::String]).is_some());
+        assert!(plan.specialization_for("inner", &[Type::Int]).is_some());
+        assert!(plan.specialization_for("inner", &[Type::String]).is_some());
+    }
+
+    #[test]
+    fn closure_is_idempotent() {
+        let source = r#"
+function f<T>(x: T) -> T
+    return g(x)
+
+function g<T>(x: T) -> T
+    return x
+
+procedure main
+    val y := f(42)
+    print(y)
+"#;
+
+        let (functions, mut plan) = analyze_to_plan(source);
+        plan.close(&functions);
+        let after_first: Vec<String> = {
+            let mut v: Vec<String> = plan.specializations.keys().cloned().collect();
+            v.sort();
+            v
+        };
+
+        plan.close(&functions);
+        let after_second: Vec<String> = {
+            let mut v: Vec<String> = plan.specializations.keys().cloned().collect();
+            v.sort();
+            v
+        };
+
+        assert_eq!(after_first, after_second);
+    }
+
+    #[test]
+    fn closure_noop_on_plan_with_no_generic_calls() {
+        let insts = vec![inst(10, "f", &["T"], vec![Type::Int])];
+        let mut plan = InstantiationPlan::from_instantiations(&insts);
+        let before = plan.specializations.len();
+
+        // Empty function list: nothing to walk into, so nothing added.
+        plan.close(&[]);
+
+        assert_eq!(plan.specializations.len(), before);
     }
 }

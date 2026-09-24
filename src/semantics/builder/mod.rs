@@ -15,7 +15,7 @@ use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
     SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
 };
-use crate::semantics::flow_result::{CaptureMode, DeferContext, FlowResult, LoopContext};
+use crate::semantics::flow_result::{DeferContext, FlowResult, LoopContext};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -29,11 +29,6 @@ mod values;
 pub(super) struct VariableInfo {
     pub type_: Type,
     pub mutable: bool,
-    /// Capture mode for closures/spawns. Currently written by
-    /// `declare_var` but not yet consumed; will be used when
-    /// escape analysis lands.
-    #[allow(dead_code)]
-    pub capture_mode: Option<CaptureMode>,
 }
 
 pub struct SemanticIRBuilder {
@@ -173,14 +168,7 @@ impl SemanticIRBuilder {
                     name
                 ));
             } else {
-                scope.insert(
-                    name.to_string(),
-                    VariableInfo {
-                        type_,
-                        mutable,
-                        capture_mode: None,
-                    },
-                );
+                scope.insert(name.to_string(), VariableInfo { type_, mutable });
             }
         }
     }

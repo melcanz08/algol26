@@ -221,7 +221,6 @@ impl SemanticIRBuilder {
                         VariableInfo {
                             type_: Type::Unknown,
                             mutable: true,
-                            capture_mode: None,
                         }
                     }
                 };

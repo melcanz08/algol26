@@ -31,10 +31,3 @@ pub struct LoopContext {
 pub struct DeferContext {
     pub cleanup_blocks: Vec<usize>,
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum CaptureMode {
-    Read,
-    Write,
-    Move,
-}

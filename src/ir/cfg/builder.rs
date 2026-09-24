@@ -8,9 +8,8 @@
 // compile error. This is stronger than a `_ => Unsupported`
 // catch-all because it fails at build time, not runtime.
 
-use super::dataflow::{BlockId, Cfg, CfgBlock, CfgInstruction};
+use super::dataflow::{Cfg, CfgBlock, CfgInstruction, FunctionCfg};
 use crate::ir::semantic_ir::{SemanticProgram, Terminator, TypedIRValue};
-use std::collections::HashMap;
 
 fn extract_var_name(v: &TypedIRValue) -> Option<String> {
     match v {
@@ -48,25 +47,21 @@ fn is_borrow(v: &TypedIRValue) -> Option<(String, bool)> {
     }
 }
 
-pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
-    let mut cfg = Cfg::new(0);
-    let mut block_id_map: HashMap<usize, BlockId> = HashMap::new();
-    let mut next_id = 0;
+/// ADR 0016: build one `FunctionCfg` per non-extern function. Each
+/// function's blocks keep their `SemanticProgram`-local IDs and its
+/// declared entry block. Block IDs are unique within a program, so
+/// no renumbering is needed.
+pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<FunctionCfg> {
+    let mut out = Vec::new();
+
     for func in &program.functions {
         if func.is_extern {
             continue;
         }
-        for block in &func.blocks {
-            block_id_map.insert(block.id, next_id);
-            next_id += 1;
-        }
-    }
-    for func in &program.functions {
-        if func.is_extern {
-            continue;
-        }
+
+        let mut cfg = Cfg::new(func.entry_block);
+
         for sblock in &func.blocks {
-            let id = block_id_map[&sblock.id];
             let mut instrs = Vec::new();
             for instr in &sblock.instructions {
                 use crate::ir::semantic_ir::Instruction as I;
@@ -115,14 +110,6 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                         }
                     }
                     I::WriteReference { reference, value } => {
-                        // Write-through-`&mut`: the reference
-                        // variable's pointer is loaded, and the
-                        // value's variables are computed. Both are
-                        // uses from the ownership model's
-                        // perspective. No `Assign` is emitted for
-                        // the reference variable itself — its
-                        // value (the pointer) is not being
-                        // reassigned.
                         let mut vars = Vec::new();
                         collect_all_vars(reference, &mut vars);
                         collect_all_vars(value, &mut vars);
@@ -166,11 +153,15 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                             });
                         }
                     }
-                    I::Call { func, args, result } => {
+                    I::Call {
+                        func: callee,
+                        args,
+                        result,
+                    } => {
                         for arg in args {
                             if let Some((place, mutable)) = is_borrow(arg) {
                                 instrs.push(CfgInstruction::Borrow {
-                                    borrower: format!("__tmp_call_{}_{}", id, place),
+                                    borrower: format!("__tmp_call_{}_{}", sblock.id, place),
                                     place,
                                     mutable,
                                 });
@@ -188,7 +179,7 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                             instrs.push(CfgInstruction::Declare { name: res.clone() });
                         }
                         instrs.push(CfgInstruction::Call {
-                            name: func.clone(),
+                            name: callee.clone(),
                             args: args.iter().filter_map(extract_var_name).collect(),
                         })
                     }
@@ -216,9 +207,6 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                             name: channel.clone(),
                         });
                     }
-                    // Iterating a variable: use the iterable, declare
-                    // the loop variable. Neither participates in
-                    // ownership transfer in the current model.
                     I::IteratorInit { iterator, iterable } => {
                         if let Some(var_name) = extract_var_name(iterable) {
                             instrs.push(CfgInstruction::Use { name: var_name });
@@ -233,19 +221,9 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                             name: iterator.clone(),
                         });
                     }
-
-                    // Channel declaration: channels are disjoint from
-                    // the ownership domain (they cannot hold references),
-                    // so no dataflow instruction is emitted. Tracked as
-                    // a declared name anyway so uses of the channel
-                    // don't trip E-INIT-001.
                     I::ChannelDecl { name, .. } => {
                         instrs.push(CfgInstruction::Declare { name: name.clone() });
                     }
-
-                    // Receive: binds `target` to a value read from the
-                    // channel. Like ChannelDecl, no ownership transfer
-                    // crosses this boundary.
                     I::ReceiveChannel { channel, target } => {
                         instrs.push(CfgInstruction::Use {
                             name: channel.clone(),
@@ -268,6 +246,7 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                     I::Nop => instrs.push(CfgInstruction::Nop),
                 }
             }
+
             if let Some(term) = &sblock.terminator {
                 match term {
                     Terminator::Return { value: Some(v), .. } => {
@@ -302,36 +281,26 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                     _ => {}
                 }
             }
+
             cfg.add_block(CfgBlock {
-                id,
+                id: sblock.id,
                 instructions: instrs,
             });
         }
-    }
-    for func in &program.functions {
-        if func.is_extern {
-            continue;
-        }
+
         for sblock in &func.blocks {
-            let from = block_id_map[&sblock.id];
             if let Some(term) = &sblock.terminator {
                 match term {
                     Terminator::Jump { block } => {
-                        if let Some(to) = block_id_map.get(block) {
-                            cfg.add_edge(from, *to);
-                        }
+                        cfg.add_edge(sblock.id, *block);
                     }
                     Terminator::Branch {
                         then_block,
                         else_block,
                         ..
                     } => {
-                        if let Some(to) = block_id_map.get(then_block) {
-                            cfg.add_edge(from, *to);
-                        }
-                        if let Some(to) = block_id_map.get(else_block) {
-                            cfg.add_edge(from, *to);
-                        }
+                        cfg.add_edge(sblock.id, *then_block);
+                        cfg.add_edge(sblock.id, *else_block);
                     }
                     Terminator::Switch {
                         cases,
@@ -339,14 +308,10 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                         ..
                     } => {
                         for (_, target) in cases {
-                            if let Some(to) = block_id_map.get(target) {
-                                cfg.add_edge(from, *to);
-                            }
+                            cfg.add_edge(sblock.id, *target);
                         }
                         if let Some(d) = default_block {
-                            if let Some(to) = block_id_map.get(d) {
-                                cfg.add_edge(from, *to);
-                            }
+                            cfg.add_edge(sblock.id, *d);
                         }
                     }
                     Terminator::IteratorNext {
@@ -354,35 +319,28 @@ pub fn build_cfg_from_semantic_program(program: &SemanticProgram) -> Cfg {
                         exit_block,
                         ..
                     } => {
-                        if let Some(to) = block_id_map.get(body_block) {
-                            cfg.add_edge(from, *to);
-                        }
-                        if let Some(to) = block_id_map.get(exit_block) {
-                            cfg.add_edge(from, *to);
-                        }
+                        cfg.add_edge(sblock.id, *body_block);
+                        cfg.add_edge(sblock.id, *exit_block);
                     }
                     Terminator::Spawn { entry_block } => {
-                        if let Some(to) = block_id_map.get(entry_block) {
-                            cfg.add_edge(from, *to);
-                        }
+                        cfg.add_edge(sblock.id, *entry_block);
                     }
                     Terminator::Fork { blocks, .. } => {
-                        // Edges go from the fork to each branch entry
-                        // only. The join block is reached from the
-                        // branch terminators; see
-                        // `Terminator::Fork::successors` for the
-                        // rationale.
                         for b in blocks {
-                            if let Some(to) = block_id_map.get(b) {
-                                cfg.add_edge(from, *to);
-                            }
+                            cfg.add_edge(sblock.id, *b);
                         }
                     }
                     Terminator::Return { .. } => {}
                 }
             }
         }
+
+        out.push(FunctionCfg {
+            name: func.name.clone(),
+            cfg,
+            params: func.params.iter().map(|(n, _)| n.clone()).collect(),
+        });
     }
-    cfg.entry = 0;
-    cfg
+
+    out
 }

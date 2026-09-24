@@ -1,7 +1,8 @@
 // src/ir/cfg/dataflow.rs
 
-use crate::semantics::state::SemanticState;
+use crate::semantics::state::{SemanticState, VarState};
 use std::collections::{HashMap, HashSet, VecDeque};
+
 pub type BlockId = usize;
 #[derive(Debug, Clone, Default)]
 pub struct Cfg {
@@ -14,6 +15,19 @@ pub struct Cfg {
 pub struct CfgBlock {
     pub id: BlockId,
     pub instructions: Vec<CfgInstruction>,
+}
+/// ADR 0016: one function's control-flow graph plus the metadata
+/// the dataflow engine needs to seed its entry state. Block IDs are
+/// the function's `SemanticProgram`-local IDs; `cfg.entry` is the
+/// function's declared entry block.
+#[derive(Debug, Clone)]
+pub struct FunctionCfg {
+    pub name: String,
+    pub cfg: Cfg,
+    /// Parameter names in declaration order. Seeded into the entry
+    /// state as `VarState::available()` so the first `Use` of a
+    /// parameter is not a spurious `E-INIT-001`.
+    pub params: Vec<String>,
 }
 #[derive(Debug, Clone)]
 pub enum CfgInstruction {
@@ -388,19 +402,76 @@ impl<T: Transfer> DataflowEngine<T> {
     pub fn new(transfer: T) -> Self {
         Self { transfer }
     }
-    pub fn run(&self, cfg: &Cfg, _initial: SemanticState) -> DataflowResult {
+    /// ADR 0016: single-CFG entry point. Uses an empty entry state.
+    /// Retained for tests that construct a `Cfg` directly; production
+    /// callers use `run_all`.
+    pub fn run(&self, cfg: &Cfg) -> DataflowResult {
+        self.run_with_entry(cfg, SemanticState::new())
+    }
+
+    /// ADR 0016: run the dataflow analysis for every function
+    /// independently, seeding each function's entry state from its
+    /// declared parameters. Diagnostics are tagged with the
+    /// function name and deduplicated, because the worklist may
+    /// re-process a block whenever its incoming state changes.
+    pub fn run_all(&self, functions: &[FunctionCfg]) -> DataflowResult {
+        let mut all_in: HashMap<BlockId, SemanticState> = HashMap::new();
+        let mut all_out: HashMap<BlockId, SemanticState> = HashMap::new();
+        let mut visited: HashSet<BlockId> = HashSet::new();
+        let mut seen: HashSet<(String, BlockId, String)> = HashSet::new();
+        let mut diagnostics: Vec<DataflowDiagnostic> = Vec::new();
+
+        for func in functions {
+            let entry_state = entry_state_for(&func.params);
+            let result = self.run_with_entry(&func.cfg, entry_state);
+            for (id, st) in result.in_states {
+                all_in.insert(id, st);
+            }
+            for (id, st) in result.out_states {
+                all_out.insert(id, st);
+            }
+            for id in result.visited {
+                visited.insert(id);
+            }
+            for diag in result.diagnostics {
+                let key = (func.name.clone(), diag.block, diag.message.clone());
+                if seen.insert(key) {
+                    diagnostics.push(DataflowDiagnostic {
+                        message: format!("[{}] {}", func.name, diag.message),
+                        block: diag.block,
+                        is_error: diag.is_error,
+                    });
+                }
+            }
+        }
+
+        DataflowResult {
+            in_states: all_in,
+            out_states: all_out,
+            diagnostics,
+            visited,
+        }
+    }
+
+    /// The actual worklist loop, parameterized by an explicit entry
+    /// state.
+    fn run_with_entry(&self, cfg: &Cfg, entry_state: SemanticState) -> DataflowResult {
         let mut in_states: HashMap<BlockId, SemanticState> = HashMap::new();
         let mut out_states: HashMap<BlockId, SemanticState> = HashMap::new();
         let mut all_diagnostics = Vec::new();
         let mut worklist: VecDeque<BlockId> = VecDeque::from([cfg.entry]);
         let mut visited: HashSet<BlockId> = HashSet::new();
+
         while let Some(block_id) = worklist.pop_front() {
             let block = match cfg.blocks.get(&block_id) {
                 Some(b) => b,
                 None => continue,
             };
             let incoming = if block_id == cfg.entry {
-                in_states.get(&block_id).cloned().unwrap_or_default()
+                in_states
+                    .get(&block_id)
+                    .cloned()
+                    .unwrap_or_else(|| entry_state.clone())
             } else {
                 let preds = cfg.predecessors(block_id);
                 if preds.is_empty() {
@@ -435,6 +506,7 @@ impl<T: Transfer> DataflowEngine<T> {
             }
             visited.insert(block_id);
         }
+
         DataflowResult {
             in_states,
             out_states,
@@ -463,6 +535,16 @@ pub struct DataflowResult {
     pub out_states: HashMap<BlockId, SemanticState>,
     pub diagnostics: Vec<DataflowDiagnostic>,
     pub visited: HashSet<BlockId>,
+}
+/// ADR 0016: seed a function's entry state from its parameter list.
+/// Each parameter starts initialized and owned; mutability is an
+/// analyzer-level concern and is not part of `VarState`.
+fn entry_state_for(params: &[String]) -> SemanticState {
+    let mut s = SemanticState::new();
+    for name in params {
+        s.declare(name.clone(), VarState::available());
+    }
+    s
 }
 impl DataflowResult {
     pub fn has_errors(&self) -> bool {

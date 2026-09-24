@@ -12,8 +12,7 @@ use crate::common::diagnostics::{CompileError, ErrorCode};
 use crate::compiler::context::CompilerContext;
 use crate::compiler::pass::{IrLevel, Pass, PassContract, PassError, PassId, PassKind, PassResult};
 use crate::compiler::program::Program;
-use crate::ir::cfg::{build_cfg_from_semantic_program, DataflowEngine, OwnershipTransfer};
-use crate::semantics::state::SemanticState;
+use crate::ir::cfg::{build_cfgs_from_semantic_program, DataflowEngine, OwnershipTransfer};
 
 pub struct VerifyIrPass;
 
@@ -46,10 +45,12 @@ impl Pass<Program> for VerifyIrPass {
             )
         })?;
 
-        // NEW: fixed-point dataflow check
-        let cfg = build_cfg_from_semantic_program(sem);
+        // ADR 0016: per-function dataflow. Each function is analyzed
+        // independently with its parameters as the entry state; the
+        // engine deduplicates diagnostics across worklist iterations.
+        let cfgs = build_cfgs_from_semantic_program(sem);
         let engine = DataflowEngine::new(OwnershipTransfer);
-        let result = engine.run(&cfg, SemanticState::new());
+        let result = engine.run_all(&cfgs);
 
         if result.has_errors() {
             let msg = result

@@ -5,8 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use algol26::compiler::Compiler;
-use algol26::ir::cfg::{build_cfg_from_semantic_program, DataflowEngine, OwnershipTransfer};
-use algol26::semantics::state::SemanticState;
+use algol26::ir::cfg::{build_cfgs_from_semantic_program, DataflowEngine, OwnershipTransfer};
 
 #[derive(Debug, PartialEq, Eq)]
 enum Expect {
@@ -79,10 +78,9 @@ fn check_file(path: &Path) -> Result<(Expect, bool, Vec<String>), String> {
         }
     };
 
-    // Run new v0.9-B dataflow engine
-    let cfg = build_cfg_from_semantic_program(&sem_prog);
+    let cfgs = build_cfgs_from_semantic_program(&sem_prog);
     let engine = DataflowEngine::new(OwnershipTransfer);
-    let result = engine.run(&cfg, SemanticState::new());
+    let result = engine.run_all(&cfgs);
 
     let has_errors = result.has_errors();
     let messages = result.diagnostics.into_iter().map(|d| d.message).collect();

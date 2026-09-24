@@ -5,5 +5,7 @@
 pub mod builder;
 pub mod dataflow;
 
-pub use builder::build_cfg_from_semantic_program;
-pub use dataflow::{BlockId, Cfg, CfgBlock, CfgInstruction, DataflowEngine, OwnershipTransfer};
+pub use builder::build_cfgs_from_semantic_program;
+pub use dataflow::{
+    BlockId, Cfg, CfgBlock, CfgInstruction, DataflowEngine, FunctionCfg, OwnershipTransfer,
+};

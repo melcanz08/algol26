@@ -321,7 +321,29 @@ impl<'ctx> IRCodeGen<'ctx> {
                     )
                     .unwrap()
                     .into_int_value();
-                let len = self.iterator_lengths.get(iterator).cloned().unwrap_or(0) as u64;
+                // ADR 0021. IteratorInit registers the length for
+                // every iterator it creates. A missing entry means
+                // the metadata is inconsistent; the previous
+                // `unwrap_or(0)` silently turned that into "iterate
+                // zero times." Fail closed instead.
+                let len = self
+                    .iterator_lengths
+                    .get(iterator)
+                    .cloned()
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            &format!(
+                                "LLVM codegen: iterator `{}` has no registered \
+                                 length. IteratorInit must register the length \
+                                 alongside the array and index slots.",
+                                iterator
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })? as u64;
                 let len_val = self.context.i64_type().const_int(len, false);
                 let cond = self
                     .builder

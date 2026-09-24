@@ -48,6 +48,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // For lists, the variable's "value" is the array pointer itself.
                     // Register both the array bookkeeping and the variable name.
                     self.list_arrays.insert(name.clone(), arr_alloca);
+                    // ADR 0021. Register the array's LLVM type
+                    // alongside its pointer. Without this, a later
+                    // IteratorInit over this variable misses the
+                    // type and falls back to a wrong default.
+                    self.list_array_types.insert(name.clone(), array_ty.into());
                     self.list_lengths.insert(name.clone(), len);
                     self.variables.insert(name.clone(), arr_alloca);
                     self.var_types.insert(name.clone(), type_.clone());
@@ -349,11 +354,33 @@ impl<'ctx> IRCodeGen<'ctx> {
                             "llvm",
                         )
                     })?;
-                    let arr_ty = self
-                        .list_array_types
-                        .get(&arr_name)
-                        .cloned()
-                        .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
+                    // ADR 0021. The array's LLVM type must have
+                    // been registered when the array was created
+                    // (Declare, Assign, or a prior IteratorInit).
+                    // A default here silently treats the array as
+                    // length-0 f64, which produces wrong IR and
+                    // can fail LLVM verification with a confusing
+                    // type-mismatch. Fail closed with an internal
+                    // invariant error instead.
+                    let arr_ty =
+                        self.list_array_types
+                            .get(&arr_name)
+                            .cloned()
+                            .ok_or_else(|| {
+                                CompileError::simple(
+                                    &format!(
+                                        "LLVM codegen: IteratorInit over `{}` but its \
+                                     LLVM array type was never registered. The \
+                                     producer that created `{}` did not record \
+                                     its array type in `list_array_types`.",
+                                        arr_name, arr_name
+                                    ),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
                     self.iterator_arrays.insert(iterator.clone(), arr_ptr);
                     self.iterator_array_types.insert(iterator.clone(), arr_ty);
                     if let Some(len) = self.list_lengths.get(&arr_name) {
@@ -376,10 +403,26 @@ impl<'ctx> IRCodeGen<'ctx> {
                 } else if let TypedIRValue::List(elems, elem_ty) = iterable {
                     let len = elems.len();
                     let elem_llvm_ty = self.map_type(elem_ty);
+                    // ADR 0021. Every list-literal element type
+                    // must have an array lowering. The previous
+                    // `_ =>` arm silently lowered anything not
+                    // Int/Float to f64; a list of pointers would
+                    // be lowered as f64 and produce wrong IR.
                     let array_ty = match elem_llvm_ty {
                         BasicTypeEnum::FloatType(t) => t.array_type(len as u32).into(),
                         BasicTypeEnum::IntType(t) => t.array_type(len as u32).into(),
-                        _ => self.context.f64_type().array_type(len as u32).into(),
+                        BasicTypeEnum::PointerType(t) => t.array_type(len as u32).into(),
+                        other => {
+                            return Err(CompileError::unsupported_operation(
+                                &format!(
+                                    "iterator over list literal with element type \
+                                     {:?}: no LLVM array lowering for this element \
+                                     type",
+                                    other
+                                ),
+                                "llvm",
+                            ));
+                        }
                     };
                     let func = self.current_function.unwrap();
                     let entry = func.get_first_basic_block().unwrap();

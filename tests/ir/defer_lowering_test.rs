@@ -169,3 +169,40 @@ procedure main
         diagnostics
     );
 }
+
+#[test]
+fn list_declared_by_vardecl_iterates_through_llvm() {
+    use algol26::compiler::Compiler;
+
+    // `val xs := [1, 2, 3]` reaches `Declare` with a list literal.
+    // Before ADR 0021, `list_array_types` was not populated for
+    // this path, and the subsequent IteratorInit fell back to
+    // `f64.array[0]`. This test pins the fix.
+    let source = r#"
+procedure main
+    val xs := [1, 2, 3]
+    var total := 0
+    for n in xs
+        total := total + n
+    print(total)
+"#;
+
+    let mut compiler = Compiler::new();
+    let verified = compiler
+        .run_pipeline_for(source, "list_iter.gol")
+        .expect("canonical pipeline should reach verified IR");
+
+    // Lower through LLVM. If `list_array_types` is still missing
+    // for Declare-initialized lists, this fails with an LLVM
+    // verifier error, not a clean CompileError.
+    let dir = std::env::temp_dir().join(format!("algol26_iter_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let out = dir.join("list_iter");
+
+    let backend = algol26::backends::llvm_backend::LlvmBackend::new();
+    let _ =
+        algol26::backends::backend::Backend::compile(&backend, &verified, out.to_str().unwrap())
+            .expect("LLVM lowering of iterator over Declare-initialized list");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -77,6 +77,7 @@ use value::{types_compatible_for_call, verify_value};
 
 pub mod builtins;
 mod instruction;
+pub mod invariants;
 mod terminator;
 #[cfg(test)]
 mod tests;

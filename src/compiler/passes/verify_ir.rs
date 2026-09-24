@@ -68,7 +68,35 @@ impl Pass<Program> for VerifyIrPass {
             return Err(PassError::recoverable(PassId("ir.verify"), msg));
         }
 
-        // OLD: keep existing verification for now
+        // ADR 0014: executable-IR invariants (no TypeVar leaked,
+        // every call targets a defined function). Independent of
+        // the builder and the plan's closure algorithm.
+        let empty_plan = crate::ir::instantiation_plan::InstantiationPlan::default();
+        let plan_ref = program
+            .typed
+            .as_ref()
+            .map(|t| &t.plan)
+            .unwrap_or(&empty_plan);
+
+        if let Err(invariant_errors) =
+            crate::ir::verifier::invariants::check_invariants(sem, plan_ref)
+        {
+            let msg = invariant_errors
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            ctx.push_error(CompileError::simple(
+                &format!("IR invariant check failed:\n{}", msg),
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
+            return Err(PassError::recoverable(PassId("ir.verify"), msg));
+        }
+
+        // Existing instruction-level verification.
         sem.verify().map_err(|msg| {
             ctx.push_error(CompileError::simple(
                 &format!("IR verification failed: {}", msg),

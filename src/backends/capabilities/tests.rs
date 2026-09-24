@@ -525,3 +525,94 @@ fn wasm_rejects_spawn() {
         err.message
     );
 }
+
+#[test]
+fn interpreter_rejects_references() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "r".to_string(),
+            mutable: false,
+            type_: Type::borrow(Type::Int),
+            value: TypedIRValue::BorrowShared {
+                expr: Box::new(TypedIRValue::Variable("x".to_string(), Type::Int)),
+                target_type: Type::borrow(Type::Int),
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
+    assert!(
+        err.message.contains("reference"),
+        "expected reference diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn llvm_accepts_references() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "r".to_string(),
+            mutable: false,
+            type_: Type::borrow(Type::Int),
+            value: TypedIRValue::BorrowShared {
+                expr: Box::new(TypedIRValue::Variable("x".to_string(), Type::Int)),
+                target_type: Type::borrow(Type::Int),
+            },
+        },
+        simple_return(),
+    );
+    assert!(
+        check_backend(&program, &BackendCapabilities::llvm()).is_ok(),
+        "LLVM has codegen arms for reference operations",
+    );
+}
+
+#[test]
+fn wasm_rejects_references() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "r".to_string(),
+            mutable: false,
+            type_: Type::borrow(Type::Int),
+            value: TypedIRValue::BorrowShared {
+                expr: Box::new(TypedIRValue::Variable("x".to_string(), Type::Int)),
+                target_type: Type::borrow(Type::Int),
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("reference"),
+        "expected reference diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn reference_parameter_requires_capability() {
+    // A function parameter of reference type requires the
+    // capability even when the body contains no reference
+    // operation — the caller produces the reference.
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    program.functions.push(SemanticFunction {
+        name: "use_ref".to_string(),
+        params: vec![("r".to_string(), Type::borrow(Type::Int))],
+        return_type: Type::Void,
+        blocks: vec![SemanticBlock {
+            id: entry,
+            instructions: vec![],
+            terminator: Some(simple_return()),
+        }],
+        entry_block: entry,
+        is_extern: false,
+    });
+    let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
+    assert!(
+        err.message.contains("reference"),
+        "expected reference diagnostic for &T parameter, got: {}",
+        err.message
+    );
+}

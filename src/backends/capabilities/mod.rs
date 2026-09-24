@@ -58,6 +58,14 @@ pub enum Feature {
     /// both were silently no-op'ing these instructions. Refuse
     /// rather than pretend.
     RawMemory,
+    /// Reference operations the interpreter does not implement:
+    /// `&x` (shared borrow), `&mut x` (mutable borrow), `*r` (read
+    /// through a reference), and the `AddrOf` intrinsic. Also fires
+    /// on `Borrow<T>` or `MutBorrow<T>` in a function parameter or
+    /// return type. Does not fire on `Pointer<T>` alone — raw
+    /// pointers via `alloc`/`free` are gated separately by
+    /// `RawMemory`.
+    References,
 }
 
 impl Feature {
@@ -76,6 +84,7 @@ impl Feature {
             Feature::ListPrint,
             Feature::Option,
             Feature::RawMemory,
+            Feature::References,
         ]
     }
 
@@ -93,6 +102,7 @@ impl Feature {
             Feature::ListPrint => "print(list)",
             Feature::Option => "option",
             Feature::RawMemory => "raw-memory",
+            Feature::References => "references",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -110,6 +120,7 @@ impl Feature {
             Feature::ListPrint => "printing a list value",
             Feature::Option => "Option<T>: Some(x) and None",
             Feature::RawMemory => "alloc / free (raw memory)",
+            Feature::References => "reference operations (&x, &mut x, *r)",
         }
     }
 }
@@ -131,6 +142,12 @@ impl BackendCapabilities {
         // Step 5: alloc/free lower to malloc/free; LLVM now
         // accepts programs that use them.
         supported.insert(Feature::RawMemory);
+        // ADR 0019: `llvm_codegen` has real lowering for the
+        // four reference operations (`value.rs`) and for
+        // `Borrow`/`MutBorrow` in `types.rs`. Signature-position
+        // references (`fn f() -> &T`) still fail at codegen with
+        // a fail-closed E0002, not a silent miscompile.
+        supported.insert(Feature::References);
         BackendCapabilities {
             name: "LLVM",
             supported,

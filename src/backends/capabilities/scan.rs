@@ -6,6 +6,32 @@ use crate::ir::semantic_ir::{
     Instruction, SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
 };
 use std::collections::HashSet;
+
+/// True if `ty` mentions `Borrow<_>` or `MutBorrow<_>` anywhere in
+/// its structure. Used by the ADR 0019 reference-capability check.
+///
+/// `Pointer<_>` alone does not count — raw pointers from `alloc`
+/// are gated by `RawMemory`. A `Pointer<Borrow<Int>>` does count,
+/// because the element is a reference.
+fn type_mentions_reference(ty: &Type) -> bool {
+    match ty {
+        Type::Borrow(_) | Type::MutBorrow(_) => true,
+        Type::List(inner)
+        | Type::Option(inner)
+        | Type::Pointer(inner)
+        | Type::Array(inner, _)
+        | Type::Channel(inner) => type_mentions_reference(inner),
+        Type::Result { ok, error } => type_mentions_reference(ok) || type_mentions_reference(error),
+        Type::Tuple(elems) => elems.iter().any(type_mentions_reference),
+        Type::Function {
+            params,
+            return_type,
+        } => params.iter().any(type_mentions_reference) || type_mentions_reference(return_type),
+        Type::Generic { args, .. } => args.iter().any(type_mentions_reference),
+        _ => false,
+    }
+}
+
 /// Classify a function name into a `Feature`, if it maps to one.
 ///
 /// This function is the **dispatch half** of the capability contract.
@@ -90,7 +116,12 @@ pub(super) fn scan_instruction(
     used: &mut HashSet<Feature>,
 ) {
     match instr {
-        Instruction::Declare { value, .. } => scan_value(value, extern_fns, used),
+        Instruction::Declare { type_, value, .. } => {
+            if type_mentions_reference(type_) {
+                used.insert(Feature::References);
+            }
+            scan_value(value, extern_fns, used);
+        }
         Instruction::Assign { value, .. } => scan_value(value, extern_fns, used),
         Instruction::WriteReference { reference, value } => {
             scan_value(reference, extern_fns, used);
@@ -197,7 +228,16 @@ pub(super) fn scan_value(
         TypedIRValue::BorrowShared { expr, .. }
         | TypedIRValue::BorrowMutable { expr, .. }
         | TypedIRValue::ReadReference { expr, .. }
-        | TypedIRValue::AddrOf { expr, .. } => scan_value(expr, extern_fns, used),
+        | TypedIRValue::AddrOf { expr, .. } => {
+            // ADR 0019. Any reference operation requires the
+            // capability, regardless of the operand's type. The
+            // type-driven check below covers the complementary case
+            // — a reference value that reached the IR without an
+            // explicit operation (a function parameter of reference
+            // type, a Declare whose type annotation mentions `&T`).
+            used.insert(Feature::References);
+            scan_value(expr, extern_fns, used);
+        }
         TypedIRValue::Range(start, end) => {
             scan_value(start, extern_fns, used);
             scan_value(end, extern_fns, used);
@@ -250,6 +290,22 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
 
     let mut used = HashSet::new();
     for func in &program.functions {
+        // ADR 0019. Parameters and return type are on the
+        // SemanticFunction, not on any instruction, so the
+        // instruction walk below misses them. A parameter of type
+        // `&T` or `&mut T` makes the function require the
+        // capability even when its body never uses a reference
+        // operation explicitly (the caller's argument is the
+        // reference operation).
+        for (_, ty) in &func.params {
+            if type_mentions_reference(ty) {
+                used.insert(Feature::References);
+            }
+        }
+        if type_mentions_reference(&func.return_type) {
+            used.insert(Feature::References);
+        }
+
         for block in &func.blocks {
             for instr in &block.instructions {
                 scan_instruction(instr, &extern_fns, &mut used);

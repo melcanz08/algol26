@@ -80,11 +80,6 @@ pub struct FeatureRow {
 /// `src/backends/capabilities/tests.rs` and naming it in the row's
 /// `refusal_tests`.
 pub const KNOWN_MISSING_REFUSALS: &[&str] = &[
-    // Runtime refusal, not a capability check. The interpreter
-    // backend does not call `check_backend`; borrows are refused
-    // inside `eval_value` via EvalError::Unsupported. There is no
-    // capability test to add — the refusal is a different mechanism.
-    "borrow",
     // Unfinished feature. No capability check exists because there
     // is no `Feature::Range` variant, and no backend supports ranges
     // end-to-end. Stays here until the feature is either implemented
@@ -269,10 +264,11 @@ pub const MATRIX: &[FeatureRow] = &[
         conformance_dir: Some("ownership"),
         interpreter: Support::Refused,
         llvm: Support::Full,
-        wasm: Support::Unknown,
-        refusal_tests: &[],
-        notes: "Interpreter refuses `&x` / `*r` with EvalError::Unsupported \
-                but no capability test pins it. WASM support unverified.",
+        wasm: Support::Refused,
+        refusal_tests: &["interpreter_rejects_references", "wasm_rejects_references"],
+        notes: "Interpreter and WASM refuse via `Feature::References` in the \
+                capability check. LLVM lowers the four reference operations \
+                in llvm_codegen/value.rs and the reference types in types.rs.",
     },
     FeatureRow {
         name: "region",

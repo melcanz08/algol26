@@ -145,6 +145,70 @@ mod tests {
     }
 
     #[test]
+    fn test_interpreter_reads_file() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let dir =
+            std::env::temp_dir().join(format!("algol26_file_read_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let input_path = dir.join("input.txt");
+        std::fs::write(&input_path, "hello from disk").expect("write fixture");
+
+        let source = format!(
+            "procedure main\n    val text := File.read(\"{}\")\n    print(text)\n",
+            input_path.display()
+        );
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(&source, "file_read.gol")
+            .expect("pipeline should reach verified IR");
+
+        let backend = crate::backends::interpreter_backend::InterpreterBackend::new();
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        let output = backend.get_output();
+        assert_eq!(output.trim(), "hello from disk");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_interpreter_writes_file() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let dir =
+            std::env::temp_dir().join(format!("algol26_file_write_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let out_path = dir.join("output.txt");
+
+        let source = format!(
+            "procedure main\n    val n := File.write(\"{}\", \"written\")\n    print(n)\n",
+            out_path.display()
+        );
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(&source, "file_write.gol")
+            .expect("pipeline should reach verified IR");
+
+        let backend = crate::backends::interpreter_backend::InterpreterBackend::new();
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        let output = backend.get_output();
+        assert_eq!(output.trim(), "7"); // "written".len()
+
+        let on_disk = std::fs::read_to_string(&out_path).expect("output file should exist");
+        assert_eq!(on_disk, "written");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn test_interpreter_region_frees_allocation_on_exit() {
         // Step 3 wiring: `region r` opens a frame; `alloc(n)`
         // inside records its handle; `RegionExit` frees it.

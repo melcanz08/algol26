@@ -472,10 +472,86 @@ impl Interpreter {
                 }),
                 None => Err(EvalError::Runtime("String.length: missing argument".into())),
             },
+            "File.read" => match arg_vals.first() {
+                Some(RuntimeValue::String(path)) => match std::fs::read_to_string(path) {
+                    Ok(content) => Ok(RuntimeValue::String(content)),
+                    Err(e) => Err(EvalError::Runtime(format!(
+                        "File.read: cannot read '{}': {}",
+                        path, e
+                    ))),
+                },
+                Some(other) => Err(EvalError::TypeMismatch {
+                    op: "File.read",
+                    left: runtime_kind(other),
+                    right: "String",
+                }),
+                None => Err(EvalError::Runtime(
+                    "File.read: missing path argument".into(),
+                )),
+            },
 
+            "File.write" => match (arg_vals.first(), arg_vals.get(1)) {
+                (Some(RuntimeValue::String(path)), Some(RuntimeValue::String(content))) => {
+                    match std::fs::write(path, content) {
+                        Ok(()) => Ok(RuntimeValue::Int(content.len() as i64)),
+                        Err(e) => Err(EvalError::Runtime(format!(
+                            "File.write: cannot write '{}': {}",
+                            path, e
+                        ))),
+                    }
+                }
+                (None, _) => Err(EvalError::Runtime(
+                    "File.write: missing path argument".into(),
+                )),
+                (_, None) => Err(EvalError::Runtime(
+                    "File.write: missing content argument".into(),
+                )),
+                (Some(p), Some(c)) => Err(EvalError::TypeMismatch {
+                    op: "File.write",
+                    left: runtime_kind(p),
+                    right: runtime_kind(c),
+                }),
+            },
+
+            "File.append" => match (arg_vals.first(), arg_vals.get(1)) {
+                (Some(RuntimeValue::String(path)), Some(RuntimeValue::String(content))) => {
+                    use std::io::Write;
+                    match std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                    {
+                        Ok(mut f) => match f.write_all(content.as_bytes()) {
+                            Ok(()) => Ok(RuntimeValue::Int(content.len() as i64)),
+                            Err(e) => Err(EvalError::Runtime(format!(
+                                "File.append: cannot append to '{}': {}",
+                                path, e
+                            ))),
+                        },
+                        Err(e) => Err(EvalError::Runtime(format!(
+                            "File.append: cannot open '{}': {}",
+                            path, e
+                        ))),
+                    }
+                }
+                (None, _) => Err(EvalError::Runtime(
+                    "File.append: missing path argument".into(),
+                )),
+                (_, None) => Err(EvalError::Runtime(
+                    "File.append: missing content argument".into(),
+                )),
+                (Some(p), Some(c)) => Err(EvalError::TypeMismatch {
+                    op: "File.append",
+                    left: runtime_kind(p),
+                    right: runtime_kind(c),
+                }),
+            },
             _ => Err(EvalError::Unsupported {
                 construct: "builtin",
-                hint: "unknown builtin — the IR verifier should have rejected this call",
+                hint: "interpreter has no dispatch arm for this registered \
+                       builtin — the IR verifier accepted it, but the \
+                       interpreter cannot execute it. This is an interpreter \
+                       completeness gap.",
             }),
         }
     }

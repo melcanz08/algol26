@@ -258,6 +258,12 @@ impl Lexer {
         let mut tokens = Vec::new();
         let mut indent_stack = vec![0];
         let mut pending_dedents = 0;
+        // Bracket depth for indentation suppression. While a
+        // `[...]` or `(...)` is open across lines, the leading
+        // whitespace on continuation lines is layout inside the
+        // bracketed expression, not block structure. Without this,
+        // a multi-line list literal produces a spurious `Indent`.
+        let mut bracket_depth: i32 = 0;
 
         let lines: Vec<&str> = source.lines().collect();
         let mut line_idx = 0;
@@ -315,11 +321,15 @@ impl Lexer {
 
             let current_indent = indent_stack.last().copied().unwrap_or(0);
 
-            if indent > current_indent {
+            // Continuation lines inside an open bracket do not
+            // participate in indentation tracking.
+            let in_bracket_continuation = bracket_depth > 0;
+
+            if !in_bracket_continuation && indent > current_indent {
                 indent_stack.push(indent);
                 tokens.push(Token::Indent);
                 token_positions.push((line_number, 1)); // dummy
-            } else if indent < current_indent {
+            } else if !in_bracket_continuation && indent < current_indent {
                 if !indent_stack.contains(&indent) {
                     return Err(CompileError::simple(
                         &format!(
@@ -365,6 +375,20 @@ impl Lexer {
             let mut char_positions: Vec<usize> = Vec::new();
             Lexer::tokenize_line(trimmed, line_number, line, &mut tokens, &mut char_positions)?;
             let base_column = indent + 1;
+
+            // Update bracket depth from the tokens this line emitted.
+            // `[` and `(` open a continuation; `]` and `)` close one.
+            // Bracket pairs on a single line net to zero and are
+            // ignored, which is what we want.
+            for tok in &tokens[tokens_before..] {
+                match tok {
+                    Token::LBracket | Token::LParen => bracket_depth += 1,
+                    Token::RBracket | Token::RParen => {
+                        bracket_depth = (bracket_depth - 1).max(0);
+                    }
+                    _ => {}
+                }
+            }
 
             let tokens_added = tokens.len() - tokens_before;
             if tokens_added != char_positions.len() {

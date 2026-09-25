@@ -185,3 +185,119 @@ fn test_mut_in_signature_lexes_as_keyword() {
         "`mut` must not appear as Identifier in signature tokens"
     );
 }
+
+#[test]
+fn multi_line_list_literal_emits_one_indent() {
+    let source = "procedure main\n    val xs := [\n        1,\n        2,\n        3]\n";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let indents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Indent))
+        .count();
+    let dedents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Dedent))
+        .count();
+    assert_eq!(indents, 1, "expected one Indent for the block");
+    assert_eq!(dedents, 1, "expected one Dedent to close the block");
+}
+
+#[test]
+fn multi_line_function_call_emits_one_indent() {
+    let source = "procedure main\n    val x := add(\n        1,\n        2)\n";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let indents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Indent))
+        .count();
+    let dedents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Dedent))
+        .count();
+    assert_eq!(indents, 1);
+    assert_eq!(dedents, 1);
+}
+
+#[test]
+fn single_line_list_unchanged() {
+    let source = "procedure main\n    val xs := [1, 2, 3]\n";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let indents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Indent))
+        .count();
+    let dedents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Dedent))
+        .count();
+    assert_eq!(indents, 1);
+    assert_eq!(dedents, 1);
+}
+
+#[test]
+fn nested_multiline_brackets_emit_one_indent() {
+    let source = "procedure main\n    val xs := foo([\n        1,\n        2],\n        [3, 4])\n";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let indents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Indent))
+        .count();
+    assert_eq!(indents, 1);
+}
+
+#[test]
+fn multi_line_list_after_statement() {
+    let source = "procedure main\n    val xs := [\n        1\n    ]\n    print(xs)\n";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+
+    let indents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Indent))
+        .count();
+    let dedents = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Dedent))
+        .count();
+    assert_eq!(indents, 1, "expected one Indent for the block");
+    assert_eq!(dedents, 1, "expected one Dedent to close the block");
+
+    // After the multi-line list, the statement on the following
+    // line must be tokenized. `xs` appears twice: once as the
+    // declaration name and once as the argument to `print(xs)`.
+    // Asserting on `xs` avoids depending on how the lexer
+    // classifies `print` (a keyword, not an identifier).
+    let xs_count = lexer
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Identifier(ref n) if n == "xs"))
+        .count();
+    assert_eq!(
+        xs_count, 2,
+        "expected `xs` twice (declaration and use); got {}",
+        xs_count
+    );
+
+    // The closing paren of `print(xs)` must be the last
+    // non-Dedent, non-Eof token. Confirms the second statement
+    // was tokenized to completion.
+    let last_real = lexer
+        .tokens
+        .iter()
+        .rev()
+        .find(|t| !matches!(t.token, Token::Dedent | Token::Eof))
+        .map(|t| &t.token);
+    assert!(
+        matches!(last_real, Some(Token::RParen)),
+        "expected `print(xs)` to close with RParen; last token was {:?}",
+        last_real
+    );
+}

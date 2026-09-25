@@ -10,12 +10,23 @@ use std::sync::Mutex;
 
 pub struct InterpreterBackend {
     output_buffer: Mutex<Vec<u8>>,
+    /// Program arguments exposed to the interpreted program via
+    /// `args()`. Empty by default; the CLI populates this from the
+    /// post-`--` arguments on the command line. ADR 0023.
+    program_args: Vec<String>,
 }
 
 impl InterpreterBackend {
     pub fn new() -> Self {
+        Self::with_args(Vec::new())
+    }
+
+    /// Construct with an explicit program-argument list. `args()`
+    /// inside the interpreted program returns this list.
+    pub fn with_args(program_args: Vec<String>) -> Self {
         Self {
             output_buffer: Mutex::new(Vec::new()),
+            program_args,
         }
     }
 
@@ -44,7 +55,8 @@ impl Default for InterpreterBackend {
 
 impl Backend for InterpreterBackend {
     fn compile(&self, ir: &VerifiedIR, _output_name: &str) -> Result<BackendOutput> {
-        let mut interpreter = Interpreter::new(ir.program().clone());
+        let mut interpreter =
+            Interpreter::with_args(ir.program().clone(), self.program_args.clone());
 
         // Capture output from interpreter
         let output = interpreter.run().map_err(|e| {
@@ -367,5 +379,30 @@ procedure main
             Interpreter::with_args(program, vec!["hello".to_string(), "world".to_string()]);
         let output = interp.run().expect("interpreter should run");
         assert_eq!(output.trim(), "2\nhello\nworld");
+    }
+    #[test]
+    fn test_interpreter_backend_passes_args_through() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    val xs := args()
+    print(List.length(xs))
+    for a in xs
+        print(a)
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "args_backend.gol")
+            .expect("pipeline should reach verified IR");
+
+        let backend =
+            InterpreterBackend::with_args(vec!["first".to_string(), "second".to_string()]);
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        assert_eq!(backend.get_output().trim(), "2\nfirst\nsecond");
     }
 }

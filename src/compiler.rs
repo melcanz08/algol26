@@ -473,6 +473,19 @@ impl Compiler {
     }
 
     pub fn run_interpreter(&mut self, source: &str, filename: &str) -> Result<()> {
+        self.run_interpreter_with_args(source, filename, Vec::new())
+    }
+
+    /// ADR 0023. Run the program through the interpreter with an
+    /// explicit list of program arguments. `args()` inside the
+    /// interpreted program returns this list. `run_interpreter`
+    /// calls this with an empty list.
+    pub fn run_interpreter_with_args(
+        &mut self,
+        source: &str,
+        filename: &str,
+        program_args: Vec<String>,
+    ) -> Result<()> {
         use crate::backends::backend::Backend;
         use crate::backends::interpreter_backend::InterpreterBackend;
 
@@ -493,7 +506,7 @@ impl Compiler {
             &crate::backends::capabilities::BackendCapabilities::interpreter(),
         )?;
 
-        let backend = InterpreterBackend::new();
+        let backend = InterpreterBackend::with_args(program_args);
         backend.compile(&verified, "")?;
         let output = backend.get_output();
         if !output.trim().is_empty() {

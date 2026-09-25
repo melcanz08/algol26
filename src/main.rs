@@ -7,7 +7,21 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let raw_args: Vec<String> = env::args().collect();
+
+    // Split on `--`. Everything after the separator is passed to the
+    // interpreted program via `args()`. The compiler itself never
+    // sees the post-separator arguments. ADR 0023.
+    let (args, program_args): (Vec<String>, Vec<String>) =
+        match raw_args.iter().position(|a| a == "--") {
+            Some(i) => {
+                let compiler_args = raw_args[..i].to_vec();
+                let program_args = raw_args[i + 1..].to_vec();
+                (compiler_args, program_args)
+            }
+            None => (raw_args, Vec::new()),
+        };
+
     // `inspect` has its own sub-flags and bypasses the compile path
     // entirely. Intercept before the generic flag parser runs so
     // `--passes`, `--tokens`, etc. don't get pushed into positional.
@@ -158,7 +172,7 @@ fn main() {
     } else if use_interpreter {
         println!("[Interpreting {}]", filename);
         let mut compiler = Compiler::new();
-        if let Err(e) = compiler.run_interpreter(&source, &filename) {
+        if let Err(e) = compiler.run_interpreter_with_args(&source, &filename, program_args) {
             e.display();
             std::process::exit(1);
         }

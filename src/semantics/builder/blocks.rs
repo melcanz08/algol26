@@ -1,4 +1,4 @@
-// src/semantics/semantic_builder/blocks.rs
+// src/semantics/builder/blocks.rs
 
 use super::*;
 

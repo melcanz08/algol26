@@ -49,6 +49,20 @@ impl Interpreter {
                     Ok(None)
                 }
             }
+
+            SemanticPattern::Record { name, bindings } => match value {
+                RuntimeValue::Record { name: rn, fields } if rn == name => {
+                    let mut out = Vec::with_capacity(bindings.len());
+                    for b in bindings {
+                        match fields.iter().find(|(n, _)| n == b) {
+                            Some((_, v)) => out.push((b.clone(), v.clone())),
+                            None => return Ok(None),
+                        }
+                    }
+                    Ok(Some(out))
+                }
+                _ => Ok(None),
+            },
         }
     }
 }

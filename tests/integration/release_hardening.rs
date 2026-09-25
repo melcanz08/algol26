@@ -65,7 +65,12 @@ fn test_negative_type_mismatch() {
     assign_expr_ids(&mut functions);
 
     let mut analyzer = SemanticAnalyzer::new();
-    let result = analyzer.analyze_with_spans(&functions, &program.traits, &program.impls);
+    let result = analyzer.analyze_with_spans(
+        &functions,
+        &program.traits,
+        &program.impls,
+        &program.records,
+    );
 
     assert!(
         result.is_err(),

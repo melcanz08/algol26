@@ -16,7 +16,12 @@ fn analyze(source: &str) -> Result<()> {
     crate::compiler::assign_expr_ids(&mut functions);
 
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze_with_spans(&functions, &program.traits, &program.impls)
+    analyzer.analyze_with_spans(
+        &functions,
+        &program.traits,
+        &program.impls,
+        &program.records,
+    )
 }
 
 #[test]
@@ -463,7 +468,12 @@ procedure main
 
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .analyze_with_spans(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+        )
         .expect("analysis should succeed");
 
     let instantiations = analyzer.take_instantiations();
@@ -505,7 +515,12 @@ procedure main
 
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .analyze_with_spans(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+        )
         .expect("analysis should succeed");
 
     let instantiations = analyzer.take_instantiations();
@@ -541,7 +556,12 @@ procedure main
 
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .analyze_with_spans(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+        )
         .expect("analysis should succeed");
 
     assert!(
@@ -570,7 +590,12 @@ fn analyze_unsafe(source: &str) -> Result<()> {
     let mut functions = program.functions;
     assign_expr_ids(&mut functions);
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze_with_traits(&functions, &program.traits, &program.impls)
+    analyzer.analyze_with_traits(
+        &functions,
+        &program.traits,
+        &program.impls,
+        &program.records,
+    )
 }
 
 #[test]

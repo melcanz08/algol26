@@ -204,6 +204,10 @@ impl SemanticAnalyzer {
                 self.collect_expr_captures(index, captured);
                 self.collect_expr_captures(value, captured);
             }
+            Stmt::FieldAssign { target, value, .. } => {
+                captured.insert(target.clone());
+                self.collect_expr_captures(value, captured);
+            }
             Stmt::Return { value, .. } => {
                 if let Some(e) = value {
                     self.collect_expr_captures(e, captured);
@@ -277,6 +281,11 @@ impl SemanticAnalyzer {
             ExprKind::List(items, _) => {
                 for item in items {
                     self.collect_expr_captures(item, captured);
+                }
+            }
+            ExprKind::RecordLiteral { fields, .. } => {
+                for (_, v) in fields {
+                    self.collect_expr_captures(v, captured);
                 }
             }
             ExprKind::If {

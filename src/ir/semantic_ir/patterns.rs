@@ -13,4 +13,5 @@ pub enum SemanticPattern {
     Error { binding: String },
     Wildcard,
     Literal(TypedIRValue),
+    Record { name: String, bindings: Vec<String> },
 }

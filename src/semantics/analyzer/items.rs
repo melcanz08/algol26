@@ -1,6 +1,7 @@
 // src/semantics/analyzer/items.rs
 
 use super::*;
+use crate::frontend::ast::RecordDecl;
 
 impl SemanticAnalyzer {
     pub(super) fn register_builtin_functions(&mut self) {
@@ -199,6 +200,55 @@ impl SemanticAnalyzer {
                 },
             );
         }
+    }
+    pub(super) fn register_record(&mut self, decl: &RecordDecl) -> Result<()> {
+        if self.records.contains_key(&decl.name) {
+            return Err(CompileError::simple(
+                &format!("Duplicate record declaration '{}'", decl.name),
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            ));
+        }
+
+        // Duplicate field names are an error.
+        let mut seen = HashSet::new();
+        for (field, _) in &decl.fields {
+            if !seen.insert(field.clone()) {
+                return Err(CompileError::simple(
+                    &format!("Duplicate field '{}' in record '{}'", field, decl.name),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0009,
+                ));
+            }
+        }
+
+        // Resolve field types. Type parameters are visible here as TypeVars.
+        self.type_params.push(
+            decl.type_params
+                .iter()
+                .map(|p| (p.clone(), Type::TypeVar(p.clone())))
+                .collect(),
+        );
+        let fields = decl
+            .fields
+            .iter()
+            .map(|(name, ty)| (name.clone(), ty.to_type()))
+            .collect();
+        self.type_params.pop();
+
+        self.records.insert(
+            decl.name.clone(),
+            RecordInfo {
+                name: decl.name.clone(),
+                type_params: decl.type_params.clone(),
+                fields,
+            },
+        );
+        Ok(())
     }
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
         if func.is_extern {

@@ -91,6 +91,8 @@ impl Lexer {
             ',' => tokens.push(Token::Comma),
             '(' => tokens.push(Token::LParen),
             ')' => tokens.push(Token::RParen),
+            '{' => tokens.push(Token::LBrace),
+            '}' => tokens.push(Token::RBrace),
             '.' => {
                 // Need to look ahead to distinguish between Dot, DotDot, DotDotEqual, Ellipsis
                 if let Some(&next) = chars.peek() {

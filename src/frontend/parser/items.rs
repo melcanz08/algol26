@@ -8,12 +8,16 @@ impl Parser {
         let mut traits = Vec::new();
         let mut impls = Vec::new();
         let mut top_level_imports = Vec::new();
+        let mut records = Vec::new(); // NEW
 
         while !matches!(self.peek(), Token::Eof) {
             if matches!(self.peek(), Token::Trait) {
                 traits.push(self.parse_trait()?);
             } else if matches!(self.peek(), Token::Impl) {
                 impls.push(self.parse_impl()?);
+            } else if matches!(self.peek(), Token::Rec) {
+                // NEW
+                records.push(self.parse_record_decl()?); // NEW
             } else if matches!(
                 self.peek(),
                 Token::Procedure | Token::Function | Token::Extern
@@ -41,6 +45,7 @@ impl Parser {
             functions,
             traits,
             impls,
+            records, // NEW
         })
     }
 
@@ -249,6 +254,48 @@ impl Parser {
             trait_name,
             target_type,
             methods,
+        })
+    }
+
+    pub(super) fn parse_record_decl(&mut self) -> Result<RecordDecl> {
+        let start_span = self.current_span();
+        self.advance(); // consume `rec`
+
+        let name = self.expect_identifier("record name")?;
+
+        // Optional type parameters: rec Pair<T>
+        let mut type_params = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.advance();
+            while !matches!(self.peek(), Token::Gt | Token::Eof) {
+                type_params.push(self.expect_identifier("type parameter")?);
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                }
+            }
+            self.expect_token(Token::Gt, "'>'")?;
+        }
+
+        // Body: indented `field: Type` lines. Same shape as `parse_trait`.
+        let mut fields = Vec::new();
+        if let Token::Indent = self.peek() {
+            self.advance();
+            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                let field_name = self.expect_identifier("field name")?;
+                self.expect_token(Token::Colon, "':'")?;
+                let field_type = self.parse_type_syntax()?;
+                fields.push((field_name, field_type));
+            }
+            if let Token::Dedent = self.peek() {
+                self.advance();
+            }
+        }
+
+        Ok(RecordDecl {
+            name,
+            type_params,
+            fields,
+            span: start_span,
         })
     }
 

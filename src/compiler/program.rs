@@ -17,6 +17,7 @@ pub struct AstPayload {
     pub functions: Rc<Vec<FunctionDecl>>,
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
+    pub records: Vec<crate::frontend::ast::RecordDecl>,
 }
 
 /// ADR 0017. The pipeline's IR representation. Exactly one of

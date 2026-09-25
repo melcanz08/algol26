@@ -161,6 +161,12 @@ pub enum ExprKind {
         field: String,
         span: Span,
     },
+    RecordLiteral {
+        name: String,
+        type_args: Vec<TypeSyntax>,
+        fields: Vec<(String, Expr)>,
+        span: Span,
+    },
 }
 
 impl ExprKind {
@@ -195,6 +201,7 @@ impl ExprKind {
             ExprKind::While { span, .. } => *span,
             ExprKind::Range { span, .. } => *span,
             ExprKind::FieldAccess { span, .. } => *span,
+            ExprKind::RecordLiteral { span, .. } => *span,
         }
     }
 }
@@ -295,6 +302,12 @@ pub enum Stmt {
     /// Wraps any expression in statement position. The inner `Expr`
     /// already carries its own span; no separate span on this variant.
     Expression(Expr),
+    FieldAssign {
+        target: String,
+        field: String,
+        value: Expr,
+        span: Span,
+    },
 }
 
 impl Stmt {
@@ -318,6 +331,7 @@ impl Stmt {
             Stmt::Send { span, .. } => *span,
             Stmt::Receive { span, .. } => *span,
             Stmt::Expression(e) => e.span(),
+            Stmt::FieldAssign { span, .. } => *span,
         }
     }
 }
@@ -338,6 +352,14 @@ pub struct FunctionDecl {
     pub ffi_info: Option<ExternDecl>,
     pub type_params: Vec<String>,
     pub where_clauses: Vec<WhereClause>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecordDecl {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub fields: Vec<(String, TypeSyntax)>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
@@ -369,6 +391,10 @@ pub enum Pattern {
     Range {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
+    },
+    Record {
+        name: String,
+        bindings: Vec<String>,
     },
 }
 
@@ -499,4 +525,5 @@ pub struct Program {
     pub functions: Vec<FunctionDecl>,
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
+    pub records: Vec<RecordDecl>,
 }

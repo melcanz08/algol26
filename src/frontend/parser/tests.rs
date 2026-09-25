@@ -264,3 +264,18 @@ procedure main
     assert!(has_borrow, "&x should parse as Expr::Borrow");
     assert!(!has_addrof, "&x should NOT parse as Expr::AddrOf");
 }
+
+#[test]
+fn parses_record_decl_and_literal() {
+    let src = "rec Point\n    x: Int\n    y: Int\n\nprocedure main\n    val p := Point { x: 1, y: 2 }\n    print(p.x)\n";
+    let toks = crate::frontend::lexer::Lexer::new(src.to_string())
+        .unwrap()
+        .tokens;
+    let mut p = Parser::new(toks);
+    let program = p.parse_program().unwrap();
+    assert_eq!(program.records.len(), 1);
+    assert_eq!(program.records[0].name, "Point");
+    assert_eq!(program.records[0].fields.len(), 2);
+    assert_eq!(program.records[0].fields[0].0, "x");
+    assert_eq!(program.records[0].fields[1].0, "y");
+}

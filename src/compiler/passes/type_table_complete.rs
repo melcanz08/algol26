@@ -123,6 +123,19 @@ impl<'a> Walker<'a> {
                 self.visit_expr(index);
                 self.visit_expr(value);
             }
+            Stmt::FieldAssign {
+                target,
+                field,
+                value,
+                ..
+            } => {
+                self.visit_expr(value);
+                // `target` is a plain variable name; `field` is a field
+                // name. Neither is an expression node that needs visiting
+                // — but if this pass tracks variable uses, mark `target`.
+                // For now, visiting the RHS is enough.
+                let _ = (target, field);
+            }
             Stmt::Return { value, .. } => {
                 if let Some(e) = value {
                     self.visit_expr(e);
@@ -287,6 +300,11 @@ impl<'a> Walker<'a> {
             ExprKind::FieldAccess { object, .. } => {
                 self.visit_expr(object);
             }
+            ExprKind::RecordLiteral { fields, .. } => {
+                for (_, v) in fields {
+                    self.visit_expr(v);
+                }
+            }
         }
     }
 
@@ -315,6 +333,11 @@ impl<'a> Walker<'a> {
                 if let Some(p) = rest {
                     self.visit_pattern(p);
                 }
+            }
+            Pattern::Record { .. } => {
+                // Record pattern bindings are introduced into the case's
+                // scope; the analyzer already recorded their types. Nothing
+                // for this pass to do.
             }
             Pattern::Some(_)
             | Pattern::None
@@ -356,6 +379,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::NullPtr(_) => "null_ptr",
         ExprKind::Range { .. } => "range",
         ExprKind::FieldAccess { .. } => "field_access",
+        ExprKind::RecordLiteral { .. } => "record_literal",
     }
 }
 

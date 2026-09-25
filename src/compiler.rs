@@ -36,6 +36,7 @@ pub struct ParsedProgram {
     pub functions: Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
+    pub records: Vec<crate::frontend::ast::RecordDecl>,
 }
 
 /// Output of the canonical frontend normalization.
@@ -186,6 +187,7 @@ pub fn type_check_program(
     functions: &Rc<Vec<crate::frontend::ast::FunctionDecl>>,
     traits: &[TraitDecl],
     impls: &[ImplBlock],
+    records: &[crate::frontend::ast::RecordDecl], // ← NEW
 ) -> Result<TypedProgram> {
     let mut analyzer = SemanticAnalyzer::new();
     debug_assert!(
@@ -193,7 +195,7 @@ pub fn type_check_program(
         "type_check_program reached with an UNASSIGNED ExprId — \
          some AST construction path bypassed prepare_frontend"
     );
-    analyzer.analyze_with_traits(functions, traits, impls)?;
+    analyzer.analyze_with_traits(functions, traits, impls, records)?;
 
     let mut race_detector = RaceDetector::new();
     let races = race_detector.analyze(functions);
@@ -330,6 +332,7 @@ impl Compiler {
             functions: Rc::clone(&prep.parsed.functions),
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
+            records: prep.parsed.records.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -375,6 +378,7 @@ impl Compiler {
             functions: Rc::new(functions),
             traits: parsed.traits,
             impls: parsed.impls,
+            records: parsed.records, // ← NEW
         };
 
         Ok(FrontendPrep {
@@ -435,6 +439,7 @@ impl Compiler {
             functions: Rc::clone(&parsed.functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
+            records: parsed.records.clone(),
         });
         let mut ctx = CompilerContext::new(CompilerConfig::default());
 
@@ -497,6 +502,7 @@ impl Compiler {
             functions: Rc::clone(&prep.parsed.functions),
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
+            records: prep.parsed.records.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -619,6 +625,7 @@ impl Compiler {
             functions: Rc::clone(&prep.parsed.functions),
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
+            records: prep.parsed.records.clone(),
         });
 
         // ADR 0018: one canonical pipeline. All passes run to
@@ -696,6 +703,7 @@ impl Compiler {
             functions: Rc::new(all_functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
+            records: parsed.records.clone(), // ← NEW
         }
     }
 
@@ -713,6 +721,7 @@ impl Compiler {
             functions: Rc::new(functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
+            records: parsed.records.clone(),
         }
     }
 
@@ -723,9 +732,9 @@ impl Compiler {
             functions: Rc::new(program.functions),
             traits: program.traits,
             impls: program.impls,
+            records: program.records, // ← NEW
         })
     }
-
     fn process_imports(&self, parsed: &ParsedProgram, current_file: &str) -> Result<ParsedProgram> {
         let mut loader = ModuleLoader::new();
         let mut all_functions = (*parsed.functions).clone();
@@ -760,6 +769,7 @@ impl Compiler {
             functions: Rc::new(all_functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
+            records: parsed.records.clone(), // ← NEW
         })
     }
 
@@ -826,6 +836,7 @@ impl Compiler {
             functions: Rc::clone(&prep.parsed.functions),
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
+            records: prep.parsed.records.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -985,6 +996,11 @@ fn number_expr(expr: &mut Expr, next: &mut u32) {
                 number_expr(e, next);
             }
             if let Some(e) = end {
+                number_expr(e, next);
+            }
+        }
+        ExprKind::RecordLiteral { fields, .. } => {
+            for (_, e) in fields.iter_mut() {
                 number_expr(e, next);
             }
         }

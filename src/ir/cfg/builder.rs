@@ -31,6 +31,18 @@ fn collect_all_vars(v: &TypedIRValue, out: &mut Vec<String>) {
         TypedIRValue::BorrowShared { expr, .. } | TypedIRValue::BorrowMutable { expr, .. } => {
             collect_all_vars(expr, out);
         }
+        // NEW: recurse into record literal field values so a
+        // `Point { x: a, y: b }` RHS contributes `a` and `b` as
+        // uses.
+        TypedIRValue::Record { fields, .. } => {
+            for (_, fv) in fields {
+                collect_all_vars(fv, out);
+            }
+        }
+        TypedIRValue::FieldAccess { object, .. } => {
+            // `p.x` as an RHS is a use of `p`.
+            collect_all_vars(object, out);
+        }
         _ => {}
     }
 }
@@ -131,6 +143,25 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
                                 op: format!("ArrayAssign non-var {:?}", array),
                             });
                         }
+                    }
+                    I::FieldAssign {
+                        target,
+                        field: _,
+                        value,
+                    } => {
+                        // Field assignment mutates the target record.
+                        // Mirror the ArrayAssign arm: mark every
+                        // variable mentioned in the RHS as used,
+                        // then record the target as assigned so
+                        // dataflow sees the write.
+                        let mut vars = Vec::new();
+                        collect_all_vars(value, &mut vars);
+                        for v in vars {
+                            instrs.push(CfgInstruction::Use { name: v });
+                        }
+                        instrs.push(CfgInstruction::Assign {
+                            name: target.clone(),
+                        });
                     }
                     I::RegionEnter { name } => {
                         instrs.push(CfgInstruction::RegionEnter { name: name.clone() })

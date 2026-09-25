@@ -71,6 +71,8 @@ pub enum Feature {
     /// have no mechanism to expose C `argc`/`argv` to the
     /// language's `main`, so they refuse.
     CommandLineArgs,
+    /// `rec` record declarations, literals, field reads, and field assigns.
+    Records,
 }
 
 impl Feature {
@@ -91,6 +93,7 @@ impl Feature {
             Feature::RawMemory,
             Feature::References,
             Feature::CommandLineArgs,
+            Feature::Records,
         ]
     }
 
@@ -110,6 +113,7 @@ impl Feature {
             Feature::RawMemory => "raw-memory",
             Feature::References => "references",
             Feature::CommandLineArgs => "args",
+            Feature::Records => "records",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -129,6 +133,7 @@ impl Feature {
             Feature::RawMemory => "alloc / free (raw memory)",
             Feature::References => "reference operations (&x, &mut x, *r)",
             Feature::CommandLineArgs => "command-line arguments (args())",
+            Feature::Records => "records (rec declarations, literals, field access)",
         }
     }
 }
@@ -187,6 +192,7 @@ impl BackendCapabilities {
         supported.insert(Feature::Option);
         supported.insert(Feature::RawMemory);
         supported.insert(Feature::CommandLineArgs);
+        supported.insert(Feature::Records);
         // FFI is not supported by the interpreter (a tree-walker
         // cannot call into C).
         BackendCapabilities {

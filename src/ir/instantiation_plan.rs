@@ -393,6 +393,14 @@ pub fn mangled_type_name(ty: &Type) -> String {
             let parts: Vec<String> = args.iter().map(mangled_type_name).collect();
             format!("Generic_{}_{}_{}", name, args.len(), parts.join("_"))
         }
+        // Record: name + arity + arguments. Same injective
+        // shape as `Generic`; the prefix differs so `Record_Foo`
+        // and `Generic_Foo` never collide, and the arity makes
+        // `Pair<Int>` and `Pair<Int, Float>` distinct.
+        Type::Record(name, args) => {
+            let parts: Vec<String> = args.iter().map(mangled_type_name).collect();
+            format!("Record_{}_{}_{}", name, args.len(), parts.join("_"))
+        }
     }
 }
 
@@ -415,6 +423,9 @@ fn collect_stmt_call_ids(stmt: &Stmt, out: &mut Vec<ExprId>) {
         }
         Stmt::ArrayAssign { index, value, .. } => {
             collect_expr_call_ids(index, out);
+            collect_expr_call_ids(value, out);
+        }
+        Stmt::FieldAssign { value, .. } => {
             collect_expr_call_ids(value, out);
         }
         Stmt::Return { value: Some(e), .. } => collect_expr_call_ids(e, out),
@@ -544,6 +555,11 @@ fn collect_expr_call_ids(expr: &Expr, out: &mut Vec<ExprId>) {
             }
         }
         ExprKind::FieldAccess { object, .. } => collect_expr_call_ids(object, out),
+        ExprKind::RecordLiteral { fields, .. } => {
+            for (_, e) in fields {
+                collect_expr_call_ids(e, out);
+            }
+        }
         _ => {}
     }
 }
@@ -802,7 +818,12 @@ mod tests {
 
         let mut analyzer = SemanticAnalyzer::new();
         analyzer
-            .analyze_with_traits(&functions, &program.traits, &program.impls)
+            .analyze_with_traits(
+                &functions,
+                &program.traits,
+                &program.impls,
+                &program.records,
+            )
             .expect("analysis failed");
 
         let instantiations = analyzer.take_instantiations();
@@ -960,5 +981,29 @@ procedure main
         plan.close(&[]);
 
         assert_eq!(plan.specializations.len(), before);
+    }
+
+    #[test]
+    fn mangler_distinguishes_record_name_and_arity() {
+        // Different names.
+        assert_ne!(
+            mangled_type_name(&Type::record("Point", vec![])),
+            mangled_type_name(&Type::record("Vector", vec![])),
+        );
+        // Different arity.
+        assert_ne!(
+            mangled_type_name(&Type::record("Pair", vec![Type::Int])),
+            mangled_type_name(&Type::record("Pair", vec![Type::Int, Type::Float])),
+        );
+        // Different argument types at the same arity.
+        assert_ne!(
+            mangled_type_name(&Type::record("Pair", vec![Type::Int, Type::Float])),
+            mangled_type_name(&Type::record("Pair", vec![Type::Int, Type::Int])),
+        );
+        // No collision with `Generic` of the same name.
+        assert_ne!(
+            mangled_type_name(&Type::record("Box", vec![Type::Int])),
+            mangled_type_name(&Type::generic("Box", vec![Type::Int])),
+        );
     }
 }

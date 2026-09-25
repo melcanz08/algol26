@@ -34,6 +34,11 @@ pub enum TypedIRValue {
     PtrLiteral(usize),
     NullPtr,
     List(Vec<TypedIRValue>, Type),
+    Record {
+        name: String,
+        fields: Vec<(String, TypedIRValue)>,
+        record_type: Type,
+    },
     Some(Box<TypedIRValue>),
     None {
         option_type: Type,
@@ -108,6 +113,7 @@ impl TypedIRValue {
             TypedIRValue::PtrLiteral(_) => Type::Ptr,
             TypedIRValue::NullPtr => Type::Ptr,
             TypedIRValue::List(_, t) => Type::list(t.clone()),
+            TypedIRValue::Record { record_type, .. } => record_type.clone(),
             TypedIRValue::Some(v) => Type::option(v.type_of()),
             TypedIRValue::None { option_type } => option_type.clone(),
             TypedIRValue::Ok { result_type, .. } => result_type.clone(),

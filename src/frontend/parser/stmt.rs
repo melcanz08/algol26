@@ -452,8 +452,9 @@ impl Parser {
             }
             Token::Dot => {
                 self.advance();
-                let method_name = self.expect_identifier("method name")?;
+                let member_name = self.expect_identifier("method or field name")?;
 
+                // `p.x(...)` → dotted method call (existing behavior).
                 if matches!(self.peek(), Token::LParen) {
                     self.advance();
                     let mut args = Vec::new();
@@ -464,18 +465,39 @@ impl Parser {
                         }
                     }
                     self.expect_token(Token::RParen, "')'")?;
-                    Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
-                        name: format!("{}.{}", name, method_name),
+                    return Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
+                        name: format!("{}.{}", name, member_name),
                         args,
                         span: ident_span,
-                    })))
-                } else {
-                    Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
-                        name: format!("{}.{}", name, method_name),
-                        args: Vec::new(),
-                        span: ident_span,
-                    })))
+                    })));
                 }
+
+                // `p.x := v` → field assignment.
+                if matches!(self.peek(), Token::Assign) {
+                    self.advance();
+                    let value = self.parse_expr()?;
+                    return Ok(Stmt::FieldAssign {
+                        target: name,
+                        field: member_name,
+                        value,
+                        span: ident_span,
+                    });
+                }
+
+                // `p.show` (bare, no parens, no assign) → bare method call.
+                // Preserves the pre-record behavior for zero-arg method calls
+                // written without parentheses.
+                Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
+                    name: format!("{}.{}", name, member_name),
+                    args: Vec::new(),
+                    span: ident_span,
+                })))
+            }
+            Token::LBrace => {
+                // Record literal in statement position, e.g.
+                //     Point { x: 0, y: 0 }
+                let lit = self.parse_record_literal(name, Vec::new(), ident_span)?;
+                Ok(Stmt::Expression(lit))
             }
             _ => Ok(Stmt::Expression(Expr::new(ExprKind::Var(name, ident_span)))),
         }

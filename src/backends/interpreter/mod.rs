@@ -352,6 +352,50 @@ impl Interpreter {
                     )));
                 }
             }
+            Instruction::FieldAssign {
+                target,
+                field,
+                value,
+            } => {
+                // Evaluate the RHS first, so the `&mut self` borrow
+                // needed by `eval_value` ends before we touch
+                // `self.variables`.
+                let val = self.eval_value(value)?;
+
+                // Clone-out / mutate / insert-back — same shape as
+                // the `ArrayAssign` arm above. Avoids holding a
+                // mutable borrow of `self.variables` across a
+                // mutation of one of its entries.
+                let record = self.variables.get(target).cloned().ok_or_else(|| {
+                    EvalError::Runtime(format!(
+                        "field-assign target `{}` not found at runtime",
+                        target
+                    ))
+                })?;
+
+                match record {
+                    RuntimeValue::Record { name, mut fields } => {
+                        match fields.iter_mut().find(|(n, _)| n == field) {
+                            Some((_, slot)) => *slot = val,
+                            None => {
+                                return Err(EvalError::Runtime(format!(
+                                    "field `{}` not found on record `{}`",
+                                    field, name
+                                )));
+                            }
+                        }
+                        self.variables
+                            .insert(target.clone(), RuntimeValue::Record { name, fields });
+                    }
+                    other => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "FieldAssign",
+                            left: runtime::runtime_kind(&other),
+                            right: "Record",
+                        });
+                    }
+                }
+            }
             Instruction::IteratorInit { iterator, iterable } => {
                 let val = self.eval_value(iterable)?;
                 self.variables.insert(iterator.clone(), val);

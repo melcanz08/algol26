@@ -8,8 +8,8 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::{
-    BinOp, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, Stmt,
-    TraitDecl, WhereClause,
+    BinOp, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, RecordDecl,
+    Stmt, TraitDecl, WhereClause,
 };
 use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
@@ -53,6 +53,7 @@ pub struct SemanticAnalyzer {
     type_constraints: Vec<HashMap<String, Vec<String>>>,
     trait_registry: TraitRegistry,
     deferred_captures: Vec<HashSet<String>>,
+    records: HashMap<String, RecordInfo>,
     /// Function names declared variadic via `extern "C" ...(...)`.
     /// Used to relax the arity check from "exactly N" to "at
     /// least N" for those functions.
@@ -102,6 +103,13 @@ struct FunctionInfo {
     /// for non-generic functions. Used by `ExprKind::FunctionCall`
     /// to record instantiation facts (Stage 3.1, ADR 0013).
     type_params: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecordInfo {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub fields: Vec<(String, Type)>,
 }
 
 /// A recorded generic instantiation. Produced by the analyzer when
@@ -164,6 +172,7 @@ impl SemanticAnalyzer {
             region_depth: 0,
             loop_stack: Vec::new(),
             unsafe_depth: 0,
+            records: HashMap::new(),
         }
     }
 
@@ -241,7 +250,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        self.analyze_with_spans(functions, &[], &[])
+        self.analyze_with_spans(functions, &[], &[], &[])
     }
 
     pub fn analyze_with_spans(
@@ -249,6 +258,7 @@ impl SemanticAnalyzer {
         functions: &[FunctionDecl],
         traits: &[TraitDecl],
         impls: &[ImplBlock],
+        records: &[RecordDecl],
     ) -> Result<()> {
         debug_assert!(
             crate::compiler::assert_all_numbered(functions),
@@ -258,6 +268,9 @@ impl SemanticAnalyzer {
         self.register_builtin_functions();
         self.register_user_functions(functions);
 
+        for rec in records {
+            self.register_record(rec)?;
+        }
         for trait_decl in traits {
             self.trait_registry.register_trait(trait_decl.clone());
         }
@@ -281,13 +294,14 @@ impl SemanticAnalyzer {
         functions: &[FunctionDecl],
         traits: &[TraitDecl],
         impls: &[ImplBlock],
+        records: &[RecordDecl],
     ) -> Result<()> {
         debug_assert!(
             crate::compiler::assert_all_numbered(functions),
             "SemanticAnalyzer::analyze_with_traits called with unnumbered AST — \
              call assign_expr_ids(&mut functions) before analyzing"
         );
-        self.analyze_with_spans(functions, traits, impls)
+        self.analyze_with_spans(functions, traits, impls, records)
     }
 
     fn check_trait_bounds(

@@ -620,6 +620,18 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
         TypedIRValue::AddrOf { expr, .. } => {
             collect_variables_from_value(expr, vars);
         }
+        // NEW: `p.x` as a value is a use of `p`.
+        TypedIRValue::FieldAccess { object, .. } => {
+            collect_variables_from_value(object, vars);
+        }
+
+        // NEW: a record literal's field values each contribute
+        // their own variable uses.
+        TypedIRValue::Record { fields, .. } => {
+            for (_, v) in fields {
+                collect_variables_from_value(v, vars);
+            }
+        }
         _ => {}
     }
 }

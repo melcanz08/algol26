@@ -1,7 +1,6 @@
-#![allow(dead_code)]
-
 // src/common/types.rs
 
+#![allow(dead_code)]
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -53,6 +52,9 @@ pub enum Type {
         name: String,
         args: Vec<Type>,
     },
+    /// A named record type, optionally with type arguments.
+    /// `Point` is `Record("Point", [])`, `Pair<Int>` is `Record("Pair", [Int])`.
+    Record(String, Vec<Type>),
 }
 
 impl Type {
@@ -89,6 +91,10 @@ impl Type {
             name: name.to_string(),
             args,
         }
+    }
+
+    pub fn record(name: &str, args: Vec<Type>) -> Self {
+        Type::Record(name.to_string(), args)
     }
 
     pub fn list(element_type: Type) -> Self {
@@ -428,6 +434,11 @@ impl Type {
                     && a1.len() == a2.len()
                     && a1.iter().zip(a2.iter()).all(|(x, y)| x.can_coerce_to(y))
             }
+            (Type::Record(n1, a1), Type::Record(n2, a2)) => {
+                n1 == n2
+                    && a1.len() == a2.len()
+                    && a1.iter().zip(a2.iter()).all(|(x, y)| x.can_coerce_to(y))
+            }
 
             _ => false,
         }
@@ -493,6 +504,16 @@ impl Type {
             // Unknown handling
             (Type::Unknown, t) | (t, Type::Unknown) => t.clone(),
 
+            (Type::Record(n1, a1), Type::Record(n2, a2)) if n1 == n2 && a1.len() == a2.len() => {
+                Type::record(
+                    n1,
+                    a1.iter()
+                        .zip(a2.iter())
+                        .map(|(x, y)| x.common_supertype(y))
+                        .collect(),
+                )
+            }
+
             // Default to Unknown
             _ => Type::Unknown,
         }
@@ -531,6 +552,7 @@ impl Type {
             Type::MutBorrow(inner) => inner.contains_type_var(),
             Type::Channel(inner) => inner.contains_type_var(),
             Type::Generic { args, .. } => args.iter().any(|a| a.contains_type_var()),
+            Type::Record(_, args) => args.iter().any(|a| a.contains_type_var()),
             Type::Function {
                 params,
                 return_type,
@@ -557,6 +579,7 @@ impl Type {
             Type::Tuple(elements) => elements.iter().any(|e| e.contains_unknown()),
             Type::Result { ok, error } => ok.contains_unknown() || error.contains_unknown(),
             Type::Generic { args, .. } => args.iter().any(|a| a.contains_unknown()),
+            Type::Record(_, args) => args.iter().any(|a| a.contains_unknown()),
             Type::Function {
                 params,
                 return_type,
@@ -604,6 +627,10 @@ impl Type {
                 name,
                 args.iter().map(|a| a.substitute(substitutions)).collect(),
             ),
+            Type::Record(name, args) => Type::record(
+                name,
+                args.iter().map(|a| a.substitute(substitutions)).collect(),
+            ),
             Type::Function {
                 params,
                 return_type,
@@ -631,6 +658,14 @@ impl fmt::Display for Type {
             Type::Generic { name, args } => {
                 let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
                 format!("{}<{}>", name, args_str.join(", "))
+            }
+            Type::Record(name, args) => {
+                if args.is_empty() {
+                    name.clone()
+                } else {
+                    let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                    format!("{}<{}>", name, args_str.join(", "))
+                }
             }
             Type::List(t) => format!("List<{}>", t),
             Type::Array(t, size) => format!("Array<{}, {}>", t, size),

@@ -56,6 +56,8 @@ pub enum Token {
     // Delimiters
     LBracket,
     RBracket,
+    LBrace, // {
+    RBrace, // }
     Comma,
     LParen,
     RParen,
@@ -116,13 +118,12 @@ pub enum Token {
     Gt,          // > for generics and comparison
     DoubleColon, // :: for trait methods
     Where,       // where clause
-
     End,
-
     Trait,
     Impl,
+    Rec,
     SelfType,
-    Case, // NEW: case keyword for match arms
+    Case, // case keyword for match arms
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum CTypeName {
@@ -205,6 +206,7 @@ lazy_static::lazy_static! {
         m.insert("end", Token::End);
         m.insert("trait", Token::Trait);
         m.insert("impl", Token::Impl);
+        m.insert("rec", Token::Rec);
         m.insert("Self", Token::SelfType);
         m.insert("case", Token::Case);
         m.insert("null", Token::NullPtr);
@@ -382,8 +384,8 @@ impl Lexer {
             // ignored, which is what we want.
             for tok in &tokens[tokens_before..] {
                 match tok {
-                    Token::LBracket | Token::LParen => bracket_depth += 1,
-                    Token::RBracket | Token::RParen => {
+                    Token::LBracket | Token::LParen | Token::LBrace => bracket_depth += 1,
+                    Token::RBracket | Token::RParen | Token::RBrace => {
                         bracket_depth = (bracket_depth - 1).max(0);
                     }
                     _ => {}

@@ -14,12 +14,15 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
     let mut functions = program.functions;
-    let traits = program.traits;
-    let impls = program.impls;
     assign_expr_ids(&mut functions);
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_traits(&functions, &traits, &impls)
+        .analyze_with_traits(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+        )
         .unwrap();
     let (ir, _) = SemanticIRBuilder::build(
         &functions,
@@ -103,7 +106,12 @@ procedure main
 
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .analyze_with_spans(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+        )
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 

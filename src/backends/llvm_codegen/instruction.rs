@@ -697,6 +697,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                     )),
                 }
             }
+            Instruction::FieldAssign { .. } => {
+                // Records are refused by the capability check (`Feature::Records`
+                // is not in `BackendCapabilities::llvm()`), so this arm should
+                // never be reached. If it is, the capability matrix got out of
+                // sync with the IR.
+                unreachable!(
+                    "LLVM codegen reached Instruction::FieldAssign — \
+                     records should have been refused by check_backend"
+                );
+            }
         }
     }
 }

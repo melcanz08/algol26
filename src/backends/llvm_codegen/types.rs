@@ -51,6 +51,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .struct_type(&[elem_ty, len_ty.into()], false)
                     .into()
             }
+            Type::Record(..) => {
+                // Records are refused by the capability check. If this
+                // function is reached with a Record type, the matrix is out
+                // of sync. Returning `void` here would silently miscompile;
+                // panic instead.
+                unreachable!(
+                    "LLVM codegen reached Type::Record — \
+                     records should have been refused by check_backend"
+                );
+            }
             Type::Array(inner, size) => {
                 let elem_ty = self.map_type(inner);
                 elem_ty.array_type(*size as u32).into()

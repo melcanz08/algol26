@@ -511,6 +511,120 @@ impl SemanticAnalyzer {
                     )));
                 }
             }
+            Stmt::FieldAssign {
+                target,
+                field,
+                value,
+                span,
+            } => {
+                let (target_type, mutable) = self.lookup_variable(target).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("Undefined variable '{}'", target),
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0003,
+                    )
+                    .with_suggestion(&format!(
+                        "Declare '{}' with 'var {} := ...' or 'val {} := ...'",
+                        target, target, target
+                    ))
+                })?;
+
+                if !mutable {
+                    return Err(CompileError::simple(
+                        &format!("Cannot assign to field of immutable variable '{}'", target),
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(&format!(
+                        "Declare '{}' with 'var' instead of 'val'",
+                        target
+                    )));
+                }
+
+                // Unwrap a mutable-borrow receiver: `r.x := v` where `r: &mut Point`
+                // is a legal write through the reference.
+                let effective_type = match &target_type {
+                    Type::MutBorrow(inner) => (**inner).clone(),
+                    other => other.clone(),
+                };
+
+                let (rec_name, rec_args) = match &effective_type {
+                    Type::Record(n, a) => (n.clone(), a.clone()),
+                    Type::Unknown => {
+                        // Unknown receiver type: still analyze the RHS so its
+                        // expressions land in the type table, then stop.
+                        self.analyze_expr(value)?;
+                        return Ok(());
+                    }
+                    other => {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "Cannot assign to field '{}' on non-record type {}",
+                                field, other
+                            ),
+                            span.start_line,
+                            span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion("Field assignment requires a record value"));
+                    }
+                };
+
+                let rec = self.records.get(&rec_name).cloned().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("Unknown record '{}'", rec_name),
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0003,
+                    )
+                })?;
+
+                let (_, field_ty) =
+                    rec.fields.iter().find(|(n, _)| n == field).ok_or_else(|| {
+                        CompileError::simple(
+                            &format!("Record '{}' has no field '{}'", rec_name, field),
+                            span.start_line,
+                            span.start_column,
+                            "",
+                            ErrorCode::E0004,
+                        )
+                    })?;
+
+                let mut subs = HashMap::new();
+                for (p, a) in rec.type_params.iter().zip(rec_args.iter()) {
+                    subs.insert(p.clone(), a.clone());
+                }
+                let expected = self.substitute_type_vars(field_ty, &subs);
+
+                let actual = self.analyze_expr_with_context(value, Some(&expected))?;
+                if expected != Type::Unknown
+                    && actual != Type::Unknown
+                    && !actual.can_coerce_to(&expected)
+                {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Field '{}' of '{}': cannot assign {} to field of type {}",
+                            field, rec_name, actual, expected
+                        ),
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+
+                // Mirror `Stmt::Assign`: writing through a stale mutable borrow
+                // releases it, so a later read isn't spuriously rejected.
+                if self.state.borrows.contains_key(target) {
+                    self.release_mutable_borrow(target);
+                }
+            }
         }
         Ok(())
     }
@@ -584,6 +698,44 @@ impl SemanticAnalyzer {
             }
             Pattern::Guarded { pattern, .. } => {
                 self.bind_pattern_variables(pattern, value_type)?;
+            }
+            Pattern::Record { name, bindings } => {
+                let rec = self.records.get(name).cloned().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("Unknown record '{}'", name),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0003,
+                    )
+                })?;
+
+                let rec_args = match value_type {
+                    Type::Record(_, a) => a.clone(),
+                    _ => Vec::new(),
+                };
+                let mut subs = HashMap::new();
+                for (p, a) in rec.type_params.iter().zip(rec_args.iter()) {
+                    subs.insert(p.clone(), a.clone());
+                }
+
+                for binding in bindings {
+                    let (_, field_ty) =
+                        rec.fields
+                            .iter()
+                            .find(|(n, _)| n == binding)
+                            .ok_or_else(|| {
+                                CompileError::simple(
+                                    &format!("Record '{}' has no field '{}'", name, binding),
+                                    self.current_span.start_line,
+                                    self.current_span.start_column,
+                                    "",
+                                    ErrorCode::E0004,
+                                )
+                            })?;
+                    let ty = self.substitute_type_vars(field_ty, &subs);
+                    self.declare_variable(binding, ty, false)?;
+                }
             }
             _ => {}
         }

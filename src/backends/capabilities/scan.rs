@@ -141,6 +141,10 @@ pub(super) fn scan_instruction(
             scan_value(index, extern_fns, used);
             scan_value(value, extern_fns, used);
         }
+        Instruction::FieldAssign { value, .. } => {
+            used.insert(Feature::Records);
+            scan_value(value, extern_fns, used);
+        }
         Instruction::Print { value } => {
             // A print of a list-typed value needs a special lowering.
             // `type_of()` returns the claimed static type, which for a
@@ -266,6 +270,9 @@ pub(super) fn scan_terminator(
                 match pat {
                     SemanticPattern::Ok { .. } | SemanticPattern::Error { .. } => {
                         used.insert(Feature::Result);
+                    }
+                    SemanticPattern::Record { .. } => {
+                        used.insert(Feature::Records);
                     }
                     SemanticPattern::Literal(lit) => scan_value(lit, extern_fns, used),
                     _ => {}

@@ -58,6 +58,10 @@ pub enum RuntimeValue {
         is_ok: bool,
         value: Box<RuntimeValue>,
     },
+    Record {
+        name: String,
+        fields: Vec<(String, RuntimeValue)>,
+    },
     Void,
 }
 
@@ -69,6 +73,7 @@ impl RuntimeValue {
             RuntimeValue::Float(f) => *f != 0.0,
             RuntimeValue::String(s) => !s.is_empty(),
             RuntimeValue::List(l) => !l.is_empty(),
+            RuntimeValue::Record { .. } => true,
             RuntimeValue::Option(Some(_)) => true,
             RuntimeValue::Option(None) => false,
             RuntimeValue::Result { is_ok, .. } => *is_ok,
@@ -85,6 +90,13 @@ impl RuntimeValue {
             RuntimeValue::List(l) => {
                 let items: Vec<String> = l.iter().map(|v| v.display()).collect();
                 format!("[{}]", items.join(", "))
+            }
+            RuntimeValue::Record { name, fields } => {
+                let parts: Vec<String> = fields
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.display()))
+                    .collect();
+                format!("{} {{ {} }}", name, parts.join(", "))
             }
             RuntimeValue::Option(Some(v)) => format!("Some({})", v.display()),
             RuntimeValue::Option(None) => "None".to_string(),
@@ -120,6 +132,24 @@ impl RuntimeValue {
             (List(a), List(b)) => {
                 a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.runtime_eq(y))
             }
+            (
+                Record {
+                    name: n1,
+                    fields: f1,
+                },
+                Record {
+                    name: n2,
+                    fields: f2,
+                },
+            ) => {
+                n1 == n2
+                    && f1.len() == f2.len()
+                    && f1.iter().all(|(k, v1)| {
+                        f2.iter()
+                            .find(|(k2, _)| k2 == k)
+                            .is_some_and(|(_, v2)| v1.runtime_eq(v2))
+                    })
+            }
             (Option(Some(a)), Option(Some(b))) => a.runtime_eq(b),
             (Option(None), Option(None)) => true,
             (
@@ -147,6 +177,7 @@ pub(super) fn runtime_kind(v: &RuntimeValue) -> &'static str {
         RuntimeValue::String(_) => "String",
         RuntimeValue::Bool(_) => "Bool",
         RuntimeValue::List(_) => "List",
+        RuntimeValue::Record { .. } => "Record",
         RuntimeValue::Option(_) => "Option",
         RuntimeValue::Result { .. } => "Result",
         RuntimeValue::Void => "Void",

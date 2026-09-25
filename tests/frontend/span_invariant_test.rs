@@ -192,6 +192,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::NullPtr(..) => "NullPtr",
         ExprKind::Range { .. } => "Range",
         ExprKind::FieldAccess { .. } => "FieldAccess",
+        ExprKind::RecordLiteral { .. } => "RecordLiteral",
     }
 }
 

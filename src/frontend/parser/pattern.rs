@@ -203,6 +203,19 @@ impl Parser {
             }
             Token::Identifier(name) => {
                 self.advance();
+                // `Name { a, b, c }` → record destructure pattern.
+                if matches!(self.peek(), Token::LBrace) {
+                    self.advance();
+                    let mut bindings = Vec::new();
+                    while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                        bindings.push(self.expect_identifier("field binding")?);
+                        if matches!(self.peek(), Token::Comma) {
+                            self.advance();
+                        }
+                    }
+                    self.expect_token(Token::RBrace, "'}'")?;
+                    return Ok(Pattern::Record { name, bindings });
+                }
                 Ok(Pattern::Binding(name))
             }
             other => Err(self.error(&format!("Unexpected token in pattern: {:?}", other))),

@@ -44,6 +44,43 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             }
             Type::list(elem_ty)
         }
+        TypedIRValue::Record {
+            name,
+            fields,
+            record_type,
+        } => {
+            // Every field's value must verify, and the claimed record_type
+            // must be a Record with the matching name (and the same arity
+            // of type arguments, if any).
+            let mut field_types: Vec<(String, Type)> = Vec::with_capacity(fields.len());
+            for (fname, fval) in fields {
+                let fty = verify_value(fval, env)?;
+                field_types.push((fname.clone(), fty));
+            }
+
+            match record_type {
+                Type::Record(rn, _) if rn == name => {}
+                Type::Unknown => {}
+                other => {
+                    return Err(format!("Record literal '{}' claims type {:?}", name, other));
+                }
+            }
+
+            // Field names must be unique. The analyzer already rejects
+            // duplicates at the declaration, but a Record literal built by
+            // another pass could in principle repeat one.
+            let mut seen = std::collections::HashSet::new();
+            for (fname, _) in &field_types {
+                if !seen.insert(fname.clone()) {
+                    return Err(format!(
+                        "Record literal '{}' repeats field '{}'",
+                        name, fname
+                    ));
+                }
+            }
+
+            record_type.clone()
+        }
         TypedIRValue::BinaryOp {
             op,
             left,

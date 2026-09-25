@@ -80,6 +80,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                     "llvm",
                 ));
             }
+            TypedIRValue::Record { .. } => {
+                unreachable!(
+                    "LLVM codegen reached TypedIRValue::Record — \
+                     records should have been refused by check_backend"
+                );
+            }
             TypedIRValue::Variable(name, _) => {
                 // ALGOL26: UNDEFINED VARIABLE IS AN ERROR, not 0.0!
                 let ptr = self.variables.get(name).ok_or_else(|| {

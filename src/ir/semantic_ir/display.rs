@@ -209,6 +209,14 @@ fn format_instruction(out: &mut String, instr: &Instruction) {
             out.push_str("] := ");
             format_value(out, value);
         }
+        Instruction::FieldAssign {
+            target,
+            field,
+            value,
+        } => {
+            write!(out, "{}.{} := ", target, field).unwrap();
+            format_value(out, value);
+        }
         Instruction::Print { value } => {
             out.push_str("print(");
             format_value(out, value);
@@ -332,6 +340,17 @@ fn format_value(out: &mut String, value: &TypedIRValue) {
             format_value(out, index);
             out.push(']');
         }
+        TypedIRValue::Record { name, fields, .. } => {
+            write!(out, "{} {{ ", name).unwrap();
+            for (i, (fname, fval)) in fields.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write!(out, "{}: ", fname).unwrap();
+                format_value(out, fval);
+            }
+            out.push_str(" }");
+        }
         TypedIRValue::BorrowShared { expr, .. } => {
             out.push('&');
             format_value(out, expr);
@@ -453,6 +472,9 @@ fn format_pattern(out: &mut String, pat: &SemanticPattern) {
         SemanticPattern::Error { binding } => write!(out, "Error({})", binding).unwrap(),
         SemanticPattern::Wildcard => out.push('_'),
         SemanticPattern::Literal(v) => format_value(out, v),
+        SemanticPattern::Record { name, bindings } => {
+            write!(out, "{} {{ {} }}", name, bindings.join(", ")).unwrap();
+        }
     }
 }
 

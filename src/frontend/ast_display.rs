@@ -203,6 +203,15 @@ fn format_stmt(out: &mut String, level: usize, stmt: &Stmt) {
             format_expr(out, level, value);
             end_line(out);
         }
+        Stmt::FieldAssign {
+            target,
+            field,
+            value,
+            ..
+        } => {
+            let _ = write!(out, "{}.{} := ", target, field);
+            format_expr(out, level, value);
+        }
         Stmt::Return { value, .. } => {
             indent(out, level);
             out.push_str("return");
@@ -527,6 +536,17 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
             out.push('.');
             out.push_str(field);
         }
+        ExprKind::RecordLiteral { name, fields, .. } => {
+            let _ = write!(out, "{} {{ ", name);
+            for (i, (fname, fval)) in fields.iter().enumerate() {
+                if i > 0 {
+                    let _ = write!(out, ", ");
+                }
+                let _ = write!(out, "{}: ", fname);
+                format_expr(out, level, fval);
+            }
+            let _ = write!(out, " }}");
+        }
     }
 }
 
@@ -596,6 +616,9 @@ fn format_pattern(out: &mut String, pat: &Pattern) {
                 format_pattern(out, r);
             }
             out.push(']');
+        }
+        Pattern::Record { name, bindings } => {
+            let _ = write!(out, "{} {{ {} }}", name, bindings.join(", "));
         }
         Pattern::Range { start, end } => {
             if let Some(s) = start {

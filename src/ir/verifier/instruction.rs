@@ -139,6 +139,57 @@ pub(super) fn verify_instruction(
             }
             Ok(())
         }
+        Instruction::FieldAssign {
+            target,
+            field: _,
+            value,
+        } => {
+            let target_ty = env
+                .variables
+                .get(target)
+                .ok_or_else(|| {
+                    format!(
+                        "Function '{}': FieldAssign to undefined variable '{}'",
+                        func.name, target
+                    )
+                })?
+                .clone();
+
+            if !env.mutability.get(target).copied().unwrap_or(false) {
+                return Err(format!(
+                    "Function '{}': FieldAssign to immutable variable '{}'",
+                    func.name, target
+                ));
+            }
+
+            // Accept a plain Record or a MutBorrow(Record) receiver.
+            let effective_ty = match &target_ty {
+                Type::MutBorrow(inner) => (**inner).clone(),
+                other => other.clone(),
+            };
+
+            let (rec_name, _) = match &effective_ty {
+                Type::Record(n, a) => (n.clone(), a.clone()),
+                Type::Unknown => {
+                    // Unknown receiver type — still verify the RHS.
+                    verify_value(value, env)?;
+                    return Ok(());
+                }
+                other => {
+                    return Err(format!(
+                        "Function '{}': FieldAssign on non-record type {:?}",
+                        func.name, other
+                    ));
+                }
+            };
+
+            // We do not have the record field table in VerifyEnv. The
+            // analyzer is authoritative for "does this field exist"; the
+            // verifier only checks that the RHS verifies.
+            let _ = rec_name;
+            verify_value(value, env)?;
+            Ok(())
+        }
         Instruction::Call {
             func: callee,
             args,

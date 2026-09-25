@@ -38,6 +38,11 @@ pub enum Instruction {
         index: Box<TypedIRValue>,
         value: TypedIRValue,
     },
+    FieldAssign {
+        target: String,
+        field: String,
+        value: TypedIRValue,
+    },
     Print {
         value: TypedIRValue,
     },

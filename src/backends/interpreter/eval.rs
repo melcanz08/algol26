@@ -47,6 +47,16 @@ impl Interpreter {
                 }
                 RuntimeValue::List(out)
             }
+            TypedIRValue::Record { name, fields, .. } => {
+                let mut out = Vec::with_capacity(fields.len());
+                for (fname, fval) in fields {
+                    out.push((fname.clone(), self.eval_value(fval)?));
+                }
+                RuntimeValue::Record {
+                    name: name.clone(),
+                    fields: out,
+                }
+            }
             // `Array` was previously unhandled. Treat it as a List —
             // the interpreter's runtime value model has no fixed-size
             // array; fixed sizes are a compile-time property.
@@ -143,11 +153,27 @@ impl Interpreter {
                 });
             }
 
-            TypedIRValue::FieldAccess { .. } => {
-                return Err(EvalError::Unsupported {
-                    construct: "field access",
-                    hint: "struct fields are not yet modeled by the interpreter",
-                });
+            TypedIRValue::FieldAccess { object, field, .. } => {
+                let obj = self.eval_value(object)?;
+                match obj {
+                    RuntimeValue::Record { fields, .. } => fields
+                        .into_iter()
+                        .find(|(n, _)| n == field)
+                        .map(|(_, v)| v)
+                        .ok_or_else(|| {
+                            EvalError::Runtime(format!(
+                                "field `{}` not found at runtime — analyzer should have caught this",
+                                field
+                            ))
+                        })?,
+                    other => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "FieldAccess",
+                            left: runtime_kind(&other),
+                            right: "Record",
+                        });
+                    }
+                }
             }
         })
     }

@@ -171,6 +171,94 @@ impl SemanticAnalyzer {
                 }
                 Ok(Type::list(list_type))
             }
+            ExprKind::RecordLiteral {
+                name,
+                type_args,
+                fields,
+                ..
+            } => {
+                let rec = self.records.get(name).cloned().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("Unknown record '{}'", name),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0003,
+                    )
+                    .with_suggestion(&format!("Declare it with `rec {}` before using it", name))
+                })?;
+
+                // Type-arg arity check.
+                if !type_args.is_empty() && type_args.len() != rec.type_params.len() {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Record '{}' expects {} type argument(s), got {}",
+                            name,
+                            rec.type_params.len(),
+                            type_args.len()
+                        ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+
+                // Build the substitution T -> concrete type from the literal's type_args.
+                let mut subs: HashMap<String, Type> = HashMap::new();
+                for (param, arg) in rec.type_params.iter().zip(type_args.iter()) {
+                    subs.insert(param.clone(), arg.to_type());
+                }
+
+                // Every field must appear exactly once, with a coercible value.
+                let mut seen = HashSet::new();
+                for (field_name, value_expr) in fields {
+                    let (_, field_ty) = rec
+                        .fields
+                        .iter()
+                        .find(|(n, _)| n == field_name)
+                        .ok_or_else(|| {
+                            CompileError::simple(
+                                &format!("Record '{}' has no field '{}'", name, field_name),
+                                self.current_span.start_line,
+                                self.current_span.start_column,
+                                "",
+                                ErrorCode::E0004,
+                            )
+                        })?;
+                    let expected = self.substitute_type_vars(field_ty, &subs);
+                    let actual = self.analyze_expr_with_context(value_expr, Some(&expected))?;
+                    if !actual.can_coerce_to(&expected) && expected != Type::Unknown {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "Field '{}' of '{}': expected {}, found {}",
+                                field_name, name, expected, actual
+                            ),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    seen.insert(field_name.clone());
+                }
+                for (field_name, _) in &rec.fields {
+                    if !seen.contains(field_name) {
+                        return Err(CompileError::simple(
+                            &format!("Missing field '{}' in literal for '{}'", field_name, name),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                }
+
+                Ok(Type::record(
+                    name,
+                    type_args.iter().map(|t| t.to_type()).collect(),
+                ))
+            }
             ExprKind::Some { value, .. } => {
                 let inner = self.analyze_expr(value)?;
                 Ok(Type::option(inner))
@@ -1077,18 +1165,45 @@ impl SemanticAnalyzer {
                 Ok(Type::list(start_type.common_supertype(&end_type)))
             }
             ExprKind::FieldAccess { object, field, .. } => {
-                // No struct system yet — analyze the object, then report.
-                let _obj_type = self.analyze_expr(object)?;
-                Err(CompileError::simple(
-                    &format!("Field access '.{}' is not supported yet", field),
-                    self.current_span.start_line,
-                    self.current_span.start_column,
-                    "",
-                    ErrorCode::E0002,
-                )
-                .with_suggestion(
-                    "Field access requires struct support, which is not yet implemented",
-                ))
+                let obj_ty = self.analyze_expr(object)?;
+                let (rec_name, rec_args) = match &obj_ty {
+                    Type::Record(n, a) => (n.clone(), a.clone()),
+                    Type::Unknown => return Ok(Type::Unknown),
+                    other => {
+                        return Err(CompileError::simple(
+                            &format!("Field access '.{}' on non-record type {}", field, other),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion("Field access requires a record value"));
+                    }
+                };
+                let rec = self.records.get(&rec_name).cloned().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("Unknown record '{}'", rec_name),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0003,
+                    )
+                })?;
+                let (_, field_ty) =
+                    rec.fields.iter().find(|(n, _)| n == field).ok_or_else(|| {
+                        CompileError::simple(
+                            &format!("Record '{}' has no field '{}'", rec_name, field),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0004,
+                        )
+                    })?;
+                let mut subs = HashMap::new();
+                for (p, a) in rec.type_params.iter().zip(rec_args.iter()) {
+                    subs.insert(p.clone(), a.clone());
+                }
+                Ok(self.substitute_type_vars(field_ty, &subs))
             }
         }
     }
@@ -1194,6 +1309,32 @@ impl SemanticAnalyzer {
                             "Cannot match literal of type {} against {}",
                             lit_type, value_type
                         ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ))
+                }
+            }
+            Pattern::Record { name, .. } => {
+                if let Type::Record(n, _) = value_type {
+                    if n == name {
+                        Ok(())
+                    } else {
+                        Err(CompileError::simple(
+                            &format!(
+                                "Cannot match pattern '{}' against value of type {}",
+                                name, value_type
+                            ),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        ))
+                    }
+                } else {
+                    Err(CompileError::simple(
+                        &format!("Cannot match record pattern against {}", value_type),
                         self.current_span.start_line,
                         self.current_span.start_column,
                         "",

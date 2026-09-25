@@ -331,6 +331,7 @@ impl Parser {
 
     pub(super) fn parse_identifier_expr(&mut self, name: String, ident_span: Span) -> Result<Expr> {
         if matches!(self.peek(), Token::LParen) {
+            // Unchanged: function call `name(args)`.
             self.advance();
             let mut args = Vec::new();
             while !matches!(self.peek(), Token::RParen | Token::Eof) {
@@ -346,6 +347,7 @@ impl Parser {
                 span: ident_span,
             }))
         } else if matches!(self.peek(), Token::LBracket) {
+            // Unchanged: `name[index]`.
             self.advance();
             let index = self.parse_expr()?;
             self.expect_token(Token::RBracket, "']'")?;
@@ -356,9 +358,11 @@ impl Parser {
             }))
         } else if matches!(self.peek(), Token::Dot) {
             self.advance();
-            let method_name = self.expect_identifier("method name")?;
+            let member_name = self.expect_identifier("member name")?;
 
-            let args = if matches!(self.peek(), Token::LParen) {
+            // `name.member(...)` → method call. Kept as the dotted
+            // FunctionCall the existing trait/builtin dispatch expects.
+            if matches!(self.peek(), Token::LParen) {
                 self.advance();
                 let mut args = Vec::new();
                 while !matches!(self.peek(), Token::RParen | Token::Eof) {
@@ -368,16 +372,24 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RParen, "')'")?;
-                args
-            } else {
-                Vec::new()
-            };
+                return Ok(Expr::new(ExprKind::FunctionCall {
+                    name: format!("{}.{}", name, member_name),
+                    args,
+                    span: ident_span,
+                }));
+            }
 
-            Ok(Expr::new(ExprKind::FunctionCall {
-                name: format!("{}.{}", name, method_name),
-                args,
+            // `name.member` (no parens) → field access.
+            Ok(Expr::new(ExprKind::FieldAccess {
+                object: Expr::boxed(ExprKind::Var(name, ident_span)),
+                field: member_name,
                 span: ident_span,
             }))
+        } else if matches!(self.peek(), Token::LBrace) {
+            // `Name { field: expr, ... }` → record literal.
+            // Generic record literals (`Pair<Int> { ... }`) are deferred;
+            // type args are inferred from the field expressions.
+            self.parse_record_literal(name, Vec::new(), ident_span)
         } else {
             Ok(Expr::new(ExprKind::Var(name, ident_span)))
         }
@@ -535,6 +547,33 @@ impl Parser {
         Ok(Expr::new(ExprKind::Block {
             statements,
             trailing_expr,
+            span: start_span,
+        }))
+    }
+
+    pub(super) fn parse_record_literal(
+        &mut self,
+        name: String,
+        type_args: Vec<TypeSyntax>,
+        start_span: Span,
+    ) -> Result<Expr> {
+        self.expect_token(Token::LBrace, "'{'")?;
+        let mut fields = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            let field_name = self.expect_identifier("field name")?;
+            self.expect_token(Token::Colon, "':'")?;
+            let value = self.parse_expr()?;
+            fields.push((field_name, value));
+            if matches!(self.peek(), Token::Comma) {
+                self.advance();
+            }
+        }
+        self.expect_token(Token::RBrace, "'}'")?;
+
+        Ok(Expr::new(ExprKind::RecordLiteral {
+            name,
+            type_args,
+            fields,
             span: start_span,
         }))
     }

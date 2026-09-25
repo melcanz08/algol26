@@ -16,7 +16,12 @@ fn run_source(source: &str) -> String {
 
     let mut analyzer = SemanticAnalyzer::new();
     analyzer
-        .analyze_with_spans(&functions, &program.traits, &program.impls)
+        .analyze_with_spans(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+        )
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 

@@ -1,4 +1,4 @@
-// src/semantics/semantic_builder/expr.rs
+// src/semantics/builder/expr.rs
 
 use super::*;
 
@@ -373,6 +373,19 @@ impl SemanticIRBuilder {
                     value: val,
                 }
             }
+            Stmt::FieldAssign {
+                target,
+                field,
+                value,
+                ..
+            } => {
+                let typed_value = self.translate_expr(program, func, current_block, value);
+                SemanticInstruction::FieldAssign {
+                    target: target.clone(),
+                    field: field.clone(),
+                    value: typed_value,
+                }
+            }
             Stmt::ChannelDecl { name, .. } => {
                 let chan_type = Type::Channel(Box::new(Type::Unknown));
                 self.declare_var(name, chan_type.clone(), true);
@@ -616,6 +629,22 @@ impl SemanticIRBuilder {
                     _ => values.first().map(|v| v.type_of()).unwrap_or(Type::Unknown),
                 };
                 TypedIRValue::List(values, elem_type)
+            }
+            ExprKind::RecordLiteral { name, fields, .. } => {
+                let mut translated = Vec::with_capacity(fields.len());
+                for (fname, fexpr) in fields {
+                    let fval = self.translate_expr(program, func, current_block, fexpr);
+                    translated.push((fname.clone(), fval));
+                }
+                // ─── UNIFY TYPES ─── the analyzer already produced the record type.
+                let record_type = self
+                    .type_of_expr(expr)
+                    .unwrap_or_else(|| Type::record(name, Vec::new()));
+                TypedIRValue::Record {
+                    name: name.clone(),
+                    fields: translated,
+                    record_type,
+                }
             }
             ExprKind::Binary {
                 left, op, right, ..
@@ -955,6 +984,12 @@ impl SemanticIRBuilder {
                         crate::frontend::ast::Pattern::Error(v) => {
                             SemanticPattern::Error { binding: v.clone() }
                         }
+                        crate::frontend::ast::Pattern::Record { name, bindings } => {
+                            SemanticPattern::Record {
+                                name: name.clone(),
+                                bindings: bindings.clone(),
+                            }
+                        }
                         crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Wildcard,
                         crate::frontend::ast::Pattern::Binding(_) => SemanticPattern::Wildcard,
                         crate::frontend::ast::Pattern::Literal(e) => SemanticPattern::Literal(
@@ -1009,6 +1044,14 @@ impl SemanticIRBuilder {
                         _ => None,
                     } {
                         self.declare_var(&binding, Type::Unknown, false);
+                    }
+
+                    // NEW: record destructure bindings declare each field name
+                    // as a variable in the case scope.
+                    if let crate::frontend::ast::Pattern::Record { bindings, .. } = &case.pattern {
+                        for b in bindings {
+                            self.declare_var(b, Type::Unknown, false);
+                        }
                     }
 
                     // Extract body statements and trailing expr from case.body (which is Expr::Block)
@@ -1321,16 +1364,36 @@ impl SemanticIRBuilder {
                 TypedIRValue::List(vec![start_val, end_val], elem_type)
             }
             ExprKind::FieldAccess { object, field, .. } => {
-                // Field access is not yet supported; emit an error and return Void.
-                self.diagnostics.push(format!(
-                    "Field access '{}.{}' is not supported yet",
-                    match &object.as_ref().kind {
-                        ExprKind::Var(name, _) => name.clone(),
-                        _ => "<expr>".to_string(),
-                    },
-                    field
-                ));
-                TypedIRValue::Void
+                let obj = self.translate_expr(program, func, current_block, object);
+                let obj_ty = obj.type_of();
+
+                // The analyzer already inferred the field's type — read it
+                // back rather than re-deriving it from a record table.
+                let field_type = match self.type_of_expr(expr) {
+                    Some(t) => t,
+                    None => {
+                        // Fallback: if the receiver's static type is
+                        // Record(name, _) but the analyzer didn't record the
+                        // access site, treat the field as Unknown. The
+                        // verifier will still accept it.
+                        match &obj_ty {
+                            Type::Record(..) | Type::Unknown => Type::Unknown,
+                            other => {
+                                self.diagnostics.push(format!(
+                                    "Field access '.{}' on non-record type {:?}",
+                                    field, other
+                                ));
+                                Type::Unknown
+                            }
+                        }
+                    }
+                };
+
+                TypedIRValue::FieldAccess {
+                    object: Box::new(obj),
+                    field: field.clone(),
+                    field_type,
+                }
             }
         }
     }

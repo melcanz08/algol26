@@ -460,6 +460,8 @@ fn builtin_signatures_match_analyzer_table() {
         // Raw memory
         ("alloc", vec![Type::Int], Type::pointer(Type::Unknown)),
         ("free", vec![Type::pointer(Type::Unknown)], Type::Void),
+        // Assertion (ADR 0022)
+        ("affirm", vec![Type::Bool, Type::String], Type::Void),
     ];
 
     for (name, expected_params, expected_ret) in &expected {

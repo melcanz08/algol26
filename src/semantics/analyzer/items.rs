@@ -146,6 +146,17 @@ impl SemanticAnalyzer {
                 type_params: Vec::new(),
             },
         );
+        self.functions.insert(
+            "affirm".to_string(),
+            FunctionInfo {
+                params: vec![
+                    ("cond".to_string(), Type::Bool),
+                    ("msg".to_string(), Type::String),
+                ],
+                return_type: Type::Void,
+                type_params: Vec::new(),
+            },
+        );
     }
     pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) {
         for func in functions {

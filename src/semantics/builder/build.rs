@@ -200,6 +200,17 @@ impl SemanticIRBuilder {
             },
         );
 
+        self.function_types.insert(
+            "affirm".to_string(),
+            FunctionSignature {
+                params: vec![
+                    ("cond".to_string(), Type::Bool),
+                    ("msg".to_string(), Type::String),
+                ],
+                return_type: Type::Void,
+            },
+        );
+
         // Register user-defined functions (templates, including extern).
         for func in functions {
             let return_type = func

@@ -126,6 +126,13 @@ pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
         Type::Float,
     );
 
+    // Assertion (ADR 0022)
+    reg(
+        "affirm",
+        vec![("cond", Type::Bool), ("msg", Type::String)],
+        Type::Void,
+    );
+
     // Raw memory
     reg(
         "alloc",

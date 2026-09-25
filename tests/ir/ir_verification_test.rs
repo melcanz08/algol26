@@ -361,3 +361,32 @@ procedure main
     assert!(!names.contains(&"outer"), "template leaked: {:?}", names);
     assert!(!names.contains(&"inner"), "template leaked: {:?}", names);
 }
+
+#[test]
+fn test_affirm_lowers_to_llvm() {
+    use algol26::backends::backend::Backend;
+    use algol26::backends::llvm_backend::LlvmBackend;
+    use algol26::compiler::Compiler;
+
+    let source = r#"
+procedure main
+    affirm(1 < 2, "always true")
+    print("done")
+"#;
+
+    let mut c = Compiler::new();
+    let verified = c
+        .run_pipeline_for(source, "affirm_llvm.gol")
+        .expect("pipeline should reach verified IR");
+
+    let dir = std::env::temp_dir().join(format!("algol26_affirm_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("affirm_llvm");
+
+    let backend = LlvmBackend::new();
+    backend
+        .compile(&verified, out.to_str().unwrap())
+        .expect("affirm should lower to LLVM IR");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

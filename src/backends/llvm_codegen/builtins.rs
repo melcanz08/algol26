@@ -200,7 +200,6 @@ impl<'ctx> IRCodeGen<'ctx> {
         let free_fn = self.module.add_function("free", free_ty, None);
         self.functions.insert("free".to_string(), free_fn);
     }
-
     /// Compile a call to a backend builtin. Returns the LLVM value
     /// **and** the ALGOL26 type it corresponds to, so the caller can
     /// allocate a result slot with the correct type.
@@ -312,13 +311,19 @@ impl<'ctx> IRCodeGen<'ctx> {
             )),
         }
     }
-
     pub(super) fn compile_builtin_call(
         &mut self,
         name: &str,
         args: &[TypedIRValue],
         result: &Option<String>,
     ) -> Result<()> {
+        // ADR 0022. `affirm` returns Void. `compile_builtin_value`
+        // assumes a value-returning builtin and produces a slot to
+        // store into; dispatch `affirm` separately.
+        if name == "affirm" {
+            return self.compile_affirm(args);
+        }
+
         // `compile_builtin_value` reports the ALGOL26 type alongside
         // the LLVM value so the result slot is allocated with the
         // correct type. Previously the type was assumed to be Float
@@ -335,6 +340,122 @@ impl<'ctx> IRCodeGen<'ctx> {
                 self.var_types.insert(res_name.clone(), val_ty);
             }
         }
+        Ok(())
+    }
+    /// Lower `affirm(cond, msg)` to LLVM.
+    ///
+    /// ADR 0022. If `cond` is true, execution continues. If false,
+    /// the message is printed to stderr via `printf`, then `exit(1)`
+    /// terminates the process. `exit` (not a return-from-function)
+    /// because an assertion failure is unrecoverable regardless of
+    /// where in the call stack it occurs.
+    fn compile_affirm(&mut self, args: &[TypedIRValue]) -> Result<()> {
+        if args.len() != 2 {
+            return Err(CompileError::simple(
+                &format!(
+                    "LLVM codegen: affirm requires exactly 2 arguments, got {}",
+                    args.len()
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0004,
+            ));
+        }
+
+        let cond_val = self.compile_value(&args[0])?;
+        let msg_val = self.compile_value(&args[1])?;
+
+        if !msg_val.is_pointer_value() {
+            return Err(CompileError::simple(
+                &format!(
+                    "LLVM codegen: affirm message must lower to a string pointer, got {:?}",
+                    msg_val
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
+        }
+
+        let cond_bool = if cond_val.is_int_value() {
+            let iv = cond_val.into_int_value();
+            if iv.get_type().get_bit_width() == 1 {
+                iv
+            } else {
+                self.builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        iv,
+                        iv.get_type().const_zero(),
+                        "affirm_tobool",
+                    )
+                    .unwrap()
+            }
+        } else {
+            return Err(CompileError::simple(
+                &format!(
+                    "LLVM codegen: affirm condition must lower to a Bool, got {:?}",
+                    cond_val
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
+        };
+
+        let current_fn = self.current_function.unwrap();
+        let fail_bb = self.context.append_basic_block(current_fn, "affirm_fail");
+        let ok_bb = self.context.append_basic_block(current_fn, "affirm_ok");
+
+        self.builder
+            .build_conditional_branch(cond_bool, ok_bb, fail_bb)
+            .unwrap();
+
+        // Fail path: printf("assertion failed: %s\n", msg); exit(1);
+        self.builder.position_at_end(fail_bb);
+        let fmt = self
+            .builder
+            .build_global_string_ptr("assertion failed: %s\n", "affirm_fmt")
+            .unwrap();
+        let printf_fn = self.module.get_function("printf").ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: printf not registered in stdlib",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        self.builder
+            .build_call(
+                printf_fn,
+                &[fmt.as_pointer_value().into(), msg_val.into()],
+                "affirm_print",
+            )
+            .unwrap();
+        let exit_fn = self.module.get_function("exit").ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: exit not registered in stdlib",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        self.builder
+            .build_call(
+                exit_fn,
+                &[self.context.i32_type().const_int(1, false).into()],
+                "affirm_exit",
+            )
+            .unwrap();
+        self.builder.build_unreachable().unwrap();
+
+        // Continue path.
+        self.builder.position_at_end(ok_bb);
         Ok(())
     }
 }

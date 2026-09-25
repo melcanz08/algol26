@@ -546,6 +546,42 @@ impl Interpreter {
                     right: runtime_kind(c),
                 }),
             },
+            "affirm" => {
+                let cond = match arg_vals.first() {
+                    Some(RuntimeValue::Bool(b)) => *b,
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "affirm.cond",
+                            left: runtime_kind(other),
+                            right: "Bool",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "affirm: missing condition argument".into(),
+                        ))
+                    }
+                };
+                if cond {
+                    return Ok(RuntimeValue::Void);
+                }
+                let msg = match arg_vals.get(1) {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "affirm.msg",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "affirm: missing message argument".into(),
+                        ))
+                    }
+                };
+                Err(EvalError::Runtime(format!("assertion failed: {}", msg)))
+            }
             _ => Err(EvalError::Unsupported {
                 construct: "builtin",
                 hint: "interpreter has no dispatch arm for this registered \

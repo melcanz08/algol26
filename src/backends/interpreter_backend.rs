@@ -296,4 +296,52 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(backend.get_output(), "Hello\n");
     }
+
+    #[test]
+    fn test_affirm_passing_continues() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    affirm(1 < 2, "one less than two")
+    print("ok")
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "affirm_pass.gol")
+            .expect("pipeline should reach verified IR");
+        let backend = crate::backends::interpreter_backend::InterpreterBackend::new();
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        assert_eq!(backend.get_output().trim(), "ok");
+    }
+
+    #[test]
+    fn test_affirm_failing_errors() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    affirm(1 > 2, "one is not greater than two")
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "affirm_fail.gol")
+            .expect("pipeline should reach verified IR");
+        let backend = crate::backends::interpreter_backend::InterpreterBackend::new();
+        let err = backend
+            .compile(&verified, "")
+            .expect_err("failing affirm should error");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("assertion failed") && msg.contains("one is not greater than two"),
+            "unexpected message: {}",
+            msg
+        );
+    }
 }

@@ -633,3 +633,67 @@ fn interpreter_rejects_channels() {
         err.message
     );
 }
+
+#[test]
+fn interpreter_accepts_args() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "xs".to_string(),
+            mutable: false,
+            type_: Type::list(Type::String),
+            value: TypedIRValue::Call {
+                function: "args".to_string(),
+                args: vec![],
+                return_type: Type::list(Type::String),
+            },
+        },
+        simple_return(),
+    );
+    assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
+}
+
+#[test]
+fn llvm_rejects_args() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "xs".to_string(),
+            mutable: false,
+            type_: Type::list(Type::String),
+            value: TypedIRValue::Call {
+                function: "args".to_string(),
+                args: vec![],
+                return_type: Type::list(Type::String),
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+    assert!(
+        err.message.contains("command-line"),
+        "expected args diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn wasm_rejects_args() {
+    let program = program_with(
+        Instruction::Declare {
+            name: "xs".to_string(),
+            mutable: false,
+            type_: Type::list(Type::String),
+            value: TypedIRValue::Call {
+                function: "args".to_string(),
+                args: vec![],
+                return_type: Type::list(Type::String),
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("command-line"),
+        "expected args diagnostic, got: {}",
+        err.message
+    );
+}

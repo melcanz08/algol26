@@ -107,6 +107,11 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
         used.insert(Feature::FileFunctions);
     } else if name == "List.sum" || name == "List.max" || name == "List.min" {
         used.insert(Feature::ListAggregates);
+    } else if name == "args" {
+        // ADR 0023. LLVM and WASM have no lowering for command-
+        // line arguments; the interpreter reads the process's
+        // arguments directly.
+        used.insert(Feature::CommandLineArgs);
     }
 }
 

@@ -210,6 +210,13 @@ impl SemanticIRBuilder {
                 return_type: Type::Void,
             },
         );
+        self.function_types.insert(
+            "args".to_string(),
+            FunctionSignature {
+                params: vec![],
+                return_type: Type::list(Type::String),
+            },
+        );
 
         // Register user-defined functions (templates, including extern).
         for func in functions {

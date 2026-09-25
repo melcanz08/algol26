@@ -132,6 +132,8 @@ pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
         vec![("cond", Type::Bool), ("msg", Type::String)],
         Type::Void,
     );
+    // Command-line arguments (ADR 0023)
+    reg("args", vec![], Type::list(Type::String));
 
     // Raw memory
     reg(

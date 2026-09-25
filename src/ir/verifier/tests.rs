@@ -462,6 +462,8 @@ fn builtin_signatures_match_analyzer_table() {
         ("free", vec![Type::pointer(Type::Unknown)], Type::Void),
         // Assertion (ADR 0022)
         ("affirm", vec![Type::Bool, Type::String], Type::Void),
+        // Command-line arguments (ADR 0023)
+        ("args", vec![], Type::list(Type::String)),
     ];
 
     for (name, expected_params, expected_ret) in &expected {

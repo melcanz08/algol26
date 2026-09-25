@@ -399,6 +399,20 @@ pub const MATRIX: &[FeatureRow] = &[
         notes: "Unfinished feature (see docs/features/range.md). No backend \
                 supports it end-to-end, so no fixture is possible.",
     },
+    FeatureRow {
+        name: "command_line_args",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Refused,
+        wasm: Support::Refused,
+        refusal_tests: &["llvm_rejects_args", "wasm_rejects_args"],
+        notes: "No conformance fixture — `args()` returns the process's \
+                command-line arguments, which cannot be reproduced by a \
+                static fixture. The interpreter returns the process's \
+                arguments. LLVM and WASM refuse via the capability check \
+                (`Feature::CommandLineArgs`); neither has a mechanism to \
+                expose C `argc`/`argv` to the language's `main`.",
+    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────

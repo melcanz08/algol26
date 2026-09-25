@@ -582,6 +582,20 @@ impl Interpreter {
                 };
                 Err(EvalError::Runtime(format!("assertion failed: {}", msg)))
             }
+            "args" => {
+                if !arg_vals.is_empty() {
+                    return Err(EvalError::Runtime(format!(
+                        "args: takes no arguments, got {}",
+                        arg_vals.len()
+                    )));
+                }
+                let list: Vec<RuntimeValue> = self
+                    .command_line_args
+                    .iter()
+                    .map(|s| RuntimeValue::String(s.clone()))
+                    .collect();
+                Ok(RuntimeValue::List(list))
+            }
             _ => Err(EvalError::Unsupported {
                 construct: "builtin",
                 hint: "interpreter has no dispatch arm for this registered \

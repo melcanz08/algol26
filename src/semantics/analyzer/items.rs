@@ -157,6 +157,14 @@ impl SemanticAnalyzer {
                 type_params: Vec::new(),
             },
         );
+        self.functions.insert(
+            "args".to_string(),
+            FunctionInfo {
+                params: vec![],
+                return_type: Type::list(Type::String),
+                type_params: Vec::new(),
+            },
+        );
     }
     pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) {
         for func in functions {

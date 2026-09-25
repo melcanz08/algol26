@@ -66,6 +66,11 @@ pub enum Feature {
     /// pointers via `alloc`/`free` are gated separately by
     /// `RawMemory`.
     References,
+    /// `args()` — command-line arguments as `List<String>`. The
+    /// interpreter reads the process's arguments. LLVM and WASM
+    /// have no mechanism to expose C `argc`/`argv` to the
+    /// language's `main`, so they refuse.
+    CommandLineArgs,
 }
 
 impl Feature {
@@ -85,6 +90,7 @@ impl Feature {
             Feature::Option,
             Feature::RawMemory,
             Feature::References,
+            Feature::CommandLineArgs,
         ]
     }
 
@@ -103,6 +109,7 @@ impl Feature {
             Feature::Option => "option",
             Feature::RawMemory => "raw-memory",
             Feature::References => "references",
+            Feature::CommandLineArgs => "args",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -121,6 +128,7 @@ impl Feature {
             Feature::Option => "Option<T>: Some(x) and None",
             Feature::RawMemory => "alloc / free (raw memory)",
             Feature::References => "reference operations (&x, &mut x, *r)",
+            Feature::CommandLineArgs => "command-line arguments (args())",
         }
     }
 }
@@ -178,6 +186,7 @@ impl BackendCapabilities {
         supported.insert(Feature::ListPrint);
         supported.insert(Feature::Option);
         supported.insert(Feature::RawMemory);
+        supported.insert(Feature::CommandLineArgs);
         // FFI is not supported by the interpreter (a tree-walker
         // cannot call into C).
         BackendCapabilities {

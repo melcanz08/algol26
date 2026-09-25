@@ -344,4 +344,28 @@ procedure main
             msg
         );
     }
+    #[test]
+    fn test_interpreter_args_returns_injected_list() {
+        use crate::backends::interpreter::Interpreter;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    val xs := args()
+    print(List.length(xs))
+    for a in xs
+        print(a)
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "args_test.gol")
+            .expect("pipeline should reach verified IR");
+
+        let program = verified.program().clone();
+        let mut interp =
+            Interpreter::with_args(program, vec!["hello".to_string(), "world".to_string()]);
+        let output = interp.run().expect("interpreter should run");
+        assert_eq!(output.trim(), "2\nhello\nworld");
+    }
 }

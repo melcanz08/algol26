@@ -62,18 +62,32 @@ pub struct Interpreter {
     /// user-function calls so a callee cannot accidentally free
     /// its caller's region allocations.
     pub(super) region_stack: Vec<RegionFrame>,
+    /// Command-line arguments passed to the process, excluding the
+    /// program name. Exposed to the language via the `args()`
+    /// builtin. Set at construction from `std::env::args()` in
+    /// production; injectable via `with_args` for tests.
+    pub(super) command_line_args: Vec<String>,
 }
 
 impl Interpreter {
     pub fn new(program: SemanticProgram) -> Self {
+        Self::with_args(program, std::env::args().skip(1).collect())
+    }
+
+    /// Construct an interpreter with an explicit argument list.
+    /// `new` calls this with `std::env::args().skip(1)`. Tests use
+    /// this directly to inject known arguments without spawning a
+    /// subprocess.
+    pub fn with_args(program: SemanticProgram, args: Vec<String>) -> Self {
         Self {
             variables: HashMap::new(),
             output: Vec::new(),
             program,
             return_value: None,
             heap: HashMap::new(),
-            next_ptr: 1, // start at 1 so 0 means "null"
+            next_ptr: 1,
             region_stack: Vec::new(),
+            command_line_args: args,
         }
     }
 

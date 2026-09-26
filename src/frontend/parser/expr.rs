@@ -167,8 +167,81 @@ impl Parser {
                     span: start_span,
                 }))
             }
-            _ => self.parse_primary(),
+            _ => {
+                let primary = self.parse_primary()?;
+                self.parse_postfix(primary)
+            }
         }
+    }
+
+    /// Apply postfix operators (`.member`, `[index]`) to an
+    /// already-parsed primary expression, left to right.
+    ///
+    /// `parse_primary`'s identifier branch handles the leading
+    /// identifier's `.` and `[` directly; this loop covers what
+    /// follows any other primary (a function call, an array
+    /// access, a parenthesized expression, a literal, etc.).
+    ///
+    /// Method calls (`x.method(...)`) are still restricted to bare
+    /// identifier receivers — the AST has no form for a receiver
+    /// expression in a call, and the analyzer resolves the receiver
+    /// by name lookup. Complex receivers are rejected here rather
+    /// than producing a misleading function name like
+    /// `"pts[1].method"`.
+    pub(super) fn parse_postfix(&mut self, mut expr: Expr) -> Result<Expr> {
+        loop {
+            match self.peek() {
+                Token::LBracket => {
+                    let span = expr.span();
+                    self.advance();
+                    let index = self.parse_expr()?;
+                    self.expect_token(Token::RBracket, "']'")?;
+                    expr = Expr::new(ExprKind::ArrayAccess {
+                        array: Box::new(expr),
+                        index: Box::new(index),
+                        span,
+                    });
+                }
+                Token::Dot => {
+                    let span = expr.span();
+                    self.advance();
+                    let member = self.expect_identifier("member name")?;
+                    if matches!(self.peek(), Token::LParen) {
+                        // Method call. Only a bare identifier receiver is
+                        // expressible in `ExprKind::FunctionCall { name }`.
+                        let ExprKind::Var(name, _) = &expr.kind else {
+                            return Err(self.error(
+                                "method calls on complex receiver expressions are \
+                                 not yet supported; bind the receiver to a variable first",
+                            ));
+                        };
+                        let receiver = name.clone();
+                        self.advance();
+                        let mut args = Vec::new();
+                        while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                            args.push(self.parse_expr()?);
+                            if matches!(self.peek(), Token::Comma) {
+                                self.advance();
+                            }
+                        }
+                        self.expect_token(Token::RParen, "')'")?;
+                        expr = Expr::new(ExprKind::FunctionCall {
+                            name: format!("{}.{}", receiver, member),
+                            args,
+                            span,
+                        });
+                    } else {
+                        expr = Expr::new(ExprKind::FieldAccess {
+                            object: Box::new(expr),
+                            field: member,
+                            span,
+                        });
+                    }
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
     }
 
     pub(super) fn parse_primary(&mut self) -> Result<Expr> {

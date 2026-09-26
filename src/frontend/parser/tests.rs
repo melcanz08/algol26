@@ -294,3 +294,32 @@ fn record_declaration_parses() {
     assert_eq!(program.records[0].fields[0].0, "x");
     assert_eq!(program.records[0].fields[1].0, "y");
 }
+
+#[test]
+fn field_access_after_index() {
+    let source = "\
+procedure main
+    val pts := [Point { x: 1, y: 2 }]
+    print(pts[0].x)
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("`pts[0].x` should parse");
+    assert_eq!(program.functions.len(), 1);
+}
+
+#[test]
+fn method_call_after_index_is_rejected() {
+    let source = "\
+procedure main
+    val xs := [[1, 2], [3, 4]]
+    print(xs[0].length())
+";
+    let lexer = Lexer::new(source.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let err = parser
+        .parse_program()
+        .expect_err("method call on complex receiver should be rejected");
+    let msg = format!("{}", err);
+    assert!(msg.contains("complex receiver"), "got: {}", msg);
+}

@@ -703,7 +703,7 @@ impl Compiler {
             functions: Rc::new(all_functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            records: parsed.records.clone(), // ← NEW
+            records: parsed.records.clone(),
         }
     }
 
@@ -738,6 +738,7 @@ impl Compiler {
     fn process_imports(&self, parsed: &ParsedProgram, current_file: &str) -> Result<ParsedProgram> {
         let mut loader = ModuleLoader::new();
         let mut all_functions = (*parsed.functions).clone();
+        let mut all_records = parsed.records.clone();
 
         for func in parsed.functions.iter() {
             for stmt in &func.body {
@@ -758,6 +759,18 @@ impl Compiler {
                                 all_functions.push(imported);
                             }
                         }
+
+                        // Merge records the same way. Without this,
+                        // a function in the importing module whose
+                        // signature mentions a record declared in the
+                        // imported module resolves that record to
+                        // `Unknown`, and the failure surfaces three
+                        // steps downstream (see POSTMORTEM.md).
+                        for imported in imported_program.records {
+                            if !all_records.iter().any(|r| r.name == imported.name) {
+                                all_records.push(imported);
+                            }
+                        }
                     }
 
                     loader.end_import();
@@ -769,7 +782,7 @@ impl Compiler {
             functions: Rc::new(all_functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            records: parsed.records.clone(), // ← NEW
+            records: all_records,
         })
     }
 

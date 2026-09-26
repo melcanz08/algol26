@@ -26,5 +26,11 @@ path = "src/main.rs"
 proptest = "1.4"
 
 [lints.clippy]
-# (result_large_err no longer needed — CompileError shrank below the
-# clippy threshold after PR-6 simplified the struct.)
+# `CompileError` is intentionally rich (message, span, source line,
+# suggestion, filename). A prior refactor shrank it below clippy's
+# `result_large_err` threshold; the diagnostics refinement that added
+# `Option<String> file` pushed it back over. Boxing it behind every
+# `Result<T, CompileError>` in the crate would touch hundreds of
+# signatures for no runtime gain: a compiler produces at most one
+# error per invocation before exiting.
+result_large_err = "allow"

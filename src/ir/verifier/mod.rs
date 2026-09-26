@@ -206,19 +206,25 @@ fn successors_with_envs(term: &Terminator, env: &VerifyEnv) -> Vec<(usize, Verif
             let mut result = Vec::new();
             for (pattern, target) in cases {
                 let mut succ_env = env.clone();
-                let binding = match pattern {
+                match pattern {
                     SemanticPattern::Some { binding }
                     | SemanticPattern::Ok { binding }
-                    | SemanticPattern::Error { binding } => Some(binding),
-                    _ => None,
-                };
-                if let Some(name) = binding {
-                    // The pattern introduces `name` in the target block
-                    // only. Its type is Unknown here — the switch
-                    // runtime is responsible for supplying a value of
-                    // the correct shape.
-                    succ_env.variables.insert(name.clone(), Type::Unknown);
-                    succ_env.mutability.insert(name.clone(), false);
+                    | SemanticPattern::Error { binding } => {
+                        succ_env.variables.insert(binding.clone(), Type::Unknown);
+                        succ_env.mutability.insert(binding.clone(), false);
+                    }
+                    SemanticPattern::Record { bindings, .. } => {
+                        // Record destructuring binds every named field in the
+                        // target block. Types are Unknown here — the switch
+                        // runtime supplies values of the correct shape, and the
+                        // analyzer already validated the pattern against the
+                        // record declaration.
+                        for b in bindings {
+                            succ_env.variables.insert(b.clone(), Type::Unknown);
+                            succ_env.mutability.insert(b.clone(), false);
+                        }
+                    }
+                    _ => {}
                 }
                 result.push((*target, succ_env));
             }

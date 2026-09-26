@@ -1,11 +1,11 @@
-# ADR 0024: `RECORD` — structured data types
+# ADR 0024: `rec` — structured data types
 
-Status: Accepted (design); interpreter implementation pending
+Status: Accepted (interpreter complete; LLVM/WASM refused)
 
 ## Context
 
-ALGOL26 has no structured data type. `ExprKind::FieldAccess` is
-rejected at analysis:
+ALGOL26 has no structured data type. `ExprKind::FieldAccess` was
+previously rejected at analysis:
 
     Field access '.{field}' is not supported yet
 
@@ -15,32 +15,32 @@ arguments to functions. Both are workarounds, not data modeling.
 
 ## Decision
 
-Add `record` declarations:
+Add `rec` declarations:
 
-    record Point
+    rec Point
         x: Int
         y: Int
 
-The keyword is `record` (lowercase in source), named after ALGOL
-W's `RECORD`. ALGOL W's record was the first structured-data
-feature in the ALGOL family; ALGOL26's version extends it with
-traits, generics, pattern matching, and region attribution.
+The keyword is `rec` (lowercase in source), named after ALGOL W's
+`RECORD`. ALGOL W's record was the first structured-data feature
+in the ALGOL family; ALGOL26's version extends it with traits,
+generics, pattern matching, and region attribution.
 
 ### Syntax
 
 Declaration:
 
-    record Point
+    rec Point
         x: Int
         y: Int
 
-    record Person
+    rec Person
         name: String
         age: Int
 
 Generic:
 
-    record Pair<T>
+    rec Pair<T>
         first: T
         second: T
 
@@ -72,12 +72,12 @@ Traits and methods through the existing `impl` form:
 
 ### Semantics
 
-**Value semantics, structural `Copy`.** A record is `Copy` iff
-every field is `Copy`. `Point { x: Int, y: Int }` is `Copy`;
-`Person { name: String, age: Int }` is not. Copying a `Copy`
-record produces a new independent value. Moving a non-`Copy`
-record transitions the source to `Moved` and use-after-move is
-rejected by the existing `E-MOVE-001` check.
+**Value semantics, structural `Copy` (deferred).** A record is
+`Copy` iff every field is `Copy`. `Point { x: Int, y: Int }` should
+be `Copy`; `Person { name: String, age: Int }` should not. The v1
+interpreter ships with records treated as move-only — `is_copy`
+does not yet consult the record field table. A follow-up wires the
+analyzer's record table into the ownership decision.
 
 **Direct field mutation with `var`.** `p.x := 5` is legal when
 `p` is a `var`. `val p` rejects it with the existing "cannot
@@ -94,17 +94,13 @@ introduce it.
 `region` block belongs to that region, via the existing
 `SemanticState::declare` mechanism. No new code needed.
 
-**No `Drop` in v1.** Same reasoning. Adding a cleanup hook for
-records alone would be inconsistent with the rest of the
-language.
-
 ### Backends
 
-| Backend | Support |
-|---|---|
-| Interpreter | Yes — `RuntimeValue::Record(HashMap<String, RuntimeValue>)` |
-| LLVM | Refused — capability check |
-| WASM | Refused — capability check |
+| Backend     | Support                                                        |
+|-------------|----------------------------------------------------------------|
+| Interpreter | Yes — `RuntimeValue::Record { name, fields }`                  |
+| LLVM        | Refused — capability check (`Feature::Records`)                |
+| WASM        | Refused — capability check (`Feature::Records`)                |
 
 LLVM support is a follow-up ADR. It requires a struct layout
 decision, stack vs heap allocation, GEP-based field access, and
@@ -113,7 +109,7 @@ That is a week of work on its own.
 
 ### Type representation
 
-Add `Type::Record(String, Vec<Type>)`. Distinct from
+`Type::Record(String, Vec<Type>)`. Distinct from
 `Type::Generic`, which stays as-is. `Point` becomes
 `Type::Record("Point", [])`; `Pair<Int>` becomes
 `Type::Record("Pair", [Int])`.
@@ -142,23 +138,37 @@ New expression form:
         span: Span,
     }
 
+New statement form:
+
+    Stmt::FieldAssign {
+        target: String,
+        field: String,
+        value: Expr,
+        span: Span,
+    }
+
 New pattern form:
 
     Pattern::Record { name: String, bindings: Vec<String> }
 
 ### IR representation
 
-New `TypedIRValue::Record { name: String, fields: Vec<(String, TypedIRValue)> }`.
+New `TypedIRValue::Record { name, fields, record_type }`.
 
-New `TypedIRValue::FieldRead { object: Box<TypedIRValue>, field: String, field_type: Type }`.
+Field reads reuse `TypedIRValue::FieldAccess { object, field, field_type }`,
+which already existed in the IR.
 
-New `Instruction::FieldAssign { target: String, field: String, value: TypedIRValue }` for `p.x := v` in statement position.
+New `Instruction::FieldAssign { target, field, value }` for
+`p.x := v` in statement position.
+
+New `SemanticPattern::Record { name, bindings }` for `match`
+lowering.
 
 ### Capability
 
 New `Feature::Records`. Interpreter claims it; LLVM and WASM do
-not. The scanner fires on any `TypedIRValue::Record` or
-`FieldRead`.
+not. The scanner fires on any `TypedIRValue::Record`,
+`TypedIRValue::FieldAccess`, or `Instruction::FieldAssign`.
 
 ### What is deliberately not in v1
 
@@ -170,6 +180,9 @@ not. The scanner fires on any `TypedIRValue::Record` or
 - **Nested record destructuring in `match`** beyond one level.
   Extends a feature that already exists.
 - **Runtime reflection.** Not a direction the language is going.
+- **Structural `Copy` for records.** v1 treats records as
+  move-only. The analyzer's record table has everything needed;
+  wiring it into `is_copy` is a small follow-up.
 
 ## Consequences
 
@@ -191,6 +204,7 @@ not. The scanner fires on any `TypedIRValue::Record` or
   visible.
 - Field-level borrows are not available; `&p` borrows the whole
   record. Conservative but restrictive.
+- Structural `Copy` is not yet implemented; all records move.
 
 **Neutral.**
 
@@ -207,13 +221,15 @@ Interpreter v1 ships with:
 - `field_access_reads_value` — `p.x`
 - `field_access_assigns_when_var` — `p.x := 5`
 - `field_access_rejects_immutable` — `val p; p.x := 5` errors
-- `record_is_copy_when_all_fields_copy` — `Point` copies
-- `record_is_not_copy_when_field_is_heap` — `Person` moves
 - `record_pattern_match_destructures` — `case Point { x, y }`
 - `record_in_list` — `List<Point>`
 - `record_inside_region` — free via region exit
 - Capability: `interpreter_accepts_records`, `llvm_rejects_records`,
   `wasm_rejects_records`
+
+Structural `Copy` tests (`record_is_copy_when_all_fields_copy`,
+`record_is_not_copy_when_field_is_heap`) are deferred along with
+the feature itself.
 
 ## See also
 

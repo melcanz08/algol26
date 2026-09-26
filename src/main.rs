@@ -166,20 +166,20 @@ fn main() {
         println!("[Compiling to WASM: {}]", filename);
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile_to_wasm(&source, &filename, &output_name) {
-            e.display();
+            e.with_file(&filename).display();
             std::process::exit(1);
         }
     } else if use_interpreter {
         println!("[Interpreting {}]", filename);
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.run_interpreter_with_args(&source, &filename, program_args) {
-            e.display();
+            e.with_file(&filename).display();
             std::process::exit(1);
         }
     } else {
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile(&source, &filename, &output_name, emit_llvm, run, timing) {
-            e.display();
+            e.with_file(&filename).display();
             std::process::exit(1);
         }
     }

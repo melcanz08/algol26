@@ -12,6 +12,15 @@ pub struct CompileError {
     pub source_line: String,
     pub error_code: ErrorCode,
     pub suggestion: Option<String>,
+    /// Source file where the error was detected. `None` for errors
+    /// that have no file context (backend capability refusals,
+    /// internal invariant failures). The top-level CLI attaches
+    /// this via `with_file` from the filename it was given.
+    ///
+    /// Limitation: for errors inside imported files, this is the
+    /// *importing* file, not the file where the error text lives.
+    /// Per-node file provenance does not exist yet.
+    pub file: Option<String>,
 }
 
 /// The bucket code the diagnostic renderer prefixes on every error.
@@ -107,6 +116,7 @@ impl CompileError {
             source_line: source_line.to_string(),
             error_code,
             suggestion: None,
+            file: None,
         }
     }
 
@@ -119,6 +129,7 @@ impl CompileError {
             source_line: String::new(),
             error_code,
             suggestion: None,
+            file: None,
         }
     }
 
@@ -162,6 +173,16 @@ impl CompileError {
 
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = span;
+        self
+    }
+
+    /// Attach the source filename. Idempotent — a later call does
+    /// not overwrite a filename that is already set, so an error
+    /// that named its own file is not clobbered by the CLI.
+    pub fn with_file(mut self, file: impl Into<String>) -> Self {
+        if self.file.is_none() {
+            self.file = Some(file.into());
+        }
         self
     }
 

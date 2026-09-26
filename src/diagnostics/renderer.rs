@@ -33,7 +33,10 @@ pub fn render_one(err: &CompileError) -> String {
 
     // Location + source excerpt
     if err.line() > 0 {
-        out.push_str(&format!("  --> {}:{}\n", err.line(), err.column()));
+        match &err.file {
+            Some(f) => out.push_str(&format!("  --> {}:{}:{}\n", f, err.line(), err.column())),
+            None => out.push_str(&format!("  --> {}:{}\n", err.line(), err.column())),
+        }
 
         if !err.source_line.is_empty() {
             let line_num = err.line().to_string();
@@ -177,5 +180,17 @@ mod tests {
         let e = Diagnostic::Error(CompileError::new("a", 1, 1, "", ErrorCode::E0001));
         let s = render_all(&[e]);
         assert!(!s.contains("generated"), "unexpected summary:\n{}", s);
+    }
+
+    #[test]
+    fn renders_filename_when_present() {
+        let err = CompileError::new("oops", 12, 5, "    let x = foo()", ErrorCode::E0002)
+            .with_file("main.gol");
+        let s = render_one(&err);
+        assert!(
+            s.contains("--> main.gol:12:5"),
+            "expected filename in location:\n{}",
+            s
+        );
     }
 }

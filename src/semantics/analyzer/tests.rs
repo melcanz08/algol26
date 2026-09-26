@@ -729,3 +729,56 @@ procedure main
         msg
     );
 }
+
+#[test]
+fn unknown_record_name_in_signature_rejected() {
+    let source = "\
+function f() -> MissingRecord
+    return 0
+";
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("MissingRecord"),
+        "expected the message to name the type, got: {}",
+        err.message,
+    );
+}
+
+#[test]
+fn declared_record_in_signature_accepted() {
+    let source = "\
+rec Point
+    x: Int
+    y: Int
+
+function origin() -> Point
+    return Point { x: 0, y: 0 }
+";
+    analyze(source).expect("record declared before use should resolve");
+}
+
+#[test]
+fn single_letter_type_param_still_resolves() {
+    let source = "\
+function identity<T>(x: T) -> T
+    return x
+
+procedure main
+    print(identity(42))
+";
+    analyze(source).expect("type parameter should not be treated as a user type");
+}
+
+#[test]
+fn unknown_record_as_parameter_type_rejected() {
+    let source = "\
+function f(p: MissingRecord) -> Int
+    return 0
+";
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("MissingRecord"),
+        "got: {}",
+        err.message,
+    );
+}

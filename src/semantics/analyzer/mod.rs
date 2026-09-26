@@ -281,7 +281,7 @@ impl SemanticAnalyzer {
             self.register_record(rec)?;
         }
 
-        self.register_user_functions(functions);
+        self.register_user_functions(functions)?;
         for trait_decl in traits {
             self.trait_registry.register_trait(trait_decl.clone());
         }

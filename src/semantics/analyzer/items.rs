@@ -167,7 +167,7 @@ impl SemanticAnalyzer {
             },
         );
     }
-    pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) {
+    pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) -> Result<()> {
         // Snapshot the record table so the closure can read it
         // without conflicting with the `&mut self` of the loop.
         let records_snapshot = self.records.clone();
@@ -177,18 +177,17 @@ impl SemanticAnalyzer {
                 .iter()
                 .map(|(name, t)| {
                     let type_ = match t {
-                        Some(ts) => Self::resolve_syntax_with_records(ts, &records_snapshot),
+                        Some(ts) => Self::resolve_syntax_with_records(ts, &records_snapshot)?,
                         None => Type::Unknown,
                     };
-                    (name.clone(), type_)
+                    Ok::<_, CompileError>((name.clone(), type_))
                 })
-                .collect();
+                .collect::<Result<Vec<_>>>()?;
 
-            let return_type = func
-                .return_type
-                .as_ref()
-                .map(|t| Self::resolve_syntax_with_records(t, &records_snapshot))
-                .unwrap_or(Type::Void);
+            let return_type = match &func.return_type {
+                Some(t) => Self::resolve_syntax_with_records(t, &records_snapshot)?,
+                None => Type::Void,
+            };
 
             let clean_name = func.name.trim_end_matches("()").to_string();
             if func.ffi_info.as_ref().is_some_and(|f| f.variadic) {
@@ -203,6 +202,7 @@ impl SemanticAnalyzer {
                 },
             );
         }
+        Ok(())
     }
     pub(super) fn register_record(&mut self, decl: &RecordDecl) -> Result<()> {
         if self.records.contains_key(&decl.name) {
@@ -239,8 +239,8 @@ impl SemanticAnalyzer {
         let fields: Vec<(String, Type)> = decl
             .fields
             .iter()
-            .map(|(name, ty)| (name.clone(), self.resolve_type_syntax(ty)))
-            .collect();
+            .map(|(name, ty)| Ok((name.clone(), self.resolve_type_syntax(ty)?)))
+            .collect::<Result<Vec<_>>>()?;
         self.type_params.pop();
 
         self.records.insert(
@@ -281,7 +281,7 @@ impl SemanticAnalyzer {
         }
 
         let return_type = if let Some(ret_type) = &func.return_type {
-            self.resolve_type_syntax(ret_type)
+            self.resolve_type_syntax(ret_type)?
         } else {
             Type::Void
         };
@@ -289,13 +289,12 @@ impl SemanticAnalyzer {
 
         for (name, type_annotation) in &func.params {
             let param_type = if let Some(annot) = type_annotation {
-                self.resolve_type_syntax(annot)
+                self.resolve_type_syntax(annot)?
             } else {
                 Type::Unknown
             };
             self.declare_variable(name, param_type, true)?;
         }
-
         for stmt in &func.body {
             self.analyze_stmt(stmt)?;
         }
@@ -335,42 +334,46 @@ impl SemanticAnalyzer {
     ///
     /// `TypeSyntax::to_type` is a pure syntax-to-type function — it
     /// knows primitives and single-letter type variables but has no
-    /// access to the record table. This helper adds record lookup:
-    /// a bare `Point` or a generic `Pair<Int>` resolves to
-    /// `Type::Record("Point", [])` / `Type::Record("Pair", [Int])`
-    /// before falling through to the existing machinery.
+    /// access to the record table. This helper adds record lookup
+    /// and, critically, **errors** when a name that looks like a
+    /// user type (multi-char, not a primitive) fails to resolve.
     ///
-    /// Every analyzer site that reads a user-supplied annotation
-    /// (function parameters, return types, record fields, trait
-    /// method signatures) must use this rather than `to_type()`.
-    pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Type {
+    /// Before this change, such a name silently became
+    /// `Type::Unknown`. The failure then surfaced three steps
+    /// downstream, at some unrelated operation that used the
+    /// `Unknown` value. The records-cross-module bug
+    /// (`d7b9e4d`) took an hour to find because of this.
+    pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Result<Type> {
         match syntax {
             TypeSyntax::Named(name) => {
                 if let Some(rec) = self.records.get(name.as_str()).cloned() {
-                    // Bare reference to a (possibly generic) record.
-                    // Unbound type parameters become `Unknown`; the
-                    // analyzer resolves them when it sees the concrete
-                    // type arguments.
                     let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
-                    return Type::record(name, args);
+                    return Ok(Type::record(name, args));
                 }
-                self.parse_type_annotation(syntax)
+                let ty = self.parse_type_annotation(syntax);
+                if ty == Type::Unknown && is_likely_user_type(name) {
+                    return Err(unknown_type_error(name));
+                }
+                Ok(ty)
             }
             TypeSyntax::Generic { name, args } => {
                 if let Some(rec) = self.records.get(name.as_str()).cloned() {
                     if args.len() != rec.type_params.len() {
-                        // Arity mismatch — return Unknown rather than
-                        // erroring here. The call site that constructs
-                        // the value reports the mismatch with a span.
-                        return Type::Unknown;
+                        return Ok(Type::Unknown);
                     }
-                    let resolved_args: Vec<Type> =
-                        args.iter().map(|a| self.resolve_type_syntax(a)).collect();
-                    return Type::record(name, resolved_args);
+                    let resolved_args: Vec<Type> = args
+                        .iter()
+                        .map(|a| self.resolve_type_syntax(a))
+                        .collect::<Result<Vec<_>>>()?;
+                    return Ok(Type::record(name, resolved_args));
                 }
-                self.parse_type_annotation(syntax)
+                let ty = self.parse_type_annotation(syntax);
+                if ty == Type::Unknown && is_likely_user_type(name) {
+                    return Err(unknown_type_error(name));
+                }
+                Ok(ty)
             }
-            TypeSyntax::Unknown => Type::Unknown,
+            TypeSyntax::Unknown => Ok(Type::Unknown),
         }
     }
     /// True if every control-flow path through `stmts` ends in a
@@ -466,29 +469,80 @@ impl SemanticAnalyzer {
     fn resolve_syntax_with_records(
         syntax: &TypeSyntax,
         records: &HashMap<String, RecordInfo>,
-    ) -> Type {
+    ) -> Result<Type> {
         match syntax {
             TypeSyntax::Named(name) => {
                 if let Some(rec) = records.get(name.as_str()) {
                     let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
-                    return Type::record(name, args);
+                    return Ok(Type::record(name, args));
                 }
-                syntax.to_type()
+                let ty = syntax.to_type();
+                if ty == Type::Unknown && is_likely_user_type(name) {
+                    return Err(unknown_type_error(name));
+                }
+                Ok(ty)
             }
             TypeSyntax::Generic { name, args } => {
                 if let Some(rec) = records.get(name.as_str()) {
                     if args.len() != rec.type_params.len() {
-                        return Type::Unknown;
+                        return Ok(Type::Unknown);
                     }
                     let resolved_args: Vec<Type> = args
                         .iter()
                         .map(|a| Self::resolve_syntax_with_records(a, records))
-                        .collect();
-                    return Type::record(name, resolved_args);
+                        .collect::<Result<Vec<_>>>()?;
+                    return Ok(Type::record(name, resolved_args));
                 }
-                syntax.to_type()
+                let ty = syntax.to_type();
+                if ty == Type::Unknown && is_likely_user_type(name) {
+                    return Err(unknown_type_error(name));
+                }
+                Ok(ty)
             }
-            TypeSyntax::Unknown => Type::Unknown,
+            TypeSyntax::Unknown => Ok(Type::Unknown),
         }
     }
+}
+
+/// Heuristic: does this name look like a user-declared type rather
+/// than a primitive, builtin type constructor, or single-letter
+/// type parameter?
+///
+/// The check is conservative — a false positive turns a valid
+/// program into a compile error, so we only flag names that have
+/// no other plausible reading.
+fn is_likely_user_type(name: &str) -> bool {
+    // Single-letter names are the type-parameter convention.
+    if name.len() <= 1 {
+        return false;
+    }
+    // Lowercase names are reserved for builtin type constructors
+    // (`list`, `option`, `borrow`, `pointer`, ...). Those are
+    // tried by `TypeSyntax::to_type` before we get here; if one
+    // fell through, it is a typo in a builtin name, not a user
+    // type. Report it the same way anyway — the diagnostic names
+    // the identifier and the file the user wrote.
+    !matches!(
+        name,
+        "Int" | "Float" | "String" | "Bool" | "Void" | "Ptr" | "Never" | "Self"
+    )
+}
+
+fn unknown_type_error(name: &str) -> CompileError {
+    CompileError::simple(
+        &format!(
+            "Unknown type `{}`. It is not a primitive, a declared record, \
+             or a type parameter in scope.",
+            name
+        ),
+        0,
+        0,
+        "",
+        ErrorCode::E0003,
+    )
+    .with_suggestion(&format!(
+        "Declare the type with `rec {} ...`, check the spelling, or import \
+         the file where `{}` is declared",
+        name, name
+    ))
 }

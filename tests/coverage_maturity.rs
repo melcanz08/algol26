@@ -110,6 +110,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("list_indexing", Maturity::AllBackends),
     ("list_print", Maturity::InterpreterOnly),
     ("list_sum_max_min", Maturity::InterpreterOnly),
+    ("records", Maturity::InterpreterOnly),
     // option / result
     ("option", Maturity::InterpreterOnly),
     ("result", Maturity::InterpreterOnly),

@@ -377,6 +377,20 @@ pub const MATRIX: &[FeatureRow] = &[
         notes: "No conformance fixture. Only LLVM links C symbols; both \
                 interpreter and WASM refuse (both pinned).",
     },
+    FeatureRow {
+        name: "records",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Refused,
+        wasm: Support::Refused,
+        refusal_tests: &["llvm_rejects_records", "wasm_rejects_records"],
+        notes: "No conformance fixture yet. Records are interpreter-only \
+                (ADR 0024). LLVM and WASM refuse `rec` programs at the \
+                capability check (`Feature::Records`) rather than at \
+                codegen. A fixture would need `--interpreter`; the \
+                harness does not currently support per-fixture backend \
+                selection.",
+    },
     // ─── unsafe / range ───
     FeatureRow {
         name: "unsafe",

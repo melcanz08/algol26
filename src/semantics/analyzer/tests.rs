@@ -492,9 +492,11 @@ procedure main
 #[test]
 fn records_instantiation_for_generic_call_with_reference_argument() {
     // The adversarial case from the ADR: `identity(p)` where
-    // `p := &v`. The pre-typecheck monomorphizer could not infer
-    // this argument's type; the analyzer can. Stage 3.1 records the
-    // fact so Stage 3.2's monomorphizer no longer needs to guess.
+    // `p := &v`. The pre-typecheck monomorphizer that once ran
+    // before analysis could not infer this argument's type; the
+    // analyzer can. The recorded instantiation feeds
+    // `InstantiationPlan`, which specializes `identity` at
+    // `Borrow<Float>`.
     use crate::compiler::assign_expr_ids;
 
     let source = "\

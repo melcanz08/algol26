@@ -1,8 +1,9 @@
 // src/semantics/analyzer/mod.rs
 //
 // Ownership and borrow checking, type inference, trait bounds, and
-// scope-based lifetime rules. Produces a type table keyed by AST node
-// address, which the IR builder consumes to avoid re-inferring types.
+// scope-based lifetime rules. Produces a type table keyed by
+// `ExprId`, which the IR builder consumes to avoid re-inferring
+// types.
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
@@ -63,9 +64,10 @@ pub struct SemanticAnalyzer {
     /// Written by `analyze_expr_with_context` on every expression the
     /// analyzer visits.
     pub type_table_id: HashMap<ExprId, Type>,
-    /// Generic instantiation facts recorded during analysis. Stage
-    /// 3.1 writes this list; no consumer reads it yet. See
-    /// `Instantiation` and ADR 0013.
+    /// Generic instantiation facts recorded during analysis. Read by
+    /// `type_check_program` via `take_instantiations`, which feeds
+    /// `InstantiationPlan::from_instantiations`. See `Instantiation`
+    /// and ADR 0013.
     instantiations: Vec<Instantiation>,
     // Single source of truth - unified with dataflow engine
     pub(crate) state: SemanticState,
@@ -101,7 +103,7 @@ struct FunctionInfo {
     return_type: Type,
     /// Declared type parameter names, in declaration order. Empty
     /// for non-generic functions. Used by `ExprKind::FunctionCall`
-    /// to record instantiation facts (Stage 3.1, ADR 0013).
+    /// to record instantiation facts. See ADR 0013.
     type_params: Vec<String>,
 }
 
@@ -114,8 +116,10 @@ pub struct RecordInfo {
 
 /// A recorded generic instantiation. Produced by the analyzer when
 /// it resolves a call to a function with non-empty `type_params`;
-/// consumed by the monomorphizer in Stage 3.2 and by the IR builder
-/// in Stage 3.3. Keyed by the call site's stable `ExprId`.
+/// consumed by `InstantiationPlan::from_instantiations` and, after
+/// transitive closure, by the IR builder to emit one
+/// `SemanticFunction` per specialization. Keyed by the call site's
+/// stable `ExprId`.
 ///
 /// See ADR 0013 (`docs/decisions/0013-executable-ir-generic-invariant.md`)
 /// for the full design.
@@ -304,6 +308,13 @@ impl SemanticAnalyzer {
         self.analyze_with_spans(functions, traits, impls, records)
     }
 
+    /// Verify that every `where T: Trait` clause names a trait that
+    /// has been declared. This is **not** a satisfaction check: it
+    /// does not verify that a concrete type substituted for `T` at
+    /// a call site implements the trait. A generic function whose
+    /// `where` clause names a declared-but-unimplemented trait
+    /// passes analysis. See ADR 0025 for the state and the two
+    /// paths (enforce or remove).
     fn check_trait_bounds(
         &self,
         _type_params: &[String],

@@ -263,9 +263,10 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
 }
 
 fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
-    // Discard the incoming id; it is UNASSIGNED at this stage (numbering
-    // runs after monomorphize). Reconstructed nodes get UNASSIGNED via
-    // `Expr::new` and will be numbered later.
+    // Discard the incoming id; it is UNASSIGNED at this stage
+    // (`assign_expr_ids` runs later, in `prepare_frontend`).
+    // Reconstructed nodes get UNASSIGNED via `Expr::new` and will
+    // be numbered before semantic analysis.
     let Expr { id: _, kind } = expr;
     match kind {
         ExprKind::For {

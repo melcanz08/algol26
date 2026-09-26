@@ -4,4 +4,4 @@ procedure main
     val a := "hello"
     val b := "world"
     print(String.length(a) + String.length(b))
-    print(a.length + 1)
+    print(a.length() + 1)

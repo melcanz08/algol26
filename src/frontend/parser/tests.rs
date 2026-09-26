@@ -279,3 +279,18 @@ fn parses_record_decl_and_literal() {
     assert_eq!(program.records[0].fields[0].0, "x");
     assert_eq!(program.records[0].fields[1].0, "y");
 }
+
+#[test]
+fn record_declaration_parses() {
+    let source = "rec Point\n    x: Int\n    y: Int\n";
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    let mut parser = crate::frontend::parser::Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+
+    assert_eq!(program.records.len(), 1, "one record expected");
+    assert_eq!(program.records[0].name, "Point");
+    assert_eq!(program.records[0].type_params.len(), 0);
+    assert_eq!(program.records[0].fields.len(), 2);
+    assert_eq!(program.records[0].fields[0].0, "x");
+    assert_eq!(program.records[0].fields[1].0, "y");
+}

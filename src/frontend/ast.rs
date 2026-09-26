@@ -5,7 +5,7 @@ use crate::common::span::Span;
 /// Stable identity for an AST expression node.
 ///
 /// Assigned exactly once by `assign_expr_ids`, after the last AST
-/// transformation (monomorphize) and before semantic analysis.
+/// transformation (impl expansion) and before semantic analysis.
 /// `UNASSIGNED` is the construction-time sentinel; any node reachable
 /// from the typed AST must have a real ID by the time the analyzer runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

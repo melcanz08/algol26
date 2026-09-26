@@ -124,7 +124,7 @@ impl SemanticIRBuilder {
         }
     }
     /// Base name of a type, ignoring generic arguments: `List<Float>` → `"List"`.
-    fn base_type_name(ty: &Type) -> Option<&'static str> {
+    pub(crate) fn base_type_name(ty: &Type) -> Option<&'static str> {
         match ty {
             Type::Int => Some("Int"),
             Type::Float => Some("Float"),

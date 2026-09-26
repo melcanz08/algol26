@@ -1367,26 +1367,38 @@ impl SemanticIRBuilder {
                 let obj = self.translate_expr(program, func, current_block, object);
                 let obj_ty = obj.type_of();
 
+                // `p.x` on a record is a field read. `s.length` on a
+                // String/List is the zero-argument method-call form.
+                // The analyzer resolved both to the same result type;
+                // here we choose the IR shape.
+                if !matches!(obj_ty, Type::Record(..) | Type::Unknown) {
+                    if let Some(base) =
+                        crate::semantics::analyzer::SemanticAnalyzer::base_type_name(&obj_ty)
+                    {
+                        let callee = format!("{}.{}", base, field);
+                        let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                        return TypedIRValue::Call {
+                            function: callee,
+                            args: vec![obj],
+                            return_type,
+                        };
+                    }
+                }
+
                 // The analyzer already inferred the field's type — read it
                 // back rather than re-deriving it from a record table.
                 let field_type = match self.type_of_expr(expr) {
                     Some(t) => t,
-                    None => {
-                        // Fallback: if the receiver's static type is
-                        // Record(name, _) but the analyzer didn't record the
-                        // access site, treat the field as Unknown. The
-                        // verifier will still accept it.
-                        match &obj_ty {
-                            Type::Record(..) | Type::Unknown => Type::Unknown,
-                            other => {
-                                self.diagnostics.push(format!(
-                                    "Field access '.{}' on non-record type {:?}",
-                                    field, other
-                                ));
-                                Type::Unknown
-                            }
+                    None => match &obj_ty {
+                        Type::Record(..) | Type::Unknown => Type::Unknown,
+                        other => {
+                            self.diagnostics.push(format!(
+                                "Field access '.{}' on non-record type {:?}",
+                                field, other
+                            ));
+                            Type::Unknown
                         }
-                    }
+                    },
                 };
 
                 TypedIRValue::FieldAccess {

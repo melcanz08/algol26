@@ -1090,15 +1090,19 @@ impl SemanticAnalyzer {
                         )));
                     }
                 }
-                // Record a generic instantiation fact for Stage 3.2's
-                // monomorphizer. Only functions with non-empty
-                // `type_params` are recorded — a call to a non-generic
-                // function is fully resolved here and needs no entry.
+
+                // Record a generic instantiation fact. `InstantiationPlan`
+                // consumes these in `type_check_program`; the IR builder
+                // reads the closed plan to emit one specialization per
+                // concrete type-argument combination. Only functions
+                // with non-empty `type_params` are recorded — a call to
+                // a non-generic function is fully resolved here and
+                // needs no entry.
                 //
                 // `type_args` may contain `Type::Unknown` if an
                 // argument's type could not be inferred; the
-                // executable-IR verifier (Stage 3.4) is responsible
-                // for rejecting such cases. See ADR 0013.
+                // executable-IR verifier is responsible for rejecting
+                // such cases. See ADR 0013.
                 if !func_info.type_params.is_empty() {
                     let type_params = func_info.type_params.clone();
                     let type_args: Vec<Type> = type_params
@@ -1166,44 +1170,107 @@ impl SemanticAnalyzer {
             }
             ExprKind::FieldAccess { object, field, .. } => {
                 let obj_ty = self.analyze_expr(object)?;
-                let (rec_name, rec_args) = match &obj_ty {
-                    Type::Record(n, a) => (n.clone(), a.clone()),
-                    Type::Unknown => return Ok(Type::Unknown),
-                    other => {
+
+                // The parser produces `FieldAccess` for both `p.x`
+                // (record field) and `s.length` (zero-argument method
+                // call, the pre-records form). Disambiguate by type:
+                // records use field lookup, everything else falls
+                // through to built-in / trait method dispatch — the
+                // same code path `s.length()` already uses.
+                if let Type::Record(rec_name, rec_args) = &obj_ty {
+                    let rec = self.records.get(rec_name).cloned().ok_or_else(|| {
+                        CompileError::simple(
+                            &format!("Unknown record '{}'", rec_name),
+                            self.current_span.start_line,
+                            self.current_span.start_column,
+                            "",
+                            ErrorCode::E0003,
+                        )
+                    })?;
+                    let (_, field_ty) =
+                        rec.fields.iter().find(|(n, _)| n == field).ok_or_else(|| {
+                            CompileError::simple(
+                                &format!("Record '{}' has no field '{}'", rec_name, field),
+                                self.current_span.start_line,
+                                self.current_span.start_column,
+                                "",
+                                ErrorCode::E0004,
+                            )
+                        })?;
+                    let mut subs = HashMap::new();
+                    for (p, a) in rec.type_params.iter().zip(rec_args.iter()) {
+                        subs.insert(p.clone(), a.clone());
+                    }
+                    return Ok(self.substitute_type_vars(field_ty, &subs));
+                }
+
+                // Unknown receiver type: don't guess. Type-table
+                // completeness catches the real problem elsewhere.
+                if obj_ty == Type::Unknown {
+                    return Ok(Type::Unknown);
+                }
+
+                // Zero-argument method-call form `x.method`. The
+                // receiver is the implicit first argument, so the
+                // built-in must take exactly one parameter.
+                if let Some(base) = Self::base_type_name(&obj_ty) {
+                    let builtin_form = format!("{}.{}", base, field);
+                    if let Some(func_info) = self.functions.get(&builtin_form).cloned() {
+                        if func_info.params.len() != 1 {
+                            return Err(CompileError::simple(
+                                &format!(
+                                    "Method '{}' on {} expects {} argument(s); \
+                                     `x.{}` (no parens) is only valid for zero-argument methods",
+                                    field,
+                                    obj_ty,
+                                    func_info.params.len().saturating_sub(1),
+                                    field,
+                                ),
+                                self.current_span.start_line,
+                                self.current_span.start_column,
+                                "",
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        return Ok(func_info.return_type);
+                    }
+                }
+
+                if let Some(method) = self.resolve_trait_method(&obj_ty, field) {
+                    if !method.params.is_empty() {
                         return Err(CompileError::simple(
-                            &format!("Field access '.{}' on non-record type {}", field, other),
+                            &format!(
+                                "Method '{}' on {} expects {} argument(s); \
+                                 `x.{}` (no parens) is only valid for zero-argument methods",
+                                field,
+                                obj_ty,
+                                method.params.len(),
+                                field,
+                            ),
                             self.current_span.start_line,
                             self.current_span.start_column,
                             "",
                             ErrorCode::E0002,
-                        )
-                        .with_suggestion("Field access requires a record value"));
+                        ));
                     }
-                };
-                let rec = self.records.get(&rec_name).cloned().ok_or_else(|| {
-                    CompileError::simple(
-                        &format!("Unknown record '{}'", rec_name),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
-                        ErrorCode::E0003,
-                    )
-                })?;
-                let (_, field_ty) =
-                    rec.fields.iter().find(|(n, _)| n == field).ok_or_else(|| {
-                        CompileError::simple(
-                            &format!("Record '{}' has no field '{}'", rec_name, field),
-                            self.current_span.start_line,
-                            self.current_span.start_column,
-                            "",
-                            ErrorCode::E0004,
-                        )
-                    })?;
-                let mut subs = HashMap::new();
-                for (p, a) in rec.type_params.iter().zip(rec_args.iter()) {
-                    subs.insert(p.clone(), a.clone());
+                    return Ok(method
+                        .return_type
+                        .as_ref()
+                        .map(|t| t.to_type())
+                        .unwrap_or(Type::Void));
                 }
-                Ok(self.substitute_type_vars(field_ty, &subs))
+
+                Err(CompileError::simple(
+                    &format!("Type {} has no field or method '{}'", obj_ty, field),
+                    self.current_span.start_line,
+                    self.current_span.start_column,
+                    "",
+                    ErrorCode::E0004,
+                )
+                .with_suggestion(
+                    "Field access requires a record value; zero-argument method calls \
+                     accept `x.method` or `x.method()`",
+                ))
             }
         }
     }

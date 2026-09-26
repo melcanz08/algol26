@@ -67,6 +67,14 @@ val p := Point { x: 1, y: 2 }
 p.x := 99          // E0007: cannot assign to field of immutable variable
 ```
 
+### Field names
+
+Field names must not be reserved words. `rec Segment` with
+fields `start` and `end` will fail to parse because `end` is a
+keyword. Rename to avoid the collision (`tail`, `finish`, `stop`).
+A future enhancement could allow contextual or escaped keywords,
+but v1 requires distinct names.
+
 ### Pattern matching
 
 ```

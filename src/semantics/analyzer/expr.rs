@@ -928,7 +928,7 @@ impl SemanticAnalyzer {
                                     let arg_type = self.analyze_expr(arg)?;
                                     self.register_call_arg_temporary(arg);
                                     let expected_type = match param_type {
-                                        Some(s) => s.to_type(),
+                                        Some(s) => self.resolve_type_syntax(s),
                                         None => Type::Unknown,
                                     };
                                     if !arg_type.can_coerce_to(&expected_type)

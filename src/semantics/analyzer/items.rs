@@ -1,7 +1,7 @@
 // src/semantics/analyzer/items.rs
 
 use super::*;
-use crate::frontend::ast::RecordDecl;
+use crate::frontend::ast::{RecordDecl, TypeSyntax};
 
 impl SemanticAnalyzer {
     pub(super) fn register_builtin_functions(&mut self) {
@@ -168,13 +168,16 @@ impl SemanticAnalyzer {
         );
     }
     pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) {
+        // Snapshot the record table so the closure can read it
+        // without conflicting with the `&mut self` of the loop.
+        let records_snapshot = self.records.clone();
         for func in functions {
-            let params = func
+            let params: Vec<(String, Type)> = func
                 .params
                 .iter()
                 .map(|(name, t)| {
                     let type_ = match t {
-                        Some(ts) => ts.to_type(),
+                        Some(ts) => Self::resolve_syntax_with_records(ts, &records_snapshot),
                         None => Type::Unknown,
                     };
                     (name.clone(), type_)
@@ -184,7 +187,7 @@ impl SemanticAnalyzer {
             let return_type = func
                 .return_type
                 .as_ref()
-                .map(|t| t.to_type())
+                .map(|t| Self::resolve_syntax_with_records(t, &records_snapshot))
                 .unwrap_or(Type::Void);
 
             let clean_name = func.name.trim_end_matches("()").to_string();
@@ -233,10 +236,10 @@ impl SemanticAnalyzer {
                 .map(|p| (p.clone(), Type::TypeVar(p.clone())))
                 .collect(),
         );
-        let fields = decl
+        let fields: Vec<(String, Type)> = decl
             .fields
             .iter()
-            .map(|(name, ty)| (name.clone(), ty.to_type()))
+            .map(|(name, ty)| (name.clone(), self.resolve_type_syntax(ty)))
             .collect();
         self.type_params.pop();
 
@@ -278,7 +281,7 @@ impl SemanticAnalyzer {
         }
 
         let return_type = if let Some(ret_type) = &func.return_type {
-            self.parse_type_annotation(ret_type)
+            self.resolve_type_syntax(ret_type)
         } else {
             Type::Void
         };
@@ -286,7 +289,7 @@ impl SemanticAnalyzer {
 
         for (name, type_annotation) in &func.params {
             let param_type = if let Some(annot) = type_annotation {
-                annot.to_type()
+                self.resolve_type_syntax(annot)
             } else {
                 Type::Unknown
             };
@@ -327,6 +330,48 @@ impl SemanticAnalyzer {
             }
         }
         ty
+    }
+    /// Resolve a `TypeSyntax` in the analyzer's current context.
+    ///
+    /// `TypeSyntax::to_type` is a pure syntax-to-type function — it
+    /// knows primitives and single-letter type variables but has no
+    /// access to the record table. This helper adds record lookup:
+    /// a bare `Point` or a generic `Pair<Int>` resolves to
+    /// `Type::Record("Point", [])` / `Type::Record("Pair", [Int])`
+    /// before falling through to the existing machinery.
+    ///
+    /// Every analyzer site that reads a user-supplied annotation
+    /// (function parameters, return types, record fields, trait
+    /// method signatures) must use this rather than `to_type()`.
+    pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Type {
+        match syntax {
+            TypeSyntax::Named(name) => {
+                if let Some(rec) = self.records.get(name.as_str()).cloned() {
+                    // Bare reference to a (possibly generic) record.
+                    // Unbound type parameters become `Unknown`; the
+                    // analyzer resolves them when it sees the concrete
+                    // type arguments.
+                    let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
+                    return Type::record(name, args);
+                }
+                self.parse_type_annotation(syntax)
+            }
+            TypeSyntax::Generic { name, args } => {
+                if let Some(rec) = self.records.get(name.as_str()).cloned() {
+                    if args.len() != rec.type_params.len() {
+                        // Arity mismatch — return Unknown rather than
+                        // erroring here. The call site that constructs
+                        // the value reports the mismatch with a span.
+                        return Type::Unknown;
+                    }
+                    let resolved_args: Vec<Type> =
+                        args.iter().map(|a| self.resolve_type_syntax(a)).collect();
+                    return Type::record(name, resolved_args);
+                }
+                self.parse_type_annotation(syntax)
+            }
+            TypeSyntax::Unknown => Type::Unknown,
+        }
     }
     /// True if every control-flow path through `stmts` ends in a
     /// `return`, `break`, or other diverging statement.
@@ -412,6 +457,38 @@ impl SemanticAnalyzer {
                 self.expr_guarantees_return(try_branch) && self.expr_guarantees_return(catch_branch)
             }
             _ => false,
+        }
+    }
+    /// The body of `resolve_type_syntax`, but taking the record
+    /// table as an argument. Used by `register_user_functions`,
+    /// which runs during analysis setup and cannot hold `&self`
+    /// while it mutates `self.functions`.
+    fn resolve_syntax_with_records(
+        syntax: &TypeSyntax,
+        records: &HashMap<String, RecordInfo>,
+    ) -> Type {
+        match syntax {
+            TypeSyntax::Named(name) => {
+                if let Some(rec) = records.get(name.as_str()) {
+                    let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
+                    return Type::record(name, args);
+                }
+                syntax.to_type()
+            }
+            TypeSyntax::Generic { name, args } => {
+                if let Some(rec) = records.get(name.as_str()) {
+                    if args.len() != rec.type_params.len() {
+                        return Type::Unknown;
+                    }
+                    let resolved_args: Vec<Type> = args
+                        .iter()
+                        .map(|a| Self::resolve_syntax_with_records(a, records))
+                        .collect();
+                    return Type::record(name, resolved_args);
+                }
+                syntax.to_type()
+            }
+            TypeSyntax::Unknown => Type::Unknown,
         }
     }
 }

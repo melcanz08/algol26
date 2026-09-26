@@ -270,11 +270,18 @@ impl SemanticAnalyzer {
              call assign_expr_ids(&mut functions) before analyzing"
         );
         self.register_builtin_functions();
-        self.register_user_functions(functions);
 
+        // Records must be registered before user functions:
+        // function signatures can name records as parameters or
+        // return types, and `resolve_type_syntax` consults the
+        // record table. Records are registered in declaration
+        // order; a record that names a later record as a field
+        // type is not yet supported.
         for rec in records {
             self.register_record(rec)?;
         }
+
+        self.register_user_functions(functions);
         for trait_decl in traits {
             self.trait_registry.register_trait(trait_decl.clone());
         }

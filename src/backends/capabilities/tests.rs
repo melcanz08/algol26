@@ -697,3 +697,79 @@ fn wasm_rejects_args() {
         err.message
     );
 }
+
+/// Build verified-semantic IR from source, stopping short of
+/// running the backend. Used to feed `check_backend` directly.
+fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
+    use crate::compiler::assign_expr_ids;
+    use crate::frontend::lexer::Lexer;
+    use crate::frontend::parser::Parser;
+    use crate::ir::instantiation_plan::InstantiationPlan;
+    use crate::semantics::analyzer::SemanticAnalyzer;
+    use crate::semantics::builder::SemanticIRBuilder;
+
+    let lexer = Lexer::new(source.to_string()).expect("lex");
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parse");
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer
+        .analyze_with_spans(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+        )
+        .expect("analyze");
+
+    let type_table = analyzer.take_type_table_id();
+    let instantiations = analyzer.take_instantiations();
+    let mut plan = InstantiationPlan::from_instantiations(&instantiations);
+    plan.close(&functions);
+
+    let (semantic_program, _diags) = SemanticIRBuilder::build(&functions, type_table, plan);
+    semantic_program
+}
+
+const RECORD_SOURCE: &str = r#"
+rec Point
+    x: Int
+    y: Int
+
+procedure main
+    val p := Point { x: 1, y: 2 }
+    print(p.x)
+"#;
+
+#[test]
+fn interpreter_accepts_records() {
+    let program = build_ir(RECORD_SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::interpreter());
+    assert!(
+        result.is_ok(),
+        "interpreter should accept records, got: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn llvm_rejects_records() {
+    let program = build_ir(RECORD_SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::llvm());
+    let err = result.expect_err("LLVM should refuse records");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("record"),
+        "expected diagnostic mentioning records, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn wasm_rejects_records() {
+    let program = build_ir(RECORD_SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::wasm());
+    assert!(result.is_err(), "WASM should refuse records");
+}

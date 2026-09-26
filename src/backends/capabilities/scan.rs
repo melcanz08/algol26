@@ -142,7 +142,7 @@ pub(super) fn scan_instruction(
             scan_value(value, extern_fns, used);
         }
         Instruction::FieldAssign { value, .. } => {
-            used.insert(Feature::Records);
+            used.insert(Feature::Records); // ← must be present
             scan_value(value, extern_fns, used);
         }
         Instruction::Print { value } => {
@@ -251,7 +251,16 @@ pub(super) fn scan_value(
             scan_value(start, extern_fns, used);
             scan_value(end, extern_fns, used);
         }
-        TypedIRValue::FieldAccess { object, .. } => scan_value(object, extern_fns, used),
+        TypedIRValue::FieldAccess { object, .. } => {
+            used.insert(Feature::Records);
+            scan_value(object, extern_fns, used);
+        }
+        TypedIRValue::Record { fields, .. } => {
+            used.insert(Feature::Records);
+            for (_, v) in fields {
+                scan_value(v, extern_fns, used);
+            }
+        }
         _ => {}
     }
 }

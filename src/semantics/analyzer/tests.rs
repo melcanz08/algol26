@@ -695,3 +695,37 @@ procedure use_pointer(p: Pointer<Int>)
 "#;
     analyze_unsafe(source).expect("pointer deref inside unsafe should be accepted");
 }
+
+#[test]
+fn field_access_rejects_immutable() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+procedure main
+    val p := Point { x: 1, y: 2 }
+    p.x := 99
+"#;
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    let mut parser = crate::frontend::parser::Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let mut functions = program.functions;
+    crate::compiler::assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    let result = analyzer.analyze_with_spans(
+        &functions,
+        &program.traits,
+        &program.impls,
+        &program.records,
+    );
+
+    let err = result.expect_err("expected immutability error");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("immutable"),
+        "expected immutability diagnostic, got: {}",
+        msg
+    );
+}

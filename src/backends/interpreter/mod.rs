@@ -31,6 +31,8 @@ mod eval;
 mod pattern;
 mod runtime;
 pub use runtime::{EvalError, RuntimeValue};
+#[cfg(test)]
+mod tests;
 
 /// A single active `region NAME` block. Allocations made inside
 /// the block are recorded here by `Instruction::Allocate` and

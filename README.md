@@ -18,8 +18,8 @@ management, safe concurrency, and native compilation via LLVM.
 # Build
 cargo build
 
-# Run the test suite (501 tests, including a 37-program corpus)
-cargo test --all-features
+# Run the test suite (599 tests, including a 39-program corpus)
+cargo test --all-targets
 
 # Run a program through LLVM
 ./target/debug/algol26 run examples/basic/test.gol
@@ -36,12 +36,20 @@ Run `./target/debug/algol26 --help` for the full CLI.
 ## Example
 
 ```gol
-function add(x: Int, y: Int) -> Int
-    return x + y
+rec Point
+    x: Int
+    y: Int
+
+function sum_point(p: Point) -> Int
+    return p.x + p.y
 
 procedure main
-    val result := add(5, 3)
-    print(result)
+    val p := Point { x: 3, y: 4 }
+    print(sum_point(p))
+
+    match p
+        case Point { x, y }
+            print(x * y)
 ```
 
 ## Language at a Glance
@@ -50,14 +58,21 @@ procedure main
 - **Immutable by default** (`val`), opt-in mutability (`var`)
 - **Statically typed** with inference: `Int`, `Float`, `Bool`, `String`,
   `List<T>`, `Option<T>`, `Result<T, E>`
+- **`rec` structured data types** — declared fields, construction literals,
+  field access, field assignment, pattern matching, cross-module use
 - **Borrow checking** and **move semantics** enforced at compile time
 - **Region-based memory** — no garbage collector
 - **Traits and impls** with explicit receiver passing: `x.method(x)`
 - **`defer`** for LIFO cleanup, **`try`/`catch`** for `Result` handling
-- **`match`** on `Option`, `Result`, and literals
+- **`match`** on `Option`, `Result`, records, and literals
 - **FFI** via `extern "C"` for calling into C libraries
 - **`spawn`** and **`parallel`** blocks for structured concurrency
 - **`region`** blocks and `alloc` / `free` for manual memory
+- **`affirm(cond, msg)`** — always-on runtime assertions; a failing
+  `affirm` prints the message and exits non-zero
+- **`args()`** — command-line arguments; pass them after `--` on the CLI
+- **String builtins**: `String.split`, `String.join`, `String.trim`,
+  `String.to_int`, `Int.to_string`
 
 > **Note on execution coverage:**
 >
@@ -124,27 +139,27 @@ These are verified gaps, tracked by corpus programs. See
   interpreter. (`tests/corpus/corpus_14_try_catch.gol`)
 - **LLVM cannot iterate over a list passed as a function parameter.**
   Use the interpreter. (`tests/corpus/corpus_10_deep_control.gol`)
-- **Channels (`channel`, `send`, `receive`) parse and analyze but have
-  no backend runtime.** Programs run but the operations are no-ops.
-  (`tests/corpus/corpus_23`–`corpus_26`)
-- **`alloc` cannot appear in a `var` declaration.** Only as a bare
-  statement: `alloc(8)` works; `val p := alloc(8)` does not parse.
-- **Escape analysis is not wired into the pipeline.** `src/semantics/escape.rs`
-  exists but is not consumed by any pass. See `docs/IMPLEMENTATION_STATUS.md`.
+- **Channels have no backend runtime.** All three backends refuse
+  channel programs at the capability boundary before execution.
+  See ADR 0020. (`tests/corpus/corpus_23`–`corpus_26`)
+- **No general pointer-lifetime enforcement.** Region exit frees
+  allocations, but no check rejects a pointer value that outlives
+  its source region. See `docs/features/region.md`, section
+  "What is not enforced today".
 
 ## Testing
 
 ```bash
-cargo test --all-features
+cargo test --all-targets
 ```
 
-501 tests across 21 test binaries: unit tests for each subsystem,
+599 tests across 21 test binaries: unit tests for each subsystem,
 differential tests (interpreter vs LLVM vs WASM), semantic tests
 (borrow checker, traits, ownership), IR tests (verification,
 optimization, defer, short-circuit), integration tests, backend
 tests, soundness tests, and property/fuzz tests.
 
-**37 corpus programs** in `tests/corpus/` are the most important test
+**39 corpus programs** in `tests/corpus/` are the most important test
 suite. The differential harness in `tests/corpus_diff.rs` runs every
 program and compares output. Every feature in
 `IMPLEMENTATION_STATUS.md` is backed by at least one corpus program.
@@ -174,7 +189,7 @@ Adding a feature means adding a corpus program.
 |----------|---------|
 | [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | Feature matrix + known gaps |
 | [`docs/pass-contracts.md`](docs/pass-contracts.md) | Compiler pass contracts and pipeline rules |
-| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0011) |
+| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0025) |
 | [`docs/releases/`](docs/releases/) | Release notes |
 | [`docs/archive/`](docs/archive/) | Superseded docs, kept for history |
 | [`docs/README.md`](docs/README.md) | Full index of all docs |
@@ -196,15 +211,18 @@ src/
 Compilation pipeline (see `src/compiler.rs`, `compile()`):
 
 ```
-Lex → Parse → Process Imports → Desugar → Expand Impl → Monomorphize
+Lex → Parse → Process Imports → Desugar → Expand Impl → Assign ExprIds
 → Type Check → Type Table Complete → Build Semantic IR
-→ Verify → Optimize → Verify → Lower to Backend
+→ Verify → Optimize → Re-verify → Lower to Backend
 ```
 
 Every stage after the frontend runs through the pass pipeline in
 `src/compiler/`. Passes declare a contract (input level, output
 level, kind) that the scheduler enforces — see
-`docs/pass-contracts.md`.
+`docs/pass-contracts.md`. ADR 0017 split verification into a
+promotion pass (`SemanticIr → VerifiedIr`) and a re-check pass
+(`VerifiedIr → VerifiedIr`) so the pipeline can re-verify after
+optimization without pretending the level changed.
 
 ## Safety Guarantees
 
@@ -215,15 +233,15 @@ level, kind) that the scheduler enforces — see
 | Bounds checking | IR verifier + runtime |
 | Use-after-move | Analyzer + IR verifier |
 | Borrow checking | Semantic analyzer (partial — see below) |
-| Trait bounds | Trait registry |
-| IR well-formedness | `VerifiedIR` wrapper |
+| Trait bounds | Trait registry (name resolution only — see ADR 0025) |
+| IR well-formedness | `VerifiedIR` typestate + executable-IR invariants |
 | No-panic on malformed input | Fuzz tests |
 
 > **The borrow checker is incomplete in the current version.**
 > Known gaps, documented in `docs/IMPLEMENTATION_STATUS.md`:
 > - `&mut x` in a call argument is not registered as a borrow.
-> - Escape analysis exists but is not wired into the pipeline.
-> - CFG data-flow joins are not a fixed point.
+> - No general pointer-lifetime enforcement; region escape is
+>   documented as out of scope for v1.
 >
 > These are conservative gaps — the analyzer may accept programs a
 > stricter borrow system would reject. Fixing them requires design
@@ -236,7 +254,9 @@ update each type. In short:
 
 - **Reference docs** (like `IMPLEMENTATION_STATUS.md`) are audited against
   the code and must be accurate.
-- **ADRs and release notes** are frozen — never updated, kept as history.
+- **ADRs** are append-only in spirit: supersede with a new ADR rather
+  than editing a decided one.
+- **Release notes** are frozen — never updated, kept as history.
 - **Superseded docs** move to `docs/archive/` rather than being deleted.
 
 ## License

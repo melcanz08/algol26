@@ -130,6 +130,16 @@ impl SemanticIRBuilder {
                 return_type: Type::String,
             },
         );
+        self.function_types.insert(
+            "String.split".to_string(),
+            FunctionSignature {
+                params: vec![
+                    ("s".to_string(), Type::String),
+                    ("sep".to_string(), Type::String),
+                ],
+                return_type: Type::list(Type::String),
+            },
+        );
         // Register File functions
         self.function_types.insert(
             "File.read".to_string(),

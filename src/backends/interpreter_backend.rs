@@ -468,4 +468,44 @@ procedure main
         assert_eq!(lines[2], "");
         assert_eq!(lines[3], "tabbed");
     }
+    #[test]
+    fn test_interpreter_string_split() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    val parts := String.split("a,b,c", ",")
+    print(List.length(parts))
+    for p in parts
+        print(p)
+
+    val single := String.split("hello", ",")
+    print(List.length(single))
+    print(single[0])
+
+    val empty_sep := String.split("abc", "")
+    print(List.length(empty_sep))
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "split.gol")
+            .expect("pipeline should reach verified IR");
+        let backend = InterpreterBackend::new();
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        let out = backend.get_output();
+        let lines: Vec<&str> = out.lines().collect();
+        // Three parts "a", "b", "c"; one part "hello" with a single
+        // empty-string separator result of length 5 — Rust's
+        // `"abc".split("")` yields ["", "a", "b", "c", ""].
+        assert_eq!(
+            lines,
+            vec!["3", "a", "b", "c", "1", "hello", "5"],
+            "got: {:?}",
+            lines
+        );
+    }
 }

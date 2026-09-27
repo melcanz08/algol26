@@ -53,6 +53,11 @@ impl SemanticAnalyzer {
             ("String.to_upper", vec![("s", Type::String)], Type::String),
             ("String.to_lower", vec![("s", Type::String)], Type::String),
             ("String.trim", vec![("s", Type::String)], Type::String),
+            (
+                "String.split",
+                vec![("s", Type::String), ("sep", Type::String)],
+                Type::list(Type::String),
+            ),
         ];
         for (name, params, return_type) in string_functions {
             self.functions.insert(

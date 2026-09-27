@@ -497,6 +497,43 @@ impl Interpreter {
                 }),
                 None => Err(EvalError::Runtime("String.trim: missing argument".into())),
             },
+            "String.split" => {
+                let s = match arg_vals.first() {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.split",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.split: missing string argument".into(),
+                        ))
+                    }
+                };
+                let sep = match arg_vals.get(1) {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.split.separator",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.split: missing separator argument".into(),
+                        ))
+                    }
+                };
+                let parts: Vec<RuntimeValue> = s
+                    .split(sep.as_str())
+                    .map(|p| RuntimeValue::String(p.to_string()))
+                    .collect();
+                Ok(RuntimeValue::List(parts))
+            }
             "File.read" => match arg_vals.first() {
                 Some(RuntimeValue::String(path)) => match std::fs::read_to_string(path) {
                     Ok(content) => Ok(RuntimeValue::String(content)),

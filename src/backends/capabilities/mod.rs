@@ -82,6 +82,10 @@ pub enum Feature {
     /// an integer and its decimal text representation. LLVM and
     /// WASM have no lowering.
     Conversions,
+    /// `Map<K, V>` — key-value container. The interpreter models it
+    /// with a `HashMap`; LLVM and WASM have no runtime to lower it
+    /// against.
+    Map,
 }
 
 impl Feature {
@@ -104,6 +108,7 @@ impl Feature {
             Feature::CommandLineArgs,
             Feature::Records,
             Feature::Conversions,
+            Feature::Map,
         ]
     }
 
@@ -125,6 +130,7 @@ impl Feature {
             Feature::CommandLineArgs => "args",
             Feature::Records => "records",
             Feature::Conversions => "conversions",
+            Feature::Map => "map",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -146,6 +152,7 @@ impl Feature {
             Feature::CommandLineArgs => "command-line arguments (args())",
             Feature::Records => "records (rec declarations, literals, field access)",
             Feature::Conversions => "Int.to_string / String.to_int",
+            Feature::Map => "Map<K, V> (insert, get, contains, keys, values, length)",
         }
     }
 }
@@ -206,6 +213,7 @@ impl BackendCapabilities {
         supported.insert(Feature::CommandLineArgs);
         supported.insert(Feature::Records);
         supported.insert(Feature::Conversions);
+        supported.insert(Feature::Map);
         // FFI is not supported by the interpreter (a tree-walker
         // cannot call into C).
         BackendCapabilities {

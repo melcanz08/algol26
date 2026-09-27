@@ -86,6 +86,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .struct_type(&[bool_ty.into(), ok_ty, err_ty], false)
                     .into()
             }
+            Type::Map(..) => {
+                // Maps are refused by the capability check (`Feature::Map` is
+                // not in `BackendCapabilities::llvm()`), so this arm should
+                // never be reached. If it is, the capability matrix got out
+                // of sync with the IR.
+                unreachable!(
+                    "LLVM codegen reached Type::Map — \
+                     maps should have been refused by check_backend"
+                );
+            }
             // LLVM uses opaque pointers, so every pointer-like type
             // maps to the same LLVM `ptr`. The inner type is preserved
             // in ALGOL26's type system for analysis, not in the LLVM

@@ -368,7 +368,10 @@ pub fn mangled_type_name(ty: &Type) -> String {
             mangled_type_name(ok),
             mangled_type_name(error)
         ),
-
+        // Map: key + value, no arity prefix — a Map always has exactly
+        // two type arguments. The `Map_` prefix ensures no collision
+        // with `List_`, `Generic_`, or `Record_`.
+        Type::Map(k, v) => format!("Map_{}_{}", mangled_type_name(k), mangled_type_name(v)),
         Type::Pointer(inner) => format!("Pointer_{}", mangled_type_name(inner)),
         Type::Borrow(inner) => format!("Borrow_{}", mangled_type_name(inner)),
         Type::MutBorrow(inner) => format!("MutBorrow_{}", mangled_type_name(inner)),
@@ -1004,6 +1007,24 @@ procedure main
         assert_ne!(
             mangled_type_name(&Type::record("Box", vec![Type::Int])),
             mangled_type_name(&Type::generic("Box", vec![Type::Int])),
+        );
+    }
+    #[test]
+    fn mangler_distinguishes_map_key_and_value() {
+        // Different key types.
+        assert_ne!(
+            mangled_type_name(&Type::map(Type::String, Type::Int)),
+            mangled_type_name(&Type::map(Type::Int, Type::Int)),
+        );
+        // Different value types.
+        assert_ne!(
+            mangled_type_name(&Type::map(Type::String, Type::Int)),
+            mangled_type_name(&Type::map(Type::String, Type::Float)),
+        );
+        // No collision with an equally-named Generic.
+        assert_ne!(
+            mangled_type_name(&Type::map(Type::String, Type::Int)),
+            mangled_type_name(&Type::generic("Map", vec![Type::String, Type::Int])),
         );
     }
 }

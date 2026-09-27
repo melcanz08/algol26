@@ -457,6 +457,9 @@ pub(super) fn types_compatible_for_call(arg_ty: &Type, param_ty: &Type) -> bool 
         (Type::Borrow(a), Type::Borrow(p)) => types_compatible_for_call(a, p),
         (Type::MutBorrow(a), Type::MutBorrow(p)) => types_compatible_for_call(a, p),
         (Type::Channel(a), Type::Channel(p)) => types_compatible_for_call(a, p),
+        (Type::Map(k1, v1), Type::Map(k2, v2)) => {
+            types_compatible_for_call(k1, k2) && types_compatible_for_call(v1, v2)
+        }
         _ => arg_ty.can_coerce_to(param_ty),
     }
 }

@@ -55,6 +55,10 @@ pub enum Type {
     /// A named record type, optionally with type arguments.
     /// `Point` is `Record("Point", [])`, `Pair<Int>` is `Record("Pair", [Int])`.
     Record(String, Vec<Type>),
+    /// Key-value container. Keys are restricted to `Int`, `String`,
+    /// or `Bool` by the analyzer (ADR 0027); the type itself does not
+    /// enforce that restriction.
+    Map(Box<Type>, Box<Type>),
 }
 
 impl Type {
@@ -113,6 +117,10 @@ impl Type {
         Type::Option(Box::new(inner_type))
     }
 
+    pub fn map(key: Type, value: Type) -> Self {
+        Type::Map(Box::new(key), Box::new(value))
+    }
+
     pub fn result(ok_type: Type, error_type: Type) -> Self {
         Type::Result {
             ok: Box::new(ok_type),
@@ -163,6 +171,7 @@ impl Type {
             // Simple generic types (unparameterized)
             "list" => Type::list(Type::Unknown),
             "option" => Type::option(Type::Unknown),
+            "map" => Type::map(Type::Unknown, Type::Unknown),
             "result" => Type::result(Type::Unknown, Type::Unknown),
             "channel" => Type::channel(Type::Unknown),
             "array" => Type::array(Type::Unknown, 0),
@@ -245,6 +254,18 @@ impl Type {
                     } else {
                         Type::Unknown
                     }
+                } else if s_lower.starts_with("map<") && s_lower.ends_with('>') {
+                    // Parse Map<K, V>
+                    let inner = &s_trimmed[4..s_trimmed.len() - 1];
+                    let parts: Vec<&str> = inner.splitn(2, ',').collect();
+                    if parts.len() == 2 {
+                        Type::map(
+                            Type::from_str(parts[0].trim()),
+                            Type::from_str(parts[1].trim()),
+                        )
+                    } else {
+                        Type::Unknown
+                    }
                 } else if let Some(inner) = s_lower.strip_prefix("&mut ").map(|s| s.trim()) {
                     Type::mut_borrow(Type::from_str(inner))
                 } else if let Some(inner) = s_lower.strip_prefix('&') {
@@ -302,6 +323,7 @@ impl Type {
                 | Type::Array(_, _)
                 | Type::Tuple(_)
                 | Type::Option(_)
+                | Type::Map(_, _)
                 | Type::Result { .. }
         )
     }
@@ -402,7 +424,7 @@ impl Type {
 
             // List covariance
             (Type::List(a), Type::List(b)) => a.can_coerce_to(b),
-
+            (Type::Map(k1, v1), Type::Map(k2, v2)) => k1.can_coerce_to(k2) && v1.can_coerce_to(v2),
             // Array covariance
             (Type::Array(a, size1), Type::Array(b, size2)) => size1 == size2 && a.can_coerce_to(b),
 
@@ -465,7 +487,9 @@ impl Type {
 
             // List common element type
             (Type::List(a), Type::List(b)) => Type::list(a.common_supertype(b)),
-
+            (Type::Map(k1, v1), Type::Map(k2, v2)) => {
+                Type::map(k1.common_supertype(k2), v1.common_supertype(v2))
+            }
             // Array common element type
             (Type::Array(a, size1), Type::Array(b, size2)) => {
                 if size1 == size2 {
@@ -534,6 +558,9 @@ impl Type {
             Type::Borrow(inner) => Some(inner),
             Type::MutBorrow(inner) => Some(inner),
             Type::Channel(inner) => Some(inner),
+            // Map has two inner types. Returning one would be ambiguous;
+            // callers that need the key or value type match on the variant.
+            Type::Map(..) => None,
             _ => None,
         }
     }
@@ -553,6 +580,7 @@ impl Type {
             Type::Channel(inner) => inner.contains_type_var(),
             Type::Generic { args, .. } => args.iter().any(|a| a.contains_type_var()),
             Type::Record(_, args) => args.iter().any(|a| a.contains_type_var()),
+            Type::Map(k, v) => k.contains_type_var() || v.contains_type_var(),
             Type::Function {
                 params,
                 return_type,
@@ -580,6 +608,7 @@ impl Type {
             Type::Result { ok, error } => ok.contains_unknown() || error.contains_unknown(),
             Type::Generic { args, .. } => args.iter().any(|a| a.contains_unknown()),
             Type::Record(_, args) => args.iter().any(|a| a.contains_unknown()),
+            Type::Map(k, v) => k.contains_unknown() || v.contains_unknown(),
             Type::Function {
                 params,
                 return_type,
@@ -631,6 +660,7 @@ impl Type {
                 name,
                 args.iter().map(|a| a.substitute(substitutions)).collect(),
             ),
+            Type::Map(k, v) => Type::map(k.substitute(substitutions), v.substitute(substitutions)),
             Type::Function {
                 params,
                 return_type,
@@ -675,6 +705,7 @@ impl fmt::Display for Type {
             }
             Type::Option(t) => format!("Option<{}>", t),
             Type::Result { ok, error } => format!("Result<{}, {}>", ok, error),
+            Type::Map(k, v) => format!("Map<{}, {}>", k, v),
             Type::Pointer(t) => format!("*{}", t),
             Type::Borrow(t) => format!("Borrow<{}>", t),
             Type::MutBorrow(t) => format!("MutBorrow<{}>", t),

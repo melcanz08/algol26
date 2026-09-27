@@ -28,6 +28,7 @@ fn type_mentions_reference(ty: &Type) -> bool {
             return_type,
         } => params.iter().any(type_mentions_reference) || type_mentions_reference(return_type),
         Type::Generic { args, .. } => args.iter().any(type_mentions_reference),
+        Type::Map(k, v) => type_mentions_reference(k) || type_mentions_reference(v),
         _ => false,
     }
 }
@@ -114,6 +115,8 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
         used.insert(Feature::FileFunctions);
     } else if name == "List.sum" || name == "List.max" || name == "List.min" {
         used.insert(Feature::ListAggregates);
+    } else if name.starts_with("Map.") {
+        used.insert(Feature::Map);
     } else if name == "args" {
         // ADR 0023. LLVM and WASM have no lowering for command-
         // line arguments; the interpreter reads the process's

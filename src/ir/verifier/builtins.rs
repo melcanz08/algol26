@@ -96,6 +96,11 @@ pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
         vec![("s", Type::String), ("sep", Type::String)],
         Type::list(Type::String),
     );
+    reg(
+        "String.join",
+        vec![("xs", Type::list(Type::String)), ("sep", Type::String)],
+        Type::String,
+    );
     // File
     reg("File.read", vec![("path", Type::String)], Type::String);
     reg(

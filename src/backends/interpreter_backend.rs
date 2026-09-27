@@ -508,4 +508,40 @@ procedure main
             lines
         );
     }
+    #[test]
+    fn test_interpreter_string_join() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    val xs := ["a", "b", "c"]
+    print(String.join(xs, ","))
+    print(String.join(xs, " | "))
+    print(String.join(xs, ""))
+
+    val one := ["solo"]
+    print(String.join(one, ","))
+
+    val with_ints := ["n=", Int.to_string(42), " end"]
+    print(String.join(with_ints, ""))
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "join.gol")
+            .expect("pipeline should reach verified IR");
+        let backend = InterpreterBackend::new();
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        let out = backend.get_output();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(
+            lines,
+            vec!["a,b,c", "a | b | c", "abc", "solo", "n=42 end"],
+            "got: {:?}",
+            lines
+        );
+    }
 }

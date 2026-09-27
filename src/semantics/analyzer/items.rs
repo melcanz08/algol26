@@ -58,6 +58,11 @@ impl SemanticAnalyzer {
                 vec![("s", Type::String), ("sep", Type::String)],
                 Type::list(Type::String),
             ),
+            (
+                "String.join",
+                vec![("xs", Type::list(Type::String)), ("sep", Type::String)],
+                Type::String,
+            ),
         ];
         for (name, params, return_type) in string_functions {
             self.functions.insert(

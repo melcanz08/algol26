@@ -534,6 +534,50 @@ impl Interpreter {
                     .collect();
                 Ok(RuntimeValue::List(parts))
             }
+            "String.join" => {
+                let list = match arg_vals.first() {
+                    Some(RuntimeValue::List(l)) => l.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.join",
+                            left: runtime_kind(other),
+                            right: "List",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.join: missing list argument".into(),
+                        ))
+                    }
+                };
+                let sep = match arg_vals.get(1) {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.join.separator",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.join: missing separator argument".into(),
+                        ))
+                    }
+                };
+                let parts: Vec<String> = list
+                    .iter()
+                    .map(|v| match v {
+                        RuntimeValue::String(s) => Ok(s.clone()),
+                        other => Err(EvalError::TypeMismatch {
+                            op: "String.join element",
+                            left: runtime_kind(other),
+                            right: "String",
+                        }),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(RuntimeValue::String(parts.join(&sep)))
+            }
             "File.read" => match arg_vals.first() {
                 Some(RuntimeValue::String(path)) => match std::fs::read_to_string(path) {
                     Ok(content) => Ok(RuntimeValue::String(content)),

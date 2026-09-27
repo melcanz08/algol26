@@ -454,6 +454,11 @@ fn builtin_signatures_match_analyzer_table() {
             vec![Type::String, Type::String],
             Type::list(Type::String),
         ),
+        (
+            "String.join",
+            vec![Type::list(Type::String), Type::String],
+            Type::String,
+        ),
         // File
         ("File.read", vec![Type::String], Type::String),
         ("File.write", vec![Type::String, Type::String], Type::Int),

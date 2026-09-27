@@ -488,6 +488,15 @@ impl Interpreter {
                 }),
                 None => Err(EvalError::Runtime("String.length: missing argument".into())),
             },
+            "String.trim" => match arg_vals.first() {
+                Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.trim().to_string())),
+                Some(other) => Err(EvalError::TypeMismatch {
+                    op: "String.trim",
+                    left: runtime_kind(other),
+                    right: "String",
+                }),
+                None => Err(EvalError::Runtime("String.trim: missing argument".into())),
+            },
             "File.read" => match arg_vals.first() {
                 Some(RuntimeValue::String(path)) => match std::fs::read_to_string(path) {
                     Ok(content) => Ok(RuntimeValue::String(content)),

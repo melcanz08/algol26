@@ -34,7 +34,6 @@ impl SemanticAnalyzer {
                 },
             );
         }
-
         let string_functions = [
             ("String.length", vec![("s", Type::String)], Type::Int),
             (
@@ -53,6 +52,7 @@ impl SemanticAnalyzer {
             ),
             ("String.to_upper", vec![("s", Type::String)], Type::String),
             ("String.to_lower", vec![("s", Type::String)], Type::String),
+            ("String.trim", vec![("s", Type::String)], Type::String),
         ];
         for (name, params, return_type) in string_functions {
             self.functions.insert(
@@ -67,7 +67,6 @@ impl SemanticAnalyzer {
                 },
             );
         }
-
         let file_functions = [
             ("File.read", vec![("path", Type::String)], Type::String),
             (
@@ -94,7 +93,6 @@ impl SemanticAnalyzer {
                 },
             );
         }
-
         let list_functions = [
             (
                 "List.length",
@@ -130,7 +128,6 @@ impl SemanticAnalyzer {
                 },
             );
         }
-
         self.functions.insert(
             "alloc".to_string(),
             FunctionInfo {

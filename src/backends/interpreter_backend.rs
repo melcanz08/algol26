@@ -438,4 +438,34 @@ procedure main
             .expect("interpreter should run");
         assert_eq!(backend.get_output().trim(), "42\n123\n0");
     }
+    #[test]
+    fn test_interpreter_string_trim() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    print(String.trim("  hello  "))
+    print(String.trim("no-trim"))
+    print(String.trim(""))
+    print(String.trim(" tabbed  "))
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "trim.gol")
+            .expect("pipeline should reach verified IR");
+        let backend = InterpreterBackend::new();
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        // Output lines: "hello", "no-trim", "", "tabbed"
+        let out = backend.get_output();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 4, "expected 4 lines, got: {:?}", lines);
+        assert_eq!(lines[0], "hello");
+        assert_eq!(lines[1], "no-trim");
+        assert_eq!(lines[2], "");
+        assert_eq!(lines[3], "tabbed");
+    }
 }

@@ -5,7 +5,6 @@ use super::*;
 impl SemanticIRBuilder {
     pub(super) fn build_impl(&mut self, functions: &[FunctionDecl]) -> SemanticProgram {
         let mut program = SemanticProgram::new();
-
         // Register Math functions
         self.function_types.insert(
             "Math.sqrt".to_string(),
@@ -119,6 +118,13 @@ impl SemanticIRBuilder {
         );
         self.function_types.insert(
             "String.to_lower".to_string(),
+            FunctionSignature {
+                params: vec![("s".to_string(), Type::String)],
+                return_type: Type::String,
+            },
+        );
+        self.function_types.insert(
+            "String.trim".to_string(),
             FunctionSignature {
                 params: vec![("s".to_string(), Type::String)],
                 return_type: Type::String,

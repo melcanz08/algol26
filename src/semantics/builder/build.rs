@@ -124,7 +124,6 @@ impl SemanticIRBuilder {
                 return_type: Type::String,
             },
         );
-
         // Register File functions
         self.function_types.insert(
             "File.read".to_string(),
@@ -133,7 +132,6 @@ impl SemanticIRBuilder {
                 return_type: Type::String,
             },
         );
-
         // Register Raw memory functions
         self.function_types.insert(
             "alloc".to_string(),
@@ -149,7 +147,6 @@ impl SemanticIRBuilder {
                 return_type: Type::Void,
             },
         );
-
         // Register List functions
         self.function_types.insert(
             "List.length".to_string(),
@@ -199,7 +196,6 @@ impl SemanticIRBuilder {
                 return_type: Type::Int,
             },
         );
-
         self.function_types.insert(
             "affirm".to_string(),
             FunctionSignature {
@@ -217,7 +213,20 @@ impl SemanticIRBuilder {
                 return_type: Type::list(Type::String),
             },
         );
-
+        self.function_types.insert(
+            "Int.to_string".to_string(),
+            FunctionSignature {
+                params: vec![("n".to_string(), Type::Int)],
+                return_type: Type::String,
+            },
+        );
+        self.function_types.insert(
+            "String.to_int".to_string(),
+            FunctionSignature {
+                params: vec![("s".to_string(), Type::String)],
+                return_type: Type::option(Type::Int),
+            },
+        );
         // Register user-defined functions (templates, including extern).
         for func in functions {
             let return_type = func

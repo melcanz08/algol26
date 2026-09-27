@@ -464,6 +464,9 @@ fn builtin_signatures_match_analyzer_table() {
         ("affirm", vec![Type::Bool, Type::String], Type::Void),
         // Command-line arguments (ADR 0023)
         ("args", vec![], Type::list(Type::String)),
+        // Conversions (Track B)
+        ("Int.to_string", vec![Type::Int], Type::String),
+        ("String.to_int", vec![Type::String], Type::option(Type::Int)),
     ];
 
     for (name, expected_params, expected_ret) in &expected {

@@ -773,3 +773,58 @@ fn wasm_rejects_records() {
     let result = super::check_backend(&program, &super::BackendCapabilities::wasm());
     assert!(result.is_err(), "WASM should refuse records");
 }
+
+#[test]
+fn interpreter_accepts_conversions() {
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "Int.to_string".to_string(),
+                args: vec![TypedIRValue::Int(42)],
+                return_type: Type::String,
+            },
+        },
+        simple_return(),
+    );
+    assert!(check_backend(&program, &BackendCapabilities::interpreter()).is_ok());
+}
+
+#[test]
+fn llvm_rejects_conversions() {
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "Int.to_string".to_string(),
+                args: vec![TypedIRValue::Int(42)],
+                return_type: Type::String,
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+    assert!(
+        err.message.contains("Int.to_string"),
+        "expected conversion diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn wasm_rejects_conversions() {
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "String.to_int".to_string(),
+                args: vec![TypedIRValue::String("42".to_string())],
+                return_type: Type::option(Type::Int),
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("String.to_int"),
+        "expected conversion diagnostic, got: {}",
+        err.message
+    );
+}

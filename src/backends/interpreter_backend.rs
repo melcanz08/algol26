@@ -405,4 +405,37 @@ procedure main
             .expect("interpreter should run");
         assert_eq!(backend.get_output().trim(), "2\nfirst\nsecond");
     }
+    #[test]
+    fn test_interpreter_conversions_roundtrip() {
+        use crate::backends::backend::Backend;
+        use crate::compiler::Compiler;
+
+        let source = r#"
+procedure main
+    val s := Int.to_string(42)
+    print(s)
+    val n := String.to_int("123")
+    match n
+        case Some(v)
+            print(v)
+        case None
+            print(-1)
+    val bad := String.to_int("hello")
+    match bad
+        case Some(v)
+            print(v)
+        case None
+            print(0)
+"#;
+
+        let mut c = Compiler::new();
+        let verified = c
+            .run_pipeline_for(source, "conversions.gol")
+            .expect("pipeline should reach verified IR");
+        let backend = InterpreterBackend::new();
+        backend
+            .compile(&verified, "")
+            .expect("interpreter should run");
+        assert_eq!(backend.get_output().trim(), "42\n123\n0");
+    }
 }

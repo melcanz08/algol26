@@ -73,6 +73,10 @@ pub enum Feature {
     CommandLineArgs,
     /// `rec` record declarations, literals, field reads, and field assigns.
     Records,
+    /// `Int.to_string` and `String.to_int`. Both convert between
+    /// an integer and its decimal text representation. LLVM and
+    /// WASM have no lowering.
+    Conversions,
 }
 
 impl Feature {
@@ -94,6 +98,7 @@ impl Feature {
             Feature::References,
             Feature::CommandLineArgs,
             Feature::Records,
+            Feature::Conversions,
         ]
     }
 
@@ -114,6 +119,7 @@ impl Feature {
             Feature::References => "references",
             Feature::CommandLineArgs => "args",
             Feature::Records => "records",
+            Feature::Conversions => "conversions",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -134,6 +140,7 @@ impl Feature {
             Feature::References => "reference operations (&x, &mut x, *r)",
             Feature::CommandLineArgs => "command-line arguments (args())",
             Feature::Records => "records (rec declarations, literals, field access)",
+            Feature::Conversions => "Int.to_string / String.to_int",
         }
     }
 }
@@ -193,6 +200,7 @@ impl BackendCapabilities {
         supported.insert(Feature::RawMemory);
         supported.insert(Feature::CommandLineArgs);
         supported.insert(Feature::Records);
+        supported.insert(Feature::Conversions);
         // FFI is not supported by the interpreter (a tree-walker
         // cannot call into C).
         BackendCapabilities {

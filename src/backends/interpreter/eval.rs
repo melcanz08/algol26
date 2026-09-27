@@ -289,7 +289,6 @@ impl Interpreter {
                 }),
                 None => Err(EvalError::Runtime("length: missing argument".into())),
             },
-
             "List.sum" | "sum" => match arg_vals.first() {
                 Some(RuntimeValue::List(list)) => {
                     let mut sum = 0.0;
@@ -305,7 +304,6 @@ impl Interpreter {
                 }),
                 None => Err(EvalError::Runtime("List.sum: missing argument".into())),
             },
-
             "List.max" => match arg_vals.first() {
                 Some(RuntimeValue::List(list)) => {
                     let mut max = f64::NEG_INFINITY;
@@ -324,7 +322,6 @@ impl Interpreter {
                 }),
                 None => Err(EvalError::Runtime("List.max: missing argument".into())),
             },
-
             "List.min" => match arg_vals.first() {
                 Some(RuntimeValue::List(list)) => {
                     let min = list
@@ -344,7 +341,6 @@ impl Interpreter {
                 }),
                 None => Err(EvalError::Runtime("List.min: missing argument".into())),
             },
-
             "String.substring" => {
                 let s = match arg_vals.first() {
                     Some(RuntimeValue::String(s)) => s.clone(),
@@ -396,7 +392,6 @@ impl Interpreter {
                 let end = start.saturating_add(length).min(chars.len());
                 Ok(RuntimeValue::String(chars[start..end].iter().collect()))
             }
-
             "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp" | "Math.log"
             | "Math.floor" | "Math.ceil" | "Math.abs" => {
                 let x = match arg_vals.first() {
@@ -434,7 +429,6 @@ impl Interpreter {
                 };
                 Ok(RuntimeValue::Float(r))
             }
-
             "Math.pow" => {
                 let (a, b) = match (arg_vals.first(), arg_vals.get(1)) {
                     (Some(RuntimeValue::Float(a)), Some(RuntimeValue::Float(b))) => (*a, *b),
@@ -453,7 +447,6 @@ impl Interpreter {
                 };
                 Ok(RuntimeValue::Float(a.powf(b)))
             }
-
             "String.concat" | "String_concat" => match (arg_vals.first(), arg_vals.get(1)) {
                 (Some(RuntimeValue::String(a)), Some(RuntimeValue::String(b))) => {
                     Ok(RuntimeValue::String(format!("{}{}", a, b)))
@@ -464,7 +457,6 @@ impl Interpreter {
                     right: arg_vals.get(1).map(runtime_kind).unwrap_or("none"),
                 }),
             },
-
             "String.to_upper" | "String.upper" | "to_upper" | "upper" => match arg_vals.first() {
                 Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.to_uppercase())),
                 Some(other) => Err(EvalError::TypeMismatch {
@@ -476,7 +468,6 @@ impl Interpreter {
                     "String.to_upper: missing argument".into(),
                 )),
             },
-
             "String.to_lower" | "String.lower" | "to_lower" | "lower" => match arg_vals.first() {
                 Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.to_lowercase())),
                 Some(other) => Err(EvalError::TypeMismatch {
@@ -488,7 +479,6 @@ impl Interpreter {
                     "String.to_lower: missing argument".into(),
                 )),
             },
-
             "String.length" | "String.len" | "strlen" => match arg_vals.first() {
                 Some(RuntimeValue::String(s)) => Ok(RuntimeValue::Int(s.chars().count() as i64)),
                 Some(other) => Err(EvalError::TypeMismatch {
@@ -515,7 +505,6 @@ impl Interpreter {
                     "File.read: missing path argument".into(),
                 )),
             },
-
             "File.write" => match (arg_vals.first(), arg_vals.get(1)) {
                 (Some(RuntimeValue::String(path)), Some(RuntimeValue::String(content))) => {
                     match std::fs::write(path, content) {
@@ -538,7 +527,6 @@ impl Interpreter {
                     right: runtime_kind(c),
                 }),
             },
-
             "File.append" => match (arg_vals.first(), arg_vals.get(1)) {
                 (Some(RuntimeValue::String(path)), Some(RuntimeValue::String(content))) => {
                     use std::io::Write;
@@ -621,6 +609,41 @@ impl Interpreter {
                     .map(|s| RuntimeValue::String(s.clone()))
                     .collect();
                 Ok(RuntimeValue::List(list))
+            }
+            "Int.to_string" => {
+                let n = match arg_vals.first() {
+                    Some(RuntimeValue::Int(n)) => *n,
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Int.to_string",
+                            left: runtime_kind(other),
+                            right: "Int",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime("Int.to_string: missing argument".into()))
+                    }
+                };
+                Ok(RuntimeValue::String(n.to_string()))
+            }
+            "String.to_int" => {
+                let s = match arg_vals.first() {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.to_int",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime("String.to_int: missing argument".into()))
+                    }
+                };
+                match s.parse::<i64>() {
+                    Ok(n) => Ok(RuntimeValue::Option(Some(Box::new(RuntimeValue::Int(n))))),
+                    Err(_) => Ok(RuntimeValue::Option(None)),
+                }
             }
             _ => Err(EvalError::Unsupported {
                 construct: "builtin",

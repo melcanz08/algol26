@@ -101,6 +101,13 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
         return;
     }
 
+    // Conversions take priority over the `String.` prefix below.
+    // The classification reflects backend capability, not namespace.
+    if name == "Int.to_string" || name == "String.to_int" {
+        used.insert(Feature::Conversions);
+        return;
+    }
+
     if name.starts_with("String.") {
         used.insert(Feature::StringFunctions);
     } else if name.starts_with("File.") {

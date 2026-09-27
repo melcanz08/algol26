@@ -166,6 +166,22 @@ impl SemanticAnalyzer {
                 type_params: Vec::new(),
             },
         );
+        self.functions.insert(
+            "Int.to_string".to_string(),
+            FunctionInfo {
+                params: vec![("n".to_string(), Type::Int)],
+                return_type: Type::String,
+                type_params: Vec::new(),
+            },
+        );
+        self.functions.insert(
+            "String.to_int".to_string(),
+            FunctionInfo {
+                params: vec![("s".to_string(), Type::String)],
+                return_type: Type::option(Type::Int),
+                type_params: Vec::new(),
+            },
+        );
     }
     pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) -> Result<()> {
         // Snapshot the record table so the closure can read it

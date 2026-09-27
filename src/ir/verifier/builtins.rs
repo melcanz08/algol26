@@ -135,6 +135,14 @@ pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
     // Command-line arguments (ADR 0023)
     reg("args", vec![], Type::list(Type::String));
 
+    // Conversions (Track B)
+    reg("Int.to_string", vec![("n", Type::Int)], Type::String);
+    reg(
+        "String.to_int",
+        vec![("s", Type::String)],
+        Type::option(Type::Int),
+    );
+
     // Raw memory
     reg(
         "alloc",

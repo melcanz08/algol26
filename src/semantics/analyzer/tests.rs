@@ -959,3 +959,23 @@ procedure main
         result.err()
     );
 }
+
+#[test]
+fn option_of_copy_record_is_copy() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+procedure main
+    val maybe := Some(Point { x: 1, y: 2 })
+    val other := maybe
+    print(maybe)
+"#;
+    let result = analyze_source(source);
+    assert!(
+        result.is_ok(),
+        "Option<Point> should be Copy; got: {:?}",
+        result.err()
+    );
+}

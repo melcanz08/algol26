@@ -61,6 +61,17 @@ impl SemanticAnalyzer {
                     .iter()
                     .all(|(_, field_ty)| self.is_type_copy(&field_ty.substitute(&subst)))
             }
+            // Copy propagates through these container types. `Option<Copy>`
+            // and `Result<Copy, Copy>` are Copy in Rust; tuples of Copy
+            // components are Copy.
+            Type::Option(inner) => self.is_type_copy(inner),
+            Type::Result { ok, error } => self.is_type_copy(ok) && self.is_type_copy(error),
+            Type::Tuple(elems) => elems.iter().all(|e| self.is_type_copy(e)),
+            // Everything else — including List<T>, Channel<T>, Array<T, N>,
+            // Borrow<T>, MutBorrow<T>, Pointer<T> — falls through to the
+            // type's own is_copy rule. `List<Float>` is move-only, matching
+            // Rust's `Vec<T>`: a heap-allocated container is not Copy
+            // regardless of its element type.
             _ => ty.is_copy(),
         }
     }

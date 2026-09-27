@@ -782,3 +782,180 @@ function f(p: MissingRecord) -> Int
         err.message,
     );
 }
+
+fn analyze_source(source: &str) -> Result<()> {
+    use crate::compiler::assign_expr_ids;
+    use crate::frontend::lexer::Lexer;
+    use crate::frontend::parser::Parser;
+
+    let lexer = Lexer::new(source.to_string()).expect("lex");
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parse");
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer.analyze_with_spans(
+        &functions,
+        &program.traits,
+        &program.impls,
+        &program.records,
+    )
+}
+
+#[test]
+fn copy_record_survives_assignment() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+procedure main
+    val p := Point { x: 1, y: 2 }
+    val q := p
+    print(p.x)
+"#;
+    let result = analyze_source(source);
+    assert!(
+        result.is_ok(),
+        "Point should be Copy; got: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn non_copy_record_moves_on_assignment() {
+    let source = r#"
+rec Person
+    name: String
+    age: Int
+
+procedure main
+    val p := Person { name: "Alice", age: 30 }
+    val q := p
+    print(p.name)
+"#;
+    let result = analyze_source(source);
+    let err = result.expect_err("Person should not be Copy");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("moved"),
+        "expected move diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn copy_record_survives_argument_pass() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+function manhattan(p: Point) -> Int
+    return p.x + p.y
+
+procedure main
+    val p := Point { x: 3, y: 4 }
+    val d := manhattan(p)
+    print(p.x)
+    print(d)
+"#;
+    let result = analyze_source(source);
+    assert!(result.is_ok(), "got: {:?}", result.err());
+}
+
+#[test]
+fn nested_copy_record_is_copy() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+rec Line
+    left: Point
+    right: Point
+
+procedure main
+    val a := Point { x: 0, y: 0 }
+    val b := Point { x: 1, y: 1 }
+    val l := Line { left: a, right: b }
+    val m := l
+    print(l.left.x)
+"#;
+    let result = analyze_source(source);
+    assert!(
+        result.is_ok(),
+        "Line should be Copy; got: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn mixed_record_is_not_copy() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+rec NamedPoint
+    name: String
+    pt: Point
+
+procedure main
+    val p := NamedPoint { name: "origin", pt: Point { x: 0, y: 0 } }
+    val q := p
+    print(p.name)
+"#;
+    let result = analyze_source(source);
+    let err = result.expect_err("NamedPoint should not be Copy");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("moved"),
+        "expected move diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn copy_does_not_affect_mutability() {
+    // `Point` is Copy, but a `val` binding is still immutable.
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+procedure main
+    val p := Point { x: 1, y: 2 }
+    p.x := 99
+"#;
+    let result = analyze_source(source);
+    let err = result.expect_err("val binding should be immutable");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("immutable"),
+        "expected immutability diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn copy_record_can_still_be_borrowed() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+procedure main
+    var p := Point { x: 1, y: 2 }
+    val r := &p
+    val v := *r
+    print(v.x)
+"#;
+    let result = analyze_source(source);
+    assert!(
+        result.is_ok(),
+        "borrow of Copy record failed: {:?}",
+        result.err()
+    );
+}

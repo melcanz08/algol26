@@ -36,6 +36,35 @@ impl SemanticAnalyzer {
         self.state.vars.get(name).is_some_and(|s| s.is_moved())
     }
 
+    /// True iff `ty` is `Copy`, taking record declarations into account.
+    ///
+    /// A record is `Copy` iff every field's (substituted) type is `Copy`.
+    /// See ADR 0026. Records whose declaration is missing, whose type
+    /// arguments don't match the declared arity, or whose fields resolve
+    /// to `Unknown`, are conservatively treated as move-only.
+    pub(super) fn is_type_copy(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Record(name, args) => {
+                let Some(info) = self.records.get(name) else {
+                    return false;
+                };
+                if info.type_params.len() != args.len() {
+                    return false;
+                }
+                let subst: HashMap<String, Type> = info
+                    .type_params
+                    .iter()
+                    .cloned()
+                    .zip(args.iter().cloned())
+                    .collect();
+                info.fields
+                    .iter()
+                    .all(|(_, field_ty)| self.is_type_copy(&field_ty.substitute(&subst)))
+            }
+            _ => ty.is_copy(),
+        }
+    }
+
     pub(super) fn mark_moved(&mut self, name: &str) {
         self.state.move_out(name);
     }

@@ -378,6 +378,18 @@ pub const MATRIX: &[FeatureRow] = &[
                 interpreter and WASM refuse (both pinned).",
     },
     FeatureRow {
+        name: "conversions",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Refused,
+        wasm: Support::Refused,
+        refusal_tests: &["llvm_rejects_conversions", "wasm_rejects_conversions"],
+        notes: "No conformance fixture yet. `Int.to_string` and \
+                `String.to_int` are interpreter-only (Track B). LLVM \
+                and WASM refuse at the capability check \
+                (`Feature::Conversions`).",
+    },
+    FeatureRow {
         name: "records",
         conformance_dir: None,
         interpreter: Support::Full,

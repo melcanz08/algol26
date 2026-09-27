@@ -23,6 +23,11 @@ mod contract_tests;
 #[cfg(test)]
 mod tests;
 
+// When adding a variant, three things must change together:
+//   1. This enum
+//   2. src/backends/capabilities/tests.rs (accept/reject per backend)
+//   3. tests/coverage_matrix.rs (a FeatureRow claiming the tests)
+//   4. tests/coverage_maturity.rs (EXPECTED_MATURITY entry)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Feature {
     /// `Result<T, E>` values and any use of `try/catch` (which lowers

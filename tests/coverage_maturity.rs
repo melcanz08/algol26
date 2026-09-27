@@ -134,6 +134,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("unsafe", Maturity::Universal),
     ("range", Maturity::Unfinished),
     ("command_line_args", Maturity::InterpreterOnly),
+    ("conversions", Maturity::InterpreterOnly),
 ];
 
 // ─────────────────────────────────────────────────────────────────────

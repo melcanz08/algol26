@@ -979,3 +979,131 @@ procedure main
         result.err()
     );
 }
+
+#[test]
+fn map_literal_infers_key_and_value_types() {
+    let source = r#"
+procedure main
+    val m := Map { "a": 1, "b": 2 }
+"#;
+    let result = analyze_source(source);
+    assert!(result.is_ok(), "got: {:?}", result.err());
+}
+
+#[test]
+fn map_with_explicit_type_args_accepts_matching_entries() {
+    let source = r#"
+procedure main
+    val m := Map<String, Int> { "a": 1 }
+"#;
+    assert!(analyze_source(source).is_ok());
+}
+
+#[test]
+fn empty_map_uses_expected_type_from_annotation() {
+    let source = r#"
+procedure main
+    var m: Map<String, Int> := Map {}
+"#;
+    assert!(analyze_source(source).is_ok());
+}
+
+#[test]
+fn empty_map_without_context_is_rejected() {
+    let source = r#"
+procedure main
+    val m := Map {}
+"#;
+    let err = analyze_source(source).expect_err("should need a type annotation");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("Empty map literal"),
+        "expected empty-literal diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn map_key_type_must_be_hashable() {
+    let source = r#"
+procedure main
+    val m := Map<Float, Int> { 1.5: 1 }
+"#;
+    let err = analyze_source(source).expect_err("Float key should be rejected");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("Map keys must be Int, String, or Bool"),
+        "expected key-type diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn map_insert_requires_mutable_binding() {
+    let source = r#"
+procedure main
+    val m := Map<String, Int> {}
+    m.insert("a", 1)
+"#;
+    let err = analyze_source(source).expect_err("insert on val should be rejected");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("immutable"),
+        "expected immutability diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn map_insert_accepts_matching_types() {
+    let source = r#"
+procedure main
+    var m := Map<String, Int> {}
+    m.insert("a", 1)
+"#;
+    assert!(analyze_source(source).is_ok());
+}
+
+#[test]
+fn map_insert_rejects_wrong_value_type() {
+    let source = r#"
+procedure main
+    var m := Map<String, Int> {}
+    m.insert("a", "not an int")
+"#;
+    let err = analyze_source(source).expect_err("String value into Map<String, Int> should fail");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("value type mismatch"),
+        "expected value-type diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn map_get_returns_option_of_value_type() {
+    // Type-level assertion: the call succeeds; the precise return
+    // type is exercised indirectly through the type table.
+    let source = r#"
+procedure main
+    val m := Map { "a": 1 }
+    val x := m.get("a")
+    match x
+        case Some(v)
+            print(v)
+        case None
+            print(0)
+"#;
+    assert!(analyze_source(source).is_ok());
+}
+
+#[test]
+fn map_length_accepts_zero_args() {
+    let source = r#"
+procedure main
+    val m := Map { "a": 1 }
+    val n := m.length()
+    print(n)
+"#;
+    assert!(analyze_source(source).is_ok());
+}

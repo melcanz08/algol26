@@ -872,7 +872,24 @@ impl SemanticAnalyzer {
                         let receiver = parts[0];
                         let method_name = parts[1];
 
-                        if let Some((receiver_type, _)) = self.lookup_variable(receiver) {
+                        if let Some((receiver_type, mutable)) = self.lookup_variable(receiver) {
+                            // ─── Map method dispatch ───
+                            // Map methods need the concrete K and V from the receiver to
+                            // check argument types precisely. The generic builtin path
+                            // below only checks arg count, so Map gets its own dispatch
+                            // (ADR 0027). `&Box<Type>` deref-coerces to `&Type` at the
+                            // call site.
+                            if let Type::Map(k, v) = &receiver_type {
+                                return self.analyze_map_method_call(
+                                    receiver,
+                                    mutable,
+                                    method_name,
+                                    args,
+                                    k,
+                                    v,
+                                );
+                            }
+
                             // ─── Built-in method form ───
                             // `list.length()` → `List.length`. The call dispatches
                             // through the built-in registry, not the trait registry.
@@ -1204,6 +1221,14 @@ impl SemanticAnalyzer {
                     return Ok(self.substitute_type_vars(field_ty, &subs));
                 }
 
+                // ─── Map methods in the zero-arg form ───
+                // `m.length`, `m.keys`, `m.values` (no parens). The
+                // argument-taking methods are rejected here with a
+                // "requires parentheses" diagnostic.
+                if let Type::Map(k, v) = &obj_ty {
+                    return self.analyze_map_field_access(field, k, v);
+                }
+
                 // Unknown receiver type: don't guess. Type-table
                 // completeness catches the real problem elsewhere.
                 if obj_ty == Type::Unknown {
@@ -1272,13 +1297,110 @@ impl SemanticAnalyzer {
                      accept `x.method` or `x.method()`",
                 ))
             }
-            ExprKind::MapLiteral { span, .. } => Err(CompileError::simple(
-                "Map literals are not yet supported by the analyzer",
-                span.start_line,
-                span.start_column,
-                "",
-                ErrorCode::E0002,
-            )),
+            ExprKind::MapLiteral {
+                key_type: key_syntax,
+                value_type: value_syntax,
+                entries,
+                span,
+            } => {
+                // ─── Explicit type arguments: `Map<K, V> { ... }` ───
+                // The declared K and V are authoritative; each entry's key
+                // and value must coerce to them.
+                if let (Some(k_syntax), Some(v_syntax)) = (key_syntax, value_syntax) {
+                    let declared_key = k_syntax.to_type();
+                    let declared_value = v_syntax.to_type();
+
+                    if !Self::is_hashable_key(&declared_key) {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "Map keys must be Int, String, or Bool, found {}",
+                                declared_key
+                            ),
+                            span.start_line,
+                            span.start_column,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+
+                    for (k_expr, v_expr) in entries {
+                        let k_ty = self.analyze_expr_with_context(k_expr, Some(&declared_key))?;
+                        let v_ty = self.analyze_expr_with_context(v_expr, Some(&declared_value))?;
+                        if declared_key != Type::Unknown && !k_ty.can_coerce_to(&declared_key) {
+                            return Err(CompileError::simple(
+                                &format!("Map key: expected {}, found {}", declared_key, k_ty),
+                                self.current_span.start_line,
+                                self.current_span.start_column,
+                                "",
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        if declared_value != Type::Unknown && !v_ty.can_coerce_to(&declared_value) {
+                            return Err(CompileError::simple(
+                                &format!("Map value: expected {}, found {}", declared_value, v_ty),
+                                self.current_span.start_line,
+                                self.current_span.start_column,
+                                "",
+                                ErrorCode::E0002,
+                            ));
+                        }
+                    }
+
+                    return Ok(Type::map(declared_key, declared_value));
+                }
+
+                // ─── Inferred form: `Map { ... }` ───
+                // Empty entries: the type must come from context.
+                if entries.is_empty() {
+                    if let Some(Type::Map(k, v)) = expected_type {
+                        return Ok(Type::map((**k).clone(), (**v).clone()));
+                    }
+                    return Err(CompileError::simple(
+                        "Empty map literal needs a type annotation",
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "Write `Map<K, V> {}` for an explicit type, or annotate the binding, \
+                         e.g. `var m: Map<String, Int> := Map {}`",
+                    ));
+                }
+
+                // Non-empty: infer K and V by unifying the entries. Follows
+                // the same permissive rule as list literals — mixed entry
+                // types that have no common supertype produce `Unknown`, not
+                // an error. A stricter rule can be added later if needed.
+                let mut inferred_key: Option<Type> = None;
+                let mut inferred_value: Option<Type> = None;
+                for (k_expr, v_expr) in entries {
+                    let k_ty = self.analyze_expr(k_expr)?;
+                    let v_ty = self.analyze_expr(v_expr)?;
+                    inferred_key = Some(match inferred_key {
+                        None => k_ty,
+                        Some(prev) => prev.common_supertype(&k_ty),
+                    });
+                    inferred_value = Some(match inferred_value {
+                        None => v_ty,
+                        Some(prev) => prev.common_supertype(&v_ty),
+                    });
+                }
+                let key_ty = inferred_key.unwrap_or(Type::Unknown);
+                let value_ty = inferred_value.unwrap_or(Type::Unknown);
+
+                if !Self::is_hashable_key(&key_ty) {
+                    return Err(CompileError::simple(
+                        &format!("Map keys must be Int, String, or Bool, found {}", key_ty),
+                        span.start_line,
+                        span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+
+                Ok(Type::map(key_ty, value_ty))
+            }
         }
     }
 
@@ -1309,6 +1431,229 @@ impl SemanticAnalyzer {
             Type::MutBorrow(inner) => Type::mut_borrow(self.substitute_type_vars(inner, bindings)),
             Type::Channel(inner) => Type::channel(self.substitute_type_vars(inner, bindings)),
             _ => type_.clone(),
+        }
+    }
+
+    /// True when `ty` is a legal `Map` key type — `Int`, `String`,
+    /// `Bool`, or `Unknown` (not yet inferred). See ADR 0027.
+    pub(super) fn is_hashable_key(ty: &Type) -> bool {
+        matches!(ty, Type::Int | Type::String | Type::Bool | Type::Unknown)
+    }
+
+    /// Dispatch a `Map` method call with arguments. Unlike the generic
+    /// builtin path (which only checks argument count), this handler
+    /// checks argument types against the receiver's concrete `K` and
+    /// `V`, and enforces that `insert` has a `var` receiver.
+    fn analyze_map_method_call(
+        &mut self,
+        receiver: &str,
+        receiver_mutable: bool,
+        method_name: &str,
+        args: &[Expr],
+        key_type: &Type,
+        value_type: &Type,
+    ) -> Result<Type> {
+        // Key-type gate. Idempotent; the first method call on a
+        // badly-typed map produces the diagnostic.
+        if !Self::is_hashable_key(key_type) {
+            return Err(CompileError::simple(
+                &format!("Map keys must be Int, String, or Bool, found {}", key_type),
+                self.current_span.start_line,
+                self.current_span.start_column,
+                "",
+                ErrorCode::E0002,
+            ));
+        }
+
+        match method_name {
+            "insert" => {
+                if !receiver_mutable {
+                    return Err(CompileError::simple(
+                        &format!("Cannot call 'insert' on immutable variable '{}'", receiver),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(&format!(
+                        "Declare '{}' with 'var' instead of 'val'",
+                        receiver
+                    )));
+                }
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        &format!("Map.insert expects 2 arguments, got {}", args.len()),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let arg_key = self.analyze_expr_with_context(&args[0], Some(key_type))?;
+                let arg_value = self.analyze_expr_with_context(&args[1], Some(value_type))?;
+                if key_type != &Type::Unknown && !arg_key.can_coerce_to(key_type) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Map.insert key type mismatch: expected {}, found {}",
+                            key_type, arg_key
+                        ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                if value_type != &Type::Unknown && !arg_value.can_coerce_to(value_type) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Map.insert value type mismatch: expected {}, found {}",
+                            value_type, arg_value
+                        ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                Ok(Type::Void)
+            }
+            "get" => {
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!("Map.get expects 1 argument, got {}", args.len()),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let arg_key = self.analyze_expr_with_context(&args[0], Some(key_type))?;
+                if key_type != &Type::Unknown && !arg_key.can_coerce_to(key_type) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Map.get key type mismatch: expected {}, found {}",
+                            key_type, arg_key
+                        ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                Ok(Type::option(value_type.clone()))
+            }
+            "contains" => {
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!("Map.contains expects 1 argument, got {}", args.len()),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let arg_key = self.analyze_expr_with_context(&args[0], Some(key_type))?;
+                if key_type != &Type::Unknown && !arg_key.can_coerce_to(key_type) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Map.contains key type mismatch: expected {}, found {}",
+                            key_type, arg_key
+                        ),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                Ok(Type::Bool)
+            }
+            "keys" => {
+                if !args.is_empty() {
+                    return Err(CompileError::simple(
+                        &format!("Map.keys takes no arguments, got {}", args.len()),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                Ok(Type::list(key_type.clone()))
+            }
+            "values" => {
+                if !args.is_empty() {
+                    return Err(CompileError::simple(
+                        &format!("Map.values takes no arguments, got {}", args.len()),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                Ok(Type::list(value_type.clone()))
+            }
+            "length" => {
+                if !args.is_empty() {
+                    return Err(CompileError::simple(
+                        &format!("Map.length takes no arguments, got {}", args.len()),
+                        self.current_span.start_line,
+                        self.current_span.start_column,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                Ok(Type::Int)
+            }
+            other => Err(CompileError::simple(
+                &format!("Map has no method '{}'", other),
+                self.current_span.start_line,
+                self.current_span.start_column,
+                "",
+                ErrorCode::E0004,
+            )
+            .with_suggestion("Available Map methods: insert, get, contains, keys, values, length")),
+        }
+    }
+
+    /// Dispatch a `Map` method in the bare `x.method` form (no parens).
+    /// Only the zero-argument methods are valid; the ones that take
+    /// arguments produce a "requires parentheses" diagnostic.
+    fn analyze_map_field_access(
+        &mut self,
+        method_name: &str,
+        key_type: &Type,
+        value_type: &Type,
+    ) -> Result<Type> {
+        if !Self::is_hashable_key(key_type) {
+            return Err(CompileError::simple(
+                &format!("Map keys must be Int, String, or Bool, found {}", key_type),
+                self.current_span.start_line,
+                self.current_span.start_column,
+                "",
+                ErrorCode::E0002,
+            ));
+        }
+        match method_name {
+            "length" => Ok(Type::Int),
+            "keys" => Ok(Type::list(key_type.clone())),
+            "values" => Ok(Type::list(value_type.clone())),
+            "insert" | "get" | "contains" => Err(CompileError::simple(
+                &format!(
+                    "Method '{}' on Map requires parentheses and arguments",
+                    method_name
+                ),
+                self.current_span.start_line,
+                self.current_span.start_column,
+                "",
+                ErrorCode::E0002,
+            )),
+            other => Err(CompileError::simple(
+                &format!("Map has no method '{}'", other),
+                self.current_span.start_line,
+                self.current_span.start_column,
+                "",
+                ErrorCode::E0004,
+            )
+            .with_suggestion("Available Map methods: insert, get, contains, keys, values, length")),
         }
     }
 

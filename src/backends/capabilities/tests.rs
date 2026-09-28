@@ -828,3 +828,24 @@ fn wasm_rejects_conversions() {
         err.message
     );
 }
+
+#[test]
+fn llvm_rejects_map_method_calls_without_literal() {
+    // No `Map { ... }` literal in the source; the only Map usage
+    // is a method call on a map-typed variable. Before the scan
+    // fix, `Feature::Map` would not fire and LLVM would accept
+    // this program, then panic in codegen.
+    const SOURCE: &str = r#"
+function get_first(m: Map<String, Int>) -> Option<Int>
+    return m.get("first")
+
+procedure main
+    print("x")
+"#;
+    let program = build_ir(SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::llvm());
+    assert!(
+        result.is_err(),
+        "LLVM should refuse Map methods even without a literal"
+    );
+}

@@ -1,6 +1,7 @@
 // src/backends/interpreter/tests.rs
 //
-// End-to-end interpreter tests for `rec` records (ADR 0024).
+// End-to-end interpreter tests for `rec` records (ADR 0024) and
+// `Map<K, V>` (ADR 0027).
 
 use super::Interpreter;
 use crate::compiler::assign_expr_ids;
@@ -113,6 +114,221 @@ rec Point
 procedure main
     val pts := [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]
     print(pts[1].x)
+"#,
+    );
+    assert_eq!(output, "3");
+}
+
+#[test]
+fn map_insert_and_get_roundtrip() {
+    let output = run_source(
+        r#"
+procedure main
+    var m := Map<String, Int> {}
+    m.insert("a", 1)
+    m.insert("b", 2)
+    val x := m.get("a")
+    match x
+        case Some(v)
+            print(v)
+        case None
+            print(0)
+"#,
+    );
+    assert_eq!(output, "1");
+}
+
+#[test]
+fn map_get_missing_key_returns_none() {
+    let output = run_source(
+        r#"
+procedure main
+    val m := Map { "a": 1 }
+    val x := m.get("z")
+    match x
+        case Some(v)
+            print(v)
+        case None
+            print(0)
+"#,
+    );
+    assert_eq!(output, "0");
+}
+
+#[test]
+fn map_insert_overwrites_existing_key() {
+    let output = run_source(
+        r#"
+procedure main
+    var m := Map<String, Int> {}
+    m.insert("a", 1)
+    m.insert("a", 99)
+    val x := m.get("a")
+    match x
+        case Some(v)
+            print(v)
+        case None
+            print(0)
+"#,
+    );
+    assert_eq!(output, "99");
+}
+
+#[test]
+fn map_contains_returns_bool() {
+    let output = run_source(
+        r#"
+procedure main
+    val m := Map { "a": 1, "b": 2 }
+    print(m.contains("a"))
+    print(m.contains("z"))
+"#,
+    );
+    assert_eq!(output, "true\nfalse");
+}
+
+#[test]
+fn map_keys_returns_all_keys() {
+    let output = run_source(
+        r#"
+procedure main
+    val m := Map { "b": 1, "a": 2, "c": 3 }
+    val ks := m.keys()
+    print(ks.length())
+"#,
+    );
+    assert_eq!(output, "3");
+}
+
+#[test]
+fn map_values_returns_all_values() {
+    let output = run_source(
+        r#"
+procedure main
+    val m := Map { "a": 1, "b": 2, "c": 3 }
+    val vs := m.values()
+    print(vs.length())
+"#,
+    );
+    assert_eq!(output, "3");
+}
+
+#[test]
+fn map_length_counts_entries() {
+    let output = run_source(
+        r#"
+procedure main
+    val m := Map { "a": 1, "b": 2 }
+    print(m.length())
+"#,
+    );
+    assert_eq!(output, "2");
+}
+
+#[test]
+fn map_with_int_keys() {
+    let output = run_source(
+        r#"
+procedure main
+    var m := Map<Int, String> {}
+    m.insert(1, "one")
+    m.insert(2, "two")
+    val x := m.get(2)
+    match x
+        case Some(v)
+            print(v)
+        case None
+            print("missing")
+"#,
+    );
+    assert_eq!(output, "two");
+}
+
+#[test]
+fn map_with_bool_keys() {
+    let output = run_source(
+        r#"
+procedure main
+    var m := Map<Bool, Int> {}
+    m.insert(true, 1)
+    m.insert(false, 0)
+    val x := m.get(true)
+    match x
+        case Some(v)
+            print(v)
+        case None
+            print(99)
+"#,
+    );
+    assert_eq!(output, "1");
+}
+
+#[test]
+fn map_of_maps() {
+    let output = run_source(
+        r#"
+procedure main
+    var inner := Map<String, Int> {}
+    inner.insert("x", 100)
+    inner.insert("y", 200)
+
+    var outer := Map<String, Map<String, Int>> {}
+    outer.insert("nested", inner)
+
+    val retrieved := outer.get("nested")
+    match retrieved
+        case Some(inner_map)
+            val x := inner_map.get("x")
+            match x
+                case Some(v)
+                    print(v)
+                case None
+                    print(0)
+        case None
+            print(-1)
+"#,
+    );
+    assert_eq!(output, "100");
+}
+
+#[test]
+fn map_iteration_via_keys() {
+    let output = run_source(
+        r#"
+procedure main
+    var m := Map<String, Int> {}
+    m.insert("a", 1)
+    m.insert("b", 2)
+    m.insert("c", 3)
+    var total := 0
+    for k in m.keys()
+        val v := m.get(k)
+        match v
+            case Some(n)
+                total := total + n
+            case None
+                total := total
+    print(total)
+"#,
+    );
+    assert_eq!(output, "6");
+}
+
+#[test]
+fn map_values_can_be_lists() {
+    let output = run_source(
+        r#"
+procedure main
+    var m := Map<String, List<Int>> {}
+    m.insert("a", [1, 2, 3])
+    m.insert("b", [4, 5])
+
+    val x := m.get("a")
+    match x
+        case Some(list)
+            print(list.length())
+        case None
+            print(0)
 "#,
     );
     assert_eq!(output, "3");

@@ -1,9 +1,10 @@
 // src/backends/interpreter/eval.rs
 
-use super::runtime::{runtime_kind, EvalError, RuntimeValue};
+use super::runtime::{runtime_kind, EvalError, MapKey, RuntimeValue};
 use super::Interpreter;
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{SemanticBinOp, TypedIRValue};
+use std::collections::HashMap;
 
 /// Extract a numeric `f64` from a runtime value, or fail closed.
 ///
@@ -57,11 +58,15 @@ impl Interpreter {
                     fields: out,
                 }
             }
-            TypedIRValue::Map { .. } => {
-                return Err(EvalError::Unsupported {
-                    construct: "Map values",
-                    hint: "the interpreter does not yet model Map (ADR 0027 session 6)",
-                });
+            TypedIRValue::Map { entries, .. } => {
+                let mut out = HashMap::with_capacity(entries.len());
+                for (k, v) in entries {
+                    let k_val = self.eval_value(k)?;
+                    let v_val = self.eval_value(v)?;
+                    let key = MapKey::from_runtime(&k_val)?;
+                    out.insert(key, v_val);
+                }
+                RuntimeValue::Map(out)
             }
             // `Array` was previously unhandled. Treat it as a List —
             // the interpreter's runtime value model has no fixed-size
@@ -739,6 +744,147 @@ impl Interpreter {
                 match s.parse::<i64>() {
                     Ok(n) => Ok(RuntimeValue::Option(Some(Box::new(RuntimeValue::Int(n))))),
                     Err(_) => Ok(RuntimeValue::Option(None)),
+                }
+            }
+            "Map.insert" => {
+                // ─── Structural receiver access ───
+                // Evaluating args[0] would clone the map, so mutation would
+                // be lost. Instead, look at it structurally: the IR builder
+                // always emits `Variable(name)` as the receiver of a Map
+                // method call, so we can grab the name and mutate
+                // `self.variables[name]` in place. Same shape as
+                // `Instruction::FieldAssign`.
+                let receiver_name = match args.first() {
+                    Some(TypedIRValue::Variable(name, _)) => name.clone(),
+                    _ => {
+                        return Err(EvalError::Unsupported {
+                            construct: "Map.insert on non-variable receiver",
+                            hint:
+                                "the IR builder always emits a Variable as the Map.insert receiver",
+                        });
+                    }
+                };
+
+                if args.len() != 3 {
+                    return Err(EvalError::Runtime(format!(
+                        "Map.insert expects 3 arguments (receiver, key, value), got {}",
+                        args.len()
+                    )));
+                }
+
+                // Evaluate key and value before borrowing self.variables mutably.
+                let k_val = self.eval_value(&args[1])?;
+                let v_val = self.eval_value(&args[2])?;
+                let key = MapKey::from_runtime(&k_val)?;
+
+                let receiver = self.variables.get_mut(&receiver_name).ok_or_else(|| {
+                    EvalError::Runtime(format!(
+                        "Map.insert target `{}` not found at runtime",
+                        receiver_name
+                    ))
+                })?;
+
+                match receiver {
+                    RuntimeValue::Map(entries) => {
+                        entries.insert(key, v_val);
+                        Ok(RuntimeValue::Void)
+                    }
+                    other => Err(EvalError::TypeMismatch {
+                        op: "Map.insert",
+                        left: runtime_kind(other),
+                        right: "Map",
+                    }),
+                }
+            }
+
+            "Map.get" => {
+                let receiver = self.eval_value(&args[0])?;
+                let k_val = self.eval_value(&args[1])?;
+                let key = MapKey::from_runtime(&k_val)?;
+                match receiver {
+                    RuntimeValue::Map(entries) => match entries.get(&key) {
+                        Some(v) => Ok(RuntimeValue::Option(Some(Box::new(v.clone())))),
+                        None => Ok(RuntimeValue::Option(None)),
+                    },
+                    other => Err(EvalError::TypeMismatch {
+                        op: "Map.get",
+                        left: runtime_kind(&other),
+                        right: "Map",
+                    }),
+                }
+            }
+
+            "Map.contains" => {
+                let receiver = self.eval_value(&args[0])?;
+                let k_val = self.eval_value(&args[1])?;
+                let key = MapKey::from_runtime(&k_val)?;
+                match receiver {
+                    RuntimeValue::Map(entries) => {
+                        Ok(RuntimeValue::Bool(entries.contains_key(&key)))
+                    }
+                    other => Err(EvalError::TypeMismatch {
+                        op: "Map.contains",
+                        left: runtime_kind(&other),
+                        right: "Map",
+                    }),
+                }
+            }
+
+            "Map.keys" => {
+                let receiver = self.eval_value(&args[0])?;
+                match receiver {
+                    RuntimeValue::Map(entries) => {
+                        // Collect owned keys so the match below binds by value
+                        // (no `*` vs `&` ambiguity) and sorts deterministically.
+                        let mut keys: Vec<MapKey> = entries.keys().cloned().collect();
+                        keys.sort();
+                        let out: Vec<RuntimeValue> = keys
+                            .into_iter()
+                            .map(|k| match k {
+                                MapKey::Int(i) => RuntimeValue::Int(i),
+                                MapKey::String(s) => RuntimeValue::String(s),
+                                MapKey::Bool(b) => RuntimeValue::Bool(b),
+                            })
+                            .collect();
+                        Ok(RuntimeValue::List(out))
+                    }
+                    other => Err(EvalError::TypeMismatch {
+                        op: "Map.keys",
+                        left: runtime_kind(&other),
+                        right: "Map",
+                    }),
+                }
+            }
+
+            "Map.values" => {
+                let receiver = self.eval_value(&args[0])?;
+                match receiver {
+                    RuntimeValue::Map(entries) => {
+                        // Sort by key so `.keys()` and `.values()` are aligned
+                        // — `zip(m.keys(), m.values())` gives (k, v) pairs.
+                        let mut sorted: Vec<(&MapKey, &RuntimeValue)> = entries.iter().collect();
+                        sorted.sort_by(|a, b| a.0.cmp(b.0));
+                        let out: Vec<RuntimeValue> =
+                            sorted.into_iter().map(|(_, v)| v.clone()).collect();
+                        Ok(RuntimeValue::List(out))
+                    }
+                    other => Err(EvalError::TypeMismatch {
+                        op: "Map.values",
+                        left: runtime_kind(&other),
+                        right: "Map",
+                    }),
+                }
+            }
+
+            "Map.length" => {
+                let receiver = self.eval_value(&args[0])?;
+                match receiver {
+                    RuntimeValue::Map(entries) => Ok(RuntimeValue::Int(entries.len() as i64)),
+                    other => Err(EvalError::TypeMismatch {
+                        op: "Map.length",
+                        left: runtime_kind(&other),
+                        right: "Map",
+                    }),
                 }
             }
             _ => Err(EvalError::Unsupported {

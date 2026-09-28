@@ -1,6 +1,47 @@
 // src/backends/interpreter/runtime.rs
 
+use std::collections::HashMap;
 use std::fmt;
+
+/// Hashable key type. Restricted to the three builtin types the
+/// analyzer permits in `Map<K, V>` (ADR 0027). Derives `Ord` so
+/// `display`, `keys`, and `values` can produce deterministic
+/// output — HashMap iteration order is unspecified, but a sorted
+/// view is deterministic without adding ordering guarantees to
+/// the language.
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
+pub enum MapKey {
+    Int(i64),
+    String(String),
+    Bool(bool),
+}
+
+impl MapKey {
+    /// Convert a runtime value into a `MapKey`, or fail closed.
+    /// The analyzer already gates key types, so any failure here
+    /// means the IR builder produced a value it shouldn't have.
+    pub(super) fn from_runtime(v: &RuntimeValue) -> Result<MapKey, EvalError> {
+        match v {
+            RuntimeValue::Int(i) => Ok(MapKey::Int(*i)),
+            RuntimeValue::String(s) => Ok(MapKey::String(s.clone())),
+            RuntimeValue::Bool(b) => Ok(MapKey::Bool(*b)),
+            other => Err(EvalError::Runtime(format!(
+                "Map keys must be Int, String, or Bool, found {}",
+                runtime_kind(other)
+            ))),
+        }
+    }
+
+    /// Rendering for `Map` display. Strings get quotes so a
+    /// `{"a": 1}` shape is unambiguous; ints and bools do not.
+    fn display(&self) -> String {
+        match self {
+            MapKey::Int(i) => i.to_string(),
+            MapKey::String(s) => format!("\"{}\"", s),
+            MapKey::Bool(b) => b.to_string(),
+        }
+    }
+}
 
 /// Errors produced by the interpreter while evaluating IR.
 ///
@@ -53,6 +94,7 @@ pub enum RuntimeValue {
     String(String),
     Bool(bool),
     List(Vec<RuntimeValue>),
+    Map(HashMap<MapKey, RuntimeValue>),
     Option(Option<Box<RuntimeValue>>),
     Result {
         is_ok: bool,
@@ -78,6 +120,7 @@ impl RuntimeValue {
             RuntimeValue::Option(None) => false,
             RuntimeValue::Result { is_ok, .. } => *is_ok,
             RuntimeValue::Void => false,
+            RuntimeValue::Map(m) => !m.is_empty(),
         }
     }
 
@@ -97,6 +140,15 @@ impl RuntimeValue {
                     .map(|(k, v)| format!("{}: {}", k, v.display()))
                     .collect();
                 format!("{} {{ {} }}", name, parts.join(", "))
+            }
+            RuntimeValue::Map(entries) => {
+                let mut sorted: Vec<(&MapKey, &RuntimeValue)> = entries.iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                let parts: Vec<String> = sorted
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k.display(), v.display()))
+                    .collect();
+                format!("{{{}}}", parts.join(", "))
             }
             RuntimeValue::Option(Some(v)) => format!("Some({})", v.display()),
             RuntimeValue::Option(None) => "None".to_string(),
@@ -150,6 +202,11 @@ impl RuntimeValue {
                             .is_some_and(|(_, v2)| v1.runtime_eq(v2))
                     })
             }
+            (RuntimeValue::Map(a), RuntimeValue::Map(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .all(|(k, v1)| b.get(k).is_some_and(|v2| v1.runtime_eq(v2)))
+            }
             (Option(Some(a)), Option(Some(b))) => a.runtime_eq(b),
             (Option(None), Option(None)) => true,
             (
@@ -181,5 +238,6 @@ pub(super) fn runtime_kind(v: &RuntimeValue) -> &'static str {
         RuntimeValue::Option(_) => "Option",
         RuntimeValue::Result { .. } => "Result",
         RuntimeValue::Void => "Void",
+        RuntimeValue::Map(_) => "Map",
     }
 }

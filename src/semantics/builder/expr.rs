@@ -154,11 +154,17 @@ impl SemanticIRBuilder {
                     ..
                 } = &value.kind
                 {
-                    let typed_args: Vec<TypedIRValue> = args
-                        .iter()
-                        .map(|a| self.translate_expr(program, func, current_block, a))
-                        .collect();
-                    let emitted_name = self.resolved_callee_name(value, func_name);
+                    let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
+                        .try_resolve_map_method_call(program, func, current_block, func_name, args)
+                    {
+                        (callee, call_args)
+                    } else {
+                        let typed_args: Vec<TypedIRValue> = args
+                            .iter()
+                            .map(|a| self.translate_expr(program, func, current_block, a))
+                            .collect();
+                        (self.resolved_callee_name(value, func_name), typed_args)
+                    };
                     self.safe_push_instruction(
                         func,
                         current_block,
@@ -982,6 +988,7 @@ impl SemanticIRBuilder {
             ExprKind::Match { value, cases, .. } => {
                 // Translate the value being matched
                 let match_value = self.translate_expr(program, func, current_block, value);
+                let matched_type = match_value.type_of();
 
                 // ─── UNIFY TYPES ───
                 let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
@@ -1075,13 +1082,36 @@ impl SemanticIRBuilder {
                     self.push_scope();
 
                     // Bind pattern variables (simplified; we only handle Some, Ok, Error bindings)
-                    if let Some(binding) = match &case.pattern {
-                        crate::frontend::ast::Pattern::Some(v) => Some(v.clone()),
-                        crate::frontend::ast::Pattern::Ok(v) => Some(v.clone()),
-                        crate::frontend::ast::Pattern::Error(v) => Some(v.clone()),
+                    // Determine the value being matched once, so pattern bindings
+                    // can be typed from its inner type rather than declared as
+                    // Unknown. Without this, `case Some(v)` gives `v: Unknown`, and
+                    // any method call on `v` inside the case body fails IR build.
+                    let binding_and_type: Option<(String, Type)> = match &case.pattern {
+                        crate::frontend::ast::Pattern::Some(v) => Some((
+                            v.clone(),
+                            match &matched_type {
+                                Type::Option(inner) => (**inner).clone(),
+                                _ => Type::Unknown,
+                            },
+                        )),
+                        crate::frontend::ast::Pattern::Ok(v) => Some((
+                            v.clone(),
+                            match &matched_type {
+                                Type::Result { ok, .. } => (**ok).clone(),
+                                _ => Type::Unknown,
+                            },
+                        )),
+                        crate::frontend::ast::Pattern::Error(v) => Some((
+                            v.clone(),
+                            match &matched_type {
+                                Type::Result { error, .. } => (**error).clone(),
+                                _ => Type::Unknown,
+                            },
+                        )),
                         _ => None,
-                    } {
-                        self.declare_var(&binding, Type::Unknown, false);
+                    };
+                    if let Some((binding, ty)) = binding_and_type {
+                        self.declare_var(&binding, ty, false);
                     }
 
                     // NEW: record destructure bindings declare each field name

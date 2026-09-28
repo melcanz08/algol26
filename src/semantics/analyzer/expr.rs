@@ -161,6 +161,13 @@ impl SemanticAnalyzer {
             ExprKind::Bool(_, _) => Ok(Type::Bool),
             ExprKind::List(elements, _) => {
                 if elements.is_empty() {
+                    // An empty list has no elements to infer from. When the
+                    // expected type provides one — `var xs: List<Int> := []` —
+                    // bind to that. Falls back to `List<Unknown>` otherwise,
+                    // matching the behavior of an empty list with no context.
+                    if let Some(Type::List(inner)) = expected_type {
+                        return Ok(Type::list((**inner).clone()));
+                    }
                     return Ok(Type::list(Type::Unknown));
                 }
                 let first_type = self.analyze_expr(&elements[0])?;
@@ -873,6 +880,64 @@ impl SemanticAnalyzer {
                         let method_name = parts[1];
 
                         if let Some((receiver_type, mutable)) = self.lookup_variable(receiver) {
+                            // ─── List.append dispatch ───
+                            // Like Map methods, `List.append` needs the receiver's
+                            // concrete element type and a mutability check, which the
+                            // generic builtin path doesn't provide.
+                            if let Type::List(elem_ty) = &receiver_type {
+                                if method_name == "append" {
+                                    if !mutable {
+                                        return Err(CompileError::simple(
+                                            &format!(
+                                                "Cannot call 'append' on immutable variable '{}'",
+                                                receiver
+                                            ),
+                                            self.current_span.start_line,
+                                            self.current_span.start_column,
+                                            "",
+                                            ErrorCode::E0007,
+                                        )
+                                        .with_suggestion(&format!(
+                                            "Declare '{}' with 'var' instead of 'val'",
+                                            receiver
+                                        )));
+                                    }
+                                    if args.len() != 1 {
+                                        return Err(CompileError::simple(
+                                            &format!(
+                                                "List.append expects 1 argument, got {}",
+                                                args.len()
+                                            ),
+                                            self.current_span.start_line,
+                                            self.current_span.start_column,
+                                            "",
+                                            ErrorCode::E0002,
+                                        ));
+                                    }
+                                    let arg_ty =
+                                        self.analyze_expr_with_context(&args[0], Some(elem_ty))?;
+                                    if !elem_ty.is_unknown()
+                                        && !arg_ty.is_unknown()
+                                        && !arg_ty.can_coerce_to(elem_ty)
+                                    {
+                                        return Err(CompileError::simple(
+                                            &format!(
+                                                "List.append element type mismatch: expected {}, found {}",
+                                                elem_ty, arg_ty
+                                            ),
+                                            self.current_span.start_line,
+                                            self.current_span.start_column,
+                                            "",
+                                            ErrorCode::E0002,
+                                        ));
+                                    }
+                                    // The list is now longer than the analyzer previously
+                                    // knew; drop the tracked length so a stale OOB check
+                                    // doesn't fire on a now-valid index.
+                                    self.clear_list_length(receiver);
+                                    return Ok(Type::Void);
+                                }
+                            }
                             // ─── Map method dispatch ───
                             // Map methods need the concrete K and V from the receiver to
                             // check argument types precisely. The generic builtin path

@@ -238,6 +238,18 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// Invalidate the statically-tracked length of `name`. Called
+    /// after `List.append`, which grows the list past whatever
+    /// length the analyzer previously recorded. See ADR 0028.
+    fn clear_list_length(&mut self, name: &str) {
+        for scope in self.list_lengths.iter_mut() {
+            scope.remove(name);
+        }
+        for scope in self.list_values.iter_mut() {
+            scope.remove(name);
+        }
+    }
+
     fn lookup_list_values(&self, name: &str) -> Option<Vec<Expr>> {
         for scope in self.list_values.iter().rev() {
             if let Some(vals) = scope.get(name) {

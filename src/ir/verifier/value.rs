@@ -275,7 +275,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             // concrete type arguments the way user-function generics
             // do — so the verifier trusts the analyzer's decision and
             // returns the claimed type.
-            if function.starts_with("Map.") {
+            if function.starts_with("Map.") || function == "List.append" {
                 // Still verify each argument so structurally malformed
                 // IR fails closed.
                 for a in args {

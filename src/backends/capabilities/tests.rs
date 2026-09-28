@@ -849,3 +849,27 @@ procedure main
         "LLVM should refuse Map methods even without a literal"
     );
 }
+
+const LIST_APPEND_SOURCE: &str = r#"
+procedure main
+    var xs: List<Int> := []
+    xs.append(1)
+"#;
+
+#[test]
+fn interpreter_accepts_list_append() {
+    let program = build_ir(LIST_APPEND_SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::interpreter());
+    assert!(
+        result.is_ok(),
+        "interpreter should accept List.append, got: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn llvm_rejects_list_append() {
+    let program = build_ir(LIST_APPEND_SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::llvm());
+    assert!(result.is_err(), "LLVM should refuse List.append");
+}

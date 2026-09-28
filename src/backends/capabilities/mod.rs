@@ -86,6 +86,10 @@ pub enum Feature {
     /// with a `HashMap`; LLVM and WASM have no runtime to lower it
     /// against.
     Map,
+    /// `List.append(x)` — grow a list in place. The interpreter
+    /// pushes onto a `Vec<RuntimeValue>`; LLVM's list lowering
+    /// assumes a static length and cannot represent growth.
+    ListAppend,
 }
 
 impl Feature {
@@ -109,6 +113,7 @@ impl Feature {
             Feature::Records,
             Feature::Conversions,
             Feature::Map,
+            Feature::ListAppend,
         ]
     }
 
@@ -131,6 +136,7 @@ impl Feature {
             Feature::Records => "records",
             Feature::Conversions => "conversions",
             Feature::Map => "map",
+            Feature::ListAppend => "list.append",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -153,6 +159,7 @@ impl Feature {
             Feature::Records => "records (rec declarations, literals, field access)",
             Feature::Conversions => "Int.to_string / String.to_int",
             Feature::Map => "Map<K, V> (insert, get, contains, keys, values, length)",
+            Feature::ListAppend => "List.append (dynamic list growth)",
         }
     }
 }
@@ -214,6 +221,7 @@ impl BackendCapabilities {
         supported.insert(Feature::Records);
         supported.insert(Feature::Conversions);
         supported.insert(Feature::Map);
+        supported.insert(Feature::ListAppend);
         // FFI is not supported by the interpreter (a tree-walker
         // cannot call into C).
         BackendCapabilities {

@@ -95,6 +95,15 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
         used.insert(Feature::Map);
         return;
     }
+
+    // ─── List.append ───
+    // Like Map methods, `List.append` is dispatched by the
+    // analyzer's custom path and is not registered in the
+    // builtin signature table.
+    if name == "List.append" {
+        used.insert(Feature::ListAppend);
+        return;
+    }
     // Only names that appear in the analyzer/verifier builtin table
     // are candidates. A user-defined function named `String.helper`
     // does not need LLVM's String lowering (it has its own body)

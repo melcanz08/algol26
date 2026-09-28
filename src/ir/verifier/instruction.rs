@@ -22,8 +22,7 @@ pub(super) fn verify_instruction(
             if !matches!(value, TypedIRValue::Void)
                 && *type_ != Type::Unknown
                 && value_ty != Type::Unknown
-                && !value_ty.can_coerce_to(type_)
-                && value_ty != *type_
+                && !types_compatible_for_call(&value_ty, type_)
             {
                 return Err(format!(
                     "Function '{}': Declare '{}' as {:?} but value has type {:?}",
@@ -199,7 +198,7 @@ pub(super) fn verify_instruction(
             // See verify_value's Call arm. Arg verification still runs;
             // the result binding is registered as `Unknown` because the
             // concrete type already lives in the analyzer's table.
-            if callee.starts_with("Map.") {
+            if callee.starts_with("Map.") || callee == "List.append" {
                 for a in args {
                     verify_value(a, env)?;
                 }

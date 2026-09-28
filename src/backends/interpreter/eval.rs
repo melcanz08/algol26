@@ -887,6 +887,47 @@ impl Interpreter {
                     }),
                 }
             }
+            "List.append" => {
+                // Same structural-receiver pattern as Map.insert: evaluating
+                // args[0] would clone the list, so mutation would be lost.
+                let receiver_name = match args.first() {
+                    Some(TypedIRValue::Variable(name, _)) => name.clone(),
+                    _ => {
+                        return Err(EvalError::Unsupported {
+                            construct: "List.append on non-variable receiver",
+                            hint:
+                                "the IR builder always emits a Variable as the List.append receiver",
+                        });
+                    }
+                };
+
+                if args.len() != 2 {
+                    return Err(EvalError::Runtime(format!(
+                        "List.append expects 2 arguments (receiver, value), got {}",
+                        args.len()
+                    )));
+                }
+
+                let val = self.eval_value(&args[1])?;
+                let receiver = self.variables.get_mut(&receiver_name).ok_or_else(|| {
+                    EvalError::Runtime(format!(
+                        "List.append target `{}` not found at runtime",
+                        receiver_name
+                    ))
+                })?;
+
+                match receiver {
+                    RuntimeValue::List(items) => {
+                        items.push(val);
+                        Ok(RuntimeValue::Void)
+                    }
+                    other => Err(EvalError::TypeMismatch {
+                        op: "List.append",
+                        left: runtime_kind(other),
+                        right: "List",
+                    }),
+                }
+            }
             _ => Err(EvalError::Unsupported {
                 construct: "builtin",
                 hint: "interpreter has no dispatch arm for this registered \

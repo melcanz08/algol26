@@ -1107,3 +1107,35 @@ procedure main
 "#;
     assert!(analyze_source(source).is_ok());
 }
+
+#[test]
+fn append_requires_var() {
+    let source = r#"
+procedure main
+    val xs: List<Int> := []
+    xs.append(1)
+"#;
+    let err = analyze_source(source).expect_err("append on val should fail");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("immutable"),
+        "expected immutability diagnostic, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn append_rejects_wrong_element_type() {
+    let source = r#"
+procedure main
+    var xs: List<Int> := []
+    xs.append("nope")
+"#;
+    let err = analyze_source(source).expect_err("String into List<Int> should fail");
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("element type mismatch"),
+        "expected element-type diagnostic, got: {}",
+        msg
+    );
+}

@@ -333,3 +333,170 @@ procedure main
     );
     assert_eq!(output, "3");
 }
+
+#[test]
+fn append_grows_list_by_one() {
+    let output = run_source(
+        r#"
+procedure main
+    var xs := [1, 2]
+    xs.append(3)
+    print(xs.length())
+"#,
+    );
+    assert_eq!(output, "3");
+}
+
+#[test]
+fn append_to_empty_annotated_list() {
+    let output = run_source(
+        r#"
+procedure main
+    var xs: List<Int> := []
+    xs.append(1)
+    xs.append(2)
+    print(xs.length())
+"#,
+    );
+    assert_eq!(output, "2");
+}
+
+#[test]
+fn append_moves_non_copy_value() {
+    // Appending a String moves it into the list. This test just
+    // verifies the runtime grows; the move semantics are
+    // enforced by the analyzer.
+    let output = run_source(
+        r#"
+procedure main
+    var names := ["a", "b"]
+    names.append("c")
+    print(names.length())
+"#,
+    );
+    assert_eq!(output, "3");
+}
+
+#[test]
+fn append_copies_copy_value() {
+    let output = run_source(
+        r#"
+procedure main
+    var xs := [1, 2]
+    val x := 3
+    xs.append(x)
+    print(xs.length())
+    print(x)
+"#,
+    );
+    assert_eq!(output, "3\n3");
+}
+
+#[test]
+fn append_to_nested_list() {
+    let output = run_source(
+        r#"
+procedure main
+    var outer := [[1, 2]]
+    outer.append([3, 4])
+    print(outer.length())
+"#,
+    );
+    assert_eq!(output, "2");
+}
+
+#[test]
+fn filter_via_append() {
+    let output = run_source(
+        r#"
+procedure main
+    val source := [1, 2, 3, 4, 5, 6]
+    var small: List<Int> := []
+    for x in source
+        if x < 3
+            small.append(x)
+    print(small.length())
+"#,
+    );
+    assert_eq!(output, "2");
+}
+
+#[test]
+fn append_invalidates_static_length() {
+    // Before append, the analyzer knew xs had 3 elements. After
+    // append, the check is dropped, so xs[3] is accepted at
+    // compile time and succeeds at runtime.
+    let output = run_source(
+        r#"
+procedure main
+    var xs := [10, 20, 30]
+    xs.append(40)
+    print(xs[3])
+"#,
+    );
+    assert_eq!(output, "40");
+}
+
+#[test]
+fn int_division_then_compare_diagnostic() {
+    let output = run_source(
+        r#"
+procedure main
+    val x := 5
+    print(x / 2)
+    print(x - (x / 2) * 2)
+"#,
+    );
+    assert_eq!(output, "2\n1");
+}
+
+#[test]
+fn diag_if_append_no_loop() {
+    let output = run_source(
+        r#"
+procedure main
+    var small: List<Int> := []
+    val x := 2
+    if x < 3
+        small.append(x)
+    print(small.length())
+"#,
+    );
+    assert_eq!(output, "1");
+}
+
+#[test]
+fn diag_for_append_no_if() {
+    let output = run_source(
+        r#"
+procedure main
+    val source := [1, 2, 3]
+    var small: List<Int> := []
+    for x in source
+        small.append(x)
+    print(small.length())
+"#,
+    );
+    assert_eq!(output, "3");
+}
+
+#[test]
+fn append_inside_match_case() {
+    let output = run_source(
+        r#"
+procedure main
+    var small: List<Int> := []
+    val x := 2
+    match x
+        case 1
+            small.append(100)
+        case 2
+            small.append(200)
+        case _
+            small.append(0)
+    print(small.length())
+    print(small[0])
+"#,
+    );
+    assert_eq!(output, "1\n200");
+}

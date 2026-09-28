@@ -21,24 +21,42 @@ impl SemanticIRBuilder {
             ..
         }) = stmt
         {
-            // Borrow, don't clone — the type table is keyed by node
-            // address and clone() invalidates the keys.
-            let then_stmts: &[Stmt] = match &then_branch.as_ref().kind {
-                ExprKind::Block { statements, .. } => statements.as_slice(),
-                _ => &[],
-            };
-            let else_stmts: Option<&[Stmt]> =
-                else_branch.as_ref().map(|e| match &e.as_ref().kind {
-                    ExprKind::Block { statements, .. } => statements.as_slice(),
-                    _ => &[],
-                });
+            // Collect each branch's statements, including the block's
+            // trailing expression as a final statement. A branch like
+            //
+            //     if c
+            //         small.append(x)
+            //
+            // parses as a block with empty `statements` and a
+            // `trailing_expr`; without this, the call would be dropped
+            // when the if is in statement position.
+            fn collect_branch_stmts(block: &Expr) -> Vec<Stmt> {
+                match &block.kind {
+                    ExprKind::Block {
+                        statements,
+                        trailing_expr,
+                        ..
+                    } => {
+                        let mut all = statements.clone();
+                        if let Some(te) = trailing_expr {
+                            all.push(Stmt::Expression((**te).clone()));
+                        }
+                        all
+                    }
+                    _ => vec![Stmt::Expression(block.clone())],
+                }
+            }
+
+            let then_stmts_owned = collect_branch_stmts(then_branch);
+            let else_stmts_owned = else_branch.as_ref().map(|e| collect_branch_stmts(e));
+
             return self.translate_if(
                 program,
                 func,
                 current_block,
                 condition,
-                then_stmts,
-                else_stmts,
+                &then_stmts_owned,
+                else_stmts_owned.as_deref(),
             );
         }
 
@@ -122,8 +140,13 @@ impl SemanticIRBuilder {
                 } = &value.kind
                 {
                     let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
-                        .try_resolve_map_method_call(program, func, current_block, func_name, args)
-                    {
+                        .try_resolve_container_method_call(
+                            program,
+                            func,
+                            current_block,
+                            func_name,
+                            args,
+                        ) {
                         (callee, call_args)
                     } else {
                         let typed_args: Vec<TypedIRValue> = args
@@ -155,8 +178,13 @@ impl SemanticIRBuilder {
                 } = &value.kind
                 {
                     let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
-                        .try_resolve_map_method_call(program, func, current_block, func_name, args)
-                    {
+                        .try_resolve_container_method_call(
+                            program,
+                            func,
+                            current_block,
+                            func_name,
+                            args,
+                        ) {
                         (callee, call_args)
                     } else {
                         let typed_args: Vec<TypedIRValue> = args
@@ -480,8 +508,13 @@ impl SemanticIRBuilder {
                 } = &expr.kind
                 {
                     let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
-                        .try_resolve_map_method_call(program, func, current_block, func_name, args)
-                    {
+                        .try_resolve_container_method_call(
+                            program,
+                            func,
+                            current_block,
+                            func_name,
+                            args,
+                        ) {
                         (callee, call_args)
                     } else {
                         let typed_args: Vec<TypedIRValue> = args
@@ -739,12 +772,18 @@ impl SemanticIRBuilder {
                         if let Some(info) = self.lookup_var(receiver_name) {
                             let receiver_type = info.type_.clone();
 
-                            // ─── Map method dispatch (ADR 0027) ───
-                            // Map methods aren't registered in `function_types`, so the
-                            // generic method path below won't find them. Handle them
-                            // first: the receiver is prepended as the first arg, and
-                            // the callee name is `Map.<method>`.
-                            if matches!(receiver_type, Type::Map(..)) {
+                            // ─── Container method dispatch (ADR 0027, ADR 0028) ───
+                            // Map methods and List.append aren't registered in
+                            // `function_types`, so the generic method path below
+                            // won't find them. Handle them first: the receiver is
+                            // prepended as the first arg, and the callee name is
+                            // `<Container>.<method>`.
+                            let prefix = match &receiver_type {
+                                Type::Map(..) => Some("Map"),
+                                Type::List(_) if method_name == "append" => Some("List"),
+                                _ => None,
+                            };
+                            if let Some(prefix) = prefix {
                                 let receiver_value = TypedIRValue::Variable(
                                     receiver_name.to_string(),
                                     receiver_type.clone(),
@@ -760,7 +799,7 @@ impl SemanticIRBuilder {
                                 }
                                 let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
                                 return TypedIRValue::Call {
-                                    function: format!("Map.{}", method_name),
+                                    function: format!("{}.{}", prefix, method_name),
                                     args: call_args,
                                     return_type,
                                 };
@@ -1647,17 +1686,16 @@ impl SemanticIRBuilder {
     }
 
     /// If `call_expr` names a method call on a variable whose type
-    /// is `Map<K, V>`, return `(callee, args_with_receiver)`. The
-    /// receiver is prepended as the first argument, matching the
-    /// convention the interpreter uses for all Map methods.
+    /// is a container the IR dispatches specially (`Map<K, V>` or
+    /// `List<T>` with `.append`), return `(callee, args_with_receiver)`.
+    /// The receiver is prepended as the first argument, matching the
+    /// convention the interpreter uses for all container methods.
     ///
-    /// Returns `None` for any call whose receiver is not a Map
-    /// (non-dotted names, unknown receivers, other types).
-    ///
-    /// Used by `translate_expr`'s FunctionCall arm and by the
-    /// `Stmt::VarDecl` / `Stmt::Expression` handlers so both produce
-    /// identical IR for the same source.
-    pub(super) fn try_resolve_map_method_call(
+    /// Returns `None` for any call whose receiver is not one of these
+    /// containers — non-dotted names, unknown receivers, other types,
+    /// or `List.<method>` other than `append` (which are handled
+    /// through the normal builtin path).
+    pub(super) fn try_resolve_container_method_call(
         &mut self,
         program: &mut SemanticProgram,
         func: &mut SemanticFunction,
@@ -1673,14 +1711,20 @@ impl SemanticIRBuilder {
         let receiver_name = parts[0];
         let method_name = parts[1];
         let info = self.lookup_var(receiver_name)?;
-        if !matches!(info.type_, Type::Map(..)) {
-            return None;
-        }
-        let receiver_value = TypedIRValue::Variable(receiver_name.to_string(), info.type_.clone());
+        let receiver_type = info.type_.clone();
+
+        let prefix = match &receiver_type {
+            Type::Map(..) => "Map",
+            Type::List(_) if method_name == "append" => "List",
+            _ => return None,
+        };
+
+        let receiver_value =
+            TypedIRValue::Variable(receiver_name.to_string(), receiver_type.clone());
         let mut call_args = vec![receiver_value];
         for arg in args {
             call_args.push(self.translate_expr(program, func, current_block, arg));
         }
-        Some((format!("Map.{}", method_name), call_args))
+        Some((format!("{}.{}", prefix, method_name), call_args))
     }
 }

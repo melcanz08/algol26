@@ -547,6 +547,27 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
             }
             let _ = write!(out, " }}");
         }
+        ExprKind::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+            ..
+        } => {
+            let _ = write!(out, "Map");
+            if let (Some(k), Some(v)) = (key_type, value_type) {
+                let _ = write!(out, "<{}, {}>", k.to_string_rep(), v.to_string_rep());
+            }
+            let _ = write!(out, " {{ ");
+            for (i, (k, v)) in entries.iter().enumerate() {
+                if i > 0 {
+                    let _ = write!(out, ", ");
+                }
+                format_expr(out, level, k);
+                let _ = write!(out, ": ");
+                format_expr(out, level, v);
+            }
+            let _ = write!(out, " }}");
+        }
     }
 }
 

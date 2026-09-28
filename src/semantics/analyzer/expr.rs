@@ -1272,6 +1272,13 @@ impl SemanticAnalyzer {
                      accept `x.method` or `x.method()`",
                 ))
             }
+            ExprKind::MapLiteral { span, .. } => Err(CompileError::simple(
+                "Map literals are not yet supported by the analyzer",
+                span.start_line,
+                span.start_column,
+                "",
+                ErrorCode::E0002,
+            )),
         }
     }
 

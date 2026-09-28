@@ -323,3 +323,108 @@ procedure main
     let msg = format!("{}", err);
     assert!(msg.contains("complex receiver"), "got: {}", msg);
 }
+
+#[test]
+fn map_literal_parses_with_inferred_types() {
+    let source = r#"procedure main
+    val m := Map { "a": 1, "b": 2 }
+"#;
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    let mut parser = crate::frontend::parser::Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let stmt = &program.functions[0].body[0];
+    let value = match stmt {
+        crate::frontend::ast::Stmt::VarDecl { value, .. } => value,
+        _ => panic!("expected VarDecl"),
+    };
+    match &value.kind {
+        crate::frontend::ast::ExprKind::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+            ..
+        } => {
+            assert!(key_type.is_none());
+            assert!(value_type.is_none());
+            assert_eq!(entries.len(), 2);
+        }
+        other => panic!("expected MapLiteral, got {:?}", other),
+    }
+}
+
+#[test]
+fn map_literal_parses_with_explicit_types() {
+    let source = r#"procedure main
+    val m := Map<String, Int> { "a": 1 }
+"#;
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    let mut parser = crate::frontend::parser::Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let stmt = &program.functions[0].body[0];
+    let value = match stmt {
+        crate::frontend::ast::Stmt::VarDecl { value, .. } => value,
+        _ => panic!("expected VarDecl"),
+    };
+    match &value.kind {
+        crate::frontend::ast::ExprKind::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+            ..
+        } => {
+            assert_eq!(key_type.as_ref().unwrap().to_string_rep(), "String");
+            assert_eq!(value_type.as_ref().unwrap().to_string_rep(), "Int");
+            assert_eq!(entries.len(), 1);
+        }
+        other => panic!("expected MapLiteral, got {:?}", other),
+    }
+}
+
+#[test]
+fn empty_map_literal_parses() {
+    // `Map {}` has no entries and no type args. The parser accepts
+    // it; the analyzer is what requires the type args to be
+    // recoverable from context.
+    let source = r#"procedure main
+    val m := Map {}
+"#;
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    let mut parser = crate::frontend::parser::Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let stmt = &program.functions[0].body[0];
+    let value = match stmt {
+        crate::frontend::ast::Stmt::VarDecl { value, .. } => value,
+        _ => panic!("expected VarDecl"),
+    };
+    match &value.kind {
+        crate::frontend::ast::ExprKind::MapLiteral { entries, .. } => {
+            assert!(entries.is_empty());
+        }
+        other => panic!("expected MapLiteral, got {:?}", other),
+    }
+}
+
+#[test]
+fn nested_map_literal_parses() {
+    let source = r#"procedure main
+    val m := Map { "outer": Map { "inner": 1 } }
+"#;
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    let mut parser = crate::frontend::parser::Parser::new(lexer.tokens);
+    let program = parser.parse_program().unwrap();
+    let stmt = &program.functions[0].body[0];
+    let value = match stmt {
+        crate::frontend::ast::Stmt::VarDecl { value, .. } => value,
+        _ => panic!("expected VarDecl"),
+    };
+    let entries = match &value.kind {
+        crate::frontend::ast::ExprKind::MapLiteral { entries, .. } => entries,
+        other => panic!("expected MapLiteral, got {:?}", other),
+    };
+    assert_eq!(entries.len(), 1);
+    let inner = match &entries[0].1.kind {
+        crate::frontend::ast::ExprKind::MapLiteral { entries, .. } => entries,
+        other => panic!("expected nested MapLiteral, got {:?}", other),
+    };
+    assert_eq!(inner.len(), 1);
+}

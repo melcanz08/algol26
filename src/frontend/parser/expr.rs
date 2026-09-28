@@ -429,6 +429,20 @@ impl Parser {
                 index: Box::new(index),
                 span: ident_span,
             }))
+        } else if name == "Map" && matches!(self.peek(), Token::LBrace) {
+            // `Map { k: v, ... }` — key and value types inferred from entries.
+            self.parse_map_literal(None, None, ident_span)
+        } else if name == "Map"
+            && matches!(self.peek(), Token::Lt)
+            && self.looks_like_map_type_args()
+        {
+            // `Map<K, V> { ... }` — explicit type arguments. The empty
+            // literal `Map<String, Int> {}` is only expressible this way.
+            let (key_type, value_type) = self.parse_map_type_args()?;
+            self.parse_map_literal(Some(key_type), Some(value_type), ident_span)
+        } else if matches!(self.peek(), Token::LBrace) {
+            // existing record-literal branch — unchanged
+            self.parse_record_literal(name, Vec::new(), ident_span)
         } else if matches!(self.peek(), Token::Dot) {
             self.advance();
             let member_name = self.expect_identifier("member name")?;
@@ -451,18 +465,12 @@ impl Parser {
                     span: ident_span,
                 }));
             }
-
             // `name.member` (no parens) → field access.
             Ok(Expr::new(ExprKind::FieldAccess {
                 object: Expr::boxed(ExprKind::Var(name, ident_span)),
                 field: member_name,
                 span: ident_span,
             }))
-        } else if matches!(self.peek(), Token::LBrace) {
-            // `Name { field: expr, ... }` → record literal.
-            // Generic record literals (`Pair<Int> { ... }`) are deferred;
-            // type args are inferred from the field expressions.
-            self.parse_record_literal(name, Vec::new(), ident_span)
         } else {
             Ok(Expr::new(ExprKind::Var(name, ident_span)))
         }
@@ -649,5 +657,84 @@ impl Parser {
             fields,
             span: start_span,
         }))
+    }
+    /// Parse `<K, V>` after the `Map` identifier. Assumes the current
+    /// token is `<`.
+    fn parse_map_type_args(&mut self) -> Result<(TypeSyntax, TypeSyntax)> {
+        self.expect_token(Token::Lt, "'<'")?;
+        let key_type = self.parse_type_syntax()?;
+        self.expect_token(Token::Comma, "','")?;
+        let value_type = self.parse_type_syntax()?;
+        self.expect_token(Token::Gt, "'>'")?;
+        Ok((key_type, value_type))
+    }
+
+    /// Parse `{ k: v, ... }` after `Map` or `Map<K, V>`.
+    ///
+    /// Both empty (`{}`) and non-empty forms are accepted. An empty
+    /// literal with no type args parses successfully here; the analyzer
+    /// is what rejects it without an expected type from context.
+    pub(super) fn parse_map_literal(
+        &mut self,
+        key_type: Option<TypeSyntax>,
+        value_type: Option<TypeSyntax>,
+        start_span: Span,
+    ) -> Result<Expr> {
+        self.expect_token(Token::LBrace, "'{'")?;
+        let mut entries = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            let key = self.parse_expr()?;
+            self.expect_token(Token::Colon, "':'")?;
+            let value = self.parse_expr()?;
+            entries.push((key, value));
+            if matches!(self.peek(), Token::Comma) {
+                self.advance();
+            }
+        }
+        self.expect_token(Token::RBrace, "'}'")?;
+        Ok(Expr::new(ExprKind::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+            span: start_span,
+        }))
+    }
+
+    /// Lookahead: from the current position (which must be `<`), scan
+    /// forward to the matching `>`. Return `true` iff every intervening
+    /// token is legal in a type-argument list AND the token after the
+    /// matching `>` is `{`.
+    ///
+    /// This is what disambiguates `Map<K, V> { ... }` from a comparison
+    /// `Map < x`. The rule is conservative: any token that is not a
+    /// type-syntax token causes an early `false`, at which point the
+    /// caller falls through to treating `<` as the comparison operator.
+    ///
+    /// Nested type args (`Map<Int, Map<String, Bool>>`) push and pop on
+    /// depth, so `>>` — which the lexer produces as two `Gt` tokens —
+    /// closes both levels correctly.
+    fn looks_like_map_type_args(&self) -> bool {
+        debug_assert!(matches!(self.peek(), Token::Lt));
+        let mut depth: i32 = 0;
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::Lt => depth += 1,
+                Token::Gt => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return i + 1 < self.tokens.len()
+                            && matches!(self.tokens[i + 1].token, Token::LBrace);
+                    }
+                    if depth < 0 {
+                        return false;
+                    }
+                }
+                Token::Identifier(_) | Token::Comma | Token::LBracket | Token::RBracket => {}
+                _ => return false,
+            }
+            i += 1;
+        }
+        false
     }
 }

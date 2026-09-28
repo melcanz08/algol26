@@ -1407,6 +1407,11 @@ impl SemanticIRBuilder {
                     field_type,
                 }
             }
+            ExprKind::MapLiteral { .. } => {
+                self.diagnostics
+                    .push("Map literals are not yet supported by the IR builder".to_string());
+                TypedIRValue::Void
+            }
         }
     }
 

@@ -563,6 +563,12 @@ fn collect_expr_call_ids(expr: &Expr, out: &mut Vec<ExprId>) {
                 collect_expr_call_ids(e, out);
             }
         }
+        ExprKind::MapLiteral { entries, .. } => {
+            for (k, v) in entries {
+                collect_expr_call_ids(k, out);
+                collect_expr_call_ids(v, out);
+            }
+        }
         _ => {}
     }
 }

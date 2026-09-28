@@ -1017,6 +1017,12 @@ fn number_expr(expr: &mut Expr, next: &mut u32) {
                 number_expr(e, next);
             }
         }
+        ExprKind::MapLiteral { entries, .. } => {
+            for (k, v) in entries.iter_mut() {
+                number_expr(k, next);
+                number_expr(v, next);
+            }
+        }
         ExprKind::FieldAccess { object, .. } => number_expr(object, next),
         ExprKind::Number(..)
         | ExprKind::Int(..)

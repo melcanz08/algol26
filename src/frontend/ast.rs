@@ -167,6 +167,12 @@ pub enum ExprKind {
         fields: Vec<(String, Expr)>,
         span: Span,
     },
+    MapLiteral {
+        key_type: Option<TypeSyntax>,
+        value_type: Option<TypeSyntax>,
+        entries: Vec<(Expr, Expr)>,
+        span: Span,
+    },
 }
 
 impl ExprKind {
@@ -202,6 +208,7 @@ impl ExprKind {
             ExprKind::Range { span, .. } => *span,
             ExprKind::FieldAccess { span, .. } => *span,
             ExprKind::RecordLiteral { span, .. } => *span,
+            ExprKind::MapLiteral { span, .. } => *span,
         }
     }
 }
@@ -457,6 +464,7 @@ impl TypeSyntax {
                 "pointer" | "ptr" if args.len() == 1 => Type::pointer(args[0].to_type()),
                 "channel" if args.len() == 1 => Type::channel(args[0].to_type()),
                 "result" if args.len() == 2 => Type::result(args[0].to_type(), args[1].to_type()),
+                "map" if args.len() == 2 => Type::map(args[0].to_type(), args[1].to_type()),
                 _ => Type::Unknown,
             },
             TypeSyntax::Unknown => Type::Unknown,

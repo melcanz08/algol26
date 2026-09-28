@@ -193,6 +193,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::Range { .. } => "Range",
         ExprKind::FieldAccess { .. } => "FieldAccess",
         ExprKind::RecordLiteral { .. } => "RecordLiteral",
+        ExprKind::MapLiteral { .. } => "MapLiteral",
     }
 }
 
@@ -221,6 +222,9 @@ procedure main
             v
         case None
             0.0
+
+    val m := Map { "a": 1, "b": 2 }              // ← NEW
+    val explicit := Map<String, Int> { "x": 42 } // ← NEW
 
     print(unwrapped)
 "#;

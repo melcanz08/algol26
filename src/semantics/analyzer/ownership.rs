@@ -408,6 +408,12 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(e, captured);
                 }
             }
+            ExprKind::MapLiteral { entries, .. } => {
+                for (k, v) in entries {
+                    self.collect_expr_captures(k, captured);
+                    self.collect_expr_captures(v, captured);
+                }
+            }
         }
     }
 }

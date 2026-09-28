@@ -116,26 +116,31 @@ impl SemanticIRBuilder {
                 // generic call. Emit an `Allocate` instruction and
                 // declare the pointer in one step. (Step 2 wiring.)
                 if let ExprKind::FunctionCall {
-                    name: fn_name,
+                    name: func_name,
                     args,
                     ..
                 } = &value.kind
                 {
-                    if fn_name == "alloc" && args.len() == 1 {
-                        let size = self.translate_expr(program, func, current_block, &args[0]);
-                        let ptr_ty = Type::pointer(Type::Unknown);
-                        self.declare_var(name, ptr_ty.clone(), *mutable);
-                        self.safe_push_instruction(
-                            func,
-                            current_block,
-                            SemanticInstruction::Allocate {
-                                target: name.clone(),
-                                size,
-                                type_: ptr_ty,
-                            },
-                        );
-                        return FlowResult::Reachable(current_block);
-                    }
+                    let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
+                        .try_resolve_map_method_call(program, func, current_block, func_name, args)
+                    {
+                        (callee, call_args)
+                    } else {
+                        let typed_args: Vec<TypedIRValue> = args
+                            .iter()
+                            .map(|a| self.translate_expr(program, func, current_block, a))
+                            .collect();
+                        (self.resolved_callee_name(value, func_name), typed_args)
+                    };
+                    self.safe_push_instruction(
+                        func,
+                        current_block,
+                        Instruction::Call {
+                            func: emitted_name,
+                            args: typed_args,
+                            result: Some(name.clone()),
+                        },
+                    );
                 }
 
                 if let ExprKind::List(elements, _) = &value.kind {
@@ -468,11 +473,17 @@ impl SemanticIRBuilder {
                     ..
                 } = &expr.kind
                 {
-                    let typed_args: Vec<TypedIRValue> = args
-                        .iter()
-                        .map(|a| self.translate_expr(program, func, current_block, a))
-                        .collect();
-                    let emitted_name = self.resolved_callee_name(expr, func_name);
+                    let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
+                        .try_resolve_map_method_call(program, func, current_block, func_name, args)
+                    {
+                        (callee, call_args)
+                    } else {
+                        let typed_args: Vec<TypedIRValue> = args
+                            .iter()
+                            .map(|a| self.translate_expr(program, func, current_block, a))
+                            .collect();
+                        (self.resolved_callee_name(expr, func_name), typed_args)
+                    };
                     self.safe_push_instruction(
                         func,
                         current_block,
@@ -721,6 +732,33 @@ impl SemanticIRBuilder {
 
                         if let Some(info) = self.lookup_var(receiver_name) {
                             let receiver_type = info.type_.clone();
+
+                            // ─── Map method dispatch (ADR 0027) ───
+                            // Map methods aren't registered in `function_types`, so the
+                            // generic method path below won't find them. Handle them
+                            // first: the receiver is prepended as the first arg, and
+                            // the callee name is `Map.<method>`.
+                            if matches!(receiver_type, Type::Map(..)) {
+                                let receiver_value = TypedIRValue::Variable(
+                                    receiver_name.to_string(),
+                                    receiver_type.clone(),
+                                );
+                                let mut call_args = vec![receiver_value];
+                                for arg in args {
+                                    call_args.push(self.translate_expr(
+                                        program,
+                                        func,
+                                        current_block,
+                                        arg,
+                                    ));
+                                }
+                                let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                                return TypedIRValue::Call {
+                                    function: format!("Map.{}", method_name),
+                                    args: call_args,
+                                    return_type,
+                                };
+                            }
 
                             if let Some(resolved_name) =
                                 self.resolve_method_call(&receiver_type, method_name)
@@ -1367,6 +1405,20 @@ impl SemanticIRBuilder {
                 let obj = self.translate_expr(program, func, current_block, object);
                 let obj_ty = obj.type_of();
 
+                // ─── Map zero-arg methods (ADR 0027) ───
+                // `m.length`, `m.keys`, `m.values`. The argument-taking
+                // methods reject this form in the analyzer; only the three
+                // nullary ones reach here.
+                if let Type::Map(..) = &obj_ty {
+                    let callee = format!("Map.{}", field);
+                    let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                    return TypedIRValue::Call {
+                        function: callee,
+                        args: vec![obj],
+                        return_type,
+                    };
+                }
+
                 // `p.x` on a record is a field read. `s.length` on a
                 // String/List is the zero-argument method-call form.
                 // The analyzer resolved both to the same result type;
@@ -1407,10 +1459,45 @@ impl SemanticIRBuilder {
                     field_type,
                 }
             }
-            ExprKind::MapLiteral { .. } => {
-                self.diagnostics
-                    .push("Map literals are not yet supported by the IR builder".to_string());
-                TypedIRValue::Void
+            ExprKind::MapLiteral {
+                key_type: key_syntax,
+                value_type: value_syntax,
+                entries,
+                ..
+            } => {
+                let mut translated = Vec::with_capacity(entries.len());
+                for (k, v) in entries {
+                    let kv = self.translate_expr(program, func, current_block, k);
+                    let vv = self.translate_expr(program, func, current_block, v);
+                    translated.push((kv, vv));
+                }
+
+                // The analyzer already produced a Map<K, V> type and stored
+                // it in the type table. If for any reason it didn't, fall
+                // back to the declared type args (or Unknown for the
+                // inferred form).
+                let map_type = self.type_of_expr(expr).unwrap_or_else(|| {
+                    let kt = key_syntax
+                        .as_ref()
+                        .map(|s| s.to_type())
+                        .unwrap_or(Type::Unknown);
+                    let vt = value_syntax
+                        .as_ref()
+                        .map(|s| s.to_type())
+                        .unwrap_or(Type::Unknown);
+                    Type::map(kt, vt)
+                });
+                let (key_type, value_type) = match &map_type {
+                    Type::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    _ => (Type::Unknown, Type::Unknown),
+                };
+
+                TypedIRValue::Map {
+                    key_type,
+                    value_type,
+                    entries: translated,
+                    map_type,
+                }
             }
         }
     }
@@ -1527,5 +1614,43 @@ impl SemanticIRBuilder {
 
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(result_var, Type::Bool)
+    }
+
+    /// If `call_expr` names a method call on a variable whose type
+    /// is `Map<K, V>`, return `(callee, args_with_receiver)`. The
+    /// receiver is prepended as the first argument, matching the
+    /// convention the interpreter uses for all Map methods.
+    ///
+    /// Returns `None` for any call whose receiver is not a Map
+    /// (non-dotted names, unknown receivers, other types).
+    ///
+    /// Used by `translate_expr`'s FunctionCall arm and by the
+    /// `Stmt::VarDecl` / `Stmt::Expression` handlers so both produce
+    /// identical IR for the same source.
+    pub(super) fn try_resolve_map_method_call(
+        &mut self,
+        program: &mut SemanticProgram,
+        func: &mut SemanticFunction,
+        current_block: usize,
+        func_name: &str,
+        args: &[Expr],
+    ) -> Option<(String, Vec<TypedIRValue>)> {
+        let clean = func_name.trim_end_matches("()");
+        let parts: Vec<&str> = clean.split('.').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        let receiver_name = parts[0];
+        let method_name = parts[1];
+        let info = self.lookup_var(receiver_name)?;
+        if !matches!(info.type_, Type::Map(..)) {
+            return None;
+        }
+        let receiver_value = TypedIRValue::Variable(receiver_name.to_string(), info.type_.clone());
+        let mut call_args = vec![receiver_value];
+        for arg in args {
+            call_args.push(self.translate_expr(program, func, current_block, arg));
+        }
+        Some((format!("Map.{}", method_name), call_args))
     }
 }

@@ -632,6 +632,12 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
                 collect_variables_from_value(v, vars);
             }
         }
+        TypedIRValue::Map { entries, .. } => {
+            for (k, v) in entries {
+                collect_variables_from_value(k, vars);
+                collect_variables_from_value(v, vars);
+            }
+        }
         _ => {}
     }
 }

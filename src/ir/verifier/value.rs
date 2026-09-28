@@ -81,6 +81,54 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
 
             record_type.clone()
         }
+        TypedIRValue::Map {
+            key_type,
+            value_type,
+            entries,
+            map_type,
+        } => {
+            // Every entry's key and value must verify and (when known)
+            // coerce to the declared K and V. The analyzer is the
+            // primary gate; the verifier is a second check.
+            for (k, v) in entries {
+                let kt = verify_value(k, env)?;
+                let vt = verify_value(v, env)?;
+                if !key_type.is_unknown()
+                    && !kt.is_unknown()
+                    && kt != *key_type
+                    && !kt.can_coerce_to(key_type)
+                {
+                    return Err(format!(
+                        "Map entry key has type {:?} but Map claims {:?}",
+                        kt, key_type
+                    ));
+                }
+                if !value_type.is_unknown()
+                    && !vt.is_unknown()
+                    && vt != *value_type
+                    && !vt.can_coerce_to(value_type)
+                {
+                    return Err(format!(
+                        "Map entry value has type {:?} but Map claims {:?}",
+                        vt, value_type
+                    ));
+                }
+            }
+
+            // The claimed map_type must itself be a Map. Anything else is
+            // an internal inconsistency between the value and its type.
+            match map_type {
+                Type::Map(..) | Type::Unknown => {}
+                other => {
+                    return Err(format!(
+                        "TypedIRValue::Map has non-Map map_type {:?}",
+                        other
+                    ));
+                }
+            }
+
+            map_type.clone()
+        }
         TypedIRValue::BinaryOp {
             op,
             left,
@@ -219,6 +267,23 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             args,
             return_type,
         } => {
+            // ─── Map method calls (ADR 0027) ───
+            // The analyzer has already validated the receiver's K and V
+            // and each argument. Map's K and V are not expressible in
+            // the builtin signature format — `Type::TypeVar` in a
+            // builtin signature doesn't bind against the receiver's
+            // concrete type arguments the way user-function generics
+            // do — so the verifier trusts the analyzer's decision and
+            // returns the claimed type.
+            if function.starts_with("Map.") {
+                // Still verify each argument so structurally malformed
+                // IR fails closed.
+                for a in args {
+                    verify_value(a, env)?;
+                }
+                return Ok(return_type.clone());
+            }
+
             let arg_types: Result<Vec<_>, _> = args.iter().map(|a| verify_value(a, env)).collect();
             let arg_types = arg_types?;
 

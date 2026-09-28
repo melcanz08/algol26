@@ -39,6 +39,12 @@ fn collect_all_vars(v: &TypedIRValue, out: &mut Vec<String>) {
                 collect_all_vars(fv, out);
             }
         }
+        TypedIRValue::Map { entries, .. } => {
+            for (k, v) in entries {
+                collect_all_vars(k, out);
+                collect_all_vars(v, out);
+            }
+        }
         TypedIRValue::FieldAccess { object, .. } => {
             // `p.x` as an RHS is a use of `p`.
             collect_all_vars(object, out);

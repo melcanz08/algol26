@@ -39,6 +39,19 @@ pub enum TypedIRValue {
         fields: Vec<(String, TypedIRValue)>,
         record_type: Type,
     },
+    Map {
+        key_type: Type,
+        value_type: Type,
+        /// Entries in declaration order. The interpreter is free to
+        /// store them however it likes; the IR is a compile-time
+        /// snapshot and preserves the source order for display and
+        /// equality.
+        entries: Vec<(TypedIRValue, TypedIRValue)>,
+        /// The full `Type::Map(K, V)`. Kept here so `type_of()`
+        /// doesn't have to reassemble it from the key and value
+        /// types, and so the verifier has a single source of truth.
+        map_type: Type,
+    },
     Some(Box<TypedIRValue>),
     None {
         option_type: Type,
@@ -114,6 +127,7 @@ impl TypedIRValue {
             TypedIRValue::NullPtr => Type::Ptr,
             TypedIRValue::List(_, t) => Type::list(t.clone()),
             TypedIRValue::Record { record_type, .. } => record_type.clone(),
+            TypedIRValue::Map { map_type, .. } => map_type.clone(),
             TypedIRValue::Some(v) => Type::option(v.type_of()),
             TypedIRValue::None { option_type } => option_type.clone(),
             TypedIRValue::Ok { result_type, .. } => result_type.clone(),

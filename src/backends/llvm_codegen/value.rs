@@ -86,6 +86,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                      records should have been refused by check_backend"
                 );
             }
+            TypedIRValue::Map { .. } => {
+                unreachable!(
+                    "LLVM codegen reached TypedIRValue::Map — \
+                     maps should have been refused by check_backend"
+                );
+            }
             TypedIRValue::Variable(name, _) => {
                 // ALGOL26: UNDEFINED VARIABLE IS AN ERROR, not 0.0!
                 let ptr = self.variables.get(name).ok_or_else(|| {

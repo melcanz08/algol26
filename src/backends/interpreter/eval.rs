@@ -57,6 +57,12 @@ impl Interpreter {
                     fields: out,
                 }
             }
+            TypedIRValue::Map { .. } => {
+                return Err(EvalError::Unsupported {
+                    construct: "Map values",
+                    hint: "the interpreter does not yet model Map (ADR 0027 session 6)",
+                });
+            }
             // `Array` was previously unhandled. Treat it as a List —
             // the interpreter's runtime value model has no fixed-size
             // array; fixed sizes are a compile-time property.

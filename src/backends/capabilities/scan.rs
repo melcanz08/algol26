@@ -87,6 +87,14 @@ fn type_mentions_reference(ty: &Type) -> bool {
 /// When adding a new `Feature` variant, add its display string in
 /// `Feature::description` and its name pattern here in the same commit.
 pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
+    // ─── Map method names ───
+    // Checked before the `is_builtin_name` guard because Map
+    // methods are dispatched by the analyzer's custom path and
+    // are not registered in the builtin signature table.
+    if name.starts_with("Map.") {
+        used.insert(Feature::Map);
+        return;
+    }
     // Only names that appear in the analyzer/verifier builtin table
     // are candidates. A user-defined function named `String.helper`
     // does not need LLVM's String lowering (it has its own body)
@@ -115,8 +123,6 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
         used.insert(Feature::FileFunctions);
     } else if name == "List.sum" || name == "List.max" || name == "List.min" {
         used.insert(Feature::ListAggregates);
-    } else if name.starts_with("Map.") {
-        used.insert(Feature::Map);
     } else if name == "args" {
         // ADR 0023. LLVM and WASM have no lowering for command-
         // line arguments; the interpreter reads the process's
@@ -268,6 +274,13 @@ pub(super) fn scan_value(
         TypedIRValue::Record { fields, .. } => {
             used.insert(Feature::Records);
             for (_, v) in fields {
+                scan_value(v, extern_fns, used);
+            }
+        }
+        TypedIRValue::Map { entries, .. } => {
+            used.insert(Feature::Map);
+            for (k, v) in entries {
+                scan_value(k, extern_fns, used);
                 scan_value(v, extern_fns, used);
             }
         }

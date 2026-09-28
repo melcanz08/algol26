@@ -195,6 +195,21 @@ pub(super) fn verify_instruction(
             args,
             result,
         } => {
+            // ─── Map method calls (ADR 0027) ───
+            // See verify_value's Call arm. Arg verification still runs;
+            // the result binding is registered as `Unknown` because the
+            // concrete type already lives in the analyzer's table.
+            if callee.starts_with("Map.") {
+                for a in args {
+                    verify_value(a, env)?;
+                }
+                if let Some(name) = result {
+                    env.variables.insert(name.clone(), Type::Unknown);
+                    env.mutability.insert(name.clone(), false);
+                }
+                return Ok(());
+            }
+
             let arg_types: Result<Vec<_>, _> = args.iter().map(|a| verify_value(a, env)).collect();
             let arg_types = arg_types?;
 

@@ -351,6 +351,18 @@ fn format_value(out: &mut String, value: &TypedIRValue) {
             }
             out.push_str(" }");
         }
+        TypedIRValue::Map { entries, .. } => {
+            out.push_str("Map { ");
+            for (i, (k, v)) in entries.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                format_value(out, k);
+                out.push_str(": ");
+                format_value(out, v);
+            }
+            out.push_str(" }");
+        }
         TypedIRValue::BorrowShared { expr, .. } => {
             out.push('&');
             format_value(out, expr);

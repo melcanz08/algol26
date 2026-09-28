@@ -191,6 +191,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `free` | ✅ | ✅ | ✅ | ⛔ | — |
 | `extern` (FFI) | ✅ | ✅ | ⛔ | ✅ | — |
 | `import` | ✅ | ✅ | ✅ | ✅ | — |
+| `Map<K, V>` | Interpreter | LLVM/WASM refused | ADR 0027 |
 
 **Note on canonical IR names.** The IR builder emits
 `BorrowShared` / `BorrowMutable` / `ReadReference` / `SendChannel`

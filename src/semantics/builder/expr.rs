@@ -130,81 +130,37 @@ impl SemanticIRBuilder {
                     return FlowResult::Reachable(current_block);
                 }
 
-                // `val p := alloc(n)` is a memory operation, not a
-                // generic call. Emit an `Allocate` instruction and
-                // declare the pointer in one step. (Step 2 wiring.)
+                // `val p := alloc(n)` — Allocate does the binding itself.
                 if let ExprKind::FunctionCall {
-                    name: func_name,
+                    name: fn_name,
                     args,
                     ..
                 } = &value.kind
                 {
-                    let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
-                        .try_resolve_container_method_call(
-                            program,
+                    if fn_name == "alloc" && args.len() == 1 {
+                        let size = self.translate_expr(program, func, current_block, &args[0]);
+                        let ptr_ty = Type::pointer(Type::Unknown);
+                        self.declare_var(name, ptr_ty.clone(), *mutable);
+                        self.safe_push_instruction(
                             func,
                             current_block,
-                            func_name,
-                            args,
-                        ) {
-                        (callee, call_args)
-                    } else {
-                        let typed_args: Vec<TypedIRValue> = args
-                            .iter()
-                            .map(|a| self.translate_expr(program, func, current_block, a))
-                            .collect();
-                        (self.resolved_callee_name(value, func_name), typed_args)
-                    };
-                    self.safe_push_instruction(
-                        func,
-                        current_block,
-                        Instruction::Call {
-                            func: emitted_name,
-                            args: typed_args,
-                            result: Some(name.clone()),
-                        },
-                    );
+                            SemanticInstruction::Allocate {
+                                target: name.clone(),
+                                size,
+                                type_: ptr_ty,
+                            },
+                        );
+                        return FlowResult::Reachable(current_block);
+                    }
                 }
 
                 if let ExprKind::List(elements, _) = &value.kind {
                     self.list_values.insert(name.clone(), elements.clone());
                 }
+
                 let typed_value = self.translate_expr(program, func, current_block, value);
-
-                if let ExprKind::FunctionCall {
-                    name: func_name,
-                    args,
-                    ..
-                } = &value.kind
-                {
-                    let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
-                        .try_resolve_container_method_call(
-                            program,
-                            func,
-                            current_block,
-                            func_name,
-                            args,
-                        ) {
-                        (callee, call_args)
-                    } else {
-                        let typed_args: Vec<TypedIRValue> = args
-                            .iter()
-                            .map(|a| self.translate_expr(program, func, current_block, a))
-                            .collect();
-                        (self.resolved_callee_name(value, func_name), typed_args)
-                    };
-                    self.safe_push_instruction(
-                        func,
-                        current_block,
-                        Instruction::Call {
-                            func: emitted_name,
-                            args: typed_args,
-                            result: Some(name.clone()),
-                        },
-                    );
-                }
-
                 let value_type = typed_value.type_of();
+
                 let type_ = if let Some(annot) = type_annotation {
                     let declared_type = annot.to_type();
                     if value_type != Type::Unknown
@@ -223,13 +179,40 @@ impl SemanticIRBuilder {
 
                 self.declare_var(name, type_.clone(), *mutable);
 
-                // If the initializer's translation branched (because it
-                // contained an `if` / `match` / `try` expression), the
-                // `Declare` instruction must go into the *merge* block
-                // that the value-producing expression created. Pushing
-                // it into `current_block` would land it after the
-                // Branch terminator, effectively deleting the rest of
-                // the enclosing block.
+                // If the initializer produced a Call, push it as a standalone
+                // Instruction::Call (DCE preserves those unconditionally, so the
+                // side effect survives even when the binding is unused) and have
+                // the Declare reference the resulting binding rather than
+                // re-evaluating the call.
+                //
+                // The callee name and arguments are taken directly from
+                // `typed_value`, which `translate_expr` has already resolved:
+                // method dispatch (`xs.length()` → `List.length`,
+                // `m.get(k)` → `Map.get`), generic mangling (`f<Int>` → `f_Int`),
+                // and builtin lowering all happen there. Reconstructing the callee
+                // from the raw source name here would produce `xs.length` rather
+                // than `List.length` and break both the interpreter and the IR
+                // shape tests.
+                let declare_value = match typed_value {
+                    TypedIRValue::Call {
+                        function,
+                        args: call_args,
+                        ..
+                    } => {
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            Instruction::Call {
+                                func: function,
+                                args: call_args,
+                                result: Some(name.clone()),
+                            },
+                        );
+                        TypedIRValue::Variable(name.clone(), type_.clone())
+                    }
+                    other => other,
+                };
+
                 if let Some(merge) = self.pending_merge.take() {
                     self.safe_push_instruction(
                         func,
@@ -238,7 +221,7 @@ impl SemanticIRBuilder {
                             name: name.clone(),
                             mutable: *mutable,
                             type_,
-                            value: typed_value,
+                            value: declare_value,
                         },
                     );
                     return FlowResult::Reachable(merge);
@@ -248,7 +231,7 @@ impl SemanticIRBuilder {
                     name: name.clone(),
                     mutable: *mutable,
                     type_,
-                    value: typed_value,
+                    value: declare_value,
                 }
             }
             Stmt::Assign { name, value, .. } => {
@@ -498,40 +481,34 @@ impl SemanticIRBuilder {
                 }
 
                 // A discarded function call must still execute its side
-                // effects. `translate_expr` for FunctionCall returns the
-                // value without pushing an instruction — the caller pushes
-                // it. For discarded calls, push with `result: None`.
-                if let ExprKind::FunctionCall {
-                    name: func_name,
-                    args,
-                    ..
-                } = &expr.kind
-                {
-                    let (emitted_name, typed_args) = if let Some((callee, call_args)) = self
-                        .try_resolve_container_method_call(
-                            program,
+                // effects. `translate_expr` returns the `TypedIRValue::Call`
+                // without pushing an instruction — the caller pushes it.
+                //
+                // The callee and args come from `typed_value`, which
+                // `translate_expr` has already resolved: method dispatch
+                // (`xs.length()` → `List.length`, `m.insert(k, v)` → `Map.insert`),
+                // generic mangling (`f<Int>` → `f_Int`), and container prefixes
+                // all happen there. Reconstructing the callee from the raw source
+                // name here would produce `xs.length` and break both the IR shape
+                // invariants and the interpreter's builtin dispatch.
+                if matches!(&expr.kind, ExprKind::FunctionCall { .. }) {
+                    let typed_value = self.translate_expr(program, func, current_block, expr);
+                    if let TypedIRValue::Call {
+                        function,
+                        args: call_args,
+                        ..
+                    } = typed_value
+                    {
+                        self.safe_push_instruction(
                             func,
                             current_block,
-                            func_name,
-                            args,
-                        ) {
-                        (callee, call_args)
-                    } else {
-                        let typed_args: Vec<TypedIRValue> = args
-                            .iter()
-                            .map(|a| self.translate_expr(program, func, current_block, a))
-                            .collect();
-                        (self.resolved_callee_name(expr, func_name), typed_args)
-                    };
-                    self.safe_push_instruction(
-                        func,
-                        current_block,
-                        Instruction::Call {
-                            func: emitted_name,
-                            args: typed_args,
-                            result: None,
-                        },
-                    );
+                            Instruction::Call {
+                                func: function,
+                                args: call_args,
+                                result: None,
+                            },
+                        );
+                    }
                 } else {
                     let _typed_value = self.translate_expr(program, func, current_block, expr);
                 }
@@ -1683,48 +1660,5 @@ impl SemanticIRBuilder {
 
         self.pending_merge = Some(merge_id);
         TypedIRValue::Variable(result_var, Type::Bool)
-    }
-
-    /// If `call_expr` names a method call on a variable whose type
-    /// is a container the IR dispatches specially (`Map<K, V>` or
-    /// `List<T>` with `.append`), return `(callee, args_with_receiver)`.
-    /// The receiver is prepended as the first argument, matching the
-    /// convention the interpreter uses for all container methods.
-    ///
-    /// Returns `None` for any call whose receiver is not one of these
-    /// containers — non-dotted names, unknown receivers, other types,
-    /// or `List.<method>` other than `append` (which are handled
-    /// through the normal builtin path).
-    pub(super) fn try_resolve_container_method_call(
-        &mut self,
-        program: &mut SemanticProgram,
-        func: &mut SemanticFunction,
-        current_block: usize,
-        func_name: &str,
-        args: &[Expr],
-    ) -> Option<(String, Vec<TypedIRValue>)> {
-        let clean = func_name.trim_end_matches("()");
-        let parts: Vec<&str> = clean.split('.').collect();
-        if parts.len() != 2 {
-            return None;
-        }
-        let receiver_name = parts[0];
-        let method_name = parts[1];
-        let info = self.lookup_var(receiver_name)?;
-        let receiver_type = info.type_.clone();
-
-        let prefix = match &receiver_type {
-            Type::Map(..) => "Map",
-            Type::List(_) if method_name == "append" => "List",
-            _ => return None,
-        };
-
-        let receiver_value =
-            TypedIRValue::Variable(receiver_name.to_string(), receiver_type.clone());
-        let mut call_args = vec![receiver_value];
-        for arg in args {
-            call_args.push(self.translate_expr(program, func, current_block, arg));
-        }
-        Some((format!("{}.{}", prefix, method_name), call_args))
     }
 }

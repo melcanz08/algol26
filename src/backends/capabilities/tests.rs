@@ -867,9 +867,37 @@ fn interpreter_accepts_list_append() {
     );
 }
 
+const MAP_SOURCE: &str = r#"
+procedure main
+    val m := Map { "a": 1 }
+    print(m.length())
+"#;
+
 #[test]
 fn llvm_rejects_list_append() {
     let program = build_ir(LIST_APPEND_SOURCE);
     let result = super::check_backend(&program, &super::BackendCapabilities::llvm());
     assert!(result.is_err(), "LLVM should refuse List.append");
+}
+
+#[test]
+fn wasm_rejects_maps() {
+    let program = build_ir(MAP_SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::wasm());
+    assert!(
+        result.is_err(),
+        "WASM should refuse maps, got: {:?}",
+        result.ok()
+    );
+}
+
+#[test]
+fn wasm_rejects_list_append() {
+    let program = build_ir(LIST_APPEND_SOURCE);
+    let result = super::check_backend(&program, &super::BackendCapabilities::wasm());
+    assert!(
+        result.is_err(),
+        "WASM should refuse List.append, got: {:?}",
+        result.ok()
+    );
 }

@@ -500,3 +500,35 @@ procedure main
     );
     assert_eq!(output, "1\n200");
 }
+
+#[test]
+fn var_decl_call_evaluates_once() {
+    let output = run_source(
+        r#"
+function make() -> Int
+    print("making")
+    return 42
+
+procedure main
+    val x := make()
+    print(x)
+"#,
+    );
+    assert_eq!(output, "making\n42");
+}
+
+#[test]
+fn unused_var_decl_call_side_effect_preserved() {
+    let output = run_source(
+        r#"
+function make() -> Int
+    print("side effect")
+    return 42
+
+procedure main
+    val unused := make()
+    print("done")
+"#,
+    );
+    assert_eq!(output, "side effect\ndone");
+}

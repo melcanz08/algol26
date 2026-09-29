@@ -125,7 +125,7 @@ fn test_method_call_desugars_to_function_call() {
     use algol26::compiler::assign_expr_ids;
     use algol26::frontend::lexer::Lexer;
     use algol26::frontend::parser::Parser;
-    use algol26::ir::semantic_ir::TypedIRValue;
+    use algol26::ir::semantic_ir::Instruction;
     use algol26::semantics::analyzer::SemanticAnalyzer;
     use algol26::semantics::builder::SemanticIRBuilder;
 
@@ -158,17 +158,18 @@ procedure main
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
     );
 
-    // Walk the IR and look for a Call to "List.length" with 1 argument.
+    // `var n := list.length()` produces a standalone
+    // Instruction::Call { func: "List.length", args: [Variable("list")],
+    // result: Some("n") } followed by a Declare for `n` whose value
+    // references the binding. Look for the pushed Call — the callee
+    // name has been resolved from the raw source `list.length` to the
+    // builtin `List.length`, and the receiver is the single argument.
     let mut found = false;
     for func in &ir.functions {
         for block in &func.blocks {
             for instr in &block.instructions {
-                if let algol26::ir::semantic_ir::Instruction::Declare {
-                    value: TypedIRValue::Call { function, args, .. },
-                    ..
-                } = instr
-                {
-                    if function == "List.length" && args.len() == 1 {
+                if let Instruction::Call { func, args, result } = instr {
+                    if func == "List.length" && args.len() == 1 && result.as_deref() == Some("n") {
                         found = true;
                     }
                 }

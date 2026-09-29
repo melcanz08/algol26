@@ -4,7 +4,7 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::compiler::context::{CompilerConfig, CompilerContext};
 use crate::compiler::program::{AstPayload, IrState, Program};
 use crate::frontend::ast::{
-    Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, Stmt, TraitDecl, TypeSyntax,
+    Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, Pattern, Stmt, TraitDecl, TypeSyntax,
 };
 use crate::frontend::lexer::Lexer;
 use crate::frontend::module_loader::ModuleLoader;
@@ -939,6 +939,13 @@ fn number_expr(expr: &mut Expr, next: &mut u32) {
         ExprKind::Match { value, cases, .. } => {
             number_expr(value, next);
             for c in cases {
+                // Pattern literals are expressions too — they're
+                // compared for equality at runtime and lowered through
+                // translate_expr. Number them so the completeness check
+                // finds a type-table entry for each.
+                if let Pattern::Literal(lit) = &mut c.pattern {
+                    number_expr(lit, next);
+                }
                 number_expr(&mut c.body, next);
             }
         }

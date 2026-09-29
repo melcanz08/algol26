@@ -399,7 +399,14 @@ impl SemanticAnalyzer {
 
                 for case in cases {
                     self.check_pattern_type(&case.pattern, &value_type)?;
-
+                    // Register the pattern literal's type so the completeness
+                    // pass finds an entry for its ExprId. `check_pattern_type`
+                    // infers the type but doesn't visit the expression through
+                    // `analyze_expr`, so without this the literal would be
+                    // missing from the type table.
+                    if let Pattern::Literal(lit) = &case.pattern {
+                        self.analyze_expr(lit)?;
+                    }
                     let (arm_result, arm_exit) = self.in_branch(|a| {
                         a.push_scope();
                         let r: Result<Type> = (|| {

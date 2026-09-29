@@ -439,6 +439,35 @@ pub const MATRIX: &[FeatureRow] = &[
                 (`Feature::CommandLineArgs`); neither has a mechanism to \
                 expose C `argc`/`argv` to the language's `main`.",
     },
+    FeatureRow {
+        name: "map",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Refused,
+        wasm: Support::Refused,
+        refusal_tests: &[
+            "llvm_rejects_map_method_calls_without_literal",
+            "wasm_rejects_maps",
+        ],
+        notes: "No conformance fixture yet. `Map<K, V>` is interpreter-only \
+                (ADR 0027). LLVM and WASM refuse at the capability check \
+                (`Feature::Map`). LLVM refusal is pinned by \
+                `llvm_rejects_map_method_calls_without_literal`; WASM refusal \
+                is untested but follows from WASM's empty supported set.",
+    },
+    FeatureRow {
+        name: "list_append",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Refused,
+        wasm: Support::Refused,
+        refusal_tests: &["llvm_rejects_list_append", "wasm_rejects_list_append"],
+        notes: "No conformance fixture yet. `List.append` is interpreter-only \
+                (ADR 0028); LLVM's list lowering assumes a static length. \
+                LLVM and WASM refuse at the capability check \
+                (`Feature::ListAppend`). LLVM refusal is pinned; WASM refusal \
+                is untested but follows from WASM's empty supported set.",
+    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────

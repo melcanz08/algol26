@@ -8,7 +8,8 @@
 use crate::common::span::Span;
 use crate::common::types::Type;
 use crate::frontend::ast::{
-    BinOp, Expr, ExprId, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, Stmt,
+    BinOp, Expr, ExprId, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, RecordDecl, Stmt,
+    TypeSyntax,
 };
 use crate::ir::instantiation_plan::{InstantiationPlan, Specialization};
 use crate::ir::semantic_ir::{
@@ -17,7 +18,7 @@ use crate::ir::semantic_ir::{
 };
 use crate::semantics::flow_result::{DeferContext, FlowResult, LoopContext};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 mod blocks;
 mod build;
@@ -52,6 +53,11 @@ pub struct SemanticIRBuilder {
     /// specialization, and by `resolved_callee_name` to rewrite
     /// generic call sites to their mangled symbols. Stage 3.2d.
     pub(super) plan: InstantiationPlan,
+    /// Names of record declarations from the frontend. Used to
+    /// resolve record names in user function signatures when
+    /// registering `function_types` — `Option<Sale>` becomes
+    /// `Option<Record("Sale", []))>` rather than `Option<Unknown>`.
+    pub(super) record_names: HashSet<String>,
 }
 
 #[allow(dead_code)]
@@ -66,7 +72,9 @@ impl SemanticIRBuilder {
         functions: &[FunctionDecl],
         type_table_id: HashMap<ExprId, Type>,
         plan: InstantiationPlan,
+        records: &[RecordDecl],
     ) -> (SemanticProgram, Vec<String>) {
+        let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
         let mut builder = SemanticIRBuilder {
             scopes: vec![HashMap::new()],
             function_types: HashMap::new(),
@@ -79,6 +87,7 @@ impl SemanticIRBuilder {
             type_table_id,
             current_subst: HashMap::new(),
             plan,
+            record_names,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -121,6 +130,42 @@ impl SemanticIRBuilder {
                 ));
                 fallback.to_string()
             }
+        }
+    }
+    /// Resolve a type annotation in the builder's context. Like
+    /// the analyzer's `resolve_type_syntax`, but without the
+    /// "unknown type is an error" check — the analyzer has already
+    /// validated names, so the builder only reproduces the
+    /// resolved type.
+    pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Type {
+        match syntax {
+            TypeSyntax::Named(name) => {
+                if self.record_names.contains(name.as_str()) {
+                    return Type::record(name, Vec::new());
+                }
+                syntax.to_type()
+            }
+            TypeSyntax::Generic { name, args } => {
+                let resolved_args: Vec<Type> =
+                    args.iter().map(|a| self.resolve_type_syntax(a)).collect();
+                if self.record_names.contains(name.as_str()) {
+                    return Type::record(name, resolved_args);
+                }
+                match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
+                    ("list", [inner]) => Type::list(inner.clone()),
+                    ("option", [inner]) => Type::option(inner.clone()),
+                    ("result", [ok, err]) => Type::result(ok.clone(), err.clone()),
+                    ("pointer", [inner]) | ("ptr", [inner]) => Type::pointer(inner.clone()),
+                    ("borrow", [inner]) => Type::borrow(inner.clone()),
+                    ("mutborrow", [inner]) | ("mut_borrow", [inner]) => {
+                        Type::mut_borrow(inner.clone())
+                    }
+                    ("channel", [inner]) => Type::channel(inner.clone()),
+                    ("map", [k, v]) => Type::map(k.clone(), v.clone()),
+                    _ => syntax.to_type(),
+                }
+            }
+            TypeSyntax::Unknown => Type::Unknown,
         }
     }
     /// Base name of a type, ignoring generic arguments: `List<Float>` → `"List"`.

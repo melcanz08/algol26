@@ -258,20 +258,19 @@ impl SemanticIRBuilder {
             let return_type = func
                 .return_type
                 .as_ref()
-                .map(|t| t.to_type())
+                .map(|t| self.resolve_type_syntax(t))
                 .unwrap_or(Type::Void);
-            let params = func
+            let params: Vec<(String, Type)> = func
                 .params
                 .iter()
                 .map(|(n, t)| {
                     let type_ = match t {
-                        Some(s) => s.to_type(),
+                        Some(s) => self.resolve_type_syntax(s),
                         None => Type::Unknown,
                     };
                     (n.clone(), type_)
                 })
                 .collect();
-
             self.function_types.insert(
                 func.name.clone(),
                 FunctionSignature {
@@ -376,7 +375,7 @@ impl SemanticIRBuilder {
         self.push_scope();
         for (name, type_str) in &func.params {
             let raw = match type_str {
-                Some(s) => s.to_type(),
+                Some(s) => self.resolve_type_syntax(s),
                 None => Type::Unknown,
             };
             let param_type = raw.substitute(&self.current_subst);
@@ -397,7 +396,7 @@ impl SemanticIRBuilder {
             .iter()
             .map(|(n, t)| {
                 let raw = match t {
-                    Some(s) => s.to_type(),
+                    Some(s) => self.resolve_type_syntax(s),
                     None => Type::Unknown,
                 };
                 (n.clone(), raw.substitute(&self.current_subst))
@@ -406,7 +405,7 @@ impl SemanticIRBuilder {
         let emitted_return = func
             .return_type
             .as_ref()
-            .map(|t| t.to_type())
+            .map(|t| self.resolve_type_syntax(t))
             .unwrap_or(Type::Void)
             .substitute(&self.current_subst);
 

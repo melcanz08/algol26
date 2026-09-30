@@ -64,12 +64,12 @@ pub struct TypedProgram {
     pub type_info: TypeInfo,
     pub type_table_id:
         std::collections::HashMap<crate::frontend::ast::ExprId, crate::common::types::Type>,
-    /// The generic specialization plan derived from the analyzer's
-    /// instantiation records. Consumed by the IR builder in later
-    /// stages of ADR 0013; unused by consumers today.
     pub plan: InstantiationPlan,
+    /// Record declarations from the frontend. Forwarded to the IR
+    /// builder so it can resolve record names in user function
+    /// signatures to `Type::Record(...)` rather than `Type::Unknown`.
+    pub records: Vec<crate::frontend::ast::RecordDecl>,
 }
-
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
     pub total_functions: usize,
@@ -217,6 +217,7 @@ pub fn type_check_program(
         },
         type_table_id,
         plan,
+        records: records.to_vec(),
     })
 }
 
@@ -232,11 +233,12 @@ pub fn build_semantic_ir_program(
         crate::common::types::Type,
     >,
     plan: crate::ir::instantiation_plan::InstantiationPlan,
+    records: &[crate::frontend::ast::RecordDecl],
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
 
-    let (program, diagnostics) = SemanticIRBuilder::build(functions, type_table_id, plan);
+    let (program, diagnostics) = SemanticIRBuilder::build(functions, type_table_id, plan, records);
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
             Diagnostic::Warning(diag.to_string()).display();

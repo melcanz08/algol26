@@ -390,10 +390,27 @@ impl SemanticAnalyzer {
                         .collect::<Result<Vec<_>>>()?;
                     return Ok(Type::record(name, resolved_args));
                 }
-                let ty = self.parse_type_annotation(syntax);
-                if ty == Type::Unknown && is_likely_user_type(name) {
-                    return Err(unknown_type_error(name));
-                }
+                // Not a record. Resolve the args through this same
+                // function so nested records (e.g. `Option<Sale>`,
+                // `Map<String, Sale>`) aren't lost when the outer
+                // generic is a builtin.
+                let resolved_args: Vec<Type> = args
+                    .iter()
+                    .map(|a| self.resolve_type_syntax(a))
+                    .collect::<Result<Vec<_>>>()?;
+                let ty = match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
+                    ("list", [inner]) => Type::list(inner.clone()),
+                    ("option", [inner]) => Type::option(inner.clone()),
+                    ("result", [ok, err]) => Type::result(ok.clone(), err.clone()),
+                    ("pointer", [inner]) | ("ptr", [inner]) => Type::pointer(inner.clone()),
+                    ("borrow", [inner]) => Type::borrow(inner.clone()),
+                    ("mutborrow", [inner]) | ("mut_borrow", [inner]) => {
+                        Type::mut_borrow(inner.clone())
+                    }
+                    ("channel", [inner]) => Type::channel(inner.clone()),
+                    ("map", [k, v]) => Type::map(k.clone(), v.clone()),
+                    _ => syntax.to_type(),
+                };
                 Ok(ty)
             }
             TypeSyntax::Unknown => Ok(Type::Unknown),
@@ -516,10 +533,23 @@ impl SemanticAnalyzer {
                         .collect::<Result<Vec<_>>>()?;
                     return Ok(Type::record(name, resolved_args));
                 }
-                let ty = syntax.to_type();
-                if ty == Type::Unknown && is_likely_user_type(name) {
-                    return Err(unknown_type_error(name));
-                }
+                let resolved_args: Vec<Type> = args
+                    .iter()
+                    .map(|a| Self::resolve_syntax_with_records(a, records))
+                    .collect::<Result<Vec<_>>>()?;
+                let ty = match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
+                    ("list", [inner]) => Type::list(inner.clone()),
+                    ("option", [inner]) => Type::option(inner.clone()),
+                    ("result", [ok, err]) => Type::result(ok.clone(), err.clone()),
+                    ("pointer", [inner]) | ("ptr", [inner]) => Type::pointer(inner.clone()),
+                    ("borrow", [inner]) => Type::borrow(inner.clone()),
+                    ("mutborrow", [inner]) | ("mut_borrow", [inner]) => {
+                        Type::mut_borrow(inner.clone())
+                    }
+                    ("channel", [inner]) => Type::channel(inner.clone()),
+                    ("map", [k, v]) => Type::map(k.clone(), v.clone()),
+                    _ => syntax.to_type(),
+                };
                 Ok(ty)
             }
             TypeSyntax::Unknown => Ok(Type::Unknown),
@@ -528,12 +558,14 @@ impl SemanticAnalyzer {
 }
 
 /// Heuristic: does this name look like a user-declared type rather
-/// than a primitive, builtin type constructor, or single-letter
-/// type parameter?
+/// than a primitive or single-letter type parameter?
 ///
 /// The check is conservative — a false positive turns a valid
-/// program into a compile error, so we only flag names that have
-/// no other plausible reading.
+/// program into a compile error — so we only flag names that have
+/// no other plausible reading. Builtin type constructors are tried
+/// by `TypeSyntax::to_type` before this function runs; a lowercase
+/// name that reaches here is a typo of a builtin, not a user type,
+/// and is reported the same way.
 fn is_likely_user_type(name: &str) -> bool {
     // Single-letter names are the type-parameter convention.
     if name.len() <= 1 {

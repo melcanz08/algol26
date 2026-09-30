@@ -1139,3 +1139,22 @@ procedure main
         msg
     );
 }
+
+#[test]
+fn option_of_record_in_signature_resolves() {
+    let source = r#"
+rec Sale
+    amount: Int
+
+function maybe_sale() -> Option<Sale>
+    return None
+
+procedure main
+    match maybe_sale()
+        case Some(s)
+            print(s.amount)
+        case None
+            print(0)
+"#;
+    analyze(source).expect("Option<Sale> should resolve the record inside the generic");
+}

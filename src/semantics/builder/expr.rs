@@ -313,13 +313,26 @@ impl SemanticIRBuilder {
                 let typed_value = value
                     .as_ref()
                     .map(|v| self.translate_expr(program, func, current_block, v));
+
+                // If the value's translation branched (match / if /
+                // try), the Return belongs in the *merge* block that
+                // the value-producing expression created. Placing it
+                // in `current_block` would put it after the Branch /
+                // Switch terminator and leave the merge block
+                // unterminated — which the CFG verifier rejects.
+                let return_block = self.pending_merge.take().unwrap_or(current_block);
+
                 let coerced_value = typed_value.map(|v| self.coerce_value(v, &func.return_type));
                 let type_ = coerced_value
                     .as_ref()
                     .map(|v| v.type_of())
                     .unwrap_or(Type::Void);
-                if type_ != Type::Unknown
-                    && func.return_type != Type::Unknown
+                // The declared return type came from `TypeSyntax::to_type`,
+                // which does not know about records. When the declared
+                // annotation mentions `Unknown` anywhere, the analyzer's
+                // type for the returned expression is authoritative.
+                if !func.return_type.contains_unknown()
+                    && type_ != Type::Unknown
                     && !type_.can_coerce_to(&func.return_type)
                 {
                     self.diagnostics.push(format!(
@@ -327,19 +340,21 @@ impl SemanticIRBuilder {
                         func.name, func.return_type, type_
                     ));
                 }
+
                 // If any defers are pending in the enclosing scope,
-                // chain them LIFO before the actual return. Each cleanup
-                // block runs its body and jumps to the next; the last
-                // one emits the real Return with the captured value.
+                // chain them LIFO before the actual return. Each
+                // cleanup block runs its body and jumps to the next;
+                // the last one emits the real Return with the
+                // captured value.
                 if let Some(defer_ctx) = self.defer_stack.last() {
                     if !defer_ctx.cleanup_blocks.is_empty() {
                         let cleanups: Vec<usize> =
                             defer_ctx.cleanup_blocks.iter().rev().copied().collect();
 
-                        // Current block jumps to the first cleanup.
+                        // Return block jumps to the first cleanup.
                         self.safe_set_terminator(
                             func,
-                            current_block,
+                            return_block,
                             Terminator::Jump { block: cleanups[0] },
                         );
 
@@ -368,10 +383,10 @@ impl SemanticIRBuilder {
                     }
                 }
 
-                // No pending defers: normal return.
+                // No pending defers: normal return on the merge block.
                 self.safe_set_terminator(
                     func,
-                    current_block,
+                    return_block,
                     Terminator::Return {
                         value: coerced_value,
                         type_,

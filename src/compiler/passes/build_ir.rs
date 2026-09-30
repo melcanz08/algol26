@@ -42,6 +42,7 @@ impl Pass<Program> for BuildSemanticIRPass {
             &typed.functions,
             typed.type_table_id.clone(),
             typed.plan.clone(),
+            &typed.records,
         ) {
             Ok(sem) => {
                 program.ir = IrState::Built(sem);

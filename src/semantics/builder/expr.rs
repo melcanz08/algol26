@@ -162,7 +162,7 @@ impl SemanticIRBuilder {
                 let value_type = typed_value.type_of();
 
                 let type_ = if let Some(annot) = type_annotation {
-                    let declared_type = annot.to_type();
+                    let declared_type = self.resolve_type_syntax(annot);
                     if value_type != Type::Unknown
                         && declared_type != Type::Unknown
                         && !value_type.can_coerce_to(&declared_type)

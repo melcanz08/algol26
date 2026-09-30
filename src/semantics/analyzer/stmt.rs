@@ -52,7 +52,7 @@ impl SemanticAnalyzer {
                 // `check_borrow_rules` inside `Expr::MutBorrow` will fire if
                 // the source is already mutably borrowed.
                 let value_type = if let Some(annotated) = type_annotation {
-                    let expected = annotated.to_type();
+                    let expected = self.resolve_type_syntax(annotated)?;
                     self.analyze_expr_with_context(value, Some(&expected))?
                 } else {
                     self.analyze_expr(value)?
@@ -66,7 +66,7 @@ impl SemanticAnalyzer {
                 }
 
                 if let Some(annotated) = type_annotation {
-                    let expected = annotated.to_type();
+                    let expected = self.resolve_type_syntax(annotated)?;
                     let is_borrow = matches!(
                         &value.kind,
                         ExprKind::Borrow { .. } | ExprKind::MutBorrow { .. }

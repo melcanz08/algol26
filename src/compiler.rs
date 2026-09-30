@@ -14,6 +14,7 @@ use crate::ir::semantic_ir::SemanticProgram;
 use crate::ir::verified_ir::VerifiedIR;
 use crate::semantics::analyzer::SemanticAnalyzer;
 use crate::semantics::race::RaceDetector;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 // Pass infrastructure (Phase 1)
@@ -37,6 +38,7 @@ pub struct ParsedProgram {
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    pub imports: Vec<String>,
 }
 
 /// Output of the canonical frontend normalization.
@@ -380,7 +382,8 @@ impl Compiler {
             functions: Rc::new(functions),
             traits: parsed.traits,
             impls: parsed.impls,
-            records: parsed.records, // ← NEW
+            records: parsed.records,
+            imports: parsed.imports,
         };
 
         Ok(FrontendPrep {
@@ -706,6 +709,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            imports: parsed.imports.clone(),
         }
     }
 
@@ -724,6 +728,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            imports: parsed.imports.clone(),
         }
     }
 
@@ -734,48 +739,60 @@ impl Compiler {
             functions: Rc::new(program.functions),
             traits: program.traits,
             impls: program.impls,
-            records: program.records, // ← NEW
+            records: program.records,
+            imports: program.imports,
         })
     }
     fn process_imports(&self, parsed: &ParsedProgram, current_file: &str) -> Result<ParsedProgram> {
         let mut loader = ModuleLoader::new();
         let mut all_functions = (*parsed.functions).clone();
-        let mut all_records = parsed.records.clone(); // ← NEW
+        let mut all_records = parsed.records.clone();
 
+        // Collect every import: the file's top-level imports, plus
+        // any `import` statements inside function bodies (the older
+        // form the CLI driver uses). Dedup by path so a module used
+        // in multiple places loads once.
+        let mut import_paths: Vec<String> = parsed.imports.clone();
         for func in parsed.functions.iter() {
             for stmt in &func.body {
                 if let Stmt::Import { path, .. } = stmt {
-                    let resolved = loader.resolve_import(path, current_file)?;
-                    let source = loader.load_file(&resolved)?;
-
-                    if !source.is_empty() {
-                        let lexer = Lexer::new(source.clone())?;
-                        let mut parser = Parser::new(lexer.tokens);
-                        let imported_program = parser.parse_program()?;
-
-                        for imported in imported_program.functions {
-                            if !all_functions.iter().any(|f| f.name == imported.name) {
-                                all_functions.push(imported);
-                            }
-                        }
-                        // ← NEW: merge records the same way
-                        for imported in imported_program.records {
-                            if !all_records.iter().any(|r| r.name == imported.name) {
-                                all_records.push(imported);
-                            }
-                        }
-                    }
-
-                    loader.end_import();
+                    import_paths.push(path.clone());
                 }
             }
+        }
+        let mut seen = HashSet::new();
+        import_paths.retain(|p| seen.insert(p.clone()));
+
+        for path in &import_paths {
+            let resolved = loader.resolve_import(path, current_file)?;
+            let source = loader.load_file(&resolved)?;
+
+            if !source.is_empty() {
+                let lexer = Lexer::new(source.clone())?;
+                let mut parser = Parser::new(lexer.tokens);
+                let imported_program = parser.parse_program()?;
+
+                for imported in imported_program.functions {
+                    if !all_functions.iter().any(|f| f.name == imported.name) {
+                        all_functions.push(imported);
+                    }
+                }
+                for imported in imported_program.records {
+                    if !all_records.iter().any(|r| r.name == imported.name) {
+                        all_records.push(imported);
+                    }
+                }
+            }
+
+            loader.end_import();
         }
 
         Ok(ParsedProgram {
             functions: Rc::new(all_functions),
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
-            records: all_records, // ← changed
+            records: all_records,
+            imports: parsed.imports.clone(), // ← NEW
         })
     }
 

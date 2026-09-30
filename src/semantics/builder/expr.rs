@@ -1465,7 +1465,6 @@ impl SemanticIRBuilder {
             ExprKind::FieldAccess { object, field, .. } => {
                 let obj = self.translate_expr(program, func, current_block, object);
                 let obj_ty = obj.type_of();
-
                 // ─── Map zero-arg methods (ADR 0027) ───
                 // `m.length`, `m.keys`, `m.values`. The argument-taking
                 // methods reject this form in the analyzer; only the three

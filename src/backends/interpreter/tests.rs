@@ -37,7 +37,7 @@ fn run_source(source: &str) -> String {
     plan.close(&functions);
 
     let (semantic_program, diagnostics): (SemanticProgram, Vec<String>) =
-        SemanticIRBuilder::build(&functions, type_table, plan);
+        SemanticIRBuilder::build(&functions, type_table, plan, &program.records);
     assert!(
         diagnostics.is_empty(),
         "IR build produced diagnostics: {:?}",
@@ -531,4 +531,24 @@ procedure main
 "#,
     );
     assert_eq!(output, "side effect\ndone");
+}
+
+#[test]
+fn field_access_binds_to_var() {
+    // `val q := p.x` must preserve the field's type through
+    // TypedIRValue::FieldAccess::type_of(). Without the FieldAccess
+    // arm in type_of(), the declared type of `q` is Unknown.
+    let output = run_source(
+        r#"
+rec Point
+    x: Int
+    y: Int
+
+procedure main
+    val p := Point { x: 1, y: 2 }
+    val q := p.x
+    print(q + 10)
+"#,
+    );
+    assert_eq!(output, "11");
 }

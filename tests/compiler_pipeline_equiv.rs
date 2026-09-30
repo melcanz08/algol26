@@ -191,6 +191,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
             &typed.functions,
             typed.type_table_id.clone(),
             typed.plan.clone(),
+            &typed.records,
         ) {
             Ok(p) => p,
             Err(_) => continue,

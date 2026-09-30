@@ -29,6 +29,7 @@ fn run_source(source: &str) -> String {
         &functions,
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        &[],
     );
     let mut interpreter = Interpreter::new(ir);
     interpreter.run().unwrap()

@@ -35,6 +35,7 @@ fn build_and_run(source: &str) -> (SemanticProgram, Vec<String>, String) {
         &functions,
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        &[],
     );
 
     let mut interpreter = Interpreter::new(ir.clone());

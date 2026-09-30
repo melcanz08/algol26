@@ -91,7 +91,6 @@ impl SemanticAnalyzer {
                         )));
                     }
                 }
-
                 self.declare_variable(name, value_type.clone(), *mutable)?;
                 // A `val` bound to `null` is statically known to hold
                 // null forever. Record it so a later deref can be

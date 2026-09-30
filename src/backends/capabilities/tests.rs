@@ -729,7 +729,8 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
     let mut plan = InstantiationPlan::from_instantiations(&instantiations);
     plan.close(&functions);
 
-    let (semantic_program, _diags) = SemanticIRBuilder::build(&functions, type_table, plan);
+    let (semantic_program, _diags) =
+        SemanticIRBuilder::build(&functions, type_table, plan, &program.records);
     semantic_program
 }
 

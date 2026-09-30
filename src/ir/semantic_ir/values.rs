@@ -141,6 +141,7 @@ impl TypedIRValue {
             TypedIRValue::BorrowMutable { target_type, .. } => target_type.clone(),
             TypedIRValue::ReadReference { target_type, .. } => target_type.clone(),
             TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
+            TypedIRValue::FieldAccess { field_type, .. } => field_type.clone(),
             _ => Type::Unknown,
         }
     }

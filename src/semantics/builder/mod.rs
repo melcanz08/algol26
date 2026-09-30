@@ -257,6 +257,7 @@ mod substitution_tests {
             type_table_id,
             current_subst: subst,
             plan: InstantiationPlan::default(),
+            record_names: HashSet::new(),
         }
     }
 

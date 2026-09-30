@@ -30,6 +30,7 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
         &functions,
         std::collections::HashMap::new(),
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        &[],
     );
     ir
 }

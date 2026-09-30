@@ -156,6 +156,7 @@ procedure main
         &functions,
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        &[],
     );
 
     // `var n := list.length()` produces a standalone
@@ -221,6 +222,7 @@ procedure main
         &functions,
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        &[],
     );
 
     // The print must be present somewhere in the IR, not dropped.

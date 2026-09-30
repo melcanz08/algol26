@@ -126,6 +126,10 @@ impl TypedIRValue {
             TypedIRValue::PtrLiteral(_) => Type::Ptr,
             TypedIRValue::NullPtr => Type::Ptr,
             TypedIRValue::List(_, t) => Type::list(t.clone()),
+            TypedIRValue::Array(_, elem_type, len) => Type::array(elem_type.clone(), *len),
+            TypedIRValue::Range(start, end) => {
+                Type::list(start.type_of().common_supertype(&end.type_of()))
+            }
             TypedIRValue::Record { record_type, .. } => record_type.clone(),
             TypedIRValue::Map { map_type, .. } => map_type.clone(),
             TypedIRValue::Some(v) => Type::option(v.type_of()),
@@ -142,7 +146,6 @@ impl TypedIRValue {
             TypedIRValue::ReadReference { target_type, .. } => target_type.clone(),
             TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
             TypedIRValue::FieldAccess { field_type, .. } => field_type.clone(),
-            _ => Type::Unknown,
         }
     }
 

@@ -3,12 +3,12 @@
 **Version**: v0.8.0
 
 This document describes ALGOL26 as it exists today. Every syntax
-construct and behavior here has been exercised by the compiler. Where
-a feature works only in certain configurations, that is stated
-explicitly.
+construct and behavior here has been exercised by the compiler.
+Where a feature works only in certain configurations, that is
+stated explicitly.
 
-For the pipeline internals, see `docs/architecture/`. For historical
-context and design lineage, see `docs/decisions/`.
+For the pipeline internals, see `docs/architecture-direction.md`.
+For historical context and design lineage, see `docs/decisions/`.
 
 ---
 
@@ -29,7 +29,7 @@ ALGOL26 source files use the `.gol` extension.
 
 Identifiers begin with a letter or underscore and may contain
 letters, digits, and underscores. They are case-sensitive. Dots are
-not part of identifiers -- `Math.sqrt` lexes as three tokens
+not part of identifiers — `Math.sqrt` lexes as three tokens
 (`Math`, `.`, `sqrt`) and is disambiguated by the parser as a
 qualified function name.
 
@@ -43,8 +43,8 @@ introducing statement.
   leading whitespace is a lexical error (`E0001`).
 - A tab counts as four spaces for the purpose of computing indent
   depth.
-- Inconsistent dedentation -- a line whose indent level does not
-  match any enclosing block -- is a lexical error.
+- Inconsistent dedentation — a line whose indent level does not
+  match any enclosing block — is a lexical error.
 
 ### 1.5 Keywords
 
@@ -65,7 +65,7 @@ dynamic     alloc       free
 trait       impl        Self
 where       end         null
 Some        None        Ok
-Error       print
+Error       print       rec
 ```
 
 ### 1.6 Operators and Punctuation
@@ -84,7 +84,7 @@ Error       print
 | `..=`   | Inclusive range                |
 | `.`     | Method / field access, qualified name |
 | `::`    | Trait-method qualification     |
-| `( )` `[ ]` `,` `:` | Grouping, indexing, lists |
+| `( )` `[ ]` `{ }` `,` `:` | Grouping, indexing, lists, record literals |
 
 ---
 
@@ -97,7 +97,7 @@ Error       print
 | `Int`    | `42`, `-7`, `1_000_000` | yes |
 | `Float`  | `3.14`, `1e10`, `-0.5`   | yes |
 | `Bool`   | `true`, `false`          | yes |
-| `String` | `"hello"`, `"a\nb"`      | no  |
+| `String` | `"hello"`, `"a\\nb"`      | no  |
 | `Ptr`    | `null`                    | yes |
 | `Void`   | --                        | --   |
 
@@ -110,8 +110,10 @@ precision. `String` is an immutable UTF-8 value; assigning a
 | Type              | Description                          |
 |-------------------|--------------------------------------|
 | `List<T>`         | Homogeneous sequence, indexed by `Int` |
+| `Map<K, V>`       | Key-value container; keys are `Int`, `String`, or `Bool` |
 | `Option<T>`       | `Some(v)` or `None`                  |
 | `Result<T, E>`    | `Ok(v)` or `Error(e)`                |
+| `Record`          | A named bundle of fields declared with `rec` |
 | `Channel<T>`      | Message-passing channel              |
 | `Borrow<T>`       | Immutable reference                  |
 | `MutBorrow<T>`    | Mutable reference                    |
@@ -126,6 +128,7 @@ val x: Int    := 42
 val y: Float  := 3.14
 val z: List<Float> := [1.0, 2.0]
 var opt: Option<Int> := Some(5)
+var counts: Map<String, Int> := Map {}
 ```
 
 Type names are case-insensitive for the primitives (`Float` and
@@ -176,6 +179,16 @@ val b := 3.0         // Float
 val c := "text"      // String
 val d := true        // Bool
 val e := [1.0, 2.0]  // List<Float>
+val p := Point { x: 1, y: 2 }   // Point
+val m := Map { "a": 1 }        // Map<String, Int>
+```
+
+Empty list and map literals need context to infer their element or
+value types:
+
+```
+var xs: List<Int> := []
+var m: Map<String, Int> := Map {}
 ```
 
 ### 3.3 Declaration Without Initializer
@@ -194,8 +207,8 @@ conservatively.
 
 ### 4.1 Move Semantics
 
-Non-`Copy` types (`String`, `List`, and user composites) are moved
-on assignment:
+Non-`Copy` types (`String`, `List<T>`, `Map<K, V>`, and records
+with a non-`Copy` field) are moved on assignment:
 
 ```
 var s := "hello"
@@ -203,10 +216,39 @@ var t := s           // s is moved into t
 print(s)             // error: use of moved variable 's'
 ```
 
-`Int`, `Float`, `Bool`, and `Ptr` are `Copy` -- assigning them
+`Int`, `Float`, `Bool`, and `Ptr` are `Copy` — assigning them
 duplicates the value.
 
-### 4.2 Immutable Borrows
+### 4.2 Structural `Copy` for Records
+
+A record is `Copy` iff every field is `Copy`. The rule is
+structural and recursive:
+
+- `rec Point { x: Int, y: Int }` is `Copy`.
+- `rec Person { name: String, age: Int }` is not `Copy`,
+  because `String` is not.
+- `rec Line { start: Point, end: Point }` is `Copy` iff `Point`
+  is.
+
+```
+val p := Point { x: 1, y: 2 }
+val q := p           // p is copied; both p and q remain usable
+print(p.x)
+print(q.x)
+```
+
+A record whose field type resolves to `Unknown` is conservatively
+treated as move-only.
+
+Mutability is orthogonal to `Copy`. A `Copy` record bound with
+`val` is still immutable:
+
+```
+val p := Point { x: 1, y: 2 }
+p.x := 5             // error: cannot assign to field of immutable variable
+```
+
+### 4.3 Immutable Borrows
 
 ```
 val x := 5.0
@@ -221,7 +263,7 @@ val a := &x
 val b := &x          // OK
 ```
 
-### 4.3 Mutable Borrows
+### 4.4 Mutable Borrows
 
 ```
 var x := 5.0
@@ -248,11 +290,22 @@ val p := &mut x
 print(x)             // error: cannot read 'x' while it is mutably borrowed
 ```
 
-### 4.4 Reference Escape
+### 4.5 Reference Escape
 
 A reference that outlives its source is a compile-time error. The
 current analysis catches direct cases (`return &x`, storing `&x` in
 a longer-lived location); a full lifetime model is future work.
+
+### 4.6 Copy, Move, and Mutability Are Separate Axes
+
+- **`Copy`** decides whether a value is duplicated on move or
+  transferred.
+- **`var` / `val`** decides whether a binding can be reassigned.
+- **Borrow** decides whether the value is currently referenced by
+  a `Borrow<T>` or `MutBorrow<T>`.
+
+A `Copy` record can be borrowed. A non-`Copy` record can be `var`.
+The three rules compose independently.
 
 ---
 
@@ -333,6 +386,7 @@ Each arm begins with `case`. The pattern is one of:
 - `_` (wildcard)
 - A variable binding: `case x`
 - A literal: `case 42`, `case "hello"`
+- A record destructure: `case Point { x, y }`
 - Nested patterns: `case Some(Ok(v))`
 - List destructuring: `case [head, ...]`
 - A guarded pattern: `case Some(v) if v > 0`
@@ -392,10 +446,21 @@ The last expression is the return value.
 ```
 function identity<T>(x: T) -> T
     return x
+
+function first<T>(xs: List<T>) -> Option<T>
+    if List.length(xs) == 0
+        return None
+    return Some(xs[0])
 ```
 
 Type parameters are single uppercase letters by convention. The
-analyzer binds them per call site.
+analyzer binds them per call site, recursing into container types:
+`first([1, 2, 3])` binds `T = Int` because `List<T>` against
+`List<Int>` unifies the element.
+
+Explicit call-site type arguments (`identity<Int>(42)`) are not
+supported by the parser; inference from argument types is the
+only form. See `docs/features/generic.md` for the full contract.
 
 ### 6.5 Trait Bounds
 
@@ -405,7 +470,10 @@ function max_of<T>(a: T, b: T) -> T where T: Comparable
 ```
 
 The `where` clause restricts `T` to types implementing the named
-trait.
+trait. Bounds are name-resolved only: the analyzer checks that the
+trait is declared, but does not verify that a concrete type
+substituted for `T` at a call site actually implements it. See
+ADR 0025.
 
 ### 6.6 `extern` (FFI)
 
@@ -445,6 +513,10 @@ function safe_divide(a: Float, b: Float) -> Result<Float, String>
     return Ok(a / b)
 ```
 
+The error type is unrestricted: `Result<Float, MyError>` where
+`MyError` is a record works and is exercised in the CLI validation
+programs.
+
 ### 7.3 `try` / `catch`
 
 `try` is Result-based. The try body must evaluate to a
@@ -461,11 +533,14 @@ catch err
 
 If the try body produces `Ok(v)`, `result` is `v`. If it produces
 `Error(e)`, the catch block runs with `err` bound to `e` and
-`result` is the catch block's value.
+`result` is the catch block's value. The catch binding has the
+try body's error type, so a record error type binds as a record
+and its fields are accessible.
 
 **Backend note**: `try/catch` works end-to-end through the
-interpreter. The LLVM backend refuses programs that use it with a
-clear message directing the user to `algol26 run --interpreter`.
+interpreter. The LLVM and WASM backends refuse programs that use
+it with a clear message directing the user to
+`algol26 run --interpreter`.
 
 ---
 
@@ -502,19 +577,20 @@ runtime is undefined behavior if dereferenced.
 var x := 5.0
 val p := &x          // p: Borrow<Float>
 val y := *p          // y: Float
-
-&x creates a shared borrow of x. &mut x creates a mutable
-borrow. *p reads through a pointer, borrow, or mut-borrow.
-
-Borrows (&x, &mut x) produce tracked reference types
-(Borrow<T>, MutBorrow<T>) that participate in the borrow
-checker's lifetime model. This is distinct from a raw pointer
-(Pointer<T>), which carries no lifetime information and is not
-tracked by the analyzer.
 ```
-The IR carries a distinct AddrOf operation for producing a raw
+
+`&x` creates a shared borrow of `x`. `&mut x` creates a mutable
+borrow. `*p` reads through a pointer, borrow, or mut-borrow.
+
+Borrows (`&x`, `&mut x`) produce tracked reference types
+(`Borrow<T>`, `MutBorrow<T>`) that participate in the borrow
+checker's lifetime model. This is distinct from a raw pointer
+(`Pointer<T>`), which carries no lifetime information and is not
+tracked by the analyzer.
+
+The IR carries a distinct `AddrOf` operation for producing a raw
 pointer. The surface parser currently does not produce it — no
-addr_of syntax exists today. It is reserved for a future
+`addr_of` syntax exists today. It is reserved for a future
 raw-pointer feature and is not user-visible.
 
 ---
@@ -585,7 +661,9 @@ spawn
     print(x)
 ```
 
-The spawned block runs concurrently with the enclosing block.
+The spawned block runs concurrently with the enclosing block. The
+interpreter runs the spawned block sequentially; the LLVM and WASM
+backends refuse spawn at the capability check.
 
 ### 11.2 `parallel`
 
@@ -597,7 +675,7 @@ and
 ```
 
 Blocks separated by `and` (or `,`) run concurrently. The parallel
-construct joins before continuing.
+construct joins before continuing. Same backend note as `spawn`.
 
 ### 11.3 Channels
 
@@ -613,6 +691,10 @@ print(result)
 
 Channels carry values between spawned tasks. The `receive` binding
 uses `into` or `as`.
+
+**Backend note**: channels are refused by all three backends at the
+capability check. The feature is specified but has no runtime on any
+backend today. See ADR 0020.
 
 ### 11.4 Race Detection
 
@@ -637,35 +719,70 @@ catches the common patterns but is not a proof of race freedom.
 
 ```
 trait Comparable
-    function compare(self: Self, other: Self) -> Int
+    function compare(other: Self) -> Int
 ```
+
+The trait method list declares signatures. The receiver is not
+written — `self` is bound at the `impl` site.
 
 ### 12.2 Implementation
 
 ```
 impl Comparable for Int
-    function compare(self: Int, other: Int) -> Int
+    function compare(other: Int) -> Int
         if self < other then return -1
         if self > other then return 1
         return 0
 ```
 
+Inside the method body, `self` is bound to the receiver. The
+frontend step `expand_impl_methods` inserts the receiver as the
+first parameter and renames the method to `<Type>_<method>`. The
+`impl` body does not declare `self` explicitly.
+
+Impl blocks for records work the same way:
+
+```
+rec Point
+    x: Int
+    y: Int
+
+impl Show for Point
+    function show() -> String
+        return "(" + Int.to_string(self.x) + ", " + Int.to_string(self.y) + ")"
+```
+
 ### 12.3 Method Call
 
 ```
-val n := 5.compare(3)
+val p := Point { x: 1, y: 2 }
+print(p.show())
 ```
 
-Dotted calls resolve through the trait registry. Type errors report
-which method on which type failed.
+Dotted calls resolve through the trait registry at analysis time,
+and through `resolve_method_call` in the IR builder at lowering
+time. For records, the builder tries the impl-mangled form
+(`Point_show`) before the builtin path.
+
+**Chained method calls are not supported.** `x.field.method()`
+does not parse — the parser rejects method calls on complex
+receiver expressions. Bind the field to a local first:
+
+```
+val tmp := p.x
+tmp.method()
+```
 
 ### 12.4 Current Limitations
 
+- Bounds are name-resolved only (ADR 0025).
 - Supertrait syntax is not implemented.
 - Associated types are not implemented.
-- Generic impls accept single-uppercase-letter type parameters as
-  wildcards; strict generic constraint checking is not yet
-  performed.
+- Default methods (methods with bodies in a `trait` declaration)
+  are not implemented. The `TraitMethod` AST node has no body
+  field.
+- Trait objects (`Box<dyn Trait>` or equivalent) are not
+  implemented.
 
 ---
 
@@ -678,22 +795,42 @@ unsafe
     free(p)
 ```
 
-Code inside an `unsafe` block is exempt from certain safety checks.
-The block is a lexical scope, not a keyword-delimited region.
+Code inside an `unsafe` block is exempt from certain safety checks:
+raw pointer dereference, `alloc`, and `free` are permitted only
+within an unsafe block (ADR 0015). The block is a lexical scope,
+not a keyword-delimited region.
 
 ---
 
 ## 14. Modules
 
+Imports may be declared at file top level or inside a `procedure`:
+
 ```
 import "utils.gol"
-import math/advanced
+import "data/parser.gol"
+import "analysis/stats.gol"
+
+procedure main
+    import "config.gol"
+    ...
 ```
 
-Imports are resolved relative to the importing file, then along
-configured search paths. Circular imports are detected and reported.
+Both forms work. Imports are resolved relative to the importing
+file's directory, then along configured search paths. Imported
+files' own imports are followed recursively, so a module does not
+need to name every transitively required file.
 
-All public declarations from the imported file become available.
+Circular imports are detected and reported. A file reached through
+two different relative routes (`data/model.gol` and
+`../data/model.gol`) is canonicalized to one entry and loaded once.
+
+All declarations (functions, records, traits, impls) from the
+imported file become available in the importing file's scope.
+
+**Known limitation**: diagnostic spans in imported files are
+attributed to the importing file's path. A type error inside
+`data/parser.gol` reports a location in the file that imported it.
 
 ---
 
@@ -723,8 +860,21 @@ All public declarations from the imported file become available.
 | `String.substring(s, start, len)`     | `String x Int x Int -> String`  |
 | `String.to_upper(s)`                  | `String -> String`              |
 | `String.to_lower(s)`                  | `String -> String`              |
+| `String.trim(s)`                      | `String -> String`              |
+| `String.split(s, sep)`                | `String x String -> List<String>` |
+| `String.join(xs, sep)`                | `List<String> x String -> String` |
 
-### 15.3 File
+### 15.3 Conversions
+
+| Function             | Signature                       |
+|----------------------|---------------------------------|
+| `Int.to_string(n)`   | `Int -> String`                 |
+| `String.to_int(s)`   | `String -> Option<Int>`         |
+
+`String.to_int` returns `Option<Int>` rather than `Int` because
+not every string is a valid integer. Use `match` to distinguish.
+
+### 15.4 File
 
 | Function                          | Signature                       |
 |-----------------------------------|---------------------------------|
@@ -732,7 +882,7 @@ All public declarations from the imported file become available.
 | `File.write(path, content)`       | `String x String -> Int`        |
 | `File.append(path, content)`      | `String x String -> Int`        |
 
-### 15.4 List
+### 15.5 List
 
 | Function             | Signature               |
 |----------------------|-------------------------|
@@ -740,22 +890,55 @@ All public declarations from the imported file become available.
 | `List.sum(arr)`      | `List<Float> -> Float`  |
 | `List.max(arr)`      | `List<Float> -> Float`  |
 | `List.min(arr)`      | `List<Float> -> Float`  |
+| `list.append(x)`     | mutating; `var` receiver required |
 
-### 15.5 Memory
+### 15.6 Map
+
+| Function             | Signature               |
+|----------------------|-------------------------|
+| `m.insert(k, v)`     | mutating; `var` receiver required |
+| `m.get(k)`           | `-> Option<V>`          |
+| `m.contains(k)`      | `-> Bool`               |
+| `m.keys()`           | `-> List<K>`            |
+| `m.values()`         | `-> List<V>`            |
+| `m.length()`         | `-> Int`                |
+
+Keys are restricted to `Int`, `String`, and `Bool`.
+
+### 15.7 Memory
 
 | Function      | Signature                        |
 |---------------|----------------------------------|
 | `alloc(size)` | `Int -> Pointer<Unknown>`        |
 | `free(ptr)`   | `Pointer<Unknown> -> Void`       |
 
-### 15.6 Method Syntax
+`alloc` and `free` require an `unsafe` block.
 
-Built-in functions with dotted names may be called as methods:
+### 15.8 Method Syntax
+
+Built-in functions with dotted names may be called as methods on a
+variable:
 
 ```
+val list := [1.0, 2.0]
 list.length()          // equivalent to List.length(list)
-"hello".to_upper()     // equivalent to String.to_upper("hello")
+
+val s := "hello"
+s.to_upper()           // equivalent to String.to_upper(s)
 ```
+
+The receiver must be a bare identifier, not a general expression.
+`"hello".to_upper()` does not parse — the parser rejects method
+calls on complex receivers. Bind to a variable first:
+
+```
+val s := "hello"
+print(s.to_upper())    // OK
+```
+
+Zero-argument methods may be called without parentheses:
+`list.length` and `list.length()` are equivalent. Methods that
+take arguments (`m.get(k)`, `m.insert(k, v)`) require parentheses.
 
 ---
 
@@ -767,18 +950,30 @@ list.length()          // equivalent to List.length(list)
 | `algol26 build <file.gol>`             | Compile to native executable      |
 | `algol26 run <file.gol>`               | Compile and execute               |
 | `algol26 wasm <file.gol>`              | Compile to WebAssembly            |
-| `algol26 --interpreter <file.gol>`     | Run through the interpreter only  |
+| `algol26 run --interpreter <file.gol>` | Run through the interpreter only  |
+| `algol26 inspect --ir <file.gol>`      | Dump semantic IR                  |
+| `algol26 inspect --capabilities`       | Print feature × backend matrix    |
 
 Flags:
 
-- `--interpreter` -- skip LLVM codegen; run through the tree-walking
-  interpreter. Required for programs that use `try/catch`.
-- `--emit-llvm` -- write the LLVM IR and exit without linking.
-- `--run` -- after `build`, execute the compiled binary.
-- `--output NAME` / `-o NAME` -- set the output name.
+- `--interpreter` — skip LLVM codegen; run through the tree-walking
+  interpreter. Required for programs that use records, maps,
+  `List.append`, `Option`, `Result`, `try/catch`, or any other
+  feature the LLVM backend refuses.
+- `--emit-llvm` — write the LLVM IR and exit without linking.
+- `--run` — after `build`, execute the compiled binary.
+- `--output NAME` / `-o NAME` — set the output name.
+- `--timing` — print per-phase compile durations.
 - `--version` / `-v`, `--help` / `-h`.
 
-Flags may appear in any position.
+Program arguments follow a `--` separator:
+
+```
+algol26 run --interpreter main.gol -- --config=file.conf verbose
+```
+
+Inside the program, `args()` returns the list of arguments after
+`--`.
 
 ---
 
@@ -791,23 +986,27 @@ Source (.gol)
 Lexer --> Parser --> AST
   |
   v
-Module resolution      (imports inlined)
+Module resolution      (imports inlined, recursively)
   |
   v
 Loop desugaring        (unrolling + expansion)
   |
   v
-Impl-method expansion
+Impl-method expansion  (renames impl methods to <Type>_<method>)
   |
   v
-Monomorphization       (generic specialization)
+ExprId assignment      (stable identity for every expression)
   |
   v
 Semantic analysis      (types, ownership, borrows, traits)
-  |                     produces a type table keyed by AST node
+  |                     produces a type table keyed by ExprId
   v
-SemanticIRBuilder      (CFG construction, consumes the type table)
+InstantiationPlan      (transitive closure over generic calls)
   |
+  v
+SemanticIRBuilder      (CFG construction, consumes the type table
+  |                     and the plan; emits one SemanticFunction
+  |                     per concrete generic specialization)
   v
 CFG verification       (structural checks)
   |
@@ -818,12 +1017,22 @@ Semantic verification  (instruction-level type checks)
 Optimizer              (folding, DCE, branch simplification)
   |
   v
+Re-verification        (post-optimize invariant check)
+  |
+  v
+Capability scan        (refuses unsupported features per backend)
+  |
+  v
 VerifiedIR             (gate: only verified IR reaches backends)
   |
   +--> LLVM backend
   +--> Interpreter backend
   +--> WASM backend
 ```
+
+Every stage after the frontend runs through the compiler pass
+pipeline. Passes declare a contract (input level, output level,
+kind) enforced by the scheduler — see `docs/pass-contracts.md`.
 
 ---
 
@@ -838,6 +1047,7 @@ that would fail if the guarantee were broken.
 | Type safety                      | Enforced      | Analyzer + verifier     |
 | Immutability (`val` reassign)    | Enforced      | Analyzer                |
 | Use-after-move                   | Enforced      | Analyzer                |
+| Structural `Copy` for records    | Enforced      | Analyzer                |
 | Borrow conflicts (double-mut, mut-while-immut, read-while-mut) | Enforced | Analyzer |
 | Reference escape (direct cases)  | Enforced      | Analyzer                |
 | Static array bounds (literals)   | Enforced      | Analyzer                |
@@ -845,6 +1055,8 @@ that would fail if the guarantee were broken.
 | Null-deref of statically-null    | Enforced      | Analyzer                |
 | Defer LIFO ordering              | Enforced      | IR builder              |
 | Short-circuit `and`/`or`         | Enforced      | IR builder              |
+| Trait declaration validity       | Enforced      | Trait registry          |
+| Trait bound enforcement          | Not enforced  | Name-resolved only (ADR 0025) |
 | Race detection (basic patterns)  | Partial       | Race detector           |
 | Region allocation safety         | Partial       | Runtime allocator       |
 | Region pointer lifetime          | Not enforced  | Compile-time work TODO  |
@@ -855,19 +1067,47 @@ that would fail if the guarantee were broken.
 
 ## 19. Known Limitations
 
-- **`try/catch` and LLVM**: LLVM refuses programs using `try/catch`
-  with a clear diagnostic. Use `--interpreter`.
-- **Alias analysis**: the race detector does not track references.
-  A write through a reference is not connected to a read of the
-  source variable.
-- **Defer**: only `return` triggers defers; `break`/`continue` and
-  fall-through do not.
-- **Value-flow analysis**: `var` bindings holding `null` at runtime
-  are not tracked.
-- **Generic constraints**: single-letter type parameters are
-  accepted as wildcards; strict coherence checking is not yet
-  performed.
-- **Common subexpression elimination**: not implemented.
+### Language-level
+
+- **Chained method calls on field accesses.** `x.field.method()`
+  does not parse; bind the field to a local first.
+- **Method calls on complex receivers.** `"hello".to_upper()` and
+  `m.values().length()` do not parse; the parser requires a bare
+  identifier as the receiver.
+- **Explicit call-site type arguments.** `identity<Int>(42)` does
+  not parse; inference from argument types is the only form.
+- **Generic records.** `rec Pair<T>` parses, but the construction
+  form `Pair<Int> { first: 1 }` is not supported by the parser.
+- **Sum types.** The language has no variants or tagged unions;
+  recursive structured data (a JSON tree, an AST) is not
+  expressible. No ADR yet.
+- **Reserved-word collisions.** `end`, `from`, `in`, `do`, `as`,
+  and the rest of the keyword set cannot be used as field names.
+  `rec Segment { start, end }` fails to parse.
+
+### Backend-level
+
+- **Records, `Map<K, V>`, and `List.append` are interpreter-only.**
+  LLVM and WASM refuse programs that use them via the capability
+  check. See `docs/IMPLEMENTATION_STATUS.md` for the full matrix.
+- **`Option`, `Result`, `try/catch`, and `String.*` conversions**
+  are interpreter-only for the same reason.
+- **Channels have no runtime on any backend.** See ADR 0020.
+- **Regions that allocate** are refused by WASM (RawMemory is
+  refused). The interpreter and LLVM support them.
+
+### Analysis-level
+
+- **Alias analysis for races.** The race detector does not track
+  references.
+- **Defer.** Only `return` triggers defers; `break`/`continue`
+  and fall-through do not.
+- **Value-flow analysis.** `var` bindings holding `null` at
+  runtime are not tracked.
+- **Trait bounds.** Name-resolved only (ADR 0025).
+- **Diagnostic file provenance.** Errors inside imported files
+  are attributed to the importing file.
+- **Common subexpression elimination.** Not implemented.
 
 ---
 

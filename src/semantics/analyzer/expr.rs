@@ -1145,23 +1145,21 @@ impl SemanticAnalyzer {
                     let arg_type = self.analyze_expr_with_context(arg, Some(param_type))?;
                     self.register_call_arg_temporary(arg);
                     let resolved_param_type = self.resolve_type(param_type);
-                    if let Type::TypeVar(tv) = &resolved_param_type {
-                        if let Some(existing_binding) = type_bindings.get(tv) {
-                            if existing_binding != &arg_type && existing_binding != &Type::Unknown {
-                                return Err(CompileError::simple(
-                                    &format!(
-                                        "Type mismatch for generic parameter '{}': expected {}, found {}",
-                                        tv, existing_binding, arg_type
-                                    ),
-                                    self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                                ));
-                            }
-                        } else {
-                            type_bindings.insert(tv.clone(), arg_type.clone());
-                        }
-                    } else if !arg_type.can_coerce_to(&resolved_param_type)
-                        && resolved_param_type != Type::Unknown
-                        && !matches!(resolved_param_type, Type::List(_))
+
+                    // Bind any type variables the parameter contains. Recursive —
+                    // `List<T>` against `List<Int>` binds T = Int; `TypeVar("T")`
+                    // directly binds as before.
+                    self.unify_types(&resolved_param_type, &arg_type, &mut type_bindings)?;
+
+                    // The coercion check only fires when the parameter type is
+                    // fully concrete. A generic parameter (`List<T>`, `Option<U>`)
+                    // was checked structurally by `unify_types` above; re-checking
+                    // it with `can_coerce_to` would treat the type variable as a
+                    // concrete non-supertype and produce spurious mismatches.
+                    if !resolved_param_type.contains_type_var()
+                        && !resolved_param_type.contains_unknown()
+                        && !arg_type.contains_unknown()
+                        && !arg_type.can_coerce_to(&resolved_param_type)
                     {
                         return Err(CompileError::simple(
                             &format!(
@@ -1503,6 +1501,79 @@ impl SemanticAnalyzer {
             Type::MutBorrow(inner) => Type::mut_borrow(self.substitute_type_vars(inner, bindings)),
             Type::Channel(inner) => Type::channel(self.substitute_type_vars(inner, bindings)),
             _ => type_.clone(),
+        }
+    }
+
+    /// Unify a parameter pattern against a concrete argument type,
+    /// populating `bindings` for any type variables the pattern contains.
+    ///
+    /// Unlike the direct `Type::TypeVar` match it replaces, this recurses
+    /// into composite types: `List<T>` against `List<Int>` binds
+    /// `T = Int`; `Map<K, V>` against `Map<String, Int>` binds both;
+    /// `Result<List<T>, E>` against `Result<List<Int>, String>` binds
+    /// both at the right depths.
+    ///
+    /// Types with no type variables in the pattern are a no-op — nothing
+    /// to bind.
+    fn unify_types(
+        &self,
+        pattern: &Type,
+        concrete: &Type,
+        bindings: &mut HashMap<String, Type>,
+    ) -> Result<()> {
+        match (pattern, concrete) {
+            (Type::TypeVar(name), concrete) => {
+                if let Some(existing) = bindings.get(name) {
+                    if existing != concrete
+                        && existing != &Type::Unknown
+                        && concrete != &Type::Unknown
+                    {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "Type mismatch for generic parameter '{}': expected {}, found {}",
+                                name, existing, concrete
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                } else {
+                    bindings.insert(name.clone(), concrete.clone());
+                }
+                Ok(())
+            }
+            (Type::List(p), Type::List(c)) => self.unify_types(p, c, bindings),
+            (Type::Option(p), Type::Option(c)) => self.unify_types(p, c, bindings),
+            (Type::Result { ok: p1, error: p2 }, Type::Result { ok: c1, error: c2 }) => {
+                self.unify_types(p1, c1, bindings)?;
+                self.unify_types(p2, c2, bindings)
+            }
+            (Type::Map(p1, p2), Type::Map(c1, c2)) => {
+                self.unify_types(p1, c1, bindings)?;
+                self.unify_types(p2, c2, bindings)
+            }
+            (Type::Pointer(p), Type::Pointer(c)) => self.unify_types(p, c, bindings),
+            (Type::Borrow(p), Type::Borrow(c)) => self.unify_types(p, c, bindings),
+            (Type::MutBorrow(p), Type::MutBorrow(c)) => self.unify_types(p, c, bindings),
+            (Type::Array(p, _), Type::Array(c, _)) => self.unify_types(p, c, bindings),
+            (Type::Channel(p), Type::Channel(c)) => self.unify_types(p, c, bindings),
+            (Type::Generic { name: n1, args: a1 }, Type::Generic { name: n2, args: a2 })
+                if n1 == n2 && a1.len() == a2.len() =>
+            {
+                for (p, c) in a1.iter().zip(a2.iter()) {
+                    self.unify_types(p, c, bindings)?;
+                }
+                Ok(())
+            }
+            (Type::Record(n1, a1), Type::Record(n2, a2)) if n1 == n2 && a1.len() == a2.len() => {
+                for (p, c) in a1.iter().zip(a2.iter()) {
+                    self.unify_types(p, c, bindings)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 

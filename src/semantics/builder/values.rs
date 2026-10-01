@@ -11,6 +11,19 @@ impl SemanticIRBuilder {
         receiver_type: &Type,
         method_name: &str,
     ) -> Option<String> {
+        // Records have no builtin base name, so try the impl-mangled
+        // form directly: `expand_impl_methods` renames `show` on
+        // `Sale` to `Sale_show`, which is registered in
+        // `function_types` just like a builtin. Fall through to the
+        // generic path only if that misses.
+        if let Type::Record(name, _) = receiver_type {
+            let mangled = format!("{}_{}", name, method_name);
+            if self.function_types.contains_key(&mangled) {
+                return Some(mangled);
+            }
+            return None;
+        }
+
         let base = Self::base_type_name(receiver_type)?;
 
         // Dot form — matches Math.sqrt, String.length, List.sum, File.read, …

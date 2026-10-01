@@ -552,3 +552,26 @@ procedure main
     );
     assert_eq!(output, "11");
 }
+
+#[test]
+fn record_method_call_dispatches_to_impl() {
+    let output = run_source(
+        r#"
+rec Point
+    x: Int
+    y: Int
+
+trait Show
+    function show() -> String
+
+impl Show for Point
+    function show() -> String
+        return "(" + Int.to_string(self.x) + "," + Int.to_string(self.y) + ")"
+
+procedure main
+    val p := Point { x: 1, y: 2 }
+    print(p.show())
+"#,
+    );
+    assert_eq!(output, "(1,2)");
+}

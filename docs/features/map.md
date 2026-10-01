@@ -84,13 +84,30 @@ for k in m.keys()
     val v := m.get(k)
     match v
         case Some(x)
-            print(k + ": " + to_string(x))
+            print(k + ": " + Int.to_string(x))
         case None
             print(k + ": <missing>")
 ```
 
-`keys()` and `values()` are both sorted by key, so
-`zip(m.keys(), m.values())` yields aligned `(k, v)` pairs.
+`keys()` and `values()` are both sorted by key in the current
+interpreter, so walking them in parallel with a shared index
+yields aligned `(k, v)` pairs. The language does not guarantee
+this ordering; see "Iteration order" below.
+
+### Chained calls on map methods
+
+`m.values().length()` does not parse — the parser rejects method
+calls on complex receiver expressions, and `m.values()` is a
+function call rather than a bare variable. Bind the intermediate
+value to a local first:
+
+```
+val vs := m.values()
+print(vs.length())
+```
+
+This is a language-level limitation, not a map-specific one; it
+applies to any expression followed by a method call.
 
 ## Semantics
 
@@ -109,8 +126,9 @@ hash function.
 
 ### Value types
 
-Values are unrestricted. `Map<String, List<Int>>`, `Map<Int, Map<String, Bool>>`,
-and `Map<String, Point>` where `Point` is a record all work.
+Values are unrestricted. `Map<String, List<Int>>`,
+`Map<Int, Map<String, Bool>>`, and `Map<String, Point>` where
+`Point` is a record all work.
 
 ### `insert` requires `var`
 
@@ -176,6 +194,10 @@ Run through the interpreter instead:
     algol26 run --interpreter <file.gol>
 ```
 
+The refusal is enforced by the capability check (`Feature::Map`),
+not by codegen. The scan fires on any `TypedIRValue::Map` value
+and on any `Map.*` call name.
+
 ## What is not in v1
 
 - `remove(k)` — deletion. Follow-up; the return type is the
@@ -187,7 +209,8 @@ Run through the interpreter instead:
   Use `for k in m.keys()`.
 - `Map.entries()` — returning `List<(K, V)>` would need tuples,
   which the language does not have.
-- LLVM lowering.
+- LLVM lowering. A runtime hash-table implementation is a
+  follow-up ADR.
 
 ## Example
 
@@ -208,7 +231,7 @@ procedure main
         val v := counts.get(k)
         match v
             case Some(n)
-                print(k + ": " + to_string(n))
+                print(k + ": " + Int.to_string(n))
             case None
                 print(k + ": <missing>")
 ```

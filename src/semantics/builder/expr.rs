@@ -70,7 +70,7 @@ impl SemanticIRBuilder {
             } => {
                 if matches!(&value.kind, ExprKind::For { .. } | ExprKind::While { .. }) {
                     let decl_type = if let Some(t) = type_annotation {
-                        t.to_type()
+                        self.resolve_type_syntax(t)
                     } else {
                         Type::Void
                     };
@@ -1539,11 +1539,11 @@ impl SemanticIRBuilder {
                 let map_type = self.type_of_expr(expr).unwrap_or_else(|| {
                     let kt = key_syntax
                         .as_ref()
-                        .map(|s| s.to_type())
+                        .map(|s| self.resolve_type_syntax(s))
                         .unwrap_or(Type::Unknown);
                     let vt = value_syntax
                         .as_ref()
-                        .map(|s| s.to_type())
+                        .map(|s| self.resolve_type_syntax(s))
                         .unwrap_or(Type::Unknown);
                     Type::map(kt, vt)
                 });

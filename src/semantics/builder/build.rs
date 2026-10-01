@@ -335,7 +335,7 @@ impl SemanticIRBuilder {
                 .iter()
                 .map(|(n, t)| {
                     let raw = match t {
-                        Some(s) => s.to_type(),
+                        Some(s) => self.resolve_type_syntax(s),
                         None => Type::Unknown,
                     };
                     (n.clone(), raw.substitute(&subst))
@@ -344,7 +344,7 @@ impl SemanticIRBuilder {
             let return_type = func
                 .return_type
                 .as_ref()
-                .map(|t| t.to_type())
+                .map(|t| self.resolve_type_syntax(t))
                 .unwrap_or(Type::Void)
                 .substitute(&subst);
             self.function_types.insert(

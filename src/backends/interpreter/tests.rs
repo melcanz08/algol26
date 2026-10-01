@@ -1,51 +1,23 @@
 // src/backends/interpreter/tests.rs
 //
-// End-to-end interpreter tests for `rec` records (ADR 0024) and
-// `Map<K, V>` (ADR 0027).
+// End-to-end interpreter tests for `rec` records (ADR 0024),
+// `Map<K, V>` (ADR 0027), `List.append` (ADR 0028), and traits.
 
 use super::Interpreter;
-use crate::compiler::assign_expr_ids;
-use crate::frontend::lexer::Lexer;
-use crate::frontend::parser::Parser;
-use crate::ir::instantiation_plan::InstantiationPlan;
-use crate::ir::semantic_ir::SemanticProgram;
-use crate::semantics::analyzer::SemanticAnalyzer;
-use crate::semantics::builder::SemanticIRBuilder;
+use crate::compiler::Compiler;
 
-/// Run `source` through the full pipeline (lex → parse → analyze →
-/// IR → verify → interpret) and return the interpreter's stdout.
+/// Run `source` through the full production pipeline — lex, parse,
+/// process imports, desugar, expand impl methods, assign ExprIds,
+/// analyze, build IR, verify — then interpret. This exercises the
+/// same frontend the CLI does, including the impl-method expansion
+/// that renames `impl Show for Point`'s `show` to `Point_show`
+/// before the builder looks it up.
 fn run_source(source: &str) -> String {
-    let lexer = Lexer::new(source.to_string()).expect("lex");
-    let mut parser = Parser::new(lexer.tokens);
-    let program = parser.parse_program().expect("parse");
-    let mut functions = program.functions;
-    assign_expr_ids(&mut functions);
-
-    let mut analyzer = SemanticAnalyzer::new();
-    analyzer
-        .analyze_with_spans(
-            &functions,
-            &program.traits,
-            &program.impls,
-            &program.records,
-        )
-        .expect("analyze");
-
-    let type_table = analyzer.take_type_table_id();
-    let instantiations = analyzer.take_instantiations();
-    let mut plan = InstantiationPlan::from_instantiations(&instantiations);
-    plan.close(&functions);
-
-    let (semantic_program, diagnostics): (SemanticProgram, Vec<String>) =
-        SemanticIRBuilder::build(&functions, type_table, plan, &program.records);
-    assert!(
-        diagnostics.is_empty(),
-        "IR build produced diagnostics: {:?}",
-        diagnostics
-    );
-
-    crate::ir::verifier::verify(&semantic_program).expect("verify");
-
+    let mut compiler = Compiler::new();
+    let verified = compiler
+        .run_pipeline_for(source, "test.gol")
+        .expect("pipeline should reach verified IR");
+    let semantic_program = verified.program().clone();
     let mut interp = Interpreter::new(semantic_program);
     interp.run().expect("interpret")
 }

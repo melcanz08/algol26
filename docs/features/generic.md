@@ -1,24 +1,24 @@
-# Feature: Generic (`<T>`, `<T: Bound>`)
+# Feature: Generic (`<T>`, `where T: Bound`)
 
 > Per-feature contract, following the pattern described in `docs/architecture-direction.md`.
 > This file is the authoritative answer to "what are generics in ALGOL26, and where do they live?"
 
 ## Summary
 
-A **generic** is a function, type, or impl parameterized over a type
-or types. Generic parameters are written in angle brackets:
+A **generic** is a function parameterized over one or more types.
+Generic parameters are written in angle brackets:
 `function f<T>(x: T) -> T`. The parameter `T` stands for a concrete
 type supplied at each call site.
 
-ALGOL26 uses **monomorphization**, not dynamic dispatch. When the
-analyzer sees `f<Int>(x)`, it records that a specialization of `f`
-for `Int` is needed. `src/ir/monomorphize.rs` runs before IR
-construction and produces one concrete function per
-`(generic function, concrete type args)` pair. The runtime sees
-only concrete functions.
+ALGOL26 uses **monomorphization**, not dynamic dispatch. The
+analyzer records each generic call site's type arguments; a plan
+closes over the transitive specialization graph; and the IR
+builder emits one concrete `SemanticFunction` per (generic
+function, concrete type-args) pair. The backends see only
+concrete functions.
 
 This is the same discipline as traits: all generic machinery is
-resolved at compile time, before the IR is built. Every backend
+resolved at compile time, before the backends run. Every backend
 supports generics for free.
 
 ## Syntax
@@ -37,22 +37,26 @@ function swap<A, B>(a: A, b: B) -> B
     return b
 ```
 
-Generic type parameter with a trait bound:
+Generic type parameter with a trait bound, using the `where`
+clause form:
 
 ```gol
-function max_of<T: Comparable>(a: T, b: T) -> T
+function max_of<T>(a: T, b: T) -> T where T: Comparable
     if a.compare(b) > 0 then
         return a
     else
         return b
 ```
 
-Generic impl block:
+Generic parameter used inside a container type (the container
+case was fixed during the CLI exercises — see "Type parameter
+inference" below):
 
 ```gol
-impl<T> Printable for List<T>
-    function to_string(self: List<T>) -> String
-        return "list"
+function first<T>(xs: List<T>) -> Option<T>
+    if List.length(xs) == 0
+        return None
+    return Some(xs[0])
 ```
 
 Generic type in a variable declaration:
@@ -62,20 +66,11 @@ val nums: List<Int> := [1, 2, 3]
 val ids: Result<Int, String> := Ok(42)
 ```
 
-Type parameters are **single uppercase letters** by convention, and
-the parser accepts any single-uppercase-letter identifier as a type
-variable. A multi-letter identifier is treated as a concrete type
-name. See `Type::from_str` in `src/common/types.rs`:
-
-```rust
-if s_trimmed.len() == 1 {
-    if let Some(c) = s_trimmed.chars().next() {
-        if c.is_uppercase() {
-            return Type::TypeVar(s_trimmed.to_string());
-        }
-    }
-}
-```
+Type parameters are **single uppercase letters** by convention. The
+parser accepts any single-uppercase-letter identifier as a type
+variable; multi-letter identifiers are resolved by the analyzer
+against the record table and then `TypeSyntax::to_type`'s primitives.
+See `Type::from_str` in `src/common/types.rs`.
 
 ## Typing rules
 
@@ -101,66 +96,73 @@ is that every `TypeVar` is resolved to a concrete type before IR
 construction — a program that reaches codegen with an unresolved
 `TypeVar` in its type table is a compiler bug, not a user error.
 
-### Instantiation
-
-When `f<Int>(x)` is analyzed:
-
-1. Look up `f`'s signature: `function f<T>(x: T) -> T`.
-2. Substitute `T := Int` throughout the signature.
-3. Result: `f` specialized at `Int` has signature
-   `function f_Int(x: Int) -> Int`.
-4. Call is type-checked against the specialized signature.
-5. A specialization request `(f, [Int])` is recorded for the
-   monomorphizer.
-
 ### Type parameter inference
 
-Where a call does not spell out the type parameter, it is inferred
-from the argument types. `identity(42)` infers `T := Int` from the
-argument. Where inference fails (e.g. `identity([])` — `T` is the
-element type of an empty list), the caller must annotate:
-`identity<Int>([])`.
+Type parameters are inferred from the call's argument types at the
+call site. The analyzer's `unify_types` (in
+`src/semantics/analyzer/expr.rs`) recursively binds type variables
+inside container types:
 
-## IR representation
+- `identity(42)` binds `T = Int`.
+- `first([1, 2, 3])` binds `T = Int`, because `List<T>` against
+  `List<Int>` recurses into the element.
+- `first(rows)` where `rows: List<Sale>` binds `T = Sale`.
+- `identity(Some(42))` binds `T = Option<Int>`.
 
-### Before monomorphization
+The recursion covers `List<T>`, `Option<T>`, `Result<T, E>`,
+`Map<K, V>`, `Pointer<T>`, `Array<T, N>`, `Channel<T>`, and
+nested combinations. A `Type::TypeVar` directly as a parameter type
+still binds — that path is unchanged from before `unify_types`.
 
-The generic function is present in the analyzer's type table with
-its parameterized signature. The IR builder does **not** see
-`TypeVar` types in value positions — by the time
-`SemanticIRBuilder::build` runs, the type table has been populated
-with concrete specializations.
+Explicit call-site type arguments (`identity<Int>(42)`) are not
+supported by the parser. Where inference cannot determine a
+parameter, the program is rejected with a diagnostic. In practice,
+inference from argument types succeeds for every well-typed call.
 
-### After monomorphization
+### Instantiation plan
 
-`src/ir/monomorphize.rs` walks the type table and for each
-specialization request `(function_name, type_args)` produces a new
-`SemanticFunction` with:
+The analyzer records one `Instantiation` fact per generic call
+site in `SemanticAnalyzer::instantiations`. Each fact carries the
+call site's `ExprId`, the callee's name, the declared type-parameter
+names in order, and the inferred concrete `type_args`.
 
-- A name of the form `<function_name>_<type1>_<type2>_...`. The
-  exact format is pinned by
-  `test_two_param_generic_name_follows_declaration_order`.
-- Parameters with `TypeVar` replaced by the concrete types.
-- Body with `TypedIRValue::Variable` types substituted.
-- Nested substitutions recursed into list elements, array indices,
-  and field accesses (see `substitution_recurses_into_array_index`).
+`InstantiationPlan::from_instantiations` builds two tables:
 
-The specialization name is **stable across runs**
-(`test_specialized_name_is_stable_across_runs`). Two compilations
-of the same source produce byte-identical IR. This matters for
-incremental builds and for differential testing, where the LLVM and
-interpreter paths must see the same IR.
+- `call_sites: HashMap<ExprId, CallSiteInstantiation>` — every
+  generic call site.
+- `specializations: HashMap<String, Specialization>` — concrete
+  specializations, keyed by mangled name (`function_Type1_Type2`).
 
-### IR verifier
+Symbolic call sites — those inside another generic's body, whose
+type args are still `TypeVar` or `Unknown` — are recorded but do
+not produce a specialization immediately.
+
+`InstantiationPlan::close(functions)` resolves the transitive
+closure: it walks each concrete specialization's body under that
+specialization's bindings, substitutes symbolic type args into
+concrete ones, and iterates to fixpoint. The worklist uses a
+`HashSet` of already-seen mangled names, so the closure terminates
+even for mutually-recursive generic calls. See ADR 0013.
+
+### IR representation
+
+The IR builder emits one `SemanticFunction` per specialization of
+each generic function, named by
+`mangled_name(function, type_args)` — e.g. `identity_Int`,
+`pair_String_Int`. Non-generic functions are emitted unchanged.
+The original generic function templates are analyzer input, not
+compiler output.
+
+`resolved_callee_name` in the IR builder rewrites each generic call
+site's callee to the mangled name of its matching specialization.
+If the plan has no matching specialization — which should not
+happen after `close` — the builder emits a diagnostic naming the
+unresolved call rather than falling back silently.
 
 The IR verifier sees only concrete functions. A `TypeVar` in the
-final IR would be a compiler bug. There is no explicit verifier
-rule for "no TypeVar in IR" — it is a precondition the
-monomorphizer is expected to satisfy.
-
-Adding such a check would be a small Tier 2 item: a scan over the
-final `SemanticProgram` that returns an error if any type is
-`TypeVar(_)` or `Generic { .. }` with unsubstituted args.
+final IR would be a compiler bug. ADR 0014's invariant check
+rejects `Type::TypeVar` in executable IR via
+`crate::ir::verifier::invariants`.
 
 ## Type substitution
 
@@ -177,12 +179,16 @@ is the core operation. It recurses into every composite type:
 | `Result { ok, error }` | substitute both |
 | `Pointer(inner)`, `Borrow(inner)`, `MutBorrow(inner)` | substitute inner |
 | `Channel(inner)` | substitute inner |
+| `Map(k, v)` | substitute key and value |
 | `Generic { name, args }` | substitute each arg |
+| `Record(name, args)` | substitute each type argument |
 | `Function { params, return_type }` | substitute each param and the return |
 | all others | return clone unchanged |
 
 The recursion into every composite is what makes nested generics
-work: `List<T>` where `T = Int` becomes `List<Int>`.
+work: `List<T>` where `T = Int` becomes `List<Int>`; `Map<String,
+Pair<T, T>>` where `T = Float` becomes `Map<String, Pair<Float,
+Float>>`.
 
 ## Backends
 
@@ -200,7 +206,7 @@ no per-backend work to do.
 
 This means: **adding a new generic type is nearly free on the
 backend side**. The cost is entirely in parsing, type checking, and
-monomorphization.
+the instantiation plan.
 
 ## Monomorphization cost
 
@@ -211,8 +217,8 @@ function called with `List<Int>` and `List<String>` produces two
 more.
 
 **Code size grows with the number of distinct instantiations, not
-with the number of call sites.** Calling `identity<Int>(x)` a
-thousand times produces one specialization, not a thousand.
+with the number of call sites.** Calling `identity(42)` a thousand
+times produces one specialization, not a thousand.
 
 There is no dead-specialization elimination. If a specialization is
 produced but never called (e.g. because of dead code elimination at
@@ -221,48 +227,51 @@ possible optimizer pass; not currently implemented.
 
 ## Diagnostics
 
-Generic-related error codes currently emitted:
+Generic-related error messages are produced as `CompileError`
+values with `E0002` (type errors) or `E0004` (unknown names) codes:
 
-**None in the `E-XXX-NNN` format.** Like traits, generic errors are
-produced as free-form `String` messages through the analyzer's
-`Result<(), String>` path.
+- "Type mismatch for generic parameter 'T': expected X, found Y" —
+  when two arguments disagree on a type parameter's binding
+  (`unify_types` in the analyzer).
+- "Argument 'name' type mismatch: expected X, found Y" — when an
+  argument doesn't coerce to the resolved parameter type.
+- "Generic call to `f` still has unresolved type arguments after
+  substitution" — when the plan cannot resolve a call's type args
+  even after `close`.
+- "Generic call to `f` has no matching specialization in the plan"
+  — when the plan has no entry for a call that should have one.
 
-Examples of generic error messages:
-
-- "Cannot infer type parameter `T`" — when inference fails
-- "Type argument `X` does not satisfy bound `Y`" — from trait-bound
-  checking
-- "Wrong number of type arguments for `f`: expected N, got M"
-
-This is the same gap as traits. Bringing generic diagnostics into
-the coded system is a Tier 2 follow-up.
+All are `E0002` (or `E0004`) rather than the `E-XXX-NNN` format
+used elsewhere. Bringing generic diagnostics into the coded system
+is a Tier 2 follow-up; the same gap as traits.
 
 ## Safety
 
-- No monomorphization loop: the recursion is bounded by the depth
-  of the type graph. A generic function `f<T>` that calls itself
-  with `f<List<T>>` would loop forever, but the analyzer rejects
-  such calls because it cannot bound the expansion. See Open
-  Questions.
+- The instantiation plan's worklist terminates: the visited set is
+  keyed by mangled name, which is injective, so each specialization
+  is queued at most once.
 - No runtime type errors: every type is concrete before codegen.
 - No dynamic dispatch: the specialization name is known statically.
+- A `TypeVar` reaching the IR is rejected by the executable-IR
+  invariant check (ADR 0014).
 
 ## Test coverage
 
-Current coverage across the tree:
+**Instantiation plan (`src/ir/instantiation_plan.rs::tests`):**
 
-**Monomorphizer (`src/ir/monomorphize.rs::tests`):**
-
-- `substitution_recurses_into_array_index` — nested substitution
-  inside array access works
-- `two_param_generic_name_follows_declaration_order` — the
-  specialization name format is deterministic
-- `specialized_name_is_stable_across_runs` — two compilations
-  produce identical names
-
-**Corpus:**
-
-- `corpus_generics/generics_test.gol` (under `examples/generics/`)
+- `empty_instantiations_produce_empty_plan`
+- `one_concrete_instantiation_creates_one_specialization`
+- `two_instantiations_of_same_function_produce_two_specializations`
+- `symbolic_instantiation_records_call_site_but_no_specialization`
+- `closure_materializes_single_hop_specialization` — `f<T>` calls
+  `g<T>`, closure materializes `g`
+- `closure_materializes_two_hop_specialization` — `f` → `g` → `h`
+- `closure_with_composite_type_argument` — `List<Int>` as a
+  type argument
+- `closure_is_idempotent` — running `close` twice produces the
+  same plan
+- `closure_handles_multiple_concrete_calls` — `outer(1)` and
+  `outer("hello")` materialize both specializations
 
 **Type-level (`src/common/types.rs::tests`):**
 
@@ -270,36 +279,35 @@ Current coverage across the tree:
 - `test_substitute` — substitution through `List<T>` works
 - `test_type_parsing` — `T` parses as `TypeVar("T")`
 
+**Analyzer:**
+
+- `records_instantiation_for_generic_call_with_int_argument`
+- `records_instantiation_for_generic_call_with_reference_argument`
+- `non_generic_calls_record_no_instantiation`
+
+**Interpreter (end-to-end):**
+
+- `tests/features.gol` in the CLI validation repo exercises
+  `first<T>(xs: List<T>) -> Option<T>` with `T = Int`.
+
 **Semantics-level:**
 
-- Trait bounds on generics: `test_comparable_bound_allows_int`,
-  `test_comparable_bound_rejects_string`,
-  `test_display_bound_allows_float` in
-  `tests/semantics/trait_bounds_enforcement.rs`
+- Trait bounds on generics: `tests/semantics/trait_bounds_enforcement.rs`.
 
 ### Gaps
 
-- **No test for monomorphization of a generic that takes a generic
-  type argument.** `identity<List<Int>>(x)` — is this expanded
-  correctly? Not tested.
-- **No test for a generic function calling another generic
-  function.** `f<T>` calls `g<T>` — is the specialization chain
-  correct? Not tested.
 - **No test for a generic function with a `Result<T, E>` return
-  type.** Substitution through `Result` is handled by `substitute`
-  but the analyzer path from a generic return type to a concrete
-  monomorphized function is not tested.
+  type.** `substitute` recurses into `Result`, but the analyzer
+  path from a generic return type through the plan to the builder
+  is not directly tested.
+- **No differential test specifically for generics.** Since
+  generics resolve before IR, a differential test exercises the
+  same concrete function on both backends — useful as a smoke
+  test, but not specifically a generics test.
 - **No test for a generic with a trait bound that calls the bound's
-  method.** `max_of<T: Comparable>` calls `a.compare(b)` — the
-  desugaring to a concrete method call at monomorphization time is
-  not covered.
-- **No differential test.** Since generics are resolved before IR,
-  a differential test would exercise the same concrete function on
-  both backends — useful as a smoke test, but not specifically a
-  generics test.
-- **No test that a `TypeVar` in the final IR is rejected.** The
-  precondition is unchecked. A small soundness test would scan
-  `SemanticProgram` for `TypeVar` and panic.
+  method.** `max_of<T: Comparable>` calling `a.compare(b)` — the
+  resolution of the bound method to the impl's function is not
+  covered end to end.
 
 ## Maturity
 
@@ -311,7 +319,7 @@ Generic (<T>)
     parsed:      yes
     typed:       yes
     validated:   yes
-    IR:          via monomorphization (no TypeVar reaches IR)
+    IR:          via InstantiationPlan + builder
     verified:    N/A (verifier sees concrete IR)
     interpreter: supported (indirectly)
     LLVM:        supported (indirectly)
@@ -320,7 +328,7 @@ Generic (<T>)
 ```
 
 Like traits, generics have no backend asymmetry. The entire feature
-lives in the frontend and the monomorphizer.
+lives in the frontend, the analyzer, and the instantiation plan.
 
 ## Checklist for related features
 
@@ -334,60 +342,40 @@ parameterization), you need to touch:
 2. `src/frontend/parser/` — parsing of new type-parameter syntax.
 3. `src/frontend/ast.rs` — AST nodes for the parameterized
    declaration.
-4. `src/semantics/analyzer/` — type inference and instantiation
-   logic.
+4. `src/semantics/analyzer/` — type inference (`unify_types`) and
+   instantiation recording.
 5. `src/semantics/trait_registry/` — if the feature uses trait
    bounds, registration and validation there.
-6. `src/ir/monomorphize.rs` — specialization generation.
-7. `src/ir/semantic_ir.rs` — likely nothing if the feature is
-   resolved before IR construction.
-8. `tests/semantics/` — analyzer-level tests for inference and
+6. `src/ir/instantiation_plan.rs` — specialization plan and
+   `close`.
+7. `src/semantics/builder/build.rs` — specialization emission.
+8. `src/semantics/builder/mod.rs::resolved_callee_name` — call-site
+   rewriting.
+9. `tests/semantics/` — analyzer-level tests for inference and
    bound checking.
-9. `tests/corpus/` — end-to-end programs.
-10. `docs/features/<feature>.md` — this file.
+10. `tests/corpus/` — end-to-end programs.
+11. `docs/features/<feature>.md` — this file.
 
 ## Open questions
 
-- **Is monomorphization terminating?** The current design assumes
-  finite type-argument nesting. A generic that instantiates itself
-  with a larger type (`f<T>` calls `f<List<T>>`) would loop. The
-  analyzer is expected to reject such calls, but I have not seen
-  the code that does this rejection. If it does not exist, a
-  user program could hang the compiler. This should be confirmed
-  and, if necessary, a depth limit added.
-
 - **Should generic diagnostics use `E-XXX-NNN` codes?** Same gap as
   traits. Recommended for Tier 2.
-
 - **Should there be dead-specialization elimination?** A generic
   function called only with `Int` that is then eliminated by DCE
   still produces an `f_Int` specialization. Removing it would
   require a reachability pass over the specialization graph.
   Currently not implemented.
-
-- **Should `TypeVar` be allowed to reach the IR?** Currently no —
-  the monomorphizer's job is to eliminate it. An explicit
-  precondition check would make the invariant visible. A small
-  Tier 2 item.
-
-- **What happens if the analyzer cannot infer a type parameter?**
-  The current behavior is an error requiring an explicit type
-  argument. Whether the error is emitted at the right place (the
-  call, not the function definition) is not verified by tests.
-
-- **Are generic type parameters covariant?**
-  `Type::Generic { name, args }` covariance follows
-  `can_coerce_to` on the args — `Generic("List", [Int])` coerces
-  to `Generic("List", [Float])`. Since `Generic` and `List`
-  overlap in the type system (both can represent `List<Int>`), it
-  is unclear which the analyzer uses. Worth confirming.
+- **Explicit call-site type arguments** (`identity<Int>(42)`) are
+  not parsed. Whether to add them, and how they interact with
+  argument-position inference, is an open design question.
 
 ## See also
 
 - `docs/architecture-direction.md` — the feature contract pattern itself
 - `docs/features/trait.md` — trait bounds on generics
 - `docs/decisions/0003-type-system.md` — the type system
+- `docs/decisions/0013-executable-ir-generic-invariant.md` — the
+  instantiation plan and `close`
 - `src/common/types.rs` — `TypeVar`, `Generic`, `substitute`
-- `src/ir/monomorphize.rs` — the specialization pass
+- `src/ir/instantiation_plan.rs` — the plan and closure
 - `tests/semantics/trait_bounds_enforcement.rs`
-- `examples/generics/generics_test.gol`

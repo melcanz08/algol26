@@ -17,7 +17,7 @@ that banner; do not read the file itself as authoritative.
 | Feature contracts | [`../features/`](../features/) |
 | Architecture decisions (ADRs) | [`../decisions/`](../decisions/) |
 | Release notes | [`../releases/`](../releases/) |
-| Compiler pass contracts | [`../ir-pass-contracts.md`](../ir-pass-contracts.md) |
+| Compiler pass contracts | [`../pass-contracts.md`](../pass-contracts.md) |
 | Test layout | [`../test-organization.md`](../test-organization.md) |
 | Panic policy | [`../no-panic-policy.md`](../no-panic-policy.md) |
 
@@ -58,20 +58,17 @@ by family:
 
 ## Files without a banner
 
-These archive files do **not** carry a Superseded banner because
-they are still current or are intentionally historical:
+These archive files do not carry a Superseded banner because they
+are historical by design, not superseded:
 
-- `historical-lineage.md` — describes ALGOL 58/60 lineage; not
-  superseded by anything
-- `memory-model.md` — the memory model reference; still current
-  unless and until it is folded into `../language-reference.md`
-- `list-printing.md` — behavior of list printing; still current
-- `versioning.md` — versioning policy; still current
-- `vision.md` — mission statement; still current
-- `wasm-differential-testing.md` — the WASM test plan; still
-  current, referenced from `../architecture-direction.md`
-- `algol26-contract.md` — the original language contract; kept
-  as a historical anchor
+- `historical-lineage.md` — describes ALGOL 58/60 lineage; a
+  permanent reference, not a superseded doc
+- `algol26-contract.md` — the original language contract; kept as
+  a historical anchor
+
+Two files moved up on 2026-10-01: `versioning.md` and `vision.md`
+are policies and mission statements, not superseded documents.
+They now live in `../`.
 
 ## Rules
 

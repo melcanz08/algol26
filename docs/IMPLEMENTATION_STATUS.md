@@ -1,30 +1,79 @@
 # ALGOL26 Implementation Status
 
-Last updated: 2026-09-27
+Last updated: 2026-10-01
 
 This document records what actually works, verified by the
-differential corpus in `tests/corpus/` and the capability tests in
+differential corpus in `tests/corpus/`, the conformance fixtures in
+`tests/conformance/`, the interpreter test suite in
+`src/backends/interpreter/tests.rs`, the analyzer tests in
+`src/semantics/analyzer/tests.rs`, and the capability tests in
 `src/backends/capabilities/tests.rs`. A feature is only listed as
-"works" if there is at least one corpus program or end-to-end test
-exercising it.
+"works" if there is at least one end-to-end test exercising it.
 
-## Recent changes (through 2026-09-27)
+## Recent changes (through 2026-10-01)
 
-### Records (ADR 0024)
+### Records (ADR 0024) and structural Copy (ADR 0026)
 
 - **`rec` structured data types.** Declaration, construction
   (`Point { x: 1, y: 2 }`), field read/write (`p.x`, `p.x := v`),
   pattern matching (`case Point { x, y }`), function parameters,
   nested records, and cross-module use.
+- **Structural `Copy`** (ADR 0026). A record is `Copy` iff every
+  field is `Copy`. `Point { x: Int, y: Int }` copies;
+  `Person { name: String, age: Int }` moves. The property is a
+  compile-time predicate on the type, not a declaration the
+  programmer writes.
 - **Interpreter-only.** LLVM and WASM refuse programs using records
   at the capability check (`Feature::Records`).
-- **Cross-module merge** (`d7b9e4d`). `process_imports` now merges
+- **Cross-module merge** (`c8c15fc`). `process_imports` merges
   `imported_program.records` alongside imported functions. A record
-  declared in an imported file was previously invisible to the
-  importing module.
-- **Not yet supported:** structural `Copy` for all-`Copy` records
-  (v1 records are move-only), field-level borrows (`&p.x`),
-  auto-derived traits, nested destructuring beyond one level.
+  declared in an imported file is visible to the importing module.
+- **Signature resolution.** Records named in function signatures
+  (`-> Option<Sale>`, `p: Point`) resolve through the analyzer's
+  and builder's `resolve_type_syntax`. All pure-syntax `to_type()`
+  call sites were replaced in `5b07b27`, `c8c15fc`, and `9ee2797`.
+- **Trait method dispatch on records** (`f5bc75d`).
+  `impl Show for Sale` + `sale.show()` resolves the impl-mangled
+  name (`Sale_show`) before falling through to the builtin path.
+- **Not yet supported:** field-level borrows (`&p.x`), auto-derived
+  traits, nested destructuring beyond one level.
+
+### Map (ADR 0027) and List.append (ADR 0028)
+
+- **`Map<K, V>`** (ADR 0027). Literal syntax `Map { "a": 1 }` and
+  `Map<String, Int> {}`, methods `insert`, `get`, `contains`,
+  `keys`, `values`, `length`. Keys restricted to `Int`, `String`,
+  or `Bool`. `insert` requires a `var` receiver and clears the
+  analyzer's static length tracking for the receiver.
+- **`List.append(x)`** (ADR 0028). Mutating method, requires a
+  `var` receiver. Invalidates the analyzer's statically-tracked
+  length for that binding so a now-valid index past the old length
+  isn't falsely rejected.
+- **Interpreter-only.** LLVM and WASM refuse both at the capability
+  check (`Feature::Map`, `Feature::ListAppend`).
+
+### Traits and generics in real programs
+
+- **`impl Trait for Type`** — declared methods are renamed to
+  `<Type>_<method>` by `expand_impl_methods` and registered in
+  `function_types`. Method call syntax is `x.method()`; the
+  receiver is passed implicitly.
+- **`function first<T>(xs: List<T>) -> Option<T>`** — generic
+  parameters bind through `unify_types` in the analyzer, which
+  recurses into container types. A call with `List<Int>` binds
+  `T = Int`. The specialization signature path also resolves
+  record type arguments through `resolve_type_syntax`.
+
+### Module system
+
+- **Top-level imports** (fixed in `9ee2797`). `import "path"` at
+  the top of a file is now processed by `process_imports`, matching
+  the in-body form. Previously top-level imports were parsed but
+  silently ignored.
+- **Nested imports.** An imported file's own `import` statements
+  are followed recursively. Cycle detection uses the loader's
+  `import_stack`; duplicate-file detection uses a `visited` set
+  keyed by canonical path so diamonds merge each file once.
 
 ### Track B builtins
 
@@ -54,9 +103,7 @@ interpreter-only; LLVM and WASM refuse at the capability boundary.
 - **Diagnostics: unresolvable named types** (`bc94173`). A
   `TypeSyntax::Named(name)` where `name` is multi-character, not a
   primitive, not a record, and not a type parameter now returns
-  `Err` instead of silently producing `Type::Unknown`. Closes the
-  class of failure where a resolution error surfaces three steps
-  downstream.
+  `Err` instead of silently producing `Type::Unknown`.
 
 ### Convergence work (ADRs 0013–0018)
 
@@ -88,6 +135,36 @@ interpreter-only; LLVM and WASM refuse at the capability boundary.
 - **Iterator metadata** (ADR 0021). `Declare` records the LLVM array
   type; `IteratorInit` and `IteratorNext` fail closed when metadata
   is missing rather than guessing.
+
+### Compiler bug fixes discovered by real programs
+
+The CLI and sales-report exercises (see the `algol26-cli`
+directory) surfaced and fixed a series of latent bugs. Each was
+invisible to single-file tests because the interaction of features
+only appears when they are combined in a real program:
+
+- `process_imports` dropped records from imported files (`c8c15fc`)
+- Function signature types in the builder used pure-syntax `to_type`
+  (`5b07b27`, `c8c15fc`)
+- `TypedIRValue::type_of()` had no arm for `FieldAccess`, `Array`,
+  or `Range`; the trailing `_ => Type::Unknown` catch-all is now
+  removed so a missing arm fails to compile (`b88efcc`)
+- Analyzer's and builder's `VarDecl` annotation resolution used
+  pure-syntax `to_type`
+- `resolve_method_call` short-circuited for records before trying
+  the impl-mangled form (`f5bc75d`)
+- Top-level imports were parsed but not processed (`9ee2797`)
+- Generic parameters inside container types were not bound
+- `Unknown` in a parameter type needed to act as a wildcard in the
+  call-coercion check
+- `val x := f()` executed `f()` three times (double-push plus
+  Declare-embedded call)
+- DCE removed a `Declare` whose value was a call, dropping the
+  side effect
+- The interpreter test helper skipped `expand_impl_methods`, so
+  the harness didn't exercise the pipeline the CLI uses
+- Remaining `to_type` call sites in the builder (`9ee2797`)
+- Nested imports were one level deep
 
 ## Known divergences between backends
 
@@ -166,19 +243,24 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | Bare call statements | ✅ | ✅ | ✅ | ✅ | 33 |
 | Lists + indexing | ✅ | ✅ | ✅ | ✅ | 01, 07, 15 |
 | `List.length` / `List.sum` | ✅ | ✅ | ✅ | ✅ | 07, 15 |
+| `List.append(x)` | ✅ | ✅ | ✅ | ⛔ | — |
+| `Map<K, V>` | ✅ | ✅ | ✅ | ⛔ | — |
 | Strings | ✅ | ✅ | ✅ | ✅ | 08, 15 |
-| `String.length` / `to_upper` / `to_lower` | ✅ | ✅ | ✅ | ⛔ | 08 |
+| `String.length` | ✅ | ✅ | ✅ | ✅ | 08 |
+| `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ⛔ | — |
 | `String.trim` / `.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
 | `String.to_int` / `Int.to_string` | ✅ | ✅ | ✅ | ⛔ | — |
 | `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ⛔ | — |
-| `Math.*` | ✅ | ✅ | ✅ | ⚠️ | — |
+| `Math.*` | ✅ | ✅ | ✅ | ✅ | — |
 | `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ⛔ | 13 |
 | `match` (literal patterns) | ✅ | ✅ | ✅ | ✅ | — |
 | `match` (binding patterns) | ✅ | ✅ | ✅ | ⛔ | 13 |
 | `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | `try` / `catch` | ✅ | ✅ | ✅ | ⛔ | 14 |
-| Traits + impls | ✅ | ✅ | ✅ | ⚠️ | 28, 29, 37 |
+| Traits + impls | ✅ | ✅ | ✅ | ✅ | 28, 29, 37 |
+| Generics | ✅ | ✅ | ✅ | ✅ | — |
 | `rec` records | ✅ | ✅ | ✅ | ⛔ | — |
+| Structural `Copy` | ✅ | ✅ | ✅ | ⛔ | — |
 | `region` | ✅ | ✅ | ✅ | ✅ | 30, 31 |
 | `unsafe` | ✅ | ✅ | ✅ | ✅ | 32, 33 |
 | `affirm(cond, msg)` | ✅ | ✅ | ✅ | ✅ | — |
@@ -186,12 +268,11 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `&x` / `&mut x` / `*r` / `AddrOf` | ✅ | ✅ | ⛔ | ✅ | — |
 | `spawn` / `parallel` | ✅ | ✅ | ✅ | ⛔ | — |
 | `channel` / `send` / `receive` | ✅ | ✅ | ⛔ | ⛔ | 23–26 |
-| `alloc` in `var` position | ✅ | ✅ | ✅ | ⛔ | — |
-| `alloc(x)` as statement | ✅ | ✅ | ✅ | ⛔ | — |
-| `free` | ✅ | ✅ | ✅ | ⛔ | — |
+| `alloc` in `var` position | ✅ | ✅ | ✅ | ✅ | — |
+| `alloc(x)` as statement | ✅ | ✅ | ✅ | ✅ | — |
+| `free` | ✅ | ✅ | ✅ | ✅ | — |
 | `extern` (FFI) | ✅ | ✅ | ⛔ | ✅ | — |
 | `import` | ✅ | ✅ | ✅ | ✅ | — |
-| `Map<K, V>` | Interpreter | LLVM/WASM refused | ADR 0027 |
 
 **Note on canonical IR names.** The IR builder emits
 `BorrowShared` / `BorrowMutable` / `ReadReference` / `SendChannel`
@@ -201,6 +282,13 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 capability check rather than silently failing or producing wrong
 code. See `src/backends/capabilities/` and
 `inspect --capabilities`.
+
+**Note on the `Traits + impls` row.** Traits resolve before IR
+construction (`expand_impl_methods` runs in `prepare_frontend`).
+The `✅` for LLVM means a trait-using program compiles and runs
+when its impl bodies use features LLVM supports. A `show()`
+implementation that returns a `String` is fine; one that
+constructs a record would be refused because records are refused.
 
 ## Known Gaps
 
@@ -215,11 +303,6 @@ would reject. Documented rather than silently patched because
 fixing each one correctly requires design decisions that belong in
 their own ADRs.
 
-- **`&mut x` in a call argument is not registered as a borrow.**
-  Writing `f(&mut x)` does not mark `x` as mut-borrowed, so
-  `f(&mut x); g(&mut x)` compiles even though both functions may
-  write through the same reference. A proper fix needs
-  statement-scoped release or full non-lexical lifetimes.
 - **No general pointer-lifetime enforcement.** Region exit frees
   allocations, but no check rejects a pointer value that outlives
   its source region. See `docs/features/region.md`, section
@@ -243,6 +326,10 @@ Fixed in earlier sessions:
   level.
 - Canonical IR variants landed (`BorrowShared`, `ReadReference`,
   `SendChannel`, `ReceiveChannel`).
+- `type_of()` is exhaustive over `TypedIRValue`; the
+  `_ => Type::Unknown` catch-all is gone, so a future variant
+  that lacks an arm fails to compile rather than silently
+  producing `Unknown`.
 
 Deferred (design, not correctness bugs):
 
@@ -286,8 +373,7 @@ Fixed (cumulative):
   backends (ADR 0020).
 - `BackendOutput` carries real data (paths, stdout).
 - Interpreter: `File.read` / `.write` / `.append` dispatch
-  implemented (`957fbe7`). Previously the capability matrix
-  advertised `FileFunctions` but the dispatcher had no arms.
+  implemented (`957fbe7`).
 
 Open (not fixed):
 
@@ -299,7 +385,9 @@ Open (not fixed):
   prefixed (`Runtime error: runtime error: ...`).
 - Errors inside imported files render the *importing* file's name,
   not the file where the error text lives. Per-node file
-  provenance does not exist in the AST or `Span` yet.
+  provenance does not exist in the AST or `Span` yet. Surfaced
+  again during the CLI exercises — a type error in
+  `data/parser.gol` reported a location in `sales.gol`.
 
 ### LLVM backend gaps (interpreter works)
 
@@ -310,7 +398,9 @@ Open (not fixed):
   setup is only done for locally-created list literals.
 - **`try` / `catch` and `Result` values** (`corpus_14`). No LLVM
   lowering; refused cleanly.
-- **Records** (`ADR 0024`). Refused at the capability check.
+- **Records** (ADR 0024). Refused at the capability check.
+- **`Map<K, V>`** (ADR 0027). Refused at the capability check.
+- **`List.append`** (ADR 0028). Refused at the capability check.
 - **Track B builtins.** Refused at the capability check
   (`Feature::Conversions` for `Int.to_string` / `String.to_int`;
   `StringFunctions` for the others).
@@ -328,18 +418,31 @@ Neither is a bug; both are ergonomics costs. A future ADR could
 add contextual keywords or an escape mechanism (`r#name`), but
 v1 requires distinct names.
 
+### Language gaps
+
+- **Chained method calls on field accesses.** `x.field.method()`
+  is rejected by the parser. Workaround: bind the field to a
+  local (`val tmp := x.field`), then call the method.
+- **Recursive structured data (sum types).** The language has no
+  sum types; a recursive value like a JSON tree is not
+  expressible. This is the last item on the outsider's proposal
+  that is blocked on a language feature rather than a runtime
+  or backend.
+
 ### Unimplemented features
 
 - **Channels** (`corpus_23`–`corpus_26`). All three backends
   refuse channel programs at the capability boundary. See
   ADR 0020.
+- **Sum types.** Not designed yet. No ADR.
 
 ## Conventions
 
-**Language design note:** methods are called as `x.method(x)` —
-the receiver is passed explicitly as the first argument.
-Zero-argument methods are called as `x.method()`. There is no
-implicit `self`.
+**Language design note:** trait methods are declared with an
+`impl Trait for Type` block and called as `x.method()`. The
+receiver is passed implicitly; there is no user-visible `self`
+parameter. `expand_impl_methods` inserts it during the frontend
+normalization step.
 
 **Backend selection:** programs that require interpreter-only
 features declare `// BACKEND: interpreter` at the top of the file.
@@ -351,9 +454,18 @@ others run through LLVM by default.
 A backend that cannot lower a feature refuses at the capability
 check rather than at codegen.
 
+**Testing coverage:** features that predate the current corpus are
+covered by corpus programs. Features landed since (records, maps,
+`List.append`, traits, generics, structural `Copy`) are covered by
+interpreter unit tests (`src/backends/interpreter/tests.rs`),
+analyzer tests (`src/semantics/analyzer/tests.rs`), and capability
+tests (`src/backends/capabilities/tests.rs`). Adding a corpus
+program is still the strongest form of end-to-end coverage, but it
+is no longer the only mechanism.
+
 ## See also
 
-- `docs/decisions/` — Architecture Decision Records (0001–0025)
+- `docs/decisions/` — Architecture Decision Records (0001–0028)
 - `docs/pass-contracts.md` — the pass contract model
 - `docs/features/` — per-feature contracts
 - `README.md` — user-facing overview
@@ -361,8 +473,9 @@ check rather than at codegen.
 ## How to add a feature to this document
 
 1. Write a corpus program in `tests/corpus/` that exercises the
-   feature, or an end-to-end test in the relevant test module.
-2. Run `cargo test --test corpus_diff` (or the relevant suite).
+   feature, or an end-to-end test in the relevant test module
+   (interpreter, analyzer, capability).
+2. Run `cargo test --all-targets` (or the specific test file).
 3. If it passes, mark the feature ✅ in the matrix.
 4. If it fails in a backend, mark it ⚠️ or ⛔, add a
    `// BACKEND:` or `// KNOWN_FAILURE:` header, and add a bullet

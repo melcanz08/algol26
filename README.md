@@ -18,7 +18,7 @@ management, safe concurrency, and native compilation via LLVM.
 # Build
 cargo build
 
-# Run the test suite (599 tests, including a 39-program corpus)
+# Run the test suite
 cargo test --all-targets
 
 # Run a program through LLVM
@@ -56,13 +56,23 @@ procedure main
 
 - **Indentation-based**, like Python — no braces, no semicolons
 - **Immutable by default** (`val`), opt-in mutability (`var`)
-- **Statically typed** with inference: `Int`, `Float`, `Bool`, `String`,
-  `List<T>`, `Option<T>`, `Result<T, E>`
+- **Statically typed** with inference. Scalar types: `Int`, `Float`,
+  `Bool`, `String`. Container and structured types: `List<T>`,
+  `Map<K, V>`, `Option<T>`, `Result<T, E>`, and `rec`-declared records.
 - **`rec` structured data types** — declared fields, construction literals,
   field access, field assignment, pattern matching, cross-module use
+- **`Map<K, V>`** — key-value container with `insert`, `get`, `contains`,
+  `keys`, `values`, `length`. Keys are `Int`, `String`, or `Bool`.
+- **`List.append(x)`** — dynamic growth; requires a `var` receiver
+- **Structural `Copy`** — a record is `Copy` iff every field is `Copy`.
+  `Point { x: Int, y: Int }` copies; `Person { name: String, age: Int }`
+  moves. Non-`Copy` values follow the move/borrow rules.
 - **Borrow checking** and **move semantics** enforced at compile time
 - **Region-based memory** — no garbage collector
-- **Traits and impls** with explicit receiver passing: `x.method(x)`
+- **Traits and impls** — declared with `impl Trait for Type`, called
+  with method syntax: `x.method()`
+- **Generics** — `function first<T>(xs: List<T>) -> Option<T>`; type
+  parameters bind from arguments, including inside container types
 - **`defer`** for LIFO cleanup, **`try`/`catch`** for `Result` handling
 - **`match`** on `Option`, `Result`, records, and literals
 - **FFI** via `extern "C"` for calling into C libraries
@@ -72,6 +82,7 @@ procedure main
   `affirm` prints the message and exits non-zero
 - **`args()`** — command-line arguments; pass them after `--` on the CLI
 - **String builtins**: `String.split`, `String.join`, `String.trim`,
+  `String.substring`, `String.to_upper`, `String.to_lower`,
   `String.to_int`, `Int.to_string`
 
 > **Note on execution coverage:**
@@ -82,9 +93,6 @@ procedure main
 > - **`region` blocks** work end-to-end with auto-free on both
 >   backends. Explicit `free(p)` inside a region is idempotent —
 >   LLVM nulls the pointer after freeing so auto-free skips it.
->   One asymmetry remains (reassigning a `var` pointer inside a
->   region leaks the earlier allocation in LLVM but not in the
->   interpreter); see `docs/IMPLEMENTATION_STATUS.md`.
 > - **`extern "C"` FFI** works through LLVM. `as "symbol"` renaming,
 >   `from "library"` linking, and variadic arity checking are all
 >   implemented. Variadic argument *types* are not validated against
@@ -93,19 +101,27 @@ procedure main
 >   `wasm-ld`, the module executes through a Node host shim at
 >   `runtime/wasm/host.js` that provides the C library imports.
 >   Run a WASM build with `runtime/wasm/run.sh <file.gol>`.
->   See `docs/IMPLEMENTATION_STATUS.md` for details.
+>
+> Several features are interpreter-only in the current version —
+> `rec` records, `Map<K, V>`, `List.append`, `Option`, `Result` with
+> `try`/`catch`, and `String.*` conversions among them. LLVM and WASM
+> refuse these at the capability boundary and print an `E0002` error
+> suggesting `--interpreter`. The matrix below is the authoritative
+> list.
 
 ## Backends
 
-| Backend | Output | Status |
-|---------|--------|--------|
-| Interpreter | Direct execution (semantic oracle) | Complete |
-| LLVM | Native executable | Most features; refuses some (see below) |
-| WASM | `.wasm` module | Compiles; runs via Node host shim |
+| Backend | Output | Role |
+|---------|--------|------|
+| Interpreter | Direct execution (semantic oracle) | Reference backend. Executes every feature the language specifies, in the subset where a runtime model exists. |
+| LLVM | Native executable | Native compilation for the feature subset the capability check permits. Refuses records, maps, `List.append`, `Option`, `Result`, and channels at the boundary. |
+| WASM | `.wasm` module | Compiles and runs via the Node host shim. Supports a similar subset to LLVM. |
 
-**For the accurate, corpus-verified feature matrix, see
+**The authoritative feature × backend matrix is
 [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).**
-That file is the single source of truth for what works where.
+It is kept in sync with the code by the capability tests in
+`src/backends/capabilities/tests.rs` — every "refused" claim in the
+matrix is pinned by a test, and a build fails if the two drift.
 
 ## Inspector
 
@@ -122,30 +138,36 @@ per intermediate representation:
 | `inspect --capabilities` | Feature × backend capability matrix |
 | `inspect --type-table <file>` | Analyzer type-table completeness check |
 
-Plus `--timing` for per-phase compile durations:
+Plus `--timing` for per-phase compile durations, on the LLVM path:
 
 ```bash
-./target/debug/algol26 check --timing file.gol
+./target/debug/algol26 build --timing file.gol
 ```
 
 ## Known Limitations
 
-These are verified gaps, tracked by corpus programs. See
-`docs/IMPLEMENTATION_STATUS.md` for the complete list.
+These are verified gaps in the current version.
 
-- **LLVM does not support `match` with pattern bindings.** Use the
-  interpreter. (`tests/corpus/corpus_13_match_option.gol`)
-- **LLVM does not support `try`/`catch` or `Result` values.** Use the
-  interpreter. (`tests/corpus/corpus_14_try_catch.gol`)
-- **LLVM cannot iterate over a list passed as a function parameter.**
-  Use the interpreter. (`tests/corpus/corpus_10_deep_control.gol`)
+- **Chained method calls on field accesses don't parse.**
+  `x.field.method()` is rejected by the parser; bind the field to a
+  local first (`val tmp := x.field; tmp.method()`).
+- **Nested `import` inside a `procedure` works; top-level imports
+  work; imported files' own imports are followed recursively.**
+  Only circular imports are rejected.
 - **Channels have no backend runtime.** All three backends refuse
   channel programs at the capability boundary before execution.
-  See ADR 0020. (`tests/corpus/corpus_23`–`corpus_26`)
+  See ADR 0020.
 - **No general pointer-lifetime enforcement.** Region exit frees
   allocations, but no check rejects a pointer value that outlives
   its source region. See `docs/features/region.md`, section
   "What is not enforced today".
+- **Diagnostic spans in imported files are attributed to the
+  importing file's path.** When a nested module fails to compile,
+  the error's line:column points at the wrong source file. The
+  message text is correct; only the location is misattributed.
+- **`output/json.gol`-style recursive structured data is not
+  expressible.** The language has no sum types; recursive values
+  need a design decision that belongs in its own ADR.
 
 ## Testing
 
@@ -153,17 +175,31 @@ These are verified gaps, tracked by corpus programs. See
 cargo test --all-targets
 ```
 
-599 tests across 21 test binaries: unit tests for each subsystem,
-differential tests (interpreter vs LLVM vs WASM), semantic tests
-(borrow checker, traits, ownership), IR tests (verification,
-optimization, defer, short-circuit), integration tests, backend
-tests, soundness tests, and property/fuzz tests.
+Test coverage is spread across several complementary suites:
 
-**39 corpus programs** in `tests/corpus/` are the most important test
-suite. The differential harness in `tests/corpus_diff.rs` runs every
-program and compares output. Every feature in
-`IMPLEMENTATION_STATUS.md` is backed by at least one corpus program.
-Adding a feature means adding a corpus program.
+- **Unit tests** for each subsystem (lexer, parser, analyzer,
+  builder, verifier, optimizer, interpreter).
+- **Differential tests** — interpreter vs LLVM vs WASM output on
+  the same programs.
+- **Semantic tests** — borrow checker, trait registry, ownership.
+- **IR tests** — verification, optimization, defer lowering,
+  short-circuit CFG.
+- **Integration tests** — negative diagnostics, hardening stress
+  tests, release-mode safety guarantees.
+- **Backend tests** — capability-matrix pinning, oracle tests,
+  WASM isolation.
+- **Property and fuzz tests** — malformed input never panics.
+- **Conformance tests** — the fixture suite under `tests/conformance/`.
+- **Corpus tests** — 39 programs in `tests/corpus/` are compiled
+  and run through the differential harness in `tests/corpus_diff.rs`.
+
+Features landed since the corpus was assembled (records, maps,
+`List.append`, traits, generics) are covered primarily by interpreter
+unit tests (`src/backends/interpreter/tests.rs`), analyzer tests
+(`src/semantics/analyzer/tests.rs`), and capability tests
+(`src/backends/capabilities/tests.rs`). Adding a corpus program is
+still the strongest form of end-to-end coverage for a new feature,
+but it is not the only mechanism.
 
 ## How to Add a Corpus Program
 
@@ -189,7 +225,8 @@ Adding a feature means adding a corpus program.
 |----------|---------|
 | [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | Feature matrix + known gaps |
 | [`docs/pass-contracts.md`](docs/pass-contracts.md) | Compiler pass contracts and pipeline rules |
-| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0025) |
+| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0028) |
+| [`docs/features/`](docs/features/) | Per-feature reference docs |
 | [`docs/releases/`](docs/releases/) | Release notes |
 | [`docs/archive/`](docs/archive/) | Superseded docs, kept for history |
 | [`docs/README.md`](docs/README.md) | Full index of all docs |
@@ -232,19 +269,15 @@ optimization without pretending the level changed.
 | Immutability | Semantic analyzer |
 | Bounds checking | IR verifier + runtime |
 | Use-after-move | Analyzer + IR verifier |
-| Borrow checking | Semantic analyzer (partial — see below) |
+| Borrow checking | Semantic analyzer (conservative; see below) |
 | Trait bounds | Trait registry (name resolution only — see ADR 0025) |
 | IR well-formedness | `VerifiedIR` typestate + executable-IR invariants |
 | No-panic on malformed input | Fuzz tests |
 
-> **The borrow checker is incomplete in the current version.**
-> Known gaps, documented in `docs/IMPLEMENTATION_STATUS.md`:
-> - `&mut x` in a call argument is not registered as a borrow.
-> - No general pointer-lifetime enforcement; region escape is
->   documented as out of scope for v1.
->
-> These are conservative gaps — the analyzer may accept programs a
-> stricter borrow system would reject. Fixing them requires design
+> **The borrow checker is conservative in the current version.**
+> It accepts some programs a stricter borrow system would reject.
+> The known gaps are documented in
+> `docs/IMPLEMENTATION_STATUS.md`. Fixing them requires design
 > decisions that belong in their own ADRs.
 
 ## Contributing

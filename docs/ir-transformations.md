@@ -20,19 +20,22 @@
 | Transformation | Stage | Location |
 |---|---|---|
 | Loop Desugaring | Frontend (AST → AST) | `src/ir/loop_desugar.rs` |
-| Monomorphization | Frontend (AST → AST) | `src/ir/monomorphize.rs` |
+| Generic Specialization | Analyzer + IR build | `src/ir/instantiation_plan.rs`, `src/semantics/builder/build.rs` |
 | Defer Lowering | IR build | `src/semantics/builder/control_flow.rs::translate_defer` |
 | Constant Folding | IR optimize | `src/ir/optimizer.rs` |
 | Constant Propagation | IR optimize | `src/ir/optimizer.rs` |
 | Dead Code Elimination | IR optimize | `src/ir/optimizer.rs` |
 | Branch Simplification | IR optimize | `src/ir/optimizer.rs` |
 | IR Verification | IR build, IR optimize | `src/ir/cfg_verifier.rs` + `src/ir/verifier/` |
+| Capability Scanning | Before backend lowering | `src/backends/capabilities/scan.rs` |
 
 ## Loop Desugaring
 
-**Where**: `src/ir/loop_desugar.rs`
+**Where**: `src/ir/loop_desugar.rs`, invoked from
+`Compiler::desugar` in `src/compiler.rs`.
 
-**Stage**: Frontend (runs before type checking).
+**Stage**: Frontend (runs after imports, before impl expansion
+and type checking).
 
 Tracks list-valued variables in a per-function environment. A
 `for x in <literal-list>` loop whose body has straight-line
@@ -64,41 +67,63 @@ to unroll preserves the analyzer's ability to reject
 moves-in-loops correctly. The check is conservative: it also
 blocks unrolling for `Copy` values.
 
-## Monomorphization
+## Generic Specialization
 
-**Where**: `src/ir/monomorphize.rs`
+**Where**: `src/ir/instantiation_plan.rs` (the plan),
+`src/semantics/analyzer/expr.rs` (instantiation recording),
+`src/semantics/builder/build.rs` (specialization emission),
+`src/semantics/builder/mod.rs::resolved_callee_name` (call-site rewriting).
 
-**Stage**: Frontend (runs after loop desugaring, before type
-checking).
+**Stage**: Analyzer records; IR build specializes and rewrites.
 
-Walks the AST to collect type-argument combinations seen at call
-sites, then produces an expanded function list. The output
-contains:
+Generic functions are monomorphized — one `SemanticFunction` is
+emitted per concrete type-argument combination actually used. The
+process is spread across three stages rather than a single
+AST-to-AST pass:
 
-- Original non-generic functions, unchanged.
-- Original **generic functions, unchanged** — they are kept.
-- One **specialized copy** per generic function per resolvable
-  type-arg combination, named `func_Type1_Type2` in declaration
-  order of the type parameters.
+1. **Recording (analyzer).** Each call to a function with non-empty
+   `type_params` records an `Instantiation { call_site, function,
+   type_params, type_args }`. The analyzer binds type parameters
+   from the call's argument types via `unify_types`, which recurses
+   into container types (`List<T>`, `Option<T>`, `Result<T,E>`,
+   `Map<K,V>`, etc.).
 
-Call sites whose argument types resolve are rewritten to point
-at the specialized copy. Call sites whose type args cannot be
-inferred are left pointing at the original generic name; the
-analyzer resolves them later.
+2. **Planning (`InstantiationPlan`).** `from_instantiations` builds
+   a plan with two tables: `call_sites` (keyed by the call site's
+   stable `ExprId`) and `specializations` (keyed by mangled name).
+   Symbolic call-site entries — those inside another generic's body,
+   whose type args are still `TypeVar` or `Unknown` — are recorded
+   but do not produce specializations yet. `close(functions)` walks
+   each concrete specialization's body under that specialization's
+   bindings, substitutes symbolic type args into concrete ones, and
+   iterates to fixpoint. After `close`, every generic call reachable
+   from any specialization has a concrete specialization in the plan
+   (see ADR 0013).
 
-Trait-bound checks run per specialization. **A failed bound is
-printed to stderr and the specialization is skipped** — it is
-not a fatal error.
+3. **Emission (IR builder).** `build_impl` emits one
+   `SemanticFunction` per specialization of each generic function,
+   named by `mangled_name(function, type_args)`. Non-generic
+   functions are emitted unchanged. `resolved_callee_name` rewrites
+   every generic call site's callee to the mangled name of its
+   matching specialization.
+
+The original generic function declarations are not emitted as
+executable IR — they are analyzer input, not compiler output.
 
 | Property | Description |
 |---|---|
-| Input | AST with generic functions |
-| Output | Original AST plus specialized copies for each resolvable type-arg combination |
-| Preserves | The original generic functions, unmodified |
-| Adds | Specialized `func_Type1_Type2` copies |
-| May change | Call sites whose type args resolve are rewritten to specialized names |
-| Does NOT remove | The original generic functions |
-| Does NOT error | On trait-bound violation; the violation is printed and the specialization is skipped |
+| Input | AST with generic function declarations and generic call sites |
+| Output | IR with one `SemanticFunction` per concrete specialization |
+| Records | Instantiation facts in the analyzer's `instantiations` list |
+| Closes | Symbolic call-site entries transitively via `close` |
+| Rewrites | Generic call sites to mangled specialization names |
+| Does NOT emit | The generic function templates themselves |
+
+**Historical note.** An earlier design used a pre-typecheck
+AST-to-AST monomorphizer (`src/ir/monomorphize.rs`). That pass is no
+longer called by the pipeline; the analyzer-`.close()` design replaced
+it because the pre-typecheck pass could not infer type arguments for
+reference-typed arguments (`identity(&v)`), which the analyzer can.
 
 ## Defer Lowering
 
@@ -112,6 +137,11 @@ a cleanup block, translates the deferred statement into it, and
 pushes the cleanup block onto a defer stack. When a `Return`
 terminator is eventually emitted in the enclosing scope, it
 chains the pending cleanup blocks LIFO before emitting the real
+return.
+
+The same chaining applies to the implicit `return` at the end of
+a function body: if any defers are pending when control reaches
+the end of `func.body`, they run before the fall-off-the-end
 return.
 
 | Property | Description |
@@ -178,11 +208,26 @@ name is never used. Mutable declarations are always kept — they
 may carry loop state, and the pass is not loop-aware.
 Non-`Declare` instructions are never removed.
 
-The pass relies on a coupling with the IR builder: initializer
-side effects (e.g. a `Call`) are emitted as separate
-instructions *immediately before* the `Declare`. If the builder
-ever inlines side effects into `Declare` values, this pass must
-be revised.
+The pass relies on two couplings with the rest of the builder:
+
+1. **Initializer side effects are separate instructions.** If a
+   `val x := f()` where `f` has side effects is emitted, the
+   `Call` instruction is pushed immediately before the `Declare`,
+   and the `Declare`'s value is a `Variable` reference to the
+   result binding. This lets DCE remove the unused `Declare`
+   while preserving the `Call`'s side effect. If the builder
+   ever inlines side effects into `Declare` values, this pass
+   must be revised.
+
+2. **The variable-collection walker recurses into composite
+   values.** `collect_variables_from_value` descends into
+   `FieldAccess { object }`, `Record { fields }`, and
+   `Map { entries }` so that a variable used only as the receiver
+   of a field read, or only as a value inside a record or map
+   literal, is still counted as used. Without this, DCE removes
+   the `Declare` for a record-typed variable read only via
+   `p.x` and leaves a dangling `Variable` reference for the
+   verifier to reject.
 
 | Property | Description |
 |---|---|
@@ -191,7 +236,8 @@ be revised.
 | Preserves | Program semantics |
 | Preserves | All observable behavior |
 | Does NOT remove | Mutable `Declare`; `Call`; any non-`Declare` instruction |
-| Coupling | Assumes initializer side effects are separate instructions |
+| Coupling | Initializer side effects are separate instructions |
+| Coupling | Walker recurses into `FieldAccess` / `Record` / `Map` |
 
 ### Branch Simplification
 
@@ -226,6 +272,11 @@ The verifier runs in two layers:
    payloads are recursively checked, `Float` arguments are
    rejected for `Int` parameters.
 
+`TypedIRValue::type_of()` is exhaustive over the value enum:
+there is no `_ => Type::Unknown` catch-all. A new variant without
+an arm fails to compile, rather than silently producing `Unknown`
+and letting a downstream operation type-check against it.
+
 | Property | Description |
 |---|---|
 | Input | Any `SemanticProgram` |
@@ -234,9 +285,62 @@ The verifier runs in two layers:
 | Checks | Semantic (see above) |
 | Guarantees | If `Ok`, the IR is structurally and semantically valid |
 
+## Capability Scanning
+
+**Where**: `src/backends/capabilities/scan.rs`
+
+**Stage**: After IR verification, before backend lowering.
+
+Walks the verified IR and reports which `Feature` variants the
+program uses. `check_backend` compares that set against the
+target backend's `supported` set and returns `E0002` naming the
+missing features if any are refused.
+
+The scan fires on:
+
+- Value variants (`TypedIRValue::Record`, `FieldAccess`, `Some`,
+  `None`, `Ok`, `Error`, `Map`)
+- Instruction variants (`Instruction::FieldAssign`,
+  `ChannelDecl`, `SendChannel`, `ReceiveChannel`, `Allocate`,
+  `Free`)
+- Terminator variants (`Spawn`, `Fork`, `Switch` on `Ok` /
+  `Error`)
+- Callee names (`String.*`, `File.*`, `List.append`,
+  `List.sum` / `.max` / `.min`, `Map.*`, `Int.to_string`,
+  `String.to_int`, `args`)
+- Function signatures (reference types in parameters or the
+  return type)
+
+Records are not covered by the signature walk. `Feature::Records`
+fires only when a record value appears in the IR — a
+`TypedIRValue::Record` literal, a `TypedIRValue::FieldAccess`, or
+an `Instruction::FieldAssign`. A program that declares a record,
+mentions it in a function signature, and never constructs or reads
+a value of that type does not fire the scan; that program has no
+record values in its IR, so the capability claim is vacuously
+correct.
+The scan is the single mechanism by which a backend refuses a
+feature. Codegen does not need per-feature refusal arms; the
+capability check runs first.
+
+| Property | Description |
+|---|---|
+| Input | `SemanticProgram` and a `BackendCapabilities` |
+| Output | `Result<(), CompileError>` |
+| Refuses | Programs using features not in the backend's supported set |
+| Guarantees | A refused program never reaches codegen |
+| Side effects | None |
+
 ## See also
 
 - `pass-contracts.md` — the pass registry and pipeline rules.
 - `decisions/0011-phase4-task-model.md` — the `Fork` shape rules.
+- `decisions/0013-executable-ir-generic-invariant.md` — the
+  instantiation plan and `close`.
+- `decisions/0014-verifier-invariants.md` — the instruction-level
+  verifier's guarantees.
+- `decisions/0017-verified-ir-typestate.md` — the `IrState` enum
+  and the promote-then-recheck split.
+- `decisions/0018-canonical-pipeline.md` — one `run_pipeline`
+  shared by every entry point.
 - `IMPLEMENTATION_STATUS.md` — current state of each transformation.
-  data must preserve.

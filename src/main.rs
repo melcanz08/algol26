@@ -2,6 +2,7 @@
 
 use algol26::common::diagnostics::{CompileError, ErrorCode};
 use algol26::compiler::Compiler;
+use algol26::diagnostics::renderer::render_one_with_source;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -166,20 +167,23 @@ fn main() {
         println!("[Compiling to WASM: {}]", filename);
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile_to_wasm(&source, &filename, &output_name) {
-            e.with_file(&filename).display();
+            let e = e.with_file(&filename);
+            eprint!("{}", render_one_with_source(&e, Some(&source)));
             std::process::exit(1);
         }
     } else if use_interpreter {
         println!("[Interpreting {}]", filename);
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.run_interpreter_with_args(&source, &filename, program_args) {
-            e.with_file(&filename).display();
+            let e = e.with_file(&filename);
+            eprint!("{}", render_one_with_source(&e, Some(&source)));
             std::process::exit(1);
         }
     } else {
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile(&source, &filename, &output_name, emit_llvm, run, timing) {
-            e.with_file(&filename).display();
+            let e = e.with_file(&filename);
+            eprint!("{}", render_one_with_source(&e, Some(&source)));
             std::process::exit(1);
         }
     }
@@ -373,7 +377,7 @@ fn inspect_tokens(compiler: &Compiler, source: &str) {
             }
         }
         Err(e) => {
-            e.display();
+            eprint!("{}", render_one_with_source(&e, Some(source)));
             std::process::exit(1);
         }
     }
@@ -392,7 +396,7 @@ fn inspect_ast(compiler: &mut Compiler, source: &str, filename: &str) {
             );
         }
         Err(e) => {
-            e.display();
+            eprint!("{}", render_one_with_source(&e, Some(source)));
             std::process::exit(1);
         }
     }
@@ -404,7 +408,7 @@ fn inspect_ir(compiler: &mut Compiler, source: &str, filename: &str) {
             print!("{}", algol26::ir::semantic_ir::format_program(&ir));
         }
         Err(e) => {
-            e.display();
+            eprint!("{}", render_one_with_source(&e, Some(source)));
             std::process::exit(1);
         }
     }
@@ -425,7 +429,7 @@ fn inspect_cfg(compiler: &mut Compiler, source: &str, filename: &str) {
             );
         }
         Err(e) => {
-            e.display();
+            eprint!("{}", render_one_with_source(&e, Some(source)));
             std::process::exit(1);
         }
     }
@@ -443,13 +447,13 @@ fn inspect_type_table(compiler: &mut Compiler, source: &str, filename: &str) {
             println!("{} function(s)", typed.functions.len());
             println!("{} type_table entries", typed.type_table_id.len());
             if let Err(e) = compiler.run_type_table_complete_pass_public(typed) {
-                e.display();
+                eprint!("{}", render_one_with_source(&e, Some(source)));
                 std::process::exit(1);
             }
             println!("✓ type table complete");
         }
         Err(e) => {
-            e.display();
+            eprint!("{}", render_one_with_source(&e, Some(source)));
             std::process::exit(1);
         }
     }

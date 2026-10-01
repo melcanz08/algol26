@@ -265,10 +265,10 @@ impl Compiler {
 
     /// ADR 0018. One canonical pipeline. Every compilation entry
     /// point runs this sequence to completion:
-    ///
+    ///```text
     ///     type_check -> type_table_complete -> build_ir
     ///         -> verify -> optimize -> reverify
-    ///
+    ///```
     /// Returns the verified IR by value along with the scheduler's
     /// per-stage timings. Callers do target-specific work after
     /// this returns; no caller adds or removes a pass.

@@ -21,6 +21,24 @@ pub struct CompileError {
     /// *importing* file, not the file where the error text lives.
     /// Per-node file provenance does not exist yet.
     pub file: Option<String>,
+
+    // Phase 1 additions. All default to empty/None so existing
+    // constructor call sites compile unchanged. Consumed by the
+    // rustc-style renderer (Phase 3).
+    pub severity: Severity,
+    pub label: Option<String>,
+    pub secondary: Vec<(Span, String)>,
+    pub notes: Vec<String>,
+}
+
+/// Diagnostic severity. `Error` is fatal (stops the pipeline);
+/// `Warning` and `Note` are informational.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Severity {
+    #[default]
+    Error,
+    Warning,
+    Note,
 }
 
 /// The bucket code the diagnostic renderer prefixes on every error.
@@ -117,6 +135,10 @@ impl CompileError {
             error_code,
             suggestion: None,
             file: None,
+            severity: Severity::Error,
+            label: None,
+            secondary: Vec::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -130,6 +152,10 @@ impl CompileError {
             error_code,
             suggestion: None,
             file: None,
+            severity: Severity::Error,
+            label: None,
+            secondary: Vec::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -143,6 +169,13 @@ impl CompileError {
         error_code: ErrorCode,
     ) -> Self {
         CompileError::simple(message, line, column, source_line, error_code)
+    }
+
+    /// Construct a non-fatal warning at the given span.
+    pub fn warning(message: &str, span: Span, error_code: ErrorCode) -> Self {
+        let mut e = Self::at(span, message, error_code);
+        e.severity = Severity::Warning;
+        e
     }
 
     /// Construct a compile error for a backend that cannot lower
@@ -199,6 +232,28 @@ impl CompileError {
         self
     }
 
+    /// Text printed under the primary caret (e.g. "expected Int,
+    /// found Float"). Distinct from `suggestion`, which becomes an
+    /// `= help:` line.
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Attach a secondary span with its own label (e.g. "borrowed
+    /// here", "moved here"). Multiple secondary spans accumulate in
+    /// the order they were added.
+    pub fn with_secondary(mut self, span: Span, label: impl Into<String>) -> Self {
+        self.secondary.push((span, label.into()));
+        self
+    }
+
+    /// Attach an unattributed note, rendered as `= note: ...`.
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
     pub fn suggest_fix(&self) -> Option<&str> {
         self.suggestion.as_deref()
     }
@@ -237,5 +292,50 @@ impl From<String> for CompileError {
 impl From<&str> for CompileError {
     fn from(msg: &str) -> Self {
         CompileError::simple(msg, 0, 0, "", ErrorCode::E0001)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enriched_compile_error_round_trips_new_fields() {
+        let e = CompileError::at(Span::point(3, 5), "boom", ErrorCode::E0002)
+            .with_label("expected Int")
+            .with_secondary(Span::new(2, 1, 2, 10), "borrowed here")
+            .with_note("see ADR 0005");
+
+        assert_eq!(e.severity, Severity::Error);
+        assert_eq!(e.label.as_deref(), Some("expected Int"));
+        assert_eq!(e.secondary.len(), 1);
+        assert_eq!(e.secondary[0].1, "borrowed here");
+        assert_eq!(e.notes, vec!["see ADR 0005"]);
+    }
+
+    #[test]
+    fn simple_constructor_defaults_new_fields() {
+        let e = CompileError::simple("oops", 1, 1, "", ErrorCode::E0001);
+        assert_eq!(e.severity, Severity::Error);
+        assert!(e.label.is_none());
+        assert!(e.secondary.is_empty());
+        assert!(e.notes.is_empty());
+    }
+
+    #[test]
+    fn warning_constructor_sets_severity() {
+        let e = CompileError::warning("heads up", Span::point(2, 3), ErrorCode::E0002);
+        assert_eq!(e.severity, Severity::Warning);
+        assert_eq!(e.message, "heads up");
+    }
+
+    #[test]
+    fn secondary_spans_accumulate_in_order() {
+        let e = CompileError::at(Span::point(5, 5), "use after move", ErrorCode::E0007)
+            .with_secondary(Span::point(3, 5), "moved here")
+            .with_secondary(Span::point(4, 5), "and here");
+        assert_eq!(e.secondary.len(), 2);
+        assert_eq!(e.secondary[0].1, "moved here");
+        assert_eq!(e.secondary[1].1, "and here");
     }
 }

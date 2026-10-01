@@ -8,3 +8,4 @@
 //! and the batch summary line.
 
 pub mod renderer;
+pub mod snippet;

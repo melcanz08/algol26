@@ -4,7 +4,8 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::compiler::context::{CompilerConfig, CompilerContext};
 use crate::compiler::program::{AstPayload, IrState, Program};
 use crate::frontend::ast::{
-    Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, Pattern, Stmt, TraitDecl, TypeSyntax,
+    Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, Pattern, RecordDecl, Stmt, TraitDecl,
+    TypeSyntax,
 };
 use crate::frontend::lexer::Lexer;
 use crate::frontend::module_loader::ModuleLoader;
@@ -15,6 +16,7 @@ use crate::ir::verified_ir::VerifiedIR;
 use crate::semantics::analyzer::SemanticAnalyzer;
 use crate::semantics::race::RaceDetector;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 // Pass infrastructure (Phase 1)
@@ -747,44 +749,31 @@ impl Compiler {
         let mut loader = ModuleLoader::new();
         let mut all_functions = (*parsed.functions).clone();
         let mut all_records = parsed.records.clone();
+        let mut visited: HashSet<PathBuf> = HashSet::new();
 
-        // Collect every import: the file's top-level imports, plus
-        // any `import` statements inside function bodies (the older
-        // form the CLI driver uses). Dedup by path so a module used
-        // in multiple places loads once.
-        let mut import_paths: Vec<String> = parsed.imports.clone();
+        // Collect every import this file names: top-level declarations
+        // and statements inside function bodies. Dedup literal paths so
+        // the same string appearing twice doesn't trigger two walks.
+        let mut paths: Vec<String> = parsed.imports.clone();
         for func in parsed.functions.iter() {
             for stmt in &func.body {
                 if let Stmt::Import { path, .. } = stmt {
-                    import_paths.push(path.clone());
+                    paths.push(path.clone());
                 }
             }
         }
         let mut seen = HashSet::new();
-        import_paths.retain(|p| seen.insert(p.clone()));
+        paths.retain(|p| seen.insert(p.clone()));
 
-        for path in &import_paths {
-            let resolved = loader.resolve_import(path, current_file)?;
-            let source = loader.load_file(&resolved)?;
-
-            if !source.is_empty() {
-                let lexer = Lexer::new(source.clone())?;
-                let mut parser = Parser::new(lexer.tokens);
-                let imported_program = parser.parse_program()?;
-
-                for imported in imported_program.functions {
-                    if !all_functions.iter().any(|f| f.name == imported.name) {
-                        all_functions.push(imported);
-                    }
-                }
-                for imported in imported_program.records {
-                    if !all_records.iter().any(|r| r.name == imported.name) {
-                        all_records.push(imported);
-                    }
-                }
-            }
-
-            loader.end_import();
+        for path in &paths {
+            self.load_import_recursive(
+                &mut loader,
+                path,
+                current_file,
+                &mut all_functions,
+                &mut all_records,
+                &mut visited,
+            )?;
         }
 
         Ok(ParsedProgram {
@@ -792,8 +781,106 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: all_records,
-            imports: parsed.imports.clone(), // ← NEW
+            imports: parsed.imports.clone(),
         })
+    }
+
+    /// Load one import and, recursively, everything it imports.
+    ///
+    /// `visited` is keyed by canonical path: a file reached through two
+    /// different relative routes (`data/model.gol` and
+    /// `../data/model.gol`) canonicalizes to one entry and loads once.
+    ///
+    /// The loader's own `import_stack` catches direct cycles
+    /// (`a -> b -> a`) as defense in depth; the visited set is the
+    /// primary mechanism and also handles diamonds (`a -> b -> d`,
+    /// `a -> c -> d`), which the stack alone would not.
+    fn load_import_recursive(
+        &self,
+        loader: &mut ModuleLoader,
+        path: &str,
+        current_file: &str,
+        all_functions: &mut Vec<FunctionDecl>,
+        all_records: &mut Vec<RecordDecl>,
+        visited: &mut HashSet<PathBuf>,
+    ) -> Result<()> {
+        // Resolve, then canonicalize. `resolve_import` joins relative
+        // to `current_file`'s directory but does not normalize `..` or
+        // collapse alternate routes to the same file.
+        let resolved = loader.resolve_import(path, current_file)?;
+        let canonical = resolved.canonicalize().map_err(|e| {
+            CompileError::simple(
+                &format!(
+                    "Failed to canonicalize module '{}': {}",
+                    resolved.display(),
+                    e
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0001,
+            )
+        })?;
+
+        // Diamond / revisit: already merged into the top-level program.
+        if !visited.insert(canonical.clone()) {
+            return Ok(());
+        }
+
+        // Load BEFORE pushing onto the loader's import stack — `load_file`
+        // errors if the target is already on the stack, so the ordering
+        // matters. (This is the ordering the old one-level
+        // `process_imports` got wrong: it called `end_import` without a
+        // matching `begin_import`, so the loader's cycle detector was
+        // silently disabled.)
+        let source = loader.load_file(&resolved)?;
+        loader.begin_import(&canonical)?;
+
+        if !source.is_empty() {
+            let lexer = Lexer::new(source)?;
+            let mut parser = Parser::new(lexer.tokens);
+            let imported = parser.parse_program()?;
+
+            // Collect nested imports from this file before consuming it.
+            let mut nested: Vec<String> = imported.imports.clone();
+            for func in &imported.functions {
+                for stmt in &func.body {
+                    if let Stmt::Import { path: p, .. } = stmt {
+                        nested.push(p.clone());
+                    }
+                }
+            }
+
+            // Merge the file's own functions and records.
+            for f in imported.functions {
+                if !all_functions.iter().any(|g| g.name == f.name) {
+                    all_functions.push(f);
+                }
+            }
+            for r in imported.records {
+                if !all_records.iter().any(|x| x.name == r.name) {
+                    all_records.push(r);
+                }
+            }
+
+            // Recurse. The `current_file` for nested imports is this
+            // file's canonical path, so its imports resolve relative to
+            // its own directory — not the top-level driver's.
+            let current = canonical.to_string_lossy().to_string();
+            for nested_path in &nested {
+                self.load_import_recursive(
+                    loader,
+                    nested_path,
+                    &current,
+                    all_functions,
+                    all_records,
+                    visited,
+                )?;
+            }
+        }
+
+        loader.end_import();
+        Ok(())
     }
 
     fn lower_to_llvm(

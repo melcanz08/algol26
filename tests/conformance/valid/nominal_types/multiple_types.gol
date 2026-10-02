@@ -1,0 +1,8 @@
+type UserId distinct Int
+type PriceCents distinct Int
+
+procedure main
+    val id := UserId.from_base(1)
+    val price := PriceCents.from_base(100)
+    print id.to_base()
+    print price.to_base()

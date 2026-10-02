@@ -468,6 +468,20 @@ pub const MATRIX: &[FeatureRow] = &[
                 (`Feature::ListAppend`). LLVM refusal is pinned; WASM refusal \
                 is untested but follows from WASM's empty supported set.",
     },
+    FeatureRow {
+        name: "nominal_types",
+        conformance_dir: Some("nominal_types"),
+        interpreter: Support::Full,
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "ADR 0029. All three backends support nominal types: the \
+                value's runtime representation is identical to its base, \
+                so `from_base` / `to_base` lower to a no-op Cast. WASM \
+                reuses the LLVM IRCodeGen, so the LLVM no-op arms cover \
+                it for free. Nominal identity is a compile-time property; \
+                the capability matrix does not track it as a feature.",
+    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────

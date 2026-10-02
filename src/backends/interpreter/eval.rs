@@ -127,6 +127,12 @@ impl Interpreter {
                 match (v, target_type) {
                     (RuntimeValue::Int(i), Type::Float) => RuntimeValue::Float(i as f64),
                     (RuntimeValue::Float(f), Type::Int) => RuntimeValue::Int(f as i64),
+                    // ADR 0029: nominal wrap/unwrap. The runtime
+                    // representation of a nominal type is identical
+                    // to its base, so the value flows through
+                    // unchanged. Explicit arm so the intent is
+                    // visible without tracing the catch-all.
+                    (v, Type::Distinct { .. }) => v,
                     (v, _) => v,
                 }
             }

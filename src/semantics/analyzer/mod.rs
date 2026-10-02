@@ -223,6 +223,15 @@ impl SemanticAnalyzer {
     pub fn take_instantiations(&mut self) -> Vec<Instantiation> {
         std::mem::take(&mut self.instantiations)
     }
+
+    /// Take ownership of the resolved nominal type table so it can be
+    /// handed to `TypedProgram`. `NominalTypeId` is assigned by
+    /// `register_nominal_types`; this is the single source of that
+    /// identity. Downstream consumers receive the resolved map and
+    /// never reconstruct ids. See ADR 0029.
+    pub fn take_nominal_types(&mut self) -> HashMap<String, Type> {
+        std::mem::take(&mut self.nominal_types)
+    }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
         &self.state

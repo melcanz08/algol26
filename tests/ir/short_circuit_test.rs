@@ -30,7 +30,7 @@ fn run(source: &str) -> String {
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
-        &[],
+        std::collections::HashMap::new(),
     );
     Interpreter::new(ir).run().unwrap()
 }

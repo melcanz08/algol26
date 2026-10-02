@@ -777,6 +777,27 @@ impl SemanticAnalyzer {
                         }
                     }
                     BinOp::Equal | BinOp::NotEqual => {
+                        // ADR 0029: nominal types do not auto-implement
+                        // equality. Structural `PartialEq` would accept
+                        // `a == b` when both sides have the same
+                        // `NominalTypeId`, so the guard is explicit.
+                        if matches!(left_type, Type::Distinct { .. })
+                            || matches!(right_type, Type::Distinct { .. })
+                        {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Equality on nominal types requires a trait impl; \
+                                     found {} and {}",
+                                    left_type, right_type
+                                ),
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion(
+                                "Write an `impl Eq for T` (or the equivalent) to \
+                                 enable equality on this nominal type",
+                            ));
+                        }
                         if left_type == right_type
                             || (left_type.is_numeric() && right_type.is_numeric())
                         {
@@ -1561,8 +1582,14 @@ impl SemanticAnalyzer {
 
     /// True when `ty` is a legal `Map` key type — `Int`, `String`,
     /// `Bool`, or `Unknown` (not yet inferred). See ADR 0027.
+    ///
+    /// ADR 0029: a nominal type is a valid key iff its base is.
     pub(super) fn is_hashable_key(ty: &Type) -> bool {
-        matches!(ty, Type::Int | Type::String | Type::Bool | Type::Unknown)
+        match ty {
+            Type::Int | Type::String | Type::Bool | Type::Unknown => true,
+            Type::Distinct { base, .. } => Self::is_hashable_key(base),
+            _ => false,
+        }
     }
 
     /// Dispatch a `Map` method call with arguments. Unlike the generic

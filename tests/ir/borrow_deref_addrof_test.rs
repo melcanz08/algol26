@@ -159,7 +159,7 @@ procedure main
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
-        &[],
+        std::collections::HashMap::new(),
     );
 
     // `var n := list.length()` produces a standalone
@@ -227,7 +227,7 @@ procedure main
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
-        &[],
+        std::collections::HashMap::new(),
     );
 
     // The print must be present somewhere in the IR, not dropped.

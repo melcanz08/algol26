@@ -74,11 +74,12 @@ pub struct TypedProgram {
     /// builder so it can resolve record names in user function
     /// signatures to `Type::Record(...)` rather than `Type::Unknown`.
     pub records: Vec<crate::frontend::ast::RecordDecl>,
-    /// Nominal type declarations from the frontend. Forwarded to the
-    /// IR builder so `UserId` resolves to `Type::Distinct` in
-    /// annotations and conversion intrinsics are recognized.
+    /// Resolved nominal type declarations, keyed by name. Values
+    /// carry the `NominalTypeId` the analyzer assigned. Downstream
+    /// consumers read this map and never reconstruct ids — the
+    /// analyzer is the single source of nominal identity.
     /// See ADR 0029.
-    pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
+    pub nominal_types: std::collections::HashMap<String, crate::common::types::Type>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -216,6 +217,7 @@ pub fn type_check_program(
 
     let type_table_id = analyzer.take_type_table_id();
     let instantiations = analyzer.take_instantiations();
+    let nominal_types = analyzer.take_nominal_types();
     let mut plan = InstantiationPlan::from_instantiations(&instantiations);
     plan.close(functions);
 
@@ -229,7 +231,7 @@ pub fn type_check_program(
         type_table_id,
         plan,
         records: records.to_vec(),
-        distincts: distincts.to_vec(),
+        nominal_types,
     })
 }
 
@@ -246,13 +248,13 @@ pub fn build_semantic_ir_program(
     >,
     plan: crate::ir::instantiation_plan::InstantiationPlan,
     records: &[crate::frontend::ast::RecordDecl],
-    distincts: &[crate::frontend::ast::DistinctDecl],
+    nominal_types: std::collections::HashMap<String, crate::common::types::Type>,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
 
     let (program, diagnostics) =
-        SemanticIRBuilder::build(functions, type_table_id, plan, records, distincts);
+        SemanticIRBuilder::build(functions, type_table_id, plan, records, nominal_types);
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
             Diagnostic::Warning(diag.to_string()).display();

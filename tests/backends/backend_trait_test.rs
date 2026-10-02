@@ -25,7 +25,7 @@ fn build_semantic_ir(
         std::collections::HashMap::new(),
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
-        &[],
+        std::collections::HashMap::new(),
     );
     (ir, diagnostics, functions)
 }

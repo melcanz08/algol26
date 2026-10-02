@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+Accepted. A1–A6 implemented; A7–A8 pending.
+
+`NominalTypeId` is assigned once, in the analyzer's
+`register_nominal_types`, and propagated through `TypedProgram`'s
+`nominal_types` map to every downstream consumer. No consumer
+reconstructs it.
 
 ## Context
 

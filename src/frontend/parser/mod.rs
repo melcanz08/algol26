@@ -64,7 +64,6 @@ impl Parser {
 
     /// Span of the token at the current position (the one `peek` would return).
     /// Returns `Span::default()` at EOF.
-    #[allow(dead_code)] // TODO(pr-4): remove once AST nodes carry spans
     pub(super) fn current_span(&self) -> Span {
         self.tokens
             .get(self.pos)
@@ -73,9 +72,37 @@ impl Parser {
     }
 
     /// Span of the most recently consumed token, as recorded by `advance()`.
-    #[allow(dead_code)] // TODO(pr-4): remove once AST nodes carry spans
     pub(super) fn last_span(&self) -> Span {
         self.last_span
+    }
+
+    /// Combine `start` with the span of the most recently consumed
+    /// token to produce a range covering an entire compound construct.
+    ///
+    /// Use at the end of a `parse_*` function, after all sub-tokens
+    /// have been consumed:
+    ///
+    /// ```ignore
+    /// let start_span = self.current_span();
+    /// // ... parse sub-parts ...
+    /// Ok(Expr::new(ExprKind::Foo {
+    ///     // ...
+    ///     span: self.span_from(start_span),
+    /// }))
+    /// ```
+    ///
+    /// Not appropriate for constructs whose last sub-parse consumes
+    /// a `Dedent` or `End` — those tokens carry dummy spans and would
+    /// truncate the range. `parse_block_expr`, `parse_if_expr`, and
+    /// the loop forms take their span from the opening keyword only.
+    pub(super) fn span_from(&self, start: Span) -> Span {
+        let end = self.last_span();
+        Span::new(
+            start.start_line,
+            start.start_column,
+            end.end_line,
+            end.end_column,
+        )
     }
 
     fn advance(&mut self) -> Token {

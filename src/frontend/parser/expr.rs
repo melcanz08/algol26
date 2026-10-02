@@ -17,7 +17,7 @@ impl Parser {
                 left: Box::new(left),
                 op: BinOp::Or,
                 right: Box::new(right),
-                span: start_span,
+                span: self.span_from(start_span),
             });
         }
         Ok(left)
@@ -33,7 +33,7 @@ impl Parser {
                 left: Box::new(left),
                 op: BinOp::And,
                 right: Box::new(right),
-                span: start_span,
+                span: self.span_from(start_span),
             });
         }
         Ok(left)
@@ -148,7 +148,7 @@ impl Parser {
                 let expr = self.parse_unary()?;
                 Ok(Expr::new(ExprKind::Deref {
                     expr: Box::new(expr),
-                    span: start_span,
+                    span: self.span_from(start_span),
                 }))
             }
             Token::Ampersand => {
@@ -158,13 +158,13 @@ impl Parser {
                     let expr = self.parse_unary()?;
                     return Ok(Expr::new(ExprKind::MutBorrow {
                         expr: Box::new(expr),
-                        span: start_span,
+                        span: self.span_from(start_span),
                     }));
                 }
                 let expr = self.parse_unary()?;
                 Ok(Expr::new(ExprKind::Borrow {
                     expr: Box::new(expr),
-                    span: start_span,
+                    span: self.span_from(start_span),
                 }))
             }
             _ => {
@@ -264,7 +264,7 @@ impl Parser {
                         start: Some(Expr::boxed(ExprKind::Int(start, start_span))),
                         end,
                         inclusive: false,
-                        span: start_span,
+                        span: self.span_from(start_span),
                     }))
                 } else if matches!(self.peek(), Token::DotDotEqual) {
                     self.advance();
@@ -277,7 +277,7 @@ impl Parser {
                         start: Some(Expr::boxed(ExprKind::Int(start, start_span))),
                         end,
                         inclusive: true,
-                        span: start_span,
+                        span: self.span_from(start_span),
                     }))
                 } else {
                     Ok(Expr::new(ExprKind::Int(start, start_span)))
@@ -295,7 +295,7 @@ impl Parser {
                         start: Some(Expr::boxed(ExprKind::Number(v, start_span))),
                         end,
                         inclusive: false,
-                        span: start_span,
+                        span: self.span_from(start_span),
                     }))
                 } else if matches!(self.peek(), Token::DotDotEqual) {
                     self.advance();
@@ -308,7 +308,7 @@ impl Parser {
                         start: Some(Expr::boxed(ExprKind::Number(v, start_span))),
                         end,
                         inclusive: true,
-                        span: start_span,
+                        span: self.span_from(start_span),
                     }))
                 } else {
                     Ok(Expr::new(ExprKind::Number(v, start_span)))
@@ -326,7 +326,7 @@ impl Parser {
                 Ok(Expr::new(ExprKind::FunctionCall {
                     name: "alloc".to_string(),
                     args: vec![size],
-                    span: start_span,
+                    span: self.span_from(start_span),
                 }))
             }
             Token::Free => {
@@ -336,7 +336,7 @@ impl Parser {
                 Ok(Expr::new(ExprKind::FunctionCall {
                     name: "free".to_string(),
                     args: vec![ptr],
-                    span: start_span,
+                    span: self.span_from(start_span),
                 }))
             }
             Token::LParen => {
@@ -355,7 +355,7 @@ impl Parser {
                 }
                 Ok(Expr::new(ExprKind::Some {
                     value: Box::new(value),
-                    span: start_span,
+                    span: self.span_from(start_span),
                 }))
             }
             Token::None => Ok(Expr::new(ExprKind::None(start_span))),
@@ -370,7 +370,7 @@ impl Parser {
                 }
                 Ok(Expr::new(ExprKind::Ok {
                     value: Box::new(value),
-                    span: start_span,
+                    span: self.span_from(start_span),
                 }))
             }
             Token::Error => {
@@ -384,7 +384,7 @@ impl Parser {
                 }
                 Ok(Expr::new(ExprKind::Error {
                     value: Box::new(value),
-                    span: start_span,
+                    span: self.span_from(start_span),
                 }))
             }
             Token::LBracket => {
@@ -396,7 +396,10 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RBracket, "']'")?;
-                Ok(Expr::new(ExprKind::List(elements, start_span)))
+                Ok(Expr::new(ExprKind::List(
+                    elements,
+                    self.span_from(start_span),
+                )))
             }
             other => Err(self.error(&format!("Unexpected expression: {:?}", other))),
         }
@@ -417,7 +420,7 @@ impl Parser {
             Ok(Expr::new(ExprKind::FunctionCall {
                 name,
                 args,
-                span: ident_span,
+                span: self.span_from(ident_span),
             }))
         } else if matches!(self.peek(), Token::LBracket) {
             // Unchanged: `name[index]`.
@@ -427,7 +430,7 @@ impl Parser {
             Ok(Expr::new(ExprKind::ArrayAccess {
                 array: Expr::boxed(ExprKind::Var(name, ident_span)),
                 index: Box::new(index),
-                span: ident_span,
+                span: self.span_from(ident_span),
             }))
         } else if name == "Map" && matches!(self.peek(), Token::LBrace) {
             // `Map { k: v, ... }` — key and value types inferred from entries.
@@ -462,14 +465,14 @@ impl Parser {
                 return Ok(Expr::new(ExprKind::FunctionCall {
                     name: format!("{}.{}", name, member_name),
                     args,
-                    span: ident_span,
+                    span: self.span_from(ident_span),
                 }));
             }
             // `name.member` (no parens) → field access.
             Ok(Expr::new(ExprKind::FieldAccess {
                 object: Expr::boxed(ExprKind::Var(name, ident_span)),
                 field: member_name,
-                span: ident_span,
+                span: self.span_from(ident_span),
             }))
         } else {
             Ok(Expr::new(ExprKind::Var(name, ident_span)))
@@ -655,7 +658,7 @@ impl Parser {
             name,
             type_args,
             fields,
-            span: start_span,
+            span: self.span_from(start_span),
         }))
     }
     /// Parse `<K, V>` after the `Map` identifier. Assumes the current
@@ -696,7 +699,7 @@ impl Parser {
             key_type,
             value_type,
             entries,
-            span: start_span,
+            span: self.span_from(start_span),
         }))
     }
 

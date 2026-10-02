@@ -33,6 +33,7 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &program.records,
+        &[],
     )
 }
 

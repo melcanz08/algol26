@@ -746,6 +746,46 @@ impl SemanticIRBuilder {
             ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
 
+                // ADR 0029: nominal type conversion intrinsics.
+                // Lower to a no-op Cast that carries the nominal type.
+                if let Some(dot) = clean_name.find('.') {
+                    let (receiver, method) = (&clean_name[..dot], &clean_name[dot + 1..]);
+
+                    // T.from_base(x): x already has the base
+                    // representation; wrap it with the nominal type.
+                    if method == "from_base" {
+                        if let Some(nominal) = self.nominal_types.get(receiver).cloned() {
+                            let inner = if let Some(arg) = args.first() {
+                                self.translate_expr(program, func, current_block, arg)
+                            } else {
+                                TypedIRValue::Void
+                            };
+                            return TypedIRValue::Cast {
+                                value: Box::new(inner),
+                                target_type: nominal,
+                            };
+                        }
+                    }
+
+                    // v.to_base(): the receiver's nominal type wraps
+                    // its base at runtime; unwrap the type annotation.
+                    if method == "to_base" && args.is_empty() {
+                        if let Some(info) = self.lookup_var(receiver) {
+                            if let Type::Distinct { base, .. } = &info.type_ {
+                                let receiver_value = TypedIRValue::Variable(
+                                    receiver.to_string(),
+                                    info.type_.clone(),
+                                );
+                                let base_ty = (**base).clone();
+                                return TypedIRValue::Cast {
+                                    value: Box::new(receiver_value),
+                                    target_type: base_ty,
+                                };
+                            }
+                        }
+                    }
+                }
+
                 // ─── METHOD CALL DISAMBIGUATION ───
                 // A dotted name is a *method call* only if:
                 //   1) the full dotted name is NOT a registered function (Math.sqrt,
@@ -1465,6 +1505,19 @@ impl SemanticIRBuilder {
             ExprKind::FieldAccess { object, field, .. } => {
                 let obj = self.translate_expr(program, func, current_block, object);
                 let obj_ty = obj.type_of();
+
+                // ADR 0029: `v.to_base` (no-parens form). Same as the
+                // parenthesized FunctionCall form above.
+                if field == "to_base" {
+                    if let Type::Distinct { base, .. } = &obj_ty {
+                        let base_ty = (**base).clone();
+                        return TypedIRValue::Cast {
+                            value: Box::new(obj),
+                            target_type: base_ty,
+                        };
+                    }
+                }
+
                 // ─── Map zero-arg methods (ADR 0027) ───
                 // `m.length`, `m.keys`, `m.values`. The argument-taking
                 // methods reject this form in the analyzer; only the three

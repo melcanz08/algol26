@@ -813,6 +813,13 @@ impl SemanticAnalyzer {
             ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
 
+                // ADR 0029: Nominal type constructor. `UserId.from_base(x)`.
+                // The receiver is a *type name*, not a variable, so this
+                // must run before the ordinary dotted-name dispatch below.
+                if let Some(ty) = self.try_nominal_from_base(clean_name, args)? {
+                    return Ok(ty);
+                }
+
                 if clean_name.contains('.') {
                     let parts: Vec<&str> = clean_name.split('.').collect();
                     if parts.len() == 2 {
@@ -820,6 +827,30 @@ impl SemanticAnalyzer {
                         let method_name = parts[1];
 
                         if let Some((receiver_type, mutable)) = self.lookup_variable(receiver) {
+                            // ADR 0029: Nominal type instance conversion.
+                            // `x.to_base()` where x has a Distinct type.
+                            // Yields the base type; consumes the receiver
+                            // if the base is non-Copy.
+                            if let Type::Distinct { base, .. } = &receiver_type {
+                                if method_name == "to_base" {
+                                    if !args.is_empty() {
+                                        return Err(CompileError::at(
+                                            self.current_span,
+                                            &format!(
+                                                "to_base takes no arguments, got {}",
+                                                args.len()
+                                            ),
+                                            ErrorCode::E0002,
+                                        ));
+                                    }
+                                    let base_ty = (**base).clone();
+                                    if !self.is_type_copy(&base_ty) {
+                                        let span = self.current_span;
+                                        self.mark_moved(receiver, span);
+                                    }
+                                    return Ok(base_ty);
+                                }
+                            }
                             // ─── List.append dispatch ───
                             // Like Map methods, `List.append` needs the receiver's
                             // concrete element type and a mutability check, which the
@@ -1159,6 +1190,21 @@ impl SemanticAnalyzer {
             ExprKind::FieldAccess { object, field, .. } => {
                 let obj_ty = self.analyze_expr(object)?;
 
+                // ADR 0029: Nominal type instance conversion, no-parens
+                // form. `x.to_base` where x has a Distinct type.
+                if let Type::Distinct { base, .. } = &obj_ty {
+                    if field == "to_base" {
+                        let base_ty = (**base).clone();
+                        if !self.is_type_copy(&base_ty) {
+                            if let ExprKind::Var(name, _) = &object.as_ref().kind {
+                                let span = self.current_span;
+                                self.mark_moved(name, span);
+                            }
+                        }
+                        return Ok(base_ty);
+                    }
+                }
+
                 // The parser produces `FieldAccess` for both `p.x`
                 // (record field) and `s.length` (zero-argument method
                 // call, the pre-records form). Disambiguate by type:
@@ -1353,6 +1399,61 @@ impl SemanticAnalyzer {
                 Ok(Type::map(key_ty, value_ty))
             }
         }
+    }
+
+    /// ADR 0029. If `clean_name` is `T.from_base` where `T` is a
+    /// registered nominal type, analyze `args` and produce the
+    /// nominal type. Returns `Ok(None)` if the name is not a
+    /// nominal constructor, so the caller falls through to the
+    /// ordinary function dispatch.
+    ///
+    /// Runs before the dotted-name path because `UserId` in
+    /// `UserId.from_base(...)` is a type name, not a variable. The
+    /// ordinary dispatch would report "Undefined function" otherwise.
+    fn try_nominal_from_base(&mut self, clean_name: &str, args: &[Expr]) -> Result<Option<Type>> {
+        let Some((receiver, method)) = clean_name.split_once('.') else {
+            return Ok(None);
+        };
+        if method != "from_base" {
+            return Ok(None);
+        }
+        let Some(ty) = self.nominal_types.get(receiver).cloned() else {
+            return Ok(None);
+        };
+        let Type::Distinct { id, name, base } = ty else {
+            return Ok(None);
+        };
+
+        if args.len() != 1 {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!("{}.from_base expects 1 argument, got {}", name, args.len()),
+                ErrorCode::E0002,
+            ));
+        }
+
+        let arg_ty = self.analyze_expr_with_context(&args[0], Some(&*base))?;
+        if !arg_ty.is_unknown() && !arg_ty.can_coerce_to(&base) {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!(
+                    "{}.from_base expects a value of type {}, found {}",
+                    name, base, arg_ty
+                ),
+                ErrorCode::E0002,
+            ));
+        }
+
+        // Consumption: mark the argument moved if non-Copy. For
+        // Copy bases (Int, Float, Bool) the value is duplicated.
+        if let ExprKind::Var(arg_name, _) = &args[0].kind {
+            if !self.is_type_copy(&arg_ty) {
+                let span = args[0].span();
+                self.mark_moved(arg_name, span);
+            }
+        }
+
+        Ok(Some(Type::distinct(id, &name, *base)))
     }
 
     pub(super) fn substitute_type_vars(

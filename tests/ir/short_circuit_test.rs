@@ -30,6 +30,7 @@ fn run(source: &str) -> String {
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        &[],
     );
     Interpreter::new(ir).run().unwrap()
 }

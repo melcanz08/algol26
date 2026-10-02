@@ -434,6 +434,22 @@ impl Type {
             // Generic casts
             (Type::Generic { .. }, Type::Generic { .. }) => true,
 
+            // Nominal conversions (ADR 0029). `distinct T` and `T`
+            // share a runtime representation, so an explicit cast
+            // between them is a no-op. This is what the intrinsic
+            // wrap/unwrap for `from_base` / `to_base` lowers to; it
+            // is not a coercion rule — `can_coerce_to` remains
+            // strict, which is what actually prevents `userId + 1`.
+            //
+            // Distinct-to-distinct casts are not allowed even when
+            // their bases match: go through the base explicitly.
+            (Type::Distinct { base, .. }, target) if !matches!(target, Type::Distinct { .. }) => {
+                base.can_cast_to(target)
+            }
+            (source, Type::Distinct { base, .. }) if !matches!(source, Type::Distinct { .. }) => {
+                source.can_cast_to(base)
+            }
+
             // Default: no cast
             _ => false,
         }
@@ -1080,9 +1096,25 @@ mod tests {
     }
 
     #[test]
-    fn distinct_no_cast() {
+    fn distinct_casts_require_explicit_as() {
         let user_id = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
-        assert!(!user_id.can_cast_to(&Type::Int));
-        assert!(!Type::Int.can_cast_to(&user_id));
+
+        // Explicit `as` between a nominal and its base is allowed.
+        // This is what the intrinsic wrap/unwrap lowers to.
+        assert!(user_id.can_cast_to(&Type::Int));
+        assert!(Type::Int.can_cast_to(&user_id));
+
+        // Distinct-to-distinct is not allowed even when bases match.
+        let price_cents = Type::distinct(NominalTypeId(2), "PriceCents", Type::Int);
+        assert!(!user_id.can_cast_to(&price_cents));
+        assert!(!price_cents.can_cast_to(&user_id));
+
+        // Identity: allowed by the early self == target return.
+        let same = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert!(user_id.can_cast_to(&same));
+
+        // Coercion remains strict regardless.
+        assert!(!user_id.can_coerce_to(&Type::Int));
+        assert!(!Type::Int.can_coerce_to(&user_id));
     }
 }

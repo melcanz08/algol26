@@ -74,6 +74,11 @@ pub struct TypedProgram {
     /// builder so it can resolve record names in user function
     /// signatures to `Type::Record(...)` rather than `Type::Unknown`.
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    /// Nominal type declarations from the frontend. Forwarded to the
+    /// IR builder so `UserId` resolves to `Type::Distinct` in
+    /// annotations and conversion intrinsics are recognized.
+    /// See ADR 0029.
+    pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -224,6 +229,7 @@ pub fn type_check_program(
         type_table_id,
         plan,
         records: records.to_vec(),
+        distincts: distincts.to_vec(),
     })
 }
 
@@ -240,11 +246,13 @@ pub fn build_semantic_ir_program(
     >,
     plan: crate::ir::instantiation_plan::InstantiationPlan,
     records: &[crate::frontend::ast::RecordDecl],
+    distincts: &[crate::frontend::ast::DistinctDecl],
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
 
-    let (program, diagnostics) = SemanticIRBuilder::build(functions, type_table_id, plan, records);
+    let (program, diagnostics) =
+        SemanticIRBuilder::build(functions, type_table_id, plan, records, distincts);
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
             Diagnostic::Warning(diag.to_string()).display();

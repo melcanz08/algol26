@@ -16,6 +16,7 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         std::collections::HashMap::new(),
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &program.records,
+        &[],
     )
 }
 fn run_interp(prog: SemanticProgram) -> String {
@@ -160,6 +161,7 @@ fn test_negative_corpus_no_ice() {
                 &functions,
                 std::collections::HashMap::new(),
                 algol26::ir::instantiation_plan::InstantiationPlan::default(),
+                &[],
                 &[],
             );
             let mut analyzer = algol26::semantics::analyzer::SemanticAnalyzer::new();

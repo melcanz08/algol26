@@ -6,10 +6,11 @@
 // src/semantics/builder/mod.rs
 
 use crate::common::span::Span;
+use crate::common::types::NominalTypeId;
 use crate::common::types::Type;
 use crate::frontend::ast::{
-    BinOp, Expr, ExprId, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, RecordDecl, Stmt,
-    TypeSyntax,
+    BinOp, DistinctDecl, Expr, ExprId, ExprKind, FunctionDecl, MatchCaseExpr, Pattern, RecordDecl,
+    Stmt, TypeSyntax,
 };
 use crate::ir::instantiation_plan::{InstantiationPlan, Specialization};
 use crate::ir::semantic_ir::{
@@ -58,6 +59,11 @@ pub struct SemanticIRBuilder {
     /// registering `function_types` — `Option<Sale>` becomes
     /// `Option<Record("Sale", []))>` rather than `Option<Unknown>`.
     pub(super) record_names: HashSet<String>,
+    /// Nominal type declarations from the frontend, keyed by name.
+    /// Values carry a `Type::Distinct` whose `NominalTypeId` matches
+    /// the one the analyzer assigned (both iterate `distincts` in
+    /// declaration order). See ADR 0029.
+    pub(super) nominal_types: HashMap<String, Type>,
 }
 
 #[allow(dead_code)]
@@ -73,8 +79,21 @@ impl SemanticIRBuilder {
         type_table_id: HashMap<ExprId, Type>,
         plan: InstantiationPlan,
         records: &[RecordDecl],
+        distincts: &[DistinctDecl],
     ) -> (SemanticProgram, Vec<String>) {
         let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
+
+        // Reconstruct the nominal type table. The analyzer iterates
+        // `distincts` in declaration order and assigns ids 0..N; we
+        // do the same so `Type::Distinct { id, .. }` values compare
+        // equal across the two passes.
+        let mut nominal_types: HashMap<String, Type> = HashMap::new();
+        for (i, decl) in distincts.iter().enumerate() {
+            let base = decl.base.to_type();
+            let ty = Type::distinct(NominalTypeId(i as u32), &decl.name, base);
+            nominal_types.insert(decl.name.clone(), ty);
+        }
+
         let mut builder = SemanticIRBuilder {
             scopes: vec![HashMap::new()],
             function_types: HashMap::new(),
@@ -88,6 +107,7 @@ impl SemanticIRBuilder {
             current_subst: HashMap::new(),
             plan,
             record_names,
+            nominal_types,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -140,6 +160,9 @@ impl SemanticIRBuilder {
     pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Type {
         match syntax {
             TypeSyntax::Named(name) => {
+                if let Some(nominal) = self.nominal_types.get(name.as_str()) {
+                    return nominal.clone();
+                }
                 if self.record_names.contains(name.as_str()) {
                     return Type::record(name, Vec::new());
                 }
@@ -258,6 +281,7 @@ mod substitution_tests {
             current_subst: subst,
             plan: InstantiationPlan::default(),
             record_names: HashSet::new(),
+            nominal_types: HashMap::new(),
         }
     }
 

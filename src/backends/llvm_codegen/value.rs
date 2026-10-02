@@ -354,6 +354,27 @@ impl<'ctx> IRCodeGen<'ctx> {
                         // Already an int - no cast needed
                         v
                     }
+                    // String is a `char*` pointer in LLVM. A cast whose
+                    // source is already a pointer and whose target is
+                    // `String` is a no-op — this is the shape the
+                    // nominal unwrap `Distinct<String> -> String`
+                    // produces (ADR 0029).
+                    (BasicValueEnum::PointerValue(_), Type::String) => v,
+                    // ADR 0029: nominal wrap/unwrap. The nominal and
+                    // its base share the same runtime representation,
+                    // so the cast is a no-op. The inner value's LLVM
+                    // type already matches the base.
+                    (_, Type::Distinct { base, .. }) => match (&v, &**base) {
+                        (BasicValueEnum::IntValue(_), Type::Int | Type::Bool) => v,
+                        (BasicValueEnum::FloatValue(_), Type::Float) => v,
+                        (BasicValueEnum::PointerValue(_), Type::String) => v,
+                        _ => {
+                            return Err(CompileError::unsupported_operation(
+                                "cast to nominal type with mismatched LLVM representation",
+                                "llvm",
+                            ));
+                        }
+                    },
                     (source_llvm, target) => {
                         // Reaching this arm means the analyzer permitted
                         // a cast the LLVM backend cannot express. The

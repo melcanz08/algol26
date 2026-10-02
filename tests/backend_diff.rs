@@ -12,6 +12,7 @@ fn build_ir(src: &str) -> algol26::ir::semantic_ir::SemanticProgram {
         std::collections::HashMap::new(),
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        &[],
     );
     assert!(diags.is_empty(), "diags: {:?}", diags);
     ir

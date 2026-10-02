@@ -13,6 +13,17 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NominalTypeId(pub u32);
 
+/// Enum type identity. Two declarations with the same `name` in
+/// different modules produce different `EnumTypeId` values, and
+/// therefore different types. Identity is `id`; `name` and
+/// `variants` are for display and analysis. See ADR 0030.
+///
+/// Assigned by the analyzer during enum declaration registration,
+/// in declaration order, so ids are deterministic for a given
+/// source set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EnumTypeId(pub u32);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     // Primitive types
@@ -80,6 +91,14 @@ pub enum Type {
         name: String,
         base: Box<Type>,
     },
+    /// An ordinal enumeration. Identity is `id`; `name` is
+    /// presentation; `variants[i]` has ordinal `i`. The runtime
+    /// representation is `Int`. See ADR 0030.
+    Enum {
+        id: EnumTypeId,
+        name: String,
+        variants: Vec<String>,
+    },
 }
 
 impl Type {
@@ -129,6 +148,16 @@ impl Type {
             id,
             name: name.to_string(),
             base: Box::new(base),
+        }
+    }
+
+    /// Construct an ordinal enum type. `id` is the analyzer-assigned
+    /// identity; `variants` is in declaration order (ordinals 0..N).
+    pub fn enum_type(id: EnumTypeId, name: &str, variants: Vec<String>) -> Self {
+        Type::Enum {
+            id,
+            name: name.to_string(),
+            variants,
         }
     }
 
@@ -389,6 +418,9 @@ impl Type {
             // `distinct Int` is Copy, a `distinct String` is not.
             // See ADR 0029.
             Type::Distinct { base, .. } => base.is_copy(),
+            // Enums are scalars. The variant is an integer ordinal;
+            // copying it duplicates no state. See ADR 0030.
+            Type::Enum { .. } => true,
             _ => false,
         }
     }
@@ -449,6 +481,16 @@ impl Type {
             (source, Type::Distinct { base, .. }) if !matches!(source, Type::Distinct { .. }) => {
                 source.can_cast_to(base)
             }
+
+            // Enum ordinal conversion (ADR 0030). `Enum <-> Int` is
+            // an explicit cast — the representation is identical.
+            // This is what the intrinsic wrap/unwrap for
+            // `from_ordinal` / `to_ordinal` lowers to.
+            //
+            // Enum-to-enum is not allowed even when the ordinal
+            // ranges overlap; go through `Int` explicitly.
+            (Type::Enum { .. }, Type::Int) => true,
+            (Type::Int, Type::Enum { .. }) => true,
 
             // Default: no cast
             _ => false,
@@ -771,6 +813,10 @@ impl fmt::Display for Type {
             // Nominal types print as their declared name. `id` is
             // identity, not presentation. See ADR 0029.
             Type::Distinct { name, .. } => name.clone(),
+            // Enums print as their declared name. Variant values
+            // print as ordinals; the name is not available at
+            // runtime in v1. See ADR 0030.
+            Type::Enum { name, .. } => name.clone(),
             Type::Pointer(t) => format!("*{}", t),
             Type::Borrow(t) => format!("Borrow<{}>", t),
             Type::MutBorrow(t) => format!("MutBorrow<{}>", t),
@@ -1116,5 +1162,123 @@ mod tests {
         // Coercion remains strict regardless.
         assert!(!user_id.can_coerce_to(&Type::Int));
         assert!(!Type::Int.can_coerce_to(&user_id));
+    }
+
+    // ─── Enum types (ADR 0030) ────────────────────────────────────
+
+    fn day_enum() -> Type {
+        Type::enum_type(
+            EnumTypeId(1),
+            "Day",
+            vec![
+                "Monday".to_string(),
+                "Tuesday".to_string(),
+                "Wednesday".to_string(),
+                "Thursday".to_string(),
+                "Friday".to_string(),
+                "Saturday".to_string(),
+                "Sunday".to_string(),
+            ],
+        )
+    }
+
+    #[test]
+    fn enum_display_uses_name_only() {
+        let t = day_enum();
+        assert_eq!(t.to_string(), "Day");
+    }
+
+    #[test]
+    fn enum_identity_is_id_not_name() {
+        // Same name, same variants, different ids — different types.
+        let a = Type::enum_type(
+            EnumTypeId(1),
+            "Day",
+            vec!["Monday".to_string(), "Tuesday".to_string()],
+        );
+        let b = Type::enum_type(
+            EnumTypeId(2),
+            "Day",
+            vec!["Monday".to_string(), "Tuesday".to_string()],
+        );
+        assert_ne!(a, b);
+        assert!(!a.can_coerce_to(&b));
+        assert!(!b.can_coerce_to(&a));
+    }
+
+    #[test]
+    fn enum_same_id_coerces() {
+        let a = day_enum();
+        let b = day_enum();
+        assert_eq!(a, b);
+        assert!(a.can_coerce_to(&b));
+    }
+
+    #[test]
+    fn enum_does_not_coerce_to_int() {
+        let day = day_enum();
+        assert!(!day.can_coerce_to(&Type::Int));
+        assert!(!Type::Int.can_coerce_to(&day));
+    }
+
+    #[test]
+    fn enum_does_not_coerce_to_sibling() {
+        let day = day_enum();
+        let month = Type::enum_type(
+            EnumTypeId(2),
+            "Month",
+            vec!["Jan".to_string(), "Feb".to_string()],
+        );
+        assert!(!day.can_coerce_to(&month));
+        assert!(!month.can_coerce_to(&day));
+    }
+
+    #[test]
+    fn enum_is_never_numeric() {
+        assert!(!day_enum().is_numeric());
+    }
+
+    #[test]
+    fn enum_is_always_copy() {
+        assert!(day_enum().is_copy());
+    }
+
+    #[test]
+    fn enum_casts_to_and_from_int() {
+        let day = day_enum();
+        // Explicit `as` between an enum and Int is allowed; this is
+        // what from_ordinal / to_ordinal lowers to.
+        assert!(day.can_cast_to(&Type::Int));
+        assert!(Type::Int.can_cast_to(&day));
+    }
+
+    #[test]
+    fn enum_does_not_cast_to_sibling() {
+        let day = day_enum();
+        let month = Type::enum_type(
+            EnumTypeId(2),
+            "Month",
+            vec!["Jan".to_string(), "Feb".to_string()],
+        );
+        assert!(!day.can_cast_to(&month));
+        assert!(!month.can_cast_to(&day));
+    }
+
+    #[test]
+    fn enum_no_common_supertype_with_int_or_sibling() {
+        let day = day_enum();
+        assert_eq!(day.common_supertype(&Type::Int), Type::Unknown);
+        let month = Type::enum_type(EnumTypeId(2), "Month", vec!["Jan".to_string()]);
+        assert_eq!(day.common_supertype(&month), Type::Unknown);
+        // Same identity: returns itself.
+        let same = day_enum();
+        assert_eq!(day.common_supertype(&same), day);
+    }
+
+    #[test]
+    fn enum_contains_unresolved_is_false() {
+        // Variants are strings; an enum type carries no TypeVars or
+        // Unknowns regardless of its shape.
+        assert!(!day_enum().contains_unresolved());
     }
 }

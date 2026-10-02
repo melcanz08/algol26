@@ -41,6 +41,11 @@ impl<'ctx> IRCodeGen<'ctx> {
             // lives only in the type system. See ADR 0029.
             Type::Distinct { base, .. } => self.map_type(base),
 
+            // An enum's runtime value is its ordinal: an i64. The
+            // identity and variant names are compile-time only.
+            // See ADR 0030.
+            Type::Enum { .. } => self.context.i64_type().into(),
+
             Type::List(inner) => {
                 // NOTE (Tier 2 follow-up): the current runtime
                 // representation of a list in `instruction.rs` is a

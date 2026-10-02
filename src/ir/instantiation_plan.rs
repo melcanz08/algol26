@@ -413,6 +413,10 @@ pub fn mangled_type_name(ty: &Type) -> String {
         // source set. A future incremental compiler with persistent
         // IR would need to make these ids stable across runs.
         Type::Distinct { id, .. } => format!("Distinct_{}", id.0),
+        // Enums follow the same discipline: mangle by identity.
+        // Two `enum Color` declarations in different modules must
+        // mangle differently. See ADR 0030.
+        Type::Enum { id, .. } => format!("Enum_{}", id.0),
     }
 }
 
@@ -1059,5 +1063,36 @@ procedure main
         assert_eq!(mangled_type_name(&a), mangled_type_name(&a2));
         let a3 = Type::distinct(NominalTypeId(1), "DifferentName", Type::Int);
         assert_eq!(mangled_type_name(&a), mangled_type_name(&a3));
+    }
+
+    #[test]
+    fn mangler_distinguishes_enum_ids() {
+        use crate::common::types::EnumTypeId;
+        // Same name, same variants, different ids — different types.
+        let a = Type::enum_type(
+            EnumTypeId(1),
+            "Day",
+            vec!["Monday".to_string(), "Tuesday".to_string()],
+        );
+        let b = Type::enum_type(
+            EnumTypeId(2),
+            "Day",
+            vec!["Monday".to_string(), "Tuesday".to_string()],
+        );
+        assert_ne!(mangled_type_name(&a), mangled_type_name(&b));
+
+        // Same id — same mangle, regardless of name or variants.
+        let a2 = Type::enum_type(
+            EnumTypeId(1),
+            "Different",
+            vec!["X".to_string(), "Y".to_string(), "Z".to_string()],
+        );
+        assert_eq!(mangled_type_name(&a), mangled_type_name(&a2));
+
+        // Enum and Distinct with the same id do not collide: the
+        // prefixes differ.
+        use crate::common::types::NominalTypeId;
+        let n = Type::distinct(NominalTypeId(1), "Day", Type::Int);
+        assert_ne!(mangled_type_name(&a), mangled_type_name(&n));
     }
 }

@@ -1867,6 +1867,36 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
+            Pattern::Variant(name) => match value_type {
+                Type::Enum {
+                    name: enum_name,
+                    variants,
+                    ..
+                } => {
+                    if variants.iter().any(|v| v == name) {
+                        Ok(())
+                    } else {
+                        Err(CompileError::at(
+                            self.current_span,
+                            &format!("no variant '{}' on enum '{}'", name, enum_name),
+                            ErrorCode::E0004,
+                        )
+                        .with_suggestion(&format!(
+                            "Valid variants of '{}': {}",
+                            enum_name,
+                            variants.join(", ")
+                        )))
+                    }
+                }
+                other => Err(CompileError::at(
+                    self.current_span,
+                    &format!(
+                        "variant pattern requires an enum type; matched type is '{}'",
+                        other
+                    ),
+                    ErrorCode::E0002,
+                )),
+            },
             _ => Ok(()),
         }
     }

@@ -487,6 +487,12 @@ fn format_pattern(out: &mut String, pat: &SemanticPattern) {
         SemanticPattern::Record { name, bindings } => {
             write!(out, "{} {{ {} }}", name, bindings.join(", ")).unwrap();
         }
+        // ADR 0030: enum variant pattern. The ordinal is what the
+        // runtime compares against; showing it alongside the name
+        // makes the IR's actual behavior legible.
+        SemanticPattern::Variant { name, ordinal } => {
+            write!(out, "{} ({})", name, ordinal).unwrap();
+        }
     }
 }
 

@@ -424,6 +424,9 @@ pub enum Pattern {
         name: String,
         bindings: Vec<String>,
     },
+    /// A bare enum variant match. `case Monday` where the matched
+    /// type is `Type::Enum`. No payload, no binding. See ADR 0030.
+    Variant(String),
 }
 
 #[derive(Clone, Debug)]

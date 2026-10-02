@@ -1111,6 +1111,27 @@ impl SemanticIRBuilder {
                         crate::frontend::ast::Pattern::Literal(e) => SemanticPattern::Literal(
                             self.translate_expr(program, func, current_block, e),
                         ),
+                        crate::frontend::ast::Pattern::Variant(variant_name) => {
+                            // ADR 0030: the ordinal is resolved at
+                            // IR-build time from the matched type. The
+                            // analyzer has already validated that the
+                            // name is a variant of the enum, so a miss
+                            // here would be an internal error; fall
+                            // back to -1 so a would-be bug becomes a
+                            // never-matching case rather than a panic.
+                            let ordinal = match &matched_type {
+                                Type::Enum { variants, .. } => variants
+                                    .iter()
+                                    .position(|v| v == variant_name)
+                                    .map(|i| i as i64)
+                                    .unwrap_or(-1),
+                                _ => -1,
+                            };
+                            SemanticPattern::Variant {
+                                name: variant_name.clone(),
+                                ordinal,
+                            }
+                        }
                         _ => SemanticPattern::Wildcard,
                     };
 

@@ -216,6 +216,23 @@ impl Parser {
                     self.expect_token(Token::RBrace, "'}'")?;
                     return Ok(Pattern::Record { name, bindings });
                 }
+                // ADR 0030: an identifier starting with an uppercase
+                // letter in pattern position is an enum variant pattern.
+                // Lowercase-first identifiers remain variable bindings.
+                // `Some`, `None`, `Ok`, `Error` have their own token
+                // kinds and never reach this arm.
+                //
+                // This is a documented side effect: `case X` for a
+                // single-uppercase-letter binding no longer binds a
+                // variable. Users write lowercase bindings.
+                if name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+                {
+                    return Ok(Pattern::Variant(name));
+                }
                 Ok(Pattern::Binding(name))
             }
             other => Err(self.error(&format!("Unexpected token in pattern: {:?}", other))),

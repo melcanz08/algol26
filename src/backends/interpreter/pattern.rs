@@ -63,6 +63,15 @@ impl Interpreter {
                 }
                 _ => Ok(None),
             },
+
+            // ADR 0030: enum variant match. An enum value at runtime
+            // is its ordinal (an Int). The IR builder resolved the
+            // ordinal from the matched type's `Type::Enum` at
+            // translation time, so this is a plain integer compare.
+            SemanticPattern::Variant { ordinal, .. } => match value {
+                RuntimeValue::Int(n) if *n == *ordinal => Ok(Some(Vec::new())),
+                _ => Ok(None),
+            },
         }
     }
 }

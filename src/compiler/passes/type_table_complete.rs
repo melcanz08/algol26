@@ -351,6 +351,10 @@ impl<'a> Walker<'a> {
             | Pattern::Error(_)
             | Pattern::Wildcard
             | Pattern::Binding(_) => {}
+            // ADR 0030: variant patterns bind nothing and contain no
+            // sub-expressions. The analyzer has already validated the
+            // name against the enum's variants.
+            Pattern::Variant(_) => {}
         }
     }
 }

@@ -71,6 +71,7 @@ fn test_negative_type_mismatch() {
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
     );
 
     assert!(

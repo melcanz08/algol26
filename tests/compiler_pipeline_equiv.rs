@@ -276,6 +276,7 @@ fn type_check_pass_agrees_with_direct_call() {
             &parsed.traits,
             &parsed.impls,
             &parsed.records,
+            &parsed.distincts,
         ) {
             Ok(t) => t,
             Err(_) => continue,

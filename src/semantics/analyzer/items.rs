@@ -190,17 +190,62 @@ impl SemanticAnalyzer {
             },
         );
     }
+    /// Register every `type X distinct Y` declaration.
+    ///
+    /// Assigns a fresh `NominalTypeId` per declaration, in
+    /// declaration order, so ids are deterministic for a given
+    /// source set. Validates that the base is one of `Int`,
+    /// `Float`, `Bool`, `String` — the v1 constraint from ADR
+    /// 0029.
+    pub(super) fn register_nominal_types(
+        &mut self,
+        decls: &[crate::frontend::ast::DistinctDecl],
+    ) -> Result<()> {
+        for decl in decls {
+            if self.nominal_types.contains_key(&decl.name) {
+                return Err(CompileError::at(
+                    decl.span,
+                    &format!("Duplicate nominal type '{}'", decl.name),
+                    ErrorCode::E0009,
+                ));
+            }
+            let base = self.resolve_type_syntax(&decl.base)?;
+            if !matches!(base, Type::Int | Type::Float | Type::Bool | Type::String) {
+                return Err(CompileError::at(
+                    decl.span,
+                    &format!(
+                        "Nominal type '{}' must have a primitive base \
+                         (Int, Float, Bool, or String), found {}",
+                        decl.name, base
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+            let id = NominalTypeId(self.next_nominal_id);
+            self.next_nominal_id += 1;
+            let ty = Type::distinct(id, &decl.name, base);
+            self.nominal_types.insert(decl.name.clone(), ty);
+        }
+        Ok(())
+    }
+
     pub(super) fn register_user_functions(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        // Snapshot the record table so the closure can read it
-        // without conflicting with the `&mut self` of the loop.
+        // Snapshot the record and nominal tables so the closure can
+        // read them without conflicting with the `&mut self` of the
+        // loop.
         let records_snapshot = self.records.clone();
+        let nominals_snapshot = self.nominal_types.clone();
         for func in functions {
             let params: Vec<(String, Type)> = func
                 .params
                 .iter()
                 .map(|(name, t)| {
                     let type_ = match t {
-                        Some(ts) => Self::resolve_syntax_with_records(ts, &records_snapshot)?,
+                        Some(ts) => Self::resolve_syntax_with_records(
+                            ts,
+                            &records_snapshot,
+                            &nominals_snapshot,
+                        )?,
                         None => Type::Unknown,
                     };
                     Ok::<_, CompileError>((name.clone(), type_))
@@ -208,7 +253,9 @@ impl SemanticAnalyzer {
                 .collect::<Result<Vec<_>>>()?;
 
             let return_type = match &func.return_type {
-                Some(t) => Self::resolve_syntax_with_records(t, &records_snapshot)?,
+                Some(t) => {
+                    Self::resolve_syntax_with_records(t, &records_snapshot, &nominals_snapshot)?
+                }
                 None => Type::Void,
             };
 
@@ -369,6 +416,9 @@ impl SemanticAnalyzer {
     pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Result<Type> {
         match syntax {
             TypeSyntax::Named(name) => {
+                if let Some(nominal) = self.nominal_types.get(name.as_str()).cloned() {
+                    return Ok(nominal);
+                }
                 if let Some(rec) = self.records.get(name.as_str()).cloned() {
                     let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
                     return Ok(Type::record(name, args));
@@ -509,9 +559,13 @@ impl SemanticAnalyzer {
     fn resolve_syntax_with_records(
         syntax: &TypeSyntax,
         records: &HashMap<String, RecordInfo>,
+        nominals: &HashMap<String, Type>,
     ) -> Result<Type> {
         match syntax {
             TypeSyntax::Named(name) => {
+                if let Some(nominal) = nominals.get(name.as_str()) {
+                    return Ok(nominal.clone());
+                }
                 if let Some(rec) = records.get(name.as_str()) {
                     let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
                     return Ok(Type::record(name, args));
@@ -529,13 +583,13 @@ impl SemanticAnalyzer {
                     }
                     let resolved_args: Vec<Type> = args
                         .iter()
-                        .map(|a| Self::resolve_syntax_with_records(a, records))
+                        .map(|a| Self::resolve_syntax_with_records(a, records, nominals))
                         .collect::<Result<Vec<_>>>()?;
                     return Ok(Type::record(name, resolved_args));
                 }
                 let resolved_args: Vec<Type> = args
                     .iter()
-                    .map(|a| Self::resolve_syntax_with_records(a, records))
+                    .map(|a| Self::resolve_syntax_with_records(a, records, nominals))
                     .collect::<Result<Vec<_>>>()?;
                 let ty = match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
                     ("list", [inner]) => Type::list(inner.clone()),

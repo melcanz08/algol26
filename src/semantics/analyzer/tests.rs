@@ -21,6 +21,7 @@ fn analyze(source: &str) -> Result<()> {
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
     )
 }
 
@@ -473,6 +474,7 @@ procedure main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
         )
         .expect("analysis should succeed");
 
@@ -522,6 +524,7 @@ procedure main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
         )
         .expect("analysis should succeed");
 
@@ -563,6 +566,7 @@ procedure main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
         )
         .expect("analysis should succeed");
 
@@ -719,6 +723,7 @@ procedure main
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
     );
 
     let err = result.expect_err("expected immutability error");
@@ -800,6 +805,7 @@ fn analyze_source(source: &str) -> Result<()> {
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
     )
 }
 

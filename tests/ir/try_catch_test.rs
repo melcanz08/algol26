@@ -21,6 +21,7 @@ fn run_source(source: &str) -> String {
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();

@@ -76,6 +76,7 @@ fn test_double_borrow_fails() {
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
     );
 
     assert!(
@@ -148,6 +149,7 @@ procedure main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();
@@ -214,6 +216,7 @@ procedure main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();

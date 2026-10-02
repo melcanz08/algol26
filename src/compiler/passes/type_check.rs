@@ -38,6 +38,7 @@ impl Pass<Program> for TypeCheckPass {
             &ast.traits,
             &ast.impls,
             &ast.records,
+            &ast.distincts,
         ) {
             Ok(typed) => {
                 program.typed = Some(typed);

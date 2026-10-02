@@ -7,10 +7,10 @@
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
-use crate::common::types::Type;
+use crate::common::types::{NominalTypeId, Type};
 use crate::frontend::ast::{
-    BinOp, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern, RecordDecl,
-    Stmt, TraitDecl, WhereClause,
+    BinOp, DistinctDecl, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern,
+    RecordDecl, Stmt, TraitDecl, WhereClause,
 };
 use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
@@ -55,6 +55,12 @@ pub struct SemanticAnalyzer {
     trait_registry: TraitRegistry,
     deferred_captures: Vec<HashSet<String>>,
     records: HashMap<String, RecordInfo>,
+    /// Nominal type declarations (`type X distinct Y`), keyed by the
+    /// declared name. Values carry the assigned `NominalTypeId`.
+    /// Identity is the id; the name is presentation only. ADR 0029.
+    nominal_types: HashMap<String, Type>,
+    /// Monotonic counter for `NominalTypeId`.
+    next_nominal_id: u32,
     /// Function names declared variadic via `extern "C" ...(...)`.
     /// Used to relax the arity check from "exactly N" to "at
     /// least N" for those functions.
@@ -177,6 +183,8 @@ impl SemanticAnalyzer {
             loop_stack: Vec::new(),
             unsafe_depth: 0,
             records: HashMap::new(),
+            nominal_types: HashMap::new(),
+            next_nominal_id: 0,
         }
     }
 
@@ -266,7 +274,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        self.analyze_with_spans(functions, &[], &[], &[])
+        self.analyze_with_spans(functions, &[], &[], &[], &[])
     }
 
     pub fn analyze_with_spans(
@@ -275,6 +283,7 @@ impl SemanticAnalyzer {
         traits: &[TraitDecl],
         impls: &[ImplBlock],
         records: &[RecordDecl],
+        distincts: &[DistinctDecl],
     ) -> Result<()> {
         debug_assert!(
             crate::compiler::assert_all_numbered(functions),
@@ -282,6 +291,11 @@ impl SemanticAnalyzer {
              call assign_expr_ids(&mut functions) before analyzing"
         );
         self.register_builtin_functions();
+
+        // Nominal types are registered before records and user
+        // functions: a record field or a function signature may name
+        // a nominal type. Base must be primitive (ADR 0029).
+        self.register_nominal_types(distincts)?;
 
         // Records must be registered before user functions:
         // function signatures can name records as parameters or
@@ -324,7 +338,10 @@ impl SemanticAnalyzer {
             "SemanticAnalyzer::analyze_with_traits called with unnumbered AST — \
              call assign_expr_ids(&mut functions) before analyzing"
         );
-        self.analyze_with_spans(functions, traits, impls, records)
+        // The 4-arg form is retained for callers that predate
+        // nominal types. Callers with `DistinctDecl`s in scope
+        // should call `analyze_with_spans` directly.
+        self.analyze_with_spans(functions, traits, impls, records, &[])
     }
 
     /// Verify that every `where T: Trait` clause names a trait that

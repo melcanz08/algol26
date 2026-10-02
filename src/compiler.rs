@@ -193,6 +193,7 @@ pub fn type_check_program(
     traits: &[TraitDecl],
     impls: &[ImplBlock],
     records: &[crate::frontend::ast::RecordDecl], // ← NEW
+    distincts: &[crate::frontend::ast::DistinctDecl], // ← ADR 0029
 ) -> Result<TypedProgram> {
     let mut analyzer = SemanticAnalyzer::new();
     debug_assert!(
@@ -200,7 +201,7 @@ pub fn type_check_program(
         "type_check_program reached with an UNASSIGNED ExprId — \
          some AST construction path bypassed prepare_frontend"
     );
-    analyzer.analyze_with_traits(functions, traits, impls, records)?;
+    analyzer.analyze_with_spans(functions, traits, impls, records, distincts)?;
 
     let mut race_detector = RaceDetector::new();
     let races = race_detector.analyze(functions);

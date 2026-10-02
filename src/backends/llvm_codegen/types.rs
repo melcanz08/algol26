@@ -36,6 +36,11 @@ impl<'ctx> IRCodeGen<'ctx> {
             // adequate; pointer is the cheapest.
             Type::Never => self.context.ptr_type(AddressSpace::default()).into(),
 
+            // A nominal type has no runtime representation of its
+            // own — it lowers to its base type. The nominal identity
+            // lives only in the type system. See ADR 0029.
+            Type::Distinct { base, .. } => self.map_type(base),
+
             Type::List(inner) => {
                 // NOTE (Tier 2 follow-up): the current runtime
                 // representation of a list in `instruction.rs` is a

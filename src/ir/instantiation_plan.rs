@@ -404,6 +404,15 @@ pub fn mangled_type_name(ty: &Type) -> String {
             let parts: Vec<String> = args.iter().map(mangled_type_name).collect();
             format!("Record_{}_{}_{}", name, args.len(), parts.join("_"))
         }
+        // Nominal types: mangle by identity, not by name. Two
+        // `type Id = distinct Int` declarations in different modules
+        // must mangle differently. The name is presentation only and
+        // deliberately does not appear here — see ADR 0029.
+        //
+        // `id` is per-compilation-unit and deterministic for a given
+        // source set. A future incremental compiler with persistent
+        // IR would need to make these ids stable across runs.
+        Type::Distinct { id, .. } => format!("Distinct_{}", id.0),
     }
 }
 
@@ -1032,5 +1041,23 @@ procedure main
             mangled_type_name(&Type::map(Type::String, Type::Int)),
             mangled_type_name(&Type::generic("Map", vec![Type::String, Type::Int])),
         );
+    }
+
+    #[test]
+    fn mangler_distinguishes_nominal_ids() {
+        use crate::common::types::NominalTypeId;
+        // Same name, different ids — must mangle differently. This is
+        // the identity-collision test from ADR 0029: two modules each
+        // declaring `type Id = distinct Int`.
+        let a = Type::distinct(NominalTypeId(1), "Id", Type::Int);
+        let b = Type::distinct(NominalTypeId(2), "Id", Type::Int);
+        assert_ne!(mangled_type_name(&a), mangled_type_name(&b));
+
+        // Same id — same mangle, regardless of name. Name is not
+        // identity.
+        let a2 = Type::distinct(NominalTypeId(1), "Id", Type::Int);
+        assert_eq!(mangled_type_name(&a), mangled_type_name(&a2));
+        let a3 = Type::distinct(NominalTypeId(1), "DifferentName", Type::Int);
+        assert_eq!(mangled_type_name(&a), mangled_type_name(&a3));
     }
 }

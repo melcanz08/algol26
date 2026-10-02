@@ -3,6 +3,16 @@
 #![allow(dead_code)]
 use std::fmt;
 
+/// Nominal type identity. Two declarations with the same `name`
+/// in different modules produce different `NominalTypeId` values, and
+/// therefore different types. Identity is `id`; `name` is
+/// presentation only.
+///
+/// Assigned by the analyzer during type declaration registration.
+/// Unique within a compilation unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NominalTypeId(pub u32);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     // Primitive types
@@ -59,6 +69,17 @@ pub enum Type {
     /// or `Bool` by the analyzer (ADR 0027); the type itself does not
     /// enforce that restriction.
     Map(Box<Type>, Box<Type>),
+    /// A nominal type. Identity is `id`; `name` is presentation;
+    /// `base` is the underlying representation used at lowering.
+    /// See ADR 0029.
+    ///
+    /// The analyzer guarantees `base` is one of `Int`, `Float`,
+    /// `Bool`, `String` in v1 (`Ptr` deferred).
+    Distinct {
+        id: NominalTypeId,
+        name: String,
+        base: Box<Type>,
+    },
 }
 
 impl Type {
@@ -99,6 +120,16 @@ impl Type {
 
     pub fn record(name: &str, args: Vec<Type>) -> Self {
         Type::Record(name.to_string(), args)
+    }
+
+    /// Construct a nominal type. `id` is the analyzer-assigned
+    /// identity; `name` is for display only.
+    pub fn distinct(id: NominalTypeId, name: &str, base: Type) -> Self {
+        Type::Distinct {
+            id,
+            name: name.to_string(),
+            base: Box::new(base),
+        }
     }
 
     pub fn list(element_type: Type) -> Self {
@@ -352,7 +383,14 @@ impl Type {
     /// region-memory model. See
     /// `docs/decisions/0007-region-memory.md`.
     pub fn is_copy(&self) -> bool {
-        matches!(self, Type::Int | Type::Float | Type::Bool | Type::Ptr)
+        match self {
+            Type::Int | Type::Float | Type::Bool | Type::Ptr => true,
+            // Nominality does not alter ownership semantics: a
+            // `distinct Int` is Copy, a `distinct String` is not.
+            // See ADR 0029.
+            Type::Distinct { base, .. } => base.is_copy(),
+            _ => false,
+        }
     }
 
     pub fn is_type_var(&self) -> bool {
@@ -581,6 +619,7 @@ impl Type {
             Type::Generic { args, .. } => args.iter().any(|a| a.contains_type_var()),
             Type::Record(_, args) => args.iter().any(|a| a.contains_type_var()),
             Type::Map(k, v) => k.contains_type_var() || v.contains_type_var(),
+            Type::Distinct { base, .. } => base.contains_type_var(),
             Type::Function {
                 params,
                 return_type,
@@ -609,6 +648,7 @@ impl Type {
             Type::Generic { args, .. } => args.iter().any(|a| a.contains_unknown()),
             Type::Record(_, args) => args.iter().any(|a| a.contains_unknown()),
             Type::Map(k, v) => k.contains_unknown() || v.contains_unknown(),
+            Type::Distinct { base, .. } => base.contains_unknown(),
             Type::Function {
                 params,
                 return_type,
@@ -661,6 +701,12 @@ impl Type {
                 args.iter().map(|a| a.substitute(substitutions)).collect(),
             ),
             Type::Map(k, v) => Type::map(k.substitute(substitutions), v.substitute(substitutions)),
+            // Substitution flows through the base, not the identity.
+            Type::Distinct { id, name, base } => Type::Distinct {
+                id: *id,
+                name: name.clone(),
+                base: Box::new(base.substitute(substitutions)),
+            },
             Type::Function {
                 params,
                 return_type,
@@ -706,6 +752,9 @@ impl fmt::Display for Type {
             Type::Option(t) => format!("Option<{}>", t),
             Type::Result { ok, error } => format!("Result<{}, {}>", ok, error),
             Type::Map(k, v) => format!("Map<{}, {}>", k, v),
+            // Nominal types print as their declared name. `id` is
+            // identity, not presentation. See ADR 0029.
+            Type::Distinct { name, .. } => name.clone(),
             Type::Pointer(t) => format!("*{}", t),
             Type::Borrow(t) => format!("Borrow<{}>", t),
             Type::MutBorrow(t) => format!("MutBorrow<{}>", t),
@@ -949,5 +998,91 @@ mod tests {
 
         let ty = Type::list(Type::TypeVar("T".to_string()));
         assert_eq!(ty.substitute(&substitutions), Type::list(Type::Int));
+    }
+
+    // ─── Nominal types (ADR 0029) ─────────────────────────────────
+
+    #[test]
+    fn distinct_display_uses_name_only() {
+        let t = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert_eq!(t.to_string(), "UserId");
+    }
+
+    #[test]
+    fn distinct_identity_is_id_not_name() {
+        // Same name, different ids — different types.
+        let a = Type::distinct(NominalTypeId(1), "Id", Type::Int);
+        let b = Type::distinct(NominalTypeId(2), "Id", Type::Int);
+        assert_ne!(a, b);
+        assert!(!a.can_coerce_to(&b));
+        assert!(!b.can_coerce_to(&a));
+    }
+
+    #[test]
+    fn distinct_same_id_coerces() {
+        let a = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        let b = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert_eq!(a, b);
+        assert!(a.can_coerce_to(&b));
+    }
+
+    #[test]
+    fn distinct_does_not_coerce_to_base() {
+        let id = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert!(!id.can_coerce_to(&Type::Int));
+        assert!(!Type::Int.can_coerce_to(&id));
+    }
+
+    #[test]
+    fn distinct_does_not_coerce_to_sibling() {
+        let user_id = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        let price_cents = Type::distinct(NominalTypeId(2), "PriceCents", Type::Int);
+        assert!(!user_id.can_coerce_to(&price_cents));
+        assert!(!price_cents.can_coerce_to(&user_id));
+    }
+
+    #[test]
+    fn distinct_is_never_numeric() {
+        let id = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert!(!id.is_numeric());
+        let meters = Type::distinct(NominalTypeId(2), "Meters", Type::Float);
+        assert!(!meters.is_numeric());
+    }
+
+    #[test]
+    fn distinct_is_copy_iff_base_is_copy() {
+        let int_id = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert!(int_id.is_copy());
+        let string_name = Type::distinct(NominalTypeId(2), "Name", Type::String);
+        assert!(!string_name.is_copy());
+    }
+
+    #[test]
+    fn distinct_no_common_supertype_with_base_or_sibling() {
+        let user_id = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert_eq!(user_id.common_supertype(&Type::Int), Type::Unknown);
+        let price_cents = Type::distinct(NominalTypeId(2), "PriceCents", Type::Int);
+        assert_eq!(user_id.common_supertype(&price_cents), Type::Unknown);
+        // Same identity: returns itself.
+        let same = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert_eq!(user_id.common_supertype(&same), user_id);
+    }
+
+    #[test]
+    fn distinct_contains_unresolved_recurses_into_base() {
+        let with_unknown = Type::distinct(NominalTypeId(1), "X", Type::Unknown);
+        assert!(with_unknown.contains_unknown());
+        assert!(with_unknown.contains_unresolved());
+        let with_var = Type::distinct(NominalTypeId(2), "Y", Type::TypeVar("T".to_string()));
+        assert!(with_var.contains_type_var());
+        let concrete = Type::distinct(NominalTypeId(3), "Z", Type::Int);
+        assert!(!concrete.contains_unresolved());
+    }
+
+    #[test]
+    fn distinct_no_cast() {
+        let user_id = Type::distinct(NominalTypeId(1), "UserId", Type::Int);
+        assert!(!user_id.can_cast_to(&Type::Int));
+        assert!(!Type::Int.can_cast_to(&user_id));
     }
 }

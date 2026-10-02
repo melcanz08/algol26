@@ -9,6 +9,7 @@ impl Parser {
         let mut impls = Vec::new();
         let mut top_level_imports = Vec::new();
         let mut records = Vec::new(); // NEW
+        let mut distinct_decls = Vec::new();
 
         while !matches!(self.peek(), Token::Eof) {
             if matches!(self.peek(), Token::Trait) {
@@ -18,6 +19,8 @@ impl Parser {
             } else if matches!(self.peek(), Token::Rec) {
                 // NEW
                 records.push(self.parse_record_decl()?); // NEW
+            } else if matches!(self.peek(), Token::Identifier(s) if s == "type") {
+                distinct_decls.push(self.parse_distinct_decl()?);
             } else if matches!(
                 self.peek(),
                 Token::Procedure | Token::Function | Token::Extern
@@ -46,6 +49,46 @@ impl Parser {
             traits,
             impls,
             records, // NEW
+            distinct_decls,
+        })
+    }
+
+    /// Parse `type Name = distinct BaseType`. Consumes the leading
+    /// `type` identifier.
+    ///
+    /// The `distinct` modifier is required. `type X = Y` (a type
+    /// alias) is reserved for a future ADR and is rejected here with
+    /// a message that names the currently supported form.
+    pub(super) fn parse_distinct_decl(&mut self) -> Result<DistinctDecl> {
+        let start_span = self.current_span();
+
+        // Consume `type` (an Identifier, not a reserved keyword).
+        self.advance();
+
+        let name = self.expect_identifier("type name")?;
+
+        // `distinct` is required. `type X = Int` (a type alias) is
+        // not implemented in this ADR. There is no `=` separator:
+        // the lexer reserves bare `=` for future use and rejects it
+        // with a message pointing at `:=` and `==`.
+        match self.peek().clone() {
+            Token::Identifier(s) if s == "distinct" => {
+                self.advance();
+            }
+            other => {
+                return Err(self.error(&format!(
+                    "Expected `distinct` after `=` in type declaration, found {:?}.                      Type aliases (`type X = Y`) are not yet supported;                      use `type X = distinct Y` (see ADR 0029).",
+                    other
+                )));
+            }
+        }
+
+        let base = self.parse_type_syntax()?;
+
+        Ok(DistinctDecl {
+            name,
+            base,
+            span: self.span_from(start_span),
         })
     }
 

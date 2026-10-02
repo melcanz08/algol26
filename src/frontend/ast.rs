@@ -369,6 +369,17 @@ pub struct RecordDecl {
     pub span: Span,
 }
 
+/// A nominal type declaration. `type UserId = distinct Int`.
+/// See ADR 0029. The `NominalTypeId` is assigned by the analyzer
+/// when it registers this declaration; the AST carries only the
+/// syntactic form.
+#[derive(Clone, Debug)]
+pub struct DistinctDecl {
+    pub name: String,
+    pub base: TypeSyntax,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug)]
 pub struct MatchCaseExpr {
     pub pattern: Pattern,
@@ -534,4 +545,5 @@ pub struct Program {
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
     pub records: Vec<RecordDecl>,
+    pub distinct_decls: Vec<DistinctDecl>,
 }

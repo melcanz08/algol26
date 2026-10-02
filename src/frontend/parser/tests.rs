@@ -428,3 +428,28 @@ fn nested_map_literal_parses() {
     };
     assert_eq!(inner.len(), 1);
 }
+
+// ─── Nominal types (ADR 0029 A2) ─────────────────────────────────
+
+#[test]
+fn parses_distinct_type_declaration() {
+    let src = "type UserId distinct Int\n";
+    let lexer = Lexer::new(src.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parse failed");
+    assert_eq!(program.distinct_decls.len(), 1);
+    assert_eq!(program.distinct_decls[0].name, "UserId");
+    assert_eq!(
+        program.distinct_decls[0].base,
+        TypeSyntax::Named("Int".to_string())
+    );
+}
+
+#[test]
+fn rejects_alias_without_distinct() {
+    let src = "type UserId Int\n";
+    let lexer = Lexer::new(src.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let err = parser.parse_program().expect_err("should reject");
+    assert!(err.message.contains("distinct"), "{}", err.message);
+}

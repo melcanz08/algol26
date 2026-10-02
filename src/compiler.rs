@@ -40,6 +40,7 @@ pub struct ParsedProgram {
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
     pub imports: Vec<String>,
 }
 
@@ -339,6 +340,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            distincts: prep.parsed.distincts.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -385,6 +387,7 @@ impl Compiler {
             traits: parsed.traits,
             impls: parsed.impls,
             records: parsed.records,
+            distincts: parsed.distincts,
             imports: parsed.imports,
         };
 
@@ -447,6 +450,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            distincts: parsed.distincts.clone(),
         });
         let mut ctx = CompilerContext::new(CompilerConfig::default());
 
@@ -510,6 +514,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            distincts: prep.parsed.distincts.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -633,6 +638,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            distincts: prep.parsed.distincts.clone(),
         });
 
         // ADR 0018: one canonical pipeline. All passes run to
@@ -711,6 +717,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            distincts: parsed.distincts.clone(),
             imports: parsed.imports.clone(),
         }
     }
@@ -730,6 +737,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            distincts: parsed.distincts.clone(),
             imports: parsed.imports.clone(),
         }
     }
@@ -742,6 +750,7 @@ impl Compiler {
             traits: program.traits,
             impls: program.impls,
             records: program.records,
+            distincts: program.distinct_decls,
             imports: program.imports,
         })
     }
@@ -749,6 +758,7 @@ impl Compiler {
         let mut loader = ModuleLoader::new();
         let mut all_functions = (*parsed.functions).clone();
         let mut all_records = parsed.records.clone();
+        let mut all_distincts = parsed.distincts.clone();
         let mut visited: HashSet<PathBuf> = HashSet::new();
 
         // Collect every import this file names: top-level declarations
@@ -772,6 +782,7 @@ impl Compiler {
                 current_file,
                 &mut all_functions,
                 &mut all_records,
+                &mut all_distincts,
                 &mut visited,
             )?;
         }
@@ -781,6 +792,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: all_records,
+            distincts: all_distincts,
             imports: parsed.imports.clone(),
         })
     }
@@ -802,6 +814,7 @@ impl Compiler {
         current_file: &str,
         all_functions: &mut Vec<FunctionDecl>,
         all_records: &mut Vec<RecordDecl>,
+        all_distincts: &mut Vec<crate::frontend::ast::DistinctDecl>,
         visited: &mut HashSet<PathBuf>,
     ) -> Result<()> {
         // Resolve, then canonicalize. `resolve_import` joins relative
@@ -862,6 +875,11 @@ impl Compiler {
                     all_records.push(r);
                 }
             }
+            for d in imported.distinct_decls {
+                if !all_distincts.iter().any(|x| x.name == d.name) {
+                    all_distincts.push(d);
+                }
+            }
 
             // Recurse. The `current_file` for nested imports is this
             // file's canonical path, so its imports resolve relative to
@@ -874,6 +892,7 @@ impl Compiler {
                     &current,
                     all_functions,
                     all_records,
+                    all_distincts,
                     visited,
                 )?;
             }
@@ -947,6 +966,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            distincts: prep.parsed.distincts.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;

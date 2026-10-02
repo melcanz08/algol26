@@ -26,12 +26,12 @@ type system, ownership model, and trait/generic infrastructure.
 Add nominal types via the `distinct` modifier:
 
 ```algol26
-type UserId = distinct Int
-type PriceCents = distinct Int
-type Meters = distinct Float
+type UserId distinct Int
+type PriceCents distinct Int
+type Meters distinct Float
 ```
 
-This is the **only** new declaration form. `type X = Y` (true type
+This is the **only** new declaration form. `type X Y` (true type
 alias) is not implemented here; if needed, it gets its own ADR. The
 grammar reserves `type` for both forms but only `distinct` is
 implemented.
@@ -350,6 +350,16 @@ concern above.
 
 **Alias form `type X = Y` in this ADR.** Deferred. Two forms
 with two semantics in one ADR invites a migration seam.
+
+## Open questions
+
+**`=` vs `==`.** The lexer currently reserves bare `=` and requires
+`==` for equality. Pascal-family languages use `=` for equality and
+`:=` for assignment, which would let `type X = distinct Y` read
+naturally. This is a language-wide syntax question, not a
+nominal-types question, and it is deferred to a future ADR. Until
+then, nominal type declarations use `type X distinct Y` (no `=`
+separator).
 
 ## References
 

@@ -18,6 +18,9 @@ pub struct AstPayload {
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    /// Nominal type declarations (`type X = distinct Y`).
+    /// Carried for the analyzer's A3 wiring; ignored by A2.
+    pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
 }
 
 /// ADR 0017. The pipeline's IR representation. Exactly one of

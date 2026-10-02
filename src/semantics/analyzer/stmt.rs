@@ -75,14 +75,12 @@ impl SemanticAnalyzer {
                         && expected != Type::Unknown
                         && !value_type.can_coerce_to(&expected)
                     {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            self.current_span,
                             &format!(
                                 "Type mismatch: variable '{}' declared as {} but assigned {}",
                                 name, expected, value_type
                             ),
-                            self.current_span.start_line,
-                            self.current_span.start_column,
-                            "",
                             ErrorCode::E0002,
                         )
                         .with_suggestion(&format!(
@@ -105,11 +103,9 @@ impl SemanticAnalyzer {
                 if let ExprKind::Var(source, _) = &value.kind {
                     if let Some(scope) = self.deferred_captures.last() {
                         if scope.contains(source) {
-                            return Err(CompileError::simple(
+                            return Err(CompileError::at(
+                                self.current_span,
                                 &format!("Cannot move '{}' after it was captured by defer", source),
-                                self.current_span.start_line,
-                                self.current_span.start_column,
-                                "",
                                 ErrorCode::E0007,
                             )
                             .with_suggestion(
@@ -124,11 +120,9 @@ impl SemanticAnalyzer {
             }
             Stmt::Assign { name, value, span } => {
                 let (var_type, mutable) = self.lookup_variable(name).ok_or_else(|| {
-                    CompileError::simple(
+                    CompileError::at(
+                        *span,
                         &format!("Undefined variable '{}'", name),
-                        span.start_line,
-                        span.start_column,
-                        "",
                         ErrorCode::E0003,
                     )
                     .with_suggestion(&format!(
@@ -138,11 +132,9 @@ impl SemanticAnalyzer {
                 })?;
 
                 if !mutable {
-                    return Err(CompileError::simple(
+                    return Err(CompileError::at(
+                        *span,
                         &format!("Cannot assign to immutable variable '{}'", name),
-                        span.start_line,
-                        span.start_column,
-                        "",
                         ErrorCode::E0007,
                     )
                     .with_suggestion(&format!("Declare '{}' with 'var' instead of 'val'", name)));
@@ -158,14 +150,12 @@ impl SemanticAnalyzer {
                     && target_type != Type::Unknown
                     && !value_type.can_coerce_to(&target_type)
                 {
-                    return Err(CompileError::simple(
+                    return Err(CompileError::at(
+                        self.current_span,
                         &format!(
                             "Type mismatch: cannot assign {} to variable of type {}",
                             value_type, target_type
                         ),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0002,
                     )
                     .with_suggestion(&format!(
@@ -186,11 +176,9 @@ impl SemanticAnalyzer {
                 } => {
                     let cond_type = self.analyze_expr(condition)?;
                     if cond_type != Type::Bool && cond_type != Type::Unknown {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            self.current_span,
                             "If condition must be Bool",
-                            self.current_span.start_line,
-                            self.current_span.start_column,
-                            "",
                             ErrorCode::E0002,
                         ));
                     }
@@ -240,11 +228,9 @@ impl SemanticAnalyzer {
                 let expected_type = self.current_return_type.clone().unwrap_or(Type::Void);
                 match (value, &expected_type) {
                     (Some(_expr), Type::Void) => {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            self.current_span,
                             "Cannot return a value from a void function",
-                            self.current_span.start_line,
-                            self.current_span.start_column,
-                            "",
                             ErrorCode::E0002,
                         )
                         .with_suggestion(
@@ -264,24 +250,19 @@ impl SemanticAnalyzer {
                                 Type::MutBorrow(inner) if (**inner).can_coerce_to(expected)
                             );
                         if !can_return && *expected != Type::Unknown {
-                            return Err(CompileError::simple(
-                                &format!(
+                            return Err(CompileError::at(self.current_span, &format!(
                                     "Return type mismatch: expected {}, found {}",
                                     expected, actual_type
-                                ),
-                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                            ).with_suggestion(&format!(
+                                ), ErrorCode::E0002).with_suggestion(&format!(
                                 "Change the return statement to match {} or change the function signature",
                                 expected
                             )));
                         }
                     }
                     (None, expected) => {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            self.current_span,
                             &format!("Missing return value: function should return {}", expected),
-                            self.current_span.start_line,
-                            self.current_span.start_column,
-                            "",
                             ErrorCode::E0002,
                         )
                         .with_suggestion("Add a return statement with the appropriate value"));
@@ -294,11 +275,9 @@ impl SemanticAnalyzer {
             Stmt::Break(span) => {
                 if let Some(ctx) = self.loop_stack.last() {
                     if self.region_depth > ctx.region_depth_at_entry {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            *span,
                             "Cannot `break` across a region boundary",
-                            span.start_line,
-                            span.start_column,
-                            "",
                             ErrorCode::E0007,
                         )
                         .with_suggestion(
@@ -315,11 +294,9 @@ impl SemanticAnalyzer {
             Stmt::Continue(span) => {
                 if let Some(ctx) = self.loop_stack.last() {
                     if self.region_depth > ctx.region_depth_at_entry {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            *span,
                             "Cannot `continue` across a region boundary",
-                            span.start_line,
-                            span.start_column,
-                            "",
                             ErrorCode::E0007,
                         )
                         .with_suggestion(
@@ -364,11 +341,9 @@ impl SemanticAnalyzer {
             }
             Stmt::Send { channel, value, .. } => {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
-                    CompileError::simple(
+                    CompileError::at(
+                        self.current_span,
                         &format!("Undefined channel '{}'", channel),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0003,
                     )
                 })?;
@@ -378,11 +353,9 @@ impl SemanticAnalyzer {
                 channel, target, ..
             } => {
                 let _ = self.lookup_variable(channel).ok_or_else(|| {
-                    CompileError::simple(
+                    CompileError::at(
+                        self.current_span,
                         &format!("Undefined channel '{}'", channel),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0003,
                     )
                 })?;
@@ -429,11 +402,9 @@ impl SemanticAnalyzer {
                 // the write path. Without these, `xs[1.5] := 99` and
                 // `xs[-1] := 99` compile silently.
                 let (array_type, _) = self.lookup_variable(array).ok_or_else(|| {
-                    CompileError::simple(
+                    CompileError::at(
+                        self.current_span,
                         &format!("Undefined array '{}'", array),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0003,
                     )
                 })?;
@@ -442,11 +413,9 @@ impl SemanticAnalyzer {
                     Type::List(elem) => (**elem).clone(),
                     Type::Unknown => Type::Unknown,
                     other => {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            self.current_span,
                             &format!("Array assignment requires list, found {}", other),
-                            self.current_span.start_line,
-                            self.current_span.start_column,
-                            "",
                             ErrorCode::E0002,
                         ));
                     }
@@ -456,11 +425,9 @@ impl SemanticAnalyzer {
                 let index_type = self.analyze_expr(index)?;
 
                 if index_type != Type::Int && index_type != Type::Unknown {
-                    return Err(CompileError::simple(
+                    return Err(CompileError::at(
+                        self.current_span,
                         &format!("Array index must be Int, found {}", index_type),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0002,
                     )
                     .with_suggestion(&format!(
@@ -478,13 +445,10 @@ impl SemanticAnalyzer {
                 if let Some(idx_val) = literal_index {
                     if let Some(list_len) = self.lookup_list_length(array) {
                         if idx_val < 0 || (idx_val as usize) >= list_len {
-                            return Err(CompileError::simple(
-                                &format!(
+                            return Err(CompileError::at(self.current_span, &format!(
                                     "Array index out of bounds: index {} is out of bounds for '{}' with length {}",
                                     idx_val, array, list_len
-                                ),
-                                self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0004,
-                            ).with_suggestion(&format!(
+                                ), ErrorCode::E0004).with_suggestion(&format!(
                                 "Valid indices are 0..{} for array of length {}",
                                 list_len - 1, list_len
                             )));
@@ -498,13 +462,10 @@ impl SemanticAnalyzer {
                     && value_type != Type::Unknown
                     && !value_type.can_coerce_to(&element_type)
                 {
-                    return Err(CompileError::simple(
-                        &format!(
+                    return Err(CompileError::at(self.current_span, &format!(
                             "Array assignment type mismatch: '{}' has element type {}, but value is {}",
                             array, element_type, value_type
-                        ),
-                        self.current_span.start_line, self.current_span.start_column, "", ErrorCode::E0002,
-                    ).with_suggestion(&format!(
+                        ), ErrorCode::E0002).with_suggestion(&format!(
                         "Assign a value of type {} to elements of '{}'",
                         element_type, array
                     )));
@@ -517,11 +478,9 @@ impl SemanticAnalyzer {
                 span,
             } => {
                 let (target_type, mutable) = self.lookup_variable(target).ok_or_else(|| {
-                    CompileError::simple(
+                    CompileError::at(
+                        *span,
                         &format!("Undefined variable '{}'", target),
-                        span.start_line,
-                        span.start_column,
-                        "",
                         ErrorCode::E0003,
                     )
                     .with_suggestion(&format!(
@@ -531,11 +490,9 @@ impl SemanticAnalyzer {
                 })?;
 
                 if !mutable {
-                    return Err(CompileError::simple(
+                    return Err(CompileError::at(
+                        *span,
                         &format!("Cannot assign to field of immutable variable '{}'", target),
-                        span.start_line,
-                        span.start_column,
-                        "",
                         ErrorCode::E0007,
                     )
                     .with_suggestion(&format!(
@@ -560,14 +517,12 @@ impl SemanticAnalyzer {
                         return Ok(());
                     }
                     other => {
-                        return Err(CompileError::simple(
+                        return Err(CompileError::at(
+                            *span,
                             &format!(
                                 "Cannot assign to field '{}' on non-record type {}",
                                 field, other
                             ),
-                            span.start_line,
-                            span.start_column,
-                            "",
                             ErrorCode::E0002,
                         )
                         .with_suggestion("Field assignment requires a record value"));
@@ -575,22 +530,18 @@ impl SemanticAnalyzer {
                 };
 
                 let rec = self.records.get(&rec_name).cloned().ok_or_else(|| {
-                    CompileError::simple(
+                    CompileError::at(
+                        *span,
                         &format!("Unknown record '{}'", rec_name),
-                        span.start_line,
-                        span.start_column,
-                        "",
                         ErrorCode::E0003,
                     )
                 })?;
 
                 let (_, field_ty) =
                     rec.fields.iter().find(|(n, _)| n == field).ok_or_else(|| {
-                        CompileError::simple(
+                        CompileError::at(
+                            *span,
                             &format!("Record '{}' has no field '{}'", rec_name, field),
-                            span.start_line,
-                            span.start_column,
-                            "",
                             ErrorCode::E0004,
                         )
                     })?;
@@ -606,14 +557,12 @@ impl SemanticAnalyzer {
                     && actual != Type::Unknown
                     && !actual.can_coerce_to(&expected)
                 {
-                    return Err(CompileError::simple(
+                    return Err(CompileError::at(
+                        *span,
                         &format!(
                             "Field '{}' of '{}': cannot assign {} to field of type {}",
                             field, rec_name, actual, expected
                         ),
-                        span.start_line,
-                        span.start_column,
-                        "",
                         ErrorCode::E0002,
                     ));
                 }
@@ -653,16 +602,14 @@ impl SemanticAnalyzer {
                 if let Type::Result { ok, .. } = value_type {
                     self.declare_variable(var, *ok.clone(), false)?;
                 } else {
-                    return Err(CompileError::simple(
+                    return Err(CompileError::at(
+                        self.current_span,
                         &format!(
                             "Internal: `Ok` pattern reached binding with \
                              non-Result type `{}` (check_pattern_type should \
                              have rejected this)",
                             value_type
                         ),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0009,
                     ));
                 }
@@ -676,16 +623,14 @@ impl SemanticAnalyzer {
                 if let Type::Result { error, .. } = value_type {
                     self.declare_variable(var, *error.clone(), false)?;
                 } else {
-                    return Err(CompileError::simple(
+                    return Err(CompileError::at(
+                        self.current_span,
                         &format!(
                             "Internal: `Error` pattern reached binding with \
                              non-Result type `{}` (check_pattern_type should \
                              have rejected this)",
                             value_type
                         ),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0009,
                     ));
                 }
@@ -700,11 +645,9 @@ impl SemanticAnalyzer {
             }
             Pattern::Record { name, bindings } => {
                 let rec = self.records.get(name).cloned().ok_or_else(|| {
-                    CompileError::simple(
+                    CompileError::at(
+                        self.current_span,
                         &format!("Unknown record '{}'", name),
-                        self.current_span.start_line,
-                        self.current_span.start_column,
-                        "",
                         ErrorCode::E0003,
                     )
                 })?;
@@ -724,11 +667,9 @@ impl SemanticAnalyzer {
                             .iter()
                             .find(|(n, _)| n == binding)
                             .ok_or_else(|| {
-                                CompileError::simple(
+                                CompileError::at(
+                                    self.current_span,
                                     &format!("Record '{}' has no field '{}'", name, binding),
-                                    self.current_span.start_line,
-                                    self.current_span.start_column,
-                                    "",
                                     ErrorCode::E0004,
                                 )
                             })?;

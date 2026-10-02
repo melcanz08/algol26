@@ -1,5 +1,6 @@
 // src/ir/cfg/dataflow.rs
 
+use crate::common::span::Span;
 use crate::semantics::state::{SemanticState, VarState};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -233,7 +234,14 @@ impl Transfer for OwnershipTransfer {
                             });
                         }
                     }
-                    incoming.move_out(name);
+                    // The dataflow engine iterates the CFG, not the
+                    // AST. No source span is available at a move
+                    // point here, and none is needed: the verifier
+                    // consumes the resulting VarState without
+                    // rendering, and user-facing diagnostics get
+                    // their span from the analyzer's own move
+                    // tracking (see `mark_moved` in ownership.rs).
+                    incoming.move_out(name, Span::default());
                 }
                 CfgInstruction::Borrow {
                     borrower,

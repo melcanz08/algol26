@@ -76,8 +76,16 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub(super) fn mark_moved(&mut self, name: &str) {
-        self.state.move_out(name);
+    pub(super) fn mark_moved(&mut self, name: &str, span: Span) {
+        self.state.move_out(name, span);
+    }
+
+    /// The source location of the move that consumed `name`, if any.
+    /// Returns `None` when the variable was never moved, or was
+    /// moved by a path that did not record a span (e.g. a join
+    /// where neither branch preserved one).
+    pub(super) fn moved_at(&self, name: &str) -> Option<Span> {
+        self.state.vars.get(name).and_then(|s| s.moved_at)
     }
 
     pub(super) fn mark_borrowed(&mut self, name: &str) {

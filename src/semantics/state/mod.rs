@@ -2,6 +2,7 @@
 // v0.9-B — Semantic state with region hierarchy + escape tracking
 // Extends v0.9-A with proper outlives logic
 
+use crate::common::span::Span;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -64,6 +65,11 @@ impl OwnershipState {
 pub struct VarState {
     pub init: InitState,
     pub ownership: OwnershipState,
+    /// Where the value was moved out, if it has been. `None` while
+    /// the binding still owns its value; `Some(span)` once a move
+    /// has occurred. Preserved across branch joins so a use-after-
+    /// move diagnostic can point at the originating move site.
+    pub moved_at: Option<Span>,
 }
 
 impl VarState {
@@ -72,6 +78,7 @@ impl VarState {
         VarState {
             init: InitState::Initialized,
             ownership: OwnershipState::Owned,
+            moved_at: None,
         }
     }
 
@@ -80,14 +87,27 @@ impl VarState {
         VarState {
             init: InitState::Uninitialized,
             ownership: OwnershipState::Owned,
+            moved_at: None,
         }
     }
 
-    /// A variable that has been moved out.
+    /// A variable that has been moved out, with no known site.
+    /// Prefer `moved_from(span)` at real move sites so diagnostics
+    /// can point at the originating expression.
     pub fn moved() -> Self {
         VarState {
             init: InitState::Initialized,
             ownership: OwnershipState::Moved,
+            moved_at: None,
+        }
+    }
+
+    /// A variable moved out at a known source location.
+    pub fn moved_from(span: Span) -> Self {
+        VarState {
+            init: InitState::Initialized,
+            ownership: OwnershipState::Moved,
+            moved_at: Some(span),
         }
     }
 
@@ -97,6 +117,9 @@ impl VarState {
         VarState {
             init: self.init.join(other.init),
             ownership: self.ownership.join(other.ownership),
+            // Prefer whichever branch has a move span. If both do,
+            // take self's; deterministic given join order.
+            moved_at: self.moved_at.or(other.moved_at),
         }
     }
 
@@ -355,8 +378,9 @@ impl SemanticState {
         self.vars.insert(name, state);
     }
 
-    pub fn move_out(&mut self, name: &str) {
-        self.vars.insert(name.to_string(), VarState::moved());
+    pub fn move_out(&mut self, name: &str, span: Span) {
+        self.vars
+            .insert(name.to_string(), VarState::moved_from(span));
         self.borrows.retain(|_, b| b.place != name);
     }
 
@@ -605,7 +629,7 @@ mod tests {
             BorrowLifetime::Local("r".into()),
         );
         assert!(s.is_borrowed("x"));
-        s.move_out("x");
+        s.move_out("x", Span::point(1, 1));
         assert!(!s.is_borrowed("x"));
     }
 

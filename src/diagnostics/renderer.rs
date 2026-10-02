@@ -19,7 +19,7 @@
 //! `algol26 inspect` subcommand can print a batch.
 
 use crate::common::diagnostics::{CompileError, Diagnostic, Severity};
-use crate::diagnostics::snippet::render_snippet;
+use crate::common::span::Span;
 
 /// Render a single error. Trailing newline included.
 ///
@@ -59,15 +59,54 @@ pub fn render_one_with_source(err: &CompileError, source: Option<&str>) -> Strin
             None => out.push_str(&format!("  --> {}:{}\n", err.line(), err.column())),
         }
 
-        let snippet_lines = compute_snippet(err, source);
-        if !snippet_lines.is_empty() {
-            let gutter = " ".repeat(err.line().to_string().len());
-            out.push_str(&format!("{} |\n", gutter));
-            for line in &snippet_lines {
-                out.push_str(line);
-                out.push('\n');
+        // Gutter width is the widest line number we will print —
+        // primary or any secondary.
+        let max_line = std::iter::once(err.span.start_line)
+            .chain(err.secondary.iter().map(|(s, _)| s.start_line))
+            .max()
+            .unwrap_or(0);
+        let gutter_width = max_line.max(1).to_string().len();
+        let blank_gutter = " ".repeat(gutter_width);
+
+        if let Some(src) = source {
+            // Build the list of blocks to render: primary uses `^`,
+            // secondaries use `-`. Sorted by position so they appear
+            // in source order.
+            let mut entries: Vec<(Span, Option<&str>, char)> = Vec::new();
+            entries.push((err.span, err.label.as_deref(), '^'));
+            for (span, label) in &err.secondary {
+                entries.push((*span, Some(label.as_str()), '-'));
             }
-            out.push_str(&format!("{} |\n", gutter));
+            entries.sort_by_key(|(s, _, _)| (s.start_line, s.start_column));
+
+            out.push_str(&format!("{} |\n", blank_gutter));
+            for (span, label, caret_char) in &entries {
+                if span.start_line == 0 {
+                    continue;
+                }
+                let block =
+                    render_snippet_with_caret(src, *span, *label, gutter_width, *caret_char);
+                for line in &block {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+                // Separate blocks with a gutter line so overlapping
+                // context is visually distinct.
+                out.push_str(&format!("{} |\n", blank_gutter));
+            }
+        } else {
+            // No source available — fall back to the legacy snippet
+            // path for the primary, then render secondaries as
+            // `= note:` lines below.
+            let snippet = legacy_snippet(err);
+            if !snippet.is_empty() {
+                out.push_str(&format!("{} |\n", blank_gutter));
+                for line in &snippet {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+                out.push_str(&format!("{} |\n", blank_gutter));
+            }
         }
     }
 
@@ -81,26 +120,36 @@ pub fn render_one_with_source(err: &CompileError, source: Option<&str>) -> Strin
         out.push_str(&format!("  = note: {}\n", note));
     }
 
-    // Secondary spans. Phase 6 will render these inline as
-    // `label` under their own caret lines. For now they surface
-    // as notes so the data model has a visible path through the
-    // renderer and Phase 6 can replace this loop.
-    for (span, label) in &err.secondary {
-        out.push_str(&format!("  = note: {} ({})\n", label, span));
+    // Secondary spans become `= note:` lines only when we could not
+    // render them inline (no source text).
+    if source.is_none() {
+        for (span, label) in &err.secondary {
+            out.push_str(&format!("  = note: {} ({})\n", label, span));
+        }
     }
 
     out
 }
 
-/// Choose between the real snippet renderer (when source is
-/// available) and the legacy `source_line` path (when it is not).
-fn compute_snippet(err: &CompileError, source: Option<&str>) -> Vec<String> {
-    if let Some(src) = source {
-        let gutter = err.line().to_string().len();
-        let s = render_snippet(src, err.span, err.label.as_deref(), gutter);
-        return s.lines;
+/// Render one snippet with a caller-chosen caret character.
+/// `^` for the primary span; `-` for secondary spans, matching
+/// rustc's style. Delegates to `render_snippet` for the actual
+/// source excerpt and column arithmetic.
+fn render_snippet_with_caret(
+    source: &str,
+    span: Span,
+    label: Option<&str>,
+    gutter_width: usize,
+    caret_char: char,
+) -> Vec<String> {
+    let mut lines =
+        crate::diagnostics::snippet::render_snippet(source, span, label, gutter_width).lines;
+    if caret_char != '^' {
+        if let Some(last) = lines.last_mut() {
+            *last = last.replace('^', &caret_char.to_string());
+        }
     }
-    legacy_snippet(err)
+    lines
 }
 
 /// Pre-Phase-3 snippet rendering: uses `err.source_line` directly.

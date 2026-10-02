@@ -619,14 +619,18 @@ impl SemanticAnalyzer {
             }
             ExprKind::Var(name, span) => {
                 if self.is_moved(name) {
-                    return Err(CompileError::at(
+                    let mut err = CompileError::at(
                         *span,
                         &format!("Use of moved variable '{}'", name),
                         ErrorCode::E0007,
                     )
                     .with_suggestion(
                         "Variable ownership was transferred and cannot be used in this scope",
-                    ));
+                    );
+                    if let Some(moved_span) = self.moved_at(name) {
+                        err = err.with_secondary(moved_span, format!("`{}` moved here", name));
+                    }
+                    return Err(err);
                 }
                 if self.is_mutably_borrowed(name) && !self.in_mut_borrow {
                     return Err(CompileError::at(

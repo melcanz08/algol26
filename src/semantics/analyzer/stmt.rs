@@ -114,7 +114,7 @@ impl SemanticAnalyzer {
                         }
                     }
                     if source != name && !self.is_moved(source) && !self.is_type_copy(&value_type) {
-                        self.mark_moved(source);
+                        self.mark_moved(source, value.span());
                     }
                 }
             }

@@ -21,6 +21,9 @@ pub struct AstPayload {
     /// Nominal type declarations (`type X = distinct Y`).
     /// Carried for the analyzer's A3 wiring; ignored by A2.
     pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
+    /// Enum declarations (`enum Name ...`). Consumed by the
+    /// analyzer in A3. See ADR 0030.
+    pub enums: Vec<crate::frontend::ast::EnumDecl>,
 }
 
 /// ADR 0017. The pipeline's IR representation. Exactly one of

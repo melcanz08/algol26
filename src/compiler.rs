@@ -41,6 +41,7 @@ pub struct ParsedProgram {
     pub impls: Vec<ImplBlock>,
     pub records: Vec<crate::frontend::ast::RecordDecl>,
     pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
+    pub enums: Vec<crate::frontend::ast::EnumDecl>,
     pub imports: Vec<String>,
 }
 
@@ -352,6 +353,7 @@ impl Compiler {
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
+            enums: prep.parsed.enums.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -399,6 +401,7 @@ impl Compiler {
             impls: parsed.impls,
             records: parsed.records,
             distincts: parsed.distincts,
+            enums: parsed.enums,
             imports: parsed.imports,
         };
 
@@ -462,6 +465,7 @@ impl Compiler {
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
             distincts: parsed.distincts.clone(),
+            enums: parsed.enums.clone(),
         });
         let mut ctx = CompilerContext::new(CompilerConfig::default());
 
@@ -526,6 +530,7 @@ impl Compiler {
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
+            enums: prep.parsed.enums.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -650,6 +655,7 @@ impl Compiler {
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
+            enums: prep.parsed.enums.clone(),
         });
 
         // ADR 0018: one canonical pipeline. All passes run to
@@ -729,6 +735,7 @@ impl Compiler {
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
             distincts: parsed.distincts.clone(),
+            enums: parsed.enums.clone(),
             imports: parsed.imports.clone(),
         }
     }
@@ -749,6 +756,7 @@ impl Compiler {
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
             distincts: parsed.distincts.clone(),
+            enums: parsed.enums.clone(),
             imports: parsed.imports.clone(),
         }
     }
@@ -762,6 +770,7 @@ impl Compiler {
             impls: program.impls,
             records: program.records,
             distincts: program.distinct_decls,
+            enums: program.enum_decls,
             imports: program.imports,
         })
     }
@@ -770,6 +779,7 @@ impl Compiler {
         let mut all_functions = (*parsed.functions).clone();
         let mut all_records = parsed.records.clone();
         let mut all_distincts = parsed.distincts.clone();
+        let mut all_enums = parsed.enums.clone();
         let mut visited: HashSet<PathBuf> = HashSet::new();
 
         // Collect every import this file names: top-level declarations
@@ -794,6 +804,7 @@ impl Compiler {
                 &mut all_functions,
                 &mut all_records,
                 &mut all_distincts,
+                &mut all_enums,
                 &mut visited,
             )?;
         }
@@ -804,6 +815,7 @@ impl Compiler {
             impls: parsed.impls.clone(),
             records: all_records,
             distincts: all_distincts,
+            enums: all_enums,
             imports: parsed.imports.clone(),
         })
     }
@@ -826,6 +838,7 @@ impl Compiler {
         all_functions: &mut Vec<FunctionDecl>,
         all_records: &mut Vec<RecordDecl>,
         all_distincts: &mut Vec<crate::frontend::ast::DistinctDecl>,
+        all_enums: &mut Vec<crate::frontend::ast::EnumDecl>,
         visited: &mut HashSet<PathBuf>,
     ) -> Result<()> {
         // Resolve, then canonicalize. `resolve_import` joins relative
@@ -891,6 +904,11 @@ impl Compiler {
                     all_distincts.push(d);
                 }
             }
+            for e in imported.enum_decls {
+                if !all_enums.iter().any(|x| x.name == e.name) {
+                    all_enums.push(e);
+                }
+            }
 
             // Recurse. The `current_file` for nested imports is this
             // file's canonical path, so its imports resolve relative to
@@ -904,6 +922,7 @@ impl Compiler {
                     all_functions,
                     all_records,
                     all_distincts,
+                    all_enums,
                     visited,
                 )?;
             }
@@ -978,6 +997,7 @@ impl Compiler {
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
+            enums: prep.parsed.enums.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;

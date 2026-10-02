@@ -453,3 +453,32 @@ fn rejects_alias_without_distinct() {
     let err = parser.parse_program().expect_err("should reject");
     assert!(err.message.contains("distinct"), "{}", err.message);
 }
+
+// ─── Enum types (ADR 0030 A2) ────────────────────────────────────
+
+#[test]
+fn parses_enum_declaration() {
+    let src = "enum Day\n    Monday\n    Tuesday\n    Wednesday\n";
+    let lexer = Lexer::new(src.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parse failed");
+    assert_eq!(program.enum_decls.len(), 1);
+    assert_eq!(program.enum_decls[0].name, "Day");
+    assert_eq!(
+        program.enum_decls[0].variants,
+        vec!["Monday", "Tuesday", "Wednesday"]
+    );
+}
+
+#[test]
+fn rejects_empty_enum() {
+    let src = "enum Empty\n";
+    let lexer = Lexer::new(src.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let err = parser.parse_program().expect_err("should reject");
+    assert!(
+        err.message.contains("at least one variant"),
+        "{}",
+        err.message
+    );
+}

@@ -380,6 +380,16 @@ pub struct DistinctDecl {
     pub span: Span,
 }
 
+/// An ordinal enumeration. `enum Day ...` with one variant per
+/// indented line. Variants have ordinals 0..N in declaration order.
+/// See ADR 0030.
+#[derive(Clone, Debug)]
+pub struct EnumDecl {
+    pub name: String,
+    pub variants: Vec<String>,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug)]
 pub struct MatchCaseExpr {
     pub pattern: Pattern,
@@ -546,4 +556,5 @@ pub struct Program {
     pub impls: Vec<ImplBlock>,
     pub records: Vec<RecordDecl>,
     pub distinct_decls: Vec<DistinctDecl>,
+    pub enum_decls: Vec<EnumDecl>,
 }

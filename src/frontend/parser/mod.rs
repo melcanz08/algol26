@@ -3,8 +3,9 @@
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
 use crate::frontend::ast::{
-    BinOp, DistinctDecl, Expr, ExprKind, ExternDecl, FunctionDecl, ImplBlock, MatchCaseExpr,
-    Pattern, Program, RecordDecl, Stmt, TraitDecl, TraitMethod, TypeSyntax, UnaryOp, WhereClause,
+    BinOp, DistinctDecl, EnumDecl, Expr, ExprKind, ExternDecl, FunctionDecl, ImplBlock,
+    MatchCaseExpr, Pattern, Program, RecordDecl, Stmt, TraitDecl, TraitMethod, TypeSyntax, UnaryOp,
+    WhereClause,
 };
 use crate::frontend::lexer::{SpannedToken, Token};
 

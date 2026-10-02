@@ -10,6 +10,7 @@ impl Parser {
         let mut top_level_imports = Vec::new();
         let mut records = Vec::new(); // NEW
         let mut distinct_decls = Vec::new();
+        let mut enum_decls = Vec::new();
 
         while !matches!(self.peek(), Token::Eof) {
             if matches!(self.peek(), Token::Trait) {
@@ -21,6 +22,8 @@ impl Parser {
                 records.push(self.parse_record_decl()?); // NEW
             } else if matches!(self.peek(), Token::Identifier(s) if s == "type") {
                 distinct_decls.push(self.parse_distinct_decl()?);
+            } else if matches!(self.peek(), Token::Identifier(s) if s == "enum") {
+                enum_decls.push(self.parse_enum_decl()?);
             } else if matches!(
                 self.peek(),
                 Token::Procedure | Token::Function | Token::Extern
@@ -50,6 +53,48 @@ impl Parser {
             impls,
             records, // NEW
             distinct_decls,
+            enum_decls,
+        })
+    }
+
+    /// Parse `enum Name` followed by one variant per indented line.
+    /// Consumes the leading `enum` identifier. Requires at least one
+    /// variant.
+    ///
+    /// `enum` is not a reserved keyword; it is matched as an
+    /// `Identifier`. This mirrors `type` (ADR 0029) so existing
+    /// programs that use `enum` as a variable name keep working.
+    pub(super) fn parse_enum_decl(&mut self) -> Result<EnumDecl> {
+        let start_span = self.current_span();
+
+        // Consume `enum` (an Identifier, not a reserved keyword).
+        self.advance();
+
+        let name = self.expect_identifier("enum name")?;
+
+        let mut variants = Vec::new();
+        if let Token::Indent = self.peek() {
+            self.advance();
+            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                let variant = self.expect_identifier("variant name")?;
+                variants.push(variant);
+            }
+            if let Token::Dedent = self.peek() {
+                self.advance();
+            }
+        }
+
+        if variants.is_empty() {
+            return Err(self.error(&format!(
+                "enum '{}' must declare at least one variant",
+                name
+            )));
+        }
+
+        Ok(EnumDecl {
+            name,
+            variants,
+            span: start_span,
         })
     }
 

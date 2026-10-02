@@ -133,6 +133,9 @@ impl Interpreter {
                     // unchanged. Explicit arm so the intent is
                     // visible without tracing the catch-all.
                     (v, Type::Distinct { .. }) => v,
+                    // ADR 0030: enum wrap/unwrap. Same shape — the
+                    // runtime value is just the ordinal as an Int.
+                    (v, Type::Enum { .. }) => v,
                     (v, _) => v,
                 }
             }

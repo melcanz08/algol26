@@ -360,6 +360,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // nominal unwrap `Distinct<String> -> String`
                     // produces (ADR 0029).
                     (BasicValueEnum::PointerValue(_), Type::String) => v,
+                    // ADR 0030: enum wrap. The value's LLVM type is
+                    // i64 (matching `map_type(Type::Enum)`), so the
+                    // cast is a no-op. No runtime bounds check in v1;
+                    // the analyzer rejects out-of-range literals.
+                    (BasicValueEnum::IntValue(_), Type::Enum { .. }) => v,
                     // ADR 0029: nominal wrap/unwrap. The nominal and
                     // its base share the same runtime representation,
                     // so the cast is a no-op. The inner value's LLVM

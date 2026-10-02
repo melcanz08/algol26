@@ -746,8 +746,8 @@ impl SemanticIRBuilder {
             ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
 
-                // ADR 0029: nominal type conversion intrinsics.
-                // Lower to a no-op Cast that carries the nominal type.
+                // ADR 0029/0030: conversion intrinsics. Each lowers
+                // to a no-op Cast that carries the target type.
                 if let Some(dot) = clean_name.find('.') {
                     let (receiver, method) = (&clean_name[..dot], &clean_name[dot + 1..]);
 
@@ -767,8 +767,24 @@ impl SemanticIRBuilder {
                         }
                     }
 
-                    // v.to_base(): the receiver's nominal type wraps
-                    // its base at runtime; unwrap the type annotation.
+                    // T.from_ordinal(x): the enum value's runtime
+                    // representation is the ordinal, an Int. Wrap it
+                    // with the enum type. See ADR 0030.
+                    if method == "from_ordinal" {
+                        if let Some(enum_ty) = self.enum_types.get(receiver).cloned() {
+                            let inner = if let Some(arg) = args.first() {
+                                self.translate_expr(program, func, current_block, arg)
+                            } else {
+                                TypedIRValue::Void
+                            };
+                            return TypedIRValue::Cast {
+                                value: Box::new(inner),
+                                target_type: enum_ty,
+                            };
+                        }
+                    }
+
+                    // v.to_base(): unwrap the nominal type to its base.
                     if method == "to_base" && args.is_empty() {
                         if let Some(info) = self.lookup_var(receiver) {
                             if let Type::Distinct { base, .. } = &info.type_ {
@@ -780,6 +796,22 @@ impl SemanticIRBuilder {
                                 return TypedIRValue::Cast {
                                     value: Box::new(receiver_value),
                                     target_type: base_ty,
+                                };
+                            }
+                        }
+                    }
+
+                    // v.to_ordinal(): unwrap the enum to its ordinal.
+                    if method == "to_ordinal" && args.is_empty() {
+                        if let Some(info) = self.lookup_var(receiver) {
+                            if let Type::Enum { .. } = &info.type_ {
+                                let receiver_value = TypedIRValue::Variable(
+                                    receiver.to_string(),
+                                    info.type_.clone(),
+                                );
+                                return TypedIRValue::Cast {
+                                    value: Box::new(receiver_value),
+                                    target_type: Type::Int,
                                 };
                             }
                         }
@@ -1535,6 +1567,16 @@ impl SemanticIRBuilder {
                         return TypedIRValue::Cast {
                             value: Box::new(obj),
                             target_type: base_ty,
+                        };
+                    }
+                }
+
+                // ADR 0030: `v.to_ordinal` (no-parens form).
+                if field == "to_ordinal" {
+                    if let Type::Enum { .. } = &obj_ty {
+                        return TypedIRValue::Cast {
+                            value: Box::new(obj),
+                            target_type: Type::Int,
                         };
                     }
                 }

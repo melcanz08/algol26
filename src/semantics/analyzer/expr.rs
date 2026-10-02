@@ -841,6 +841,12 @@ impl SemanticAnalyzer {
                     return Ok(ty);
                 }
 
+                // ADR 0030: Enum ordinal constructor. `Day.from_ordinal(x)`.
+                // Same shape as nominal `from_base`.
+                if let Some(ty) = self.try_enum_from_ordinal(clean_name, args)? {
+                    return Ok(ty);
+                }
+
                 if clean_name.contains('.') {
                     let parts: Vec<&str> = clean_name.split('.').collect();
                     if parts.len() == 2 {
@@ -848,6 +854,23 @@ impl SemanticAnalyzer {
                         let method_name = parts[1];
 
                         if let Some((receiver_type, mutable)) = self.lookup_variable(receiver) {
+                            // ADR 0030: Enum ordinal extraction.
+                            // `d.to_ordinal()` where d has an Enum type.
+                            if let Type::Enum { .. } = &receiver_type {
+                                if method_name == "to_ordinal" {
+                                    if !args.is_empty() {
+                                        return Err(CompileError::at(
+                                            self.current_span,
+                                            &format!(
+                                                "to_ordinal takes no arguments, got {}",
+                                                args.len()
+                                            ),
+                                            ErrorCode::E0002,
+                                        ));
+                                    }
+                                    return Ok(Type::Int);
+                                }
+                            }
                             // ADR 0029: Nominal type instance conversion.
                             // `x.to_base()` where x has a Distinct type.
                             // Yields the base type; consumes the receiver
@@ -1211,6 +1234,13 @@ impl SemanticAnalyzer {
             ExprKind::FieldAccess { object, field, .. } => {
                 let obj_ty = self.analyze_expr(object)?;
 
+                // ADR 0030: Enum ordinal extraction, no-parens form.
+                if let Type::Enum { .. } = &obj_ty {
+                    if field == "to_ordinal" {
+                        return Ok(Type::Int);
+                    }
+                }
+
                 // ADR 0029: Nominal type instance conversion, no-parens
                 // form. `x.to_base` where x has a Distinct type.
                 if let Type::Distinct { base, .. } = &obj_ty {
@@ -1420,6 +1450,68 @@ impl SemanticAnalyzer {
                 Ok(Type::map(key_ty, value_ty))
             }
         }
+    }
+
+    /// ADR 0030. If `clean_name` is `T.from_ordinal` where `T` is
+    /// a registered enum type, analyze `args` and produce the enum
+    /// type. Returns `Ok(None)` if the name is not an enum
+    /// constructor.
+    ///
+    /// Same reasoning as `try_nominal_from_base`: the receiver is a
+    /// type name, not a variable. A literal out-of-range argument is
+    /// rejected at compile time; runtime out-of-range is not checked
+    /// in v1.
+    fn try_enum_from_ordinal(&mut self, clean_name: &str, args: &[Expr]) -> Result<Option<Type>> {
+        let Some((receiver, method)) = clean_name.split_once('.') else {
+            return Ok(None);
+        };
+        if method != "from_ordinal" {
+            return Ok(None);
+        }
+        let Some(ty) = self.enum_types.get(receiver).cloned() else {
+            return Ok(None);
+        };
+        let Type::Enum { id, name, variants } = ty else {
+            return Ok(None);
+        };
+
+        if args.len() != 1 {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!(
+                    "{}.from_ordinal expects 1 argument, got {}",
+                    name,
+                    args.len()
+                ),
+                ErrorCode::E0002,
+            ));
+        }
+
+        // Compile-time range check for literal arguments.
+        if let ExprKind::Int(n, span) = &args[0].kind {
+            if *n < 0 || (*n as usize) >= variants.len() {
+                let max = variants.len().saturating_sub(1);
+                return Err(CompileError::at(
+                    *span,
+                    &format!(
+                        "ordinal {} is out of range for {}; valid range is 0..{}",
+                        n, name, max
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+        }
+
+        let arg_ty = self.analyze_expr_with_context(&args[0], Some(&Type::Int))?;
+        if !arg_ty.is_unknown() && !arg_ty.can_coerce_to(&Type::Int) {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!("{}.from_ordinal expects an Int, found {}", name, arg_ty),
+                ErrorCode::E0002,
+            ));
+        }
+
+        Ok(Some(Type::enum_type(id, &name, variants)))
     }
 
     /// ADR 0029. If `clean_name` is `T.from_base` where `T` is a

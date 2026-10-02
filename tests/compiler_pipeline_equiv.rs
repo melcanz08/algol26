@@ -193,6 +193,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
             typed.plan.clone(),
             &typed.records,
             typed.nominal_types.clone(),
+            typed.enum_types.clone(),
         ) {
             Ok(p) => p,
             Err(_) => continue,
@@ -278,6 +279,7 @@ fn type_check_pass_agrees_with_direct_call() {
             &parsed.impls,
             &parsed.records,
             &parsed.distincts,
+            &parsed.enums,
         ) {
             Ok(t) => t,
             Err(_) => continue,

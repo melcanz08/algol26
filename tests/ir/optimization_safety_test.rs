@@ -30,6 +30,7 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
     ir
 }
@@ -114,6 +115,7 @@ procedure main
             &program.impls,
             &program.records,
             &[],
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();
@@ -123,6 +125,7 @@ procedure main
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
     );
 

@@ -28,6 +28,7 @@ fn build_and_run(source: &str) -> (SemanticProgram, Vec<String>, String) {
             &program.impls,
             &program.records,
             &[],
+            &[],
         )
         .expect("semantic analysis failed");
     let type_table = analyzer.take_type_table_id();
@@ -37,6 +38,7 @@ fn build_and_run(source: &str) -> (SemanticProgram, Vec<String>, String) {
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
     );
 

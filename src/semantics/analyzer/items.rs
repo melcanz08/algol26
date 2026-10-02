@@ -1,6 +1,7 @@
 // src/semantics/analyzer/items.rs
 
 use super::*;
+use crate::common::types::EnumTypeId;
 use crate::frontend::ast::{RecordDecl, TypeSyntax};
 
 impl SemanticAnalyzer {
@@ -190,6 +191,42 @@ impl SemanticAnalyzer {
             },
         );
     }
+    /// Register every `enum Name ...` declaration.
+    ///
+    /// Assigns a fresh `EnumTypeId` per declaration, in declaration
+    /// order, so ids are deterministic for a given source set.
+    /// Rejects empty enums (already caught at parse time) and
+    /// duplicate variant names within a declaration.
+    pub(super) fn register_enum_types(
+        &mut self,
+        decls: &[crate::frontend::ast::EnumDecl],
+    ) -> Result<()> {
+        for decl in decls {
+            if self.enum_types.contains_key(&decl.name) {
+                return Err(CompileError::at(
+                    decl.span,
+                    &format!("Duplicate enum declaration '{}'", decl.name),
+                    ErrorCode::E0009,
+                ));
+            }
+            let mut seen = HashSet::new();
+            for variant in &decl.variants {
+                if !seen.insert(variant.clone()) {
+                    return Err(CompileError::at(
+                        decl.span,
+                        &format!("Duplicate variant '{}' in enum '{}'", variant, decl.name),
+                        ErrorCode::E0009,
+                    ));
+                }
+            }
+            let id = EnumTypeId(self.next_enum_id);
+            self.next_enum_id += 1;
+            let ty = Type::enum_type(id, &decl.name, decl.variants.clone());
+            self.enum_types.insert(decl.name.clone(), ty);
+        }
+        Ok(())
+    }
+
     /// Register every `type X distinct Y` declaration.
     ///
     /// Assigns a fresh `NominalTypeId` per declaration, in
@@ -235,6 +272,7 @@ impl SemanticAnalyzer {
         // loop.
         let records_snapshot = self.records.clone();
         let nominals_snapshot = self.nominal_types.clone();
+        let enums_snapshot = self.enum_types.clone();
         for func in functions {
             let params: Vec<(String, Type)> = func
                 .params
@@ -245,6 +283,7 @@ impl SemanticAnalyzer {
                             ts,
                             &records_snapshot,
                             &nominals_snapshot,
+                            &enums_snapshot,
                         )?,
                         None => Type::Unknown,
                     };
@@ -253,9 +292,12 @@ impl SemanticAnalyzer {
                 .collect::<Result<Vec<_>>>()?;
 
             let return_type = match &func.return_type {
-                Some(t) => {
-                    Self::resolve_syntax_with_records(t, &records_snapshot, &nominals_snapshot)?
-                }
+                Some(t) => Self::resolve_syntax_with_records(
+                    t,
+                    &records_snapshot,
+                    &nominals_snapshot,
+                    &enums_snapshot,
+                )?,
                 None => Type::Void,
             };
 
@@ -416,6 +458,9 @@ impl SemanticAnalyzer {
     pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Result<Type> {
         match syntax {
             TypeSyntax::Named(name) => {
+                if let Some(enum_ty) = self.enum_types.get(name.as_str()).cloned() {
+                    return Ok(enum_ty);
+                }
                 if let Some(nominal) = self.nominal_types.get(name.as_str()).cloned() {
                     return Ok(nominal);
                 }
@@ -560,9 +605,13 @@ impl SemanticAnalyzer {
         syntax: &TypeSyntax,
         records: &HashMap<String, RecordInfo>,
         nominals: &HashMap<String, Type>,
+        enums: &HashMap<String, Type>,
     ) -> Result<Type> {
         match syntax {
             TypeSyntax::Named(name) => {
+                if let Some(enum_ty) = enums.get(name.as_str()) {
+                    return Ok(enum_ty.clone());
+                }
                 if let Some(nominal) = nominals.get(name.as_str()) {
                     return Ok(nominal.clone());
                 }
@@ -583,13 +632,13 @@ impl SemanticAnalyzer {
                     }
                     let resolved_args: Vec<Type> = args
                         .iter()
-                        .map(|a| Self::resolve_syntax_with_records(a, records, nominals))
+                        .map(|a| Self::resolve_syntax_with_records(a, records, nominals, enums))
                         .collect::<Result<Vec<_>>>()?;
                     return Ok(Type::record(name, resolved_args));
                 }
                 let resolved_args: Vec<Type> = args
                     .iter()
-                    .map(|a| Self::resolve_syntax_with_records(a, records, nominals))
+                    .map(|a| Self::resolve_syntax_with_records(a, records, nominals, enums))
                     .collect::<Result<Vec<_>>>()?;
                 let ty = match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
                     ("list", [inner]) => Type::list(inner.clone()),

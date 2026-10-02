@@ -9,8 +9,8 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
 use crate::common::types::{NominalTypeId, Type};
 use crate::frontend::ast::{
-    BinOp, DistinctDecl, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr, Pattern,
-    RecordDecl, Stmt, TraitDecl, WhereClause,
+    BinOp, DistinctDecl, EnumDecl, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr,
+    Pattern, RecordDecl, Stmt, TraitDecl, WhereClause,
 };
 use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
@@ -61,6 +61,13 @@ pub struct SemanticAnalyzer {
     nominal_types: HashMap<String, Type>,
     /// Monotonic counter for `NominalTypeId`.
     next_nominal_id: u32,
+    /// Enum type declarations (`enum Name ...`), keyed by the
+    /// declared name. Values carry the assigned `EnumTypeId`.
+    /// Identity is the id; the name and variants are presentation.
+    /// ADR 0030.
+    enum_types: HashMap<String, Type>,
+    /// Monotonic counter for `EnumTypeId`.
+    next_enum_id: u32,
     /// Function names declared variadic via `extern "C" ...(...)`.
     /// Used to relax the arity check from "exactly N" to "at
     /// least N" for those functions.
@@ -185,6 +192,8 @@ impl SemanticAnalyzer {
             records: HashMap::new(),
             nominal_types: HashMap::new(),
             next_nominal_id: 0,
+            enum_types: HashMap::new(),
+            next_enum_id: 0,
         }
     }
 
@@ -231,6 +240,13 @@ impl SemanticAnalyzer {
     /// never reconstruct ids. See ADR 0029.
     pub fn take_nominal_types(&mut self) -> HashMap<String, Type> {
         std::mem::take(&mut self.nominal_types)
+    }
+
+    /// Take ownership of the resolved enum type table so it can be
+    /// handed to `TypedProgram`. Same single-source-of-truth
+    /// discipline as `take_nominal_types`. See ADR 0030.
+    pub fn take_enum_types(&mut self) -> HashMap<String, Type> {
+        std::mem::take(&mut self.enum_types)
     }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
@@ -283,7 +299,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        self.analyze_with_spans(functions, &[], &[], &[], &[])
+        self.analyze_with_spans(functions, &[], &[], &[], &[], &[])
     }
 
     pub fn analyze_with_spans(
@@ -293,6 +309,7 @@ impl SemanticAnalyzer {
         impls: &[ImplBlock],
         records: &[RecordDecl],
         distincts: &[DistinctDecl],
+        enums: &[EnumDecl],
     ) -> Result<()> {
         debug_assert!(
             crate::compiler::assert_all_numbered(functions),
@@ -300,6 +317,12 @@ impl SemanticAnalyzer {
              call assign_expr_ids(&mut functions) before analyzing"
         );
         self.register_builtin_functions();
+
+        // Enums are registered before nominal types and records: a
+        // nominal type or record field could name an enum in a later
+        // ADR, and the resolution order in `resolve_type_syntax`
+        // matches this. See ADR 0030.
+        self.register_enum_types(enums)?;
 
         // Nominal types are registered before records and user
         // functions: a record field or a function signature may name
@@ -348,9 +371,10 @@ impl SemanticAnalyzer {
              call assign_expr_ids(&mut functions) before analyzing"
         );
         // The 4-arg form is retained for callers that predate
-        // nominal types. Callers with `DistinctDecl`s in scope
-        // should call `analyze_with_spans` directly.
-        self.analyze_with_spans(functions, traits, impls, records, &[])
+        // nominal and enum types. Callers with `DistinctDecl`s or
+        // `EnumDecl`s in scope should call `analyze_with_spans`
+        // directly.
+        self.analyze_with_spans(functions, traits, impls, records, &[], &[])
     }
 
     /// Verify that every `where T: Trait` clause names a trait that

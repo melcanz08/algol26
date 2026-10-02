@@ -24,6 +24,7 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
             &program.impls,
             &program.records,
             &[],
+            &[],
         )
         .unwrap();
 
@@ -33,6 +34,7 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &program.records,
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
     )
 }

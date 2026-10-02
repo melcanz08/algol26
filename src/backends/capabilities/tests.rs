@@ -722,6 +722,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
             &program.impls,
             &program.records,
             &[],
+            &[],
         )
         .expect("analyze");
 
@@ -735,6 +736,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
         type_table,
         plan,
         &program.records,
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
     );
     semantic_program

@@ -21,6 +21,7 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>, Vec<FunctionDecl>) {
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
     (ir, diagnostics, functions)
 }

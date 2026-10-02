@@ -60,9 +60,12 @@ pub struct SemanticIRBuilder {
     pub(super) record_names: HashSet<String>,
     /// Nominal type declarations from the frontend, keyed by name.
     /// Values carry a `Type::Distinct` whose `NominalTypeId` matches
-    /// the one the analyzer assigned (both iterate `distincts` in
-    /// declaration order). See ADR 0029.
+    /// the one the analyzer assigned. See ADR 0029.
     pub(super) nominal_types: HashMap<String, Type>,
+    /// Enum type declarations from the frontend, keyed by name.
+    /// Values carry a `Type::Enum` whose `EnumTypeId` matches the
+    /// one the analyzer assigned. See ADR 0030.
+    pub(super) enum_types: HashMap<String, Type>,
 }
 
 #[allow(dead_code)]
@@ -79,6 +82,7 @@ impl SemanticIRBuilder {
         plan: InstantiationPlan,
         records: &[RecordDecl],
         nominal_types: HashMap<String, Type>,
+        enum_types: HashMap<String, Type>,
     ) -> (SemanticProgram, Vec<String>) {
         let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
 
@@ -96,6 +100,7 @@ impl SemanticIRBuilder {
             plan,
             record_names,
             nominal_types,
+            enum_types,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -148,6 +153,9 @@ impl SemanticIRBuilder {
     pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Type {
         match syntax {
             TypeSyntax::Named(name) => {
+                if let Some(enum_ty) = self.enum_types.get(name.as_str()) {
+                    return enum_ty.clone();
+                }
                 if let Some(nominal) = self.nominal_types.get(name.as_str()) {
                     return nominal.clone();
                 }
@@ -270,6 +278,7 @@ mod substitution_tests {
             plan: InstantiationPlan::default(),
             record_names: HashSet::new(),
             nominal_types: HashMap::new(),
+            enum_types: HashMap::new(),
         }
     }
 

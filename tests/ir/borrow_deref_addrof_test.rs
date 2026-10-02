@@ -77,6 +77,7 @@ fn test_double_borrow_fails() {
         &program.impls,
         &program.records,
         &[],
+        &[],
     );
 
     assert!(
@@ -150,6 +151,7 @@ procedure main
             &program.impls,
             &program.records,
             &[],
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();
@@ -159,6 +161,7 @@ procedure main
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
     );
 
@@ -218,6 +221,7 @@ procedure main
             &program.impls,
             &program.records,
             &[],
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();
@@ -227,6 +231,7 @@ procedure main
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
     );
 

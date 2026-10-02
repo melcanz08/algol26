@@ -81,6 +81,10 @@ pub struct TypedProgram {
     /// analyzer is the single source of nominal identity.
     /// See ADR 0029.
     pub nominal_types: std::collections::HashMap<String, crate::common::types::Type>,
+    /// Resolved enum type declarations, keyed by name. Values carry
+    /// the `EnumTypeId` the analyzer assigned. Same single-source
+    /// discipline as `nominal_types`. See ADR 0030.
+    pub enum_types: std::collections::HashMap<String, crate::common::types::Type>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -201,6 +205,7 @@ pub fn type_check_program(
     impls: &[ImplBlock],
     records: &[crate::frontend::ast::RecordDecl], // ← NEW
     distincts: &[crate::frontend::ast::DistinctDecl], // ← ADR 0029
+    enums: &[crate::frontend::ast::EnumDecl],     // ← ADR 0030
 ) -> Result<TypedProgram> {
     let mut analyzer = SemanticAnalyzer::new();
     debug_assert!(
@@ -208,7 +213,7 @@ pub fn type_check_program(
         "type_check_program reached with an UNASSIGNED ExprId — \
          some AST construction path bypassed prepare_frontend"
     );
-    analyzer.analyze_with_spans(functions, traits, impls, records, distincts)?;
+    analyzer.analyze_with_spans(functions, traits, impls, records, distincts, enums)?;
 
     let mut race_detector = RaceDetector::new();
     let races = race_detector.analyze(functions);
@@ -219,6 +224,7 @@ pub fn type_check_program(
     let type_table_id = analyzer.take_type_table_id();
     let instantiations = analyzer.take_instantiations();
     let nominal_types = analyzer.take_nominal_types();
+    let enum_types = analyzer.take_enum_types();
     let mut plan = InstantiationPlan::from_instantiations(&instantiations);
     plan.close(functions);
 
@@ -233,6 +239,7 @@ pub fn type_check_program(
         plan,
         records: records.to_vec(),
         nominal_types,
+        enum_types,
     })
 }
 
@@ -250,12 +257,19 @@ pub fn build_semantic_ir_program(
     plan: crate::ir::instantiation_plan::InstantiationPlan,
     records: &[crate::frontend::ast::RecordDecl],
     nominal_types: std::collections::HashMap<String, crate::common::types::Type>,
+    enum_types: std::collections::HashMap<String, crate::common::types::Type>,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
 
-    let (program, diagnostics) =
-        SemanticIRBuilder::build(functions, type_table_id, plan, records, nominal_types);
+    let (program, diagnostics) = SemanticIRBuilder::build(
+        functions,
+        type_table_id,
+        plan,
+        records,
+        nominal_types,
+        enum_types,
+    );
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
             Diagnostic::Warning(diag.to_string()).display();

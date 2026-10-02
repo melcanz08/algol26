@@ -19,3 +19,21 @@ The source line is stored on the error itself (`source_line`), populated at cons
 ## What tests pin
 
 `tests/integration/diagnostic_test.rs` checks `ErrorCode::as_str()`, the field values set by `CompileError::new(...).with_suggestion(...)`, and that `Diagnostic::Warning(...).display()` does not panic — nothing about rendered output. `tests/integration/diagnostics_quality_test.rs` is more substantive: `E0003` for undefined vars with the name in the message, `E0002` for type mismatch, `E0007` for double-borrow and use-after-move, `suggestion.is_some()` for four of the error classes, and — critically — `diag_position_points_at_condition` asserts a real `line == 3, column == 8` for a specific source, not `0:0`. Rendered-output format is not pinned by any test, which means the renderer can change freely as long as message/code/suggestion/span content is preserved. One latent bug: `test_all_negative_corpus_produce_structured_errors` iterates `tests/integration/negative/` filtering on extension `.al26`, but the files are `.gol`, so the loop is currently a no-op.
+## Known gap — declaration spans
+
+`items.rs`, `scopes.rs`, and `mod.rs` still call
+`CompileError::simple(..., 0, 0, ...)` for eight declaration-level
+errors: duplicate record, duplicate field, unknown trait, duplicate
+variable, function may-not-return, and the `unknown_type_error`
+helper. These AST nodes (`RecordDecl`, `FunctionDecl`,
+`WhereClause`) carry no `Span` field, so the errors cannot point at
+source.
+
+Fixing requires:
+- `Span` on `RecordDecl`, `FunctionDecl`, `WhereClause` in
+  `src/frontend/ast.rs`
+- Parser populates them in `parse_items.rs` and `parse_stmt.rs`
+- `register_record`, `register_user_functions`, `analyze_function`,
+  `declare_variable` take the span and pass it to `CompileError::at`
+
+Until then, these errors render without a snippet or caret.

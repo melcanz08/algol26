@@ -1924,6 +1924,11 @@ impl SemanticAnalyzer {
         let mut has_true = false;
         let mut has_false = false;
         let mut has_fallback = false;
+        // ADR 0030: user enum variant coverage. A HashSet because
+        // the domain is only known from `value_type` — a match on
+        // `Day` populates `covered` with `Monday`, `Tuesday`, ...
+        // and the check compares against `variants`.
+        let mut covered_variants: HashSet<String> = HashSet::new();
 
         for case in cases {
             // A guarded arm's coverage depends on its guard, which we
@@ -1946,6 +1951,9 @@ impl SemanticAnalyzer {
                     ..
                 }) => has_false = true,
                 Pattern::Wildcard | Pattern::Binding(_) => has_fallback = true,
+                Pattern::Variant(name) => {
+                    covered_variants.insert(name.clone());
+                }
                 _ => {}
             }
         }
@@ -1977,6 +1985,35 @@ impl SemanticAnalyzer {
                     .with_suggestion(
                         "Add both `case true` and `case false`, or a `case _` arm",
                     ));
+                }
+            }
+            // ADR 0030: user enum. Every variant must appear as a
+            // `case VariantName`, or the match must have a wildcard
+            // fallback. Reporting the *first* missing variant is
+            // enough — the user adds one, recompiles, and the next
+            // missing one appears. Listing all of them would be
+            // noisier than useful for a feature where the fix is
+            // usually one arm.
+            Type::Enum {
+                name: enum_name,
+                variants,
+                ..
+            } => {
+                for variant in variants {
+                    if !covered_variants.contains(variant) {
+                        return Err(CompileError::at(
+                            self.current_span,
+                            &format!(
+                                "match on enum '{}' is missing a case for variant '{}'",
+                                enum_name, variant
+                            ),
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(&format!(
+                            "Add `case {}`, or a `case _` fallback arm",
+                            variant
+                        )));
+                    }
                 }
             }
             _ => {}

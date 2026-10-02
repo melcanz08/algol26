@@ -269,7 +269,7 @@ impl Lexer {
 
         let lines: Vec<&str> = source.lines().collect();
         let mut line_idx = 0;
-        let mut token_positions: Vec<(usize, usize)> = Vec::new();
+        let mut token_positions: Vec<(usize, usize, usize)> = Vec::new();
         let mut current_line = 1usize;
 
         while line_idx < lines.len() || pending_dedents > 0 {
@@ -277,7 +277,7 @@ impl Lexer {
                 pending_dedents -= 1;
                 tokens.push(Token::Dedent);
                 // Add dummy position (approximate)
-                token_positions.push((current_line, 1));
+                token_positions.push((current_line, 1, 1));
                 continue;
             }
 
@@ -285,7 +285,7 @@ impl Lexer {
                 if indent_stack.len() > 1 {
                     indent_stack.pop();
                     tokens.push(Token::Dedent);
-                    token_positions.push((current_line, 1));
+                    token_positions.push((current_line, 1, 1));
                 }
                 break;
             }
@@ -330,7 +330,7 @@ impl Lexer {
             if !in_bracket_continuation && indent > current_indent {
                 indent_stack.push(indent);
                 tokens.push(Token::Indent);
-                token_positions.push((line_number, 1)); // dummy
+                token_positions.push((line_number, 1, 1)); // dummy
             } else if !in_bracket_continuation && indent < current_indent {
                 if !indent_stack.contains(&indent) {
                     return Err(CompileError::simple(
@@ -363,7 +363,7 @@ impl Lexer {
                     pending_dedents = popped - 1;
                 }
                 tokens.push(Token::Dedent);
-                token_positions.push((line_number, 1)); // dummy
+                token_positions.push((line_number, 1, 1)); // dummy
                 continue;
             }
 
@@ -374,7 +374,7 @@ impl Lexer {
             current_line = line_number;
 
             let tokens_before = tokens.len();
-            let mut char_positions: Vec<usize> = Vec::new();
+            let mut char_positions: Vec<(usize, usize)> = Vec::new();
             Lexer::tokenize_line(trimmed, line_number, line, &mut tokens, &mut char_positions)?;
             let base_column = indent + 1;
 
@@ -408,19 +408,23 @@ impl Lexer {
                 ));
             }
 
-            for col in &char_positions {
-                token_positions.push((current_line, base_column + col));
+            for (start, end) in &char_positions {
+                token_positions.push((
+                    current_line,
+                    base_column + start,
+                    base_column + end.saturating_sub(1),
+                ));
             }
         }
 
         while indent_stack.len() > 1 {
             indent_stack.pop();
             tokens.push(Token::Dedent);
-            token_positions.push((current_line, 1));
+            token_positions.push((current_line, 1, 1));
         }
 
         tokens.push(Token::Eof);
-        token_positions.push((current_line, 0));
+        token_positions.push((current_line, 0, 0));
 
         // Ensure lengths match (should, but just in case)
         if tokens.len() != token_positions.len() {
@@ -440,9 +444,9 @@ impl Lexer {
         let spanned: Vec<SpannedToken> = tokens
             .into_iter()
             .zip(token_positions)
-            .map(|(token, (line, column))| SpannedToken {
+            .map(|(token, (line, start, end))| SpannedToken {
                 token,
-                span: Span::point(line, column),
+                span: Span::new(line, start, line, end),
             })
             .collect();
 
@@ -453,7 +457,7 @@ impl Lexer {
         line_number: usize,
         line: &str,
         tokens: &mut Vec<Token>,
-        positions: &mut Vec<usize>,
+        positions: &mut Vec<(usize, usize)>,
     ) -> Result<()> {
         if trimmed.starts_with("procedure") {
             Lexer::parse_declaration(
@@ -483,7 +487,7 @@ impl Lexer {
         line_number: usize,
         line: &str,
         tokens: &mut Vec<Token>,
-        positions: &mut Vec<usize>,
+        positions: &mut Vec<(usize, usize)>,
     ) -> Result<()> {
         let mut chars = expr.chars().peekable();
         let mut position = 0usize;
@@ -493,25 +497,29 @@ impl Lexer {
                 chars.next();
                 position += 1;
             } else if c == '"' {
-                positions.push(position);
+                let start = position;
                 chars.next();
                 position += 1;
                 let string_content =
                     Lexer::read_string(&mut chars, &mut position, line_number, line)?;
                 tokens.push(Token::StringLit(string_content));
+                positions.push((start, position));
             } else if c.is_alphabetic() || c == '_' {
-                positions.push(position);
+                let start = position;
                 let ident = Lexer::read_identifier(&mut chars);
                 position += ident.chars().count();
                 Lexer::classify_identifier(ident, tokens);
+                positions.push((start, position));
             } else if c.is_numeric() {
-                positions.push(position);
+                let start = position;
                 let (token, len) = Lexer::read_number(&mut chars)?;
                 tokens.push(token);
                 position += len;
+                positions.push((start, position));
             } else {
-                positions.push(position);
+                let start = position;
                 Lexer::handle_operator(&mut chars, &mut position, line_number, line, tokens)?;
+                positions.push((start, position));
             }
         }
         Ok(())

@@ -19,16 +19,17 @@ impl Lexer {
         keyword_len: usize,
         trimmed: &str,
         tokens: &mut Vec<Token>,
-        char_offsets: &mut Vec<usize>,
+        char_offsets: &mut Vec<(usize, usize)>,
     ) {
         debug_assert!(
             trimmed.len() >= keyword_len,
             "keyword_len larger than source line"
         );
 
-        // The keyword itself starts at offset 0.
+        // The keyword itself starts at offset 0 and ends at
+        // `keyword_len` (exclusive).
         tokens.push(keyword);
-        char_offsets.push(0);
+        char_offsets.push((0, keyword_len));
 
         let after_keyword = &trimmed[keyword_len..];
         let trimmed_after = after_keyword.trim_start();
@@ -46,7 +47,7 @@ impl Lexer {
 
         let name_len = name.chars().count();
         tokens.push(Token::Identifier(name));
-        char_offsets.push(name_start);
+        char_offsets.push((name_start, name_start + name_len));
 
         // Everything after the name (whitespace, then the signature).
         // parse_signature skips whitespace itself, so we preserve offsets.
@@ -74,7 +75,7 @@ impl Lexer {
         signature: &str,
         base_offset: usize,
         tokens: &mut Vec<Token>,
-        char_offsets: &mut Vec<usize>,
+        char_offsets: &mut Vec<(usize, usize)>,
     ) {
         let mut chars = signature.char_indices().peekable();
 
@@ -88,37 +89,37 @@ impl Lexer {
             match c {
                 '(' => {
                     tokens.push(Token::LParen);
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + 1));
                 }
                 ')' => {
                     tokens.push(Token::RParen);
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + 1));
                 }
                 ':' => {
                     tokens.push(Token::Colon);
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + 1));
                 }
                 ',' => {
                     tokens.push(Token::Comma);
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + 1));
                 }
                 '<' => {
                     tokens.push(Token::Lt);
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + 1));
                 }
                 '>' => {
                     tokens.push(Token::Gt);
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + 1));
                 }
                 '&' => {
                     tokens.push(Token::Ampersand);
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + 1));
                 }
                 '-' => {
                     if matches!(chars.peek(), Some(&(_, '>'))) {
                         chars.next(); // consume '>'
                         tokens.push(Token::Arrow);
-                        char_offsets.push(offset);
+                        char_offsets.push((offset, offset + 2));
                     }
                     // A lone '-' in a signature is skipped for now.
                 }
@@ -136,12 +137,13 @@ impl Lexer {
                     // Use the same keyword table as the main tokenizer
                     // so `mut`, `where`, and any future keyword are
                     // classified identically in signatures and bodies.
+                    let ident_len = ident.chars().count();
                     if let Some(token) = KEYWORDS.get(ident.as_str()) {
                         tokens.push(token.clone());
                     } else {
                         tokens.push(Token::Identifier(ident));
                     }
-                    char_offsets.push(offset);
+                    char_offsets.push((offset, offset + ident_len));
                 }
                 _ => {
                     // Unknown character in signature. Silently skipped;

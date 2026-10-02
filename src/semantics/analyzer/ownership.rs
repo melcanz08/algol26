@@ -110,11 +110,9 @@ impl SemanticAnalyzer {
     pub(super) fn register_mutable_borrow(&mut self, reference: &str, source: &str) -> Result<()> {
         match self.lookup_variable(source) {
             Some((_, false)) => {
-                return Err(CompileError::simple(
+                return Err(CompileError::at(
+                    self.current_span,
                     &format!("Cannot mutably borrow immutable variable '{}'", source),
-                    self.current_span.start_line,
-                    self.current_span.start_column,
-                    "",
                     ErrorCode::E0007,
                 )
                 .with_suggestion(&format!("Declare '{}' with 'var' instead of 'val'", source)));
@@ -123,34 +121,28 @@ impl SemanticAnalyzer {
             None => {}
         }
         if self.is_moved(source) {
-            return Err(CompileError::simple(
+            return Err(CompileError::at(
+                self.current_span,
                 &format!("Cannot mutably borrow moved variable '{}'", source),
-                self.current_span.start_line,
-                self.current_span.start_column,
-                "",
                 ErrorCode::E0007,
             )
             .with_suggestion("The variable has already been moved"));
         }
         if self.is_mutably_borrowed(source) {
-            return Err(CompileError::simple(
+            return Err(CompileError::at(
+                self.current_span,
                 &format!("Cannot mutably borrow '{}' more than once", source),
-                self.current_span.start_line,
-                self.current_span.start_column,
-                "",
                 ErrorCode::E0007,
             )
             .with_suggestion("Only one mutable borrow is allowed at a time"));
         }
         if self.is_borrowed(source) {
-            return Err(CompileError::simple(
+            return Err(CompileError::at(
+                self.current_span,
                 &format!(
                     "Cannot mutably borrow '{}' while immutably borrowed",
                     source
                 ),
-                self.current_span.start_line,
-                self.current_span.start_column,
-                "",
                 ErrorCode::E0007,
             )
             .with_suggestion("Wait for the immutable borrow to end"));
@@ -173,52 +165,42 @@ impl SemanticAnalyzer {
         // Deferred-capture check unchanged.
         if let Some(scope) = self.deferred_captures.last() {
             if scope.contains(name) {
-                return Err(CompileError::simple(
+                return Err(CompileError::at(
+                    self.current_span,
                     &format!("Cannot use '{}' after it was captured by defer", name),
-                    self.current_span.start_line,
-                    self.current_span.start_column,
-                    "",
                     ErrorCode::E0007,
                 )
                 .with_suggestion("Deferred statements capture variables at declaration time"));
             }
         }
         if self.is_moved(name) {
-            return Err(CompileError::simple(
+            return Err(CompileError::at(
+                self.current_span,
                 &format!("Cannot borrow moved variable '{}'", name),
-                self.current_span.start_line,
-                self.current_span.start_column,
-                "",
                 ErrorCode::E0007,
             )
             .with_suggestion("The variable has been moved and is no longer available"));
         }
         if mutable && self.is_mutably_borrowed(name) {
-            return Err(CompileError::simple(
+            return Err(CompileError::at(
+                self.current_span,
                 &format!("Cannot mutably borrow '{}' more than once", name),
-                self.current_span.start_line,
-                self.current_span.start_column,
-                "",
                 ErrorCode::E0007,
             )
             .with_suggestion("Only one mutable borrow is allowed at a time"));
         }
         if mutable && self.is_borrowed(name) {
-            return Err(CompileError::simple(
+            return Err(CompileError::at(
+                self.current_span,
                 &format!("Cannot mutably borrow '{}' while immutably borrowed", name),
-                self.current_span.start_line,
-                self.current_span.start_column,
-                "",
                 ErrorCode::E0007,
             )
             .with_suggestion("Wait for the immutable borrow to end"));
         }
         if !mutable && self.is_mutably_borrowed(name) {
-            return Err(CompileError::simple(
+            return Err(CompileError::at(
+                self.current_span,
                 &format!("Cannot read '{}' while it is mutably borrowed", name),
-                self.current_span.start_line,
-                self.current_span.start_column,
-                "",
                 ErrorCode::E0007,
             )
             .with_suggestion("Wait for the mutable borrow to end before reading"));

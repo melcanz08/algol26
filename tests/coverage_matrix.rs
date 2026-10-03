@@ -85,6 +85,12 @@ pub const KNOWN_MISSING_REFUSALS: &[&str] = &[
     // end-to-end. Stays here until the feature is either implemented
     // or removed.
     "range",
+    // Enum types themselves do not refuse — the `match` construct
+    // does, and no `Feature::Match` variant exists to pin a per-
+    // backend test against. This row claims `Refused` on LLVM/WASM
+    // because matching is the interesting part of enums, and match
+    // is refused there. See the row's notes for the boundary.
+    "enum_types",
 ];
 
 pub const MATRIX: &[FeatureRow] = &[
@@ -467,6 +473,24 @@ pub const MATRIX: &[FeatureRow] = &[
                 LLVM and WASM refuse at the capability check \
                 (`Feature::ListAppend`). LLVM refusal is pinned; WASM refusal \
                 is untested but follows from WASM's empty supported set.",
+    },
+    FeatureRow {
+        name: "enum_types",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Refused,
+        wasm: Support::Refused,
+        refusal_tests: &[],
+        notes: "Enum declaration, resolution, and the from_ordinal / \
+                to_ordinal intrinsics compile through all three backends: \
+                at runtime an enum is an i64, and the Cast is a no-op. \
+                However, any program that MATCHES on an enum cannot run \
+                on LLVM or WASM, because those backends refuse `match` \
+                at the capability check, independent of the pattern's \
+                shape. Same limitation applies to Option/Result/Bool \
+                matches today. No conformance fixture exists because \
+                the harness does not support per-fixture backend \
+                selection. Same shape as `records` and `map`.",
     },
     FeatureRow {
         name: "nominal_types",

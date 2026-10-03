@@ -2,7 +2,19 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+Accepted. A1-A6 implemented; A7 (matrix row, feature doc) landed
+together with the feature.
+
+Implementation note: the visible portion of enum types —
+`from_ordinal`, `to_ordinal`, and variant matching — works on the
+interpreter. LLVM and WASM refuse the `match` construct itself,
+independent of pattern shape, so a program that matches on an enum
+is interpreter-only. The `enum_types` coverage matrix row reflects
+this with `InterpreterOnly` and a note on the boundary.
+
+Deferred to future ADRs: runtime out-of-range `from_ordinal`
+(v1 rejects literal out-of-range only), name-based printing,
+`for d in Day` iteration.
 
 ## Context
 

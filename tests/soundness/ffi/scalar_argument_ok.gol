@@ -1,0 +1,8 @@
+// EXPECT: COMPILE
+// Int -> int64_t, Float -> double, Bool -> int. These are the
+// scalar ABI-compatible mappings.
+extern "C" function scalars(i: Int, f: Float, b: Bool) -> Int
+
+procedure main
+    val n := scalars(1, 2.5, true)
+end

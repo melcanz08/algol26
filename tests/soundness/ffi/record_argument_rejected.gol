@@ -1,0 +1,15 @@
+// EXPECT: REJECT E-FFI-001
+// Nominal record types have no C equivalent at the FFI boundary
+// unless explicitly lowered to a C struct; passing one directly is
+// a type error.
+record Point
+    x: Int
+    y: Int
+end
+
+extern "C" function takes_point(p: Point) -> Void
+
+procedure main
+    val p := Point { x: 1, y: 2 }
+    takes_point(p)
+end

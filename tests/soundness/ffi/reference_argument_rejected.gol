@@ -1,0 +1,9 @@
+// EXPECT: REJECT E-FFI-001
+// &T / &mut T are compile-time concepts. The FFI boundary sees only
+// pointers (*T). A reference argument must be a type error.
+extern "C" function takes_ref(x: &Int) -> Void
+
+procedure main
+    var n := 5
+    takes_ref(&n)
+end

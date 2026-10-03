@@ -1,0 +1,8 @@
+// EXPECT: COMPILE
+// *T maps to T* and is the canonical way to pass mutable memory
+// across the FFI boundary.
+extern "C" function get_ptr() -> *Int
+
+procedure main
+    val p := get_ptr()
+end

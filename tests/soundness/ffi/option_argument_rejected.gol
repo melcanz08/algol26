@@ -1,0 +1,8 @@
+// EXPECT: REJECT E-FFI-001
+// Option<T> has no C equivalent; must not cross the FFI boundary.
+extern "C" function takes_option(x: Option<Int>) -> Void
+
+procedure main
+    val o := Some(5)
+    takes_option(o)
+end

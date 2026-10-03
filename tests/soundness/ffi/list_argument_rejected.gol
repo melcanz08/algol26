@@ -1,0 +1,10 @@
+// EXPECT: REJECT E-FFI-001
+// Passing a composite type (List) across the FFI boundary is a
+// type error at the call site. See docs/features/ffi.md §"FFI type
+// mapping" — List<T> has no C equivalent.
+extern "C" function takes_list(x: List<Int>) -> Void
+
+procedure main
+    val xs := [1, 2, 3]
+    takes_list(xs)
+end

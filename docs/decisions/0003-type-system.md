@@ -4,7 +4,7 @@
 > list below (algebraic data types, Option, Result, generics,
 > pattern matching) are implemented. "No implicit conversions"
 > is not accurate — `Int` coerces to `Float` at call sites
-> and in arithmetic. See `IMPLEMENTATION_STATUS.md` for the
+> and in arithmetic. See `STATUS.md` for the
 > current feature matrix.
 
 ## Status

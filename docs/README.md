@@ -5,7 +5,7 @@ This directory contains documentation for the ALGOL26 compiler.
 ## Read these first
 
 - **[../README.md](../README.md)** — project overview, build, usage
-- **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** — what works today,
+- **[STATUS.md](STATUS.md)** — what works today,
   corpus-verified, with known gaps listed
 - **[architecture-direction.md](architecture-direction.md)** — how the
   codebase is structured and why, plus the incremental path to less coupling
@@ -24,7 +24,7 @@ code changes.
 
 | File | Purpose |
 |------|---------|
-| `IMPLEMENTATION_STATUS.md` | Feature matrix + known gaps, corpus-verified |
+| `STATUS.md` | Feature matrix + known gaps, corpus-verified |
 | `language-reference.md` | Canonical language specification |
 | `architecture-direction.md` | Structure of the codebase and why |
 | `ir-transformations.md` | What each IR transformation does |
@@ -107,7 +107,7 @@ Files in `archive/` include:
    Historical docs explain why past decisions were made.
 4. **When a feature ships, update three things:** its feature contract
    under `features/`, a corpus program in `tests/corpus/`, and the
-   row for it in `IMPLEMENTATION_STATUS.md`. The contract without a
+   row for it in `STATUS.md`. The contract without a
    corpus program is a claim; the corpus program without an updated
    contract is an undiscoverable feature.
 

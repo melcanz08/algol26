@@ -366,7 +366,7 @@ cargo test --lib record_method_call_dispatches_to_impl
 
 - `docs/pass-contracts.md` — the pass contract model and pipeline
   rules.
-- `docs/IMPLEMENTATION_STATUS.md` — the feature × backend matrix
+- `docs/STATUS.md` — the feature × backend matrix
   and known gaps.
 - `docs/coverage-maturity.rs` (source) — the maturity ladder that
   `coverage_maturity.rs` enforces.

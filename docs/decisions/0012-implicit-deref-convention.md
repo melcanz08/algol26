@@ -315,7 +315,7 @@ that assert the IR shapes:
 - Does not touch the borrow checker's known gaps
   (`&mut x` in call arguments, `escape.rs`, `flow_analyzer.rs`).
   Those are separate problems documented in
-  `IMPLEMENTATION_STATUS.md`.
+  `STATUS.md`.
 
 ## See also
 

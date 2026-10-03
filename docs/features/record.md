@@ -200,7 +200,7 @@ Run through the interpreter instead:
 
 The refusal is enforced by the capability check
 (`Feature::Records`), not by codegen. See
-`docs/IMPLEMENTATION_STATUS.md` for the current feature × backend
+`docs/STATUS.md` for the current feature × backend
 matrix.
 
 ## What is not in v1

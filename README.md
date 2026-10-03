@@ -118,7 +118,7 @@ procedure main
 | WASM | `.wasm` module | Compiles and runs via the Node host shim. Supports a similar subset to LLVM. |
 
 **The authoritative feature × backend matrix is
-[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).**
+[`docs/STATUS.md`](docs/STATUS.md).**
 It is kept in sync with the code by the capability tests in
 `src/backends/capabilities/tests.rs` — every "refused" claim in the
 matrix is pinned by a test, and a build fails if the two drift.
@@ -223,7 +223,7 @@ but it is not the only mechanism.
 
 | Document | Purpose |
 |----------|---------|
-| [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | Feature matrix + known gaps |
+| [`docs/STATUS.md`](docs/STATUS.md) | Feature matrix + known gaps |
 | [`docs/pass-contracts.md`](docs/pass-contracts.md) | Compiler pass contracts and pipeline rules |
 | [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0028) |
 | [`docs/features/`](docs/features/) | Per-feature reference docs |
@@ -277,7 +277,7 @@ optimization without pretending the level changed.
 > **The borrow checker is conservative in the current version.**
 > It accepts some programs a stricter borrow system would reject.
 > The known gaps are documented in
-> `docs/IMPLEMENTATION_STATUS.md`. Fixing them requires design
+> `docs/STATUS.md`. Fixing them requires design
 > decisions that belong in their own ADRs.
 
 ## Contributing
@@ -285,7 +285,7 @@ optimization without pretending the level changed.
 See [`docs/README.md`](docs/README.md) for the doc taxonomy and how to
 update each type. In short:
 
-- **Reference docs** (like `IMPLEMENTATION_STATUS.md`) are audited against
+- **Reference docs** (like `STATUS.md`) are audited against
   the code and must be accurate.
 - **ADRs** are append-only in spirit: supersede with a new ADR rather
   than editing a decided one.

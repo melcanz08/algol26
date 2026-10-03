@@ -147,7 +147,7 @@ panic with a `CompileError` and add a test that exercises the input.
 
 ## See also
 
-- `docs/IMPLEMENTATION_STATUS.md` — the safety-guarantee table
+- `docs/STATUS.md` — the safety-guarantee table
 - `tests/fuzz_tests_runner.rs` — the fuzz suite
 - `tests/property_tests_runner.rs` — the property suite
 - `.github/workflows/ci.yml` — CI enforcement

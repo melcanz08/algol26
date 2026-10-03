@@ -1089,7 +1089,7 @@ that would fail if the guarantee were broken.
 
 - **Records, `Map<K, V>`, and `List.append` are interpreter-only.**
   LLVM and WASM refuse programs that use them via the capability
-  check. See `docs/IMPLEMENTATION_STATUS.md` for the full matrix.
+  check. See `docs/STATUS.md` for the full matrix.
 - **`Option`, `Result`, `try/catch`, and `String.*` conversions**
   are interpreter-only for the same reason.
 - **Channels have no runtime on any backend.** See ADR 0020.

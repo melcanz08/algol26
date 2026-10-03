@@ -343,4 +343,4 @@ capability check runs first.
   and the promote-then-recheck split.
 - `decisions/0018-canonical-pipeline.md` — one `run_pipeline`
   shared by every entry point.
-- `IMPLEMENTATION_STATUS.md` — current state of each transformation.
+- `STATUS.md` — current state of each transformation.

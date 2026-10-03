@@ -589,7 +589,7 @@ new features become cheaper
 9. **Sum types.** Needed for recursive JSON; no ADR yet.
 10. **Chained method calls on field accesses.** `x.field.method()`
     is rejected by the parser. Workaround documented in
-    `docs/IMPLEMENTATION_STATUS.md`.
+    `docs/STATUS.md`.
 
 ## Bottom line
 
@@ -624,4 +624,4 @@ following.
 - `docs/decisions/0018-canonical-pipeline.md`
 - `docs/ir-transformations.md`
 - `docs/test-organization.md`
-- `docs/IMPLEMENTATION_STATUS.md`
+- `docs/STATUS.md`

@@ -1,4 +1,15 @@
-# ALGOL26 Implementation Status
+# ALGOL26 Status
+
+> **Canonical status document.** This is the single place to look for
+> "what works today". It is verified by the differential corpus in
+> `tests/corpus/`, the conformance fixtures in `tests/conformance/`,
+> and the feature × backend matrix in `tests/coverage_matrix.rs`.
+>
+> Subsystem investigations live under [`status/`](status/):
+> [`diagnostics.md`](status/diagnostics.md).
+>
+> Superseded docs are preserved (with headers) under
+> [`archive/`](archive/).
 
 Last updated: 2026-10-01
 

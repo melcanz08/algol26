@@ -5,7 +5,7 @@
 > parser: `region r` takes an indented body (no `do`/`end
 > region`), `alloc(n)` / `free(p)` are the memory builtins,
 > and move happens implicitly on assignment (there is no
-> `move(...)` call). See `IMPLEMENTATION_STATUS.md` for the
+> `move(...)` call). See `STATUS.md` for the
 > current memory model and known limitations.
 
 ## Status

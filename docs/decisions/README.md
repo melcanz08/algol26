@@ -32,7 +32,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 ## Current state
 
 For what is actually implemented today, see
-[`IMPLEMENTATION_STATUS.md`](../IMPLEMENTATION_STATUS.md) — the
+[`STATUS.md`](../STATUS.md) — the
 corpus-verified feature matrix.
 
 ## Naming

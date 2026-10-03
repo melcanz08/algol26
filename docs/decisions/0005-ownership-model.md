@@ -4,7 +4,7 @@
 > not "future." The syntax in the example matches the
 > current parser. Known limitation: `&mut x` passed as a
 > call argument is not registered as a borrow (see
-> `IMPLEMENTATION_STATUS.md`).
+> `STATUS.md`).
 
 ## Status
 🟨 Partial (basic ownership, move semantics)

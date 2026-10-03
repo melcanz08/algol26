@@ -1,7 +1,7 @@
 // src/semantics/analyzer/items.rs
 
 use super::*;
-use crate::common::types::EnumTypeId;
+use crate::common::types::{EnumTypeId, SubrangeTypeId};
 use crate::frontend::ast::{RecordDecl, TypeSyntax};
 
 impl SemanticAnalyzer {
@@ -227,6 +227,127 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
+    /// Register every `type X Base in Low..High` declaration.
+    ///
+    /// Assigns a fresh `SubrangeTypeId` per declaration, in
+    /// declaration order. Validates: base is Int or a registered
+    /// enum; bounds are Int literals (Int base) or variant names
+    /// (enum base); low <= high. See ADR 0031.
+    pub(super) fn register_subrange_types(
+        &mut self,
+        decls: &[crate::frontend::ast::SubrangeDecl],
+    ) -> Result<()> {
+        for decl in decls {
+            if self.subrange_types.contains_key(&decl.name) {
+                return Err(CompileError::at(
+                    decl.span,
+                    &format!("Duplicate subrange declaration '{}'", decl.name),
+                    ErrorCode::E0009,
+                ));
+            }
+            let base = self.resolve_type_syntax(&decl.base)?;
+            let (low, high) = self.resolve_subrange_bounds(&decl.name, &base, decl)?;
+            if low > high {
+                return Err(CompileError::at(
+                    decl.span,
+                    &format!(
+                        "Subrange '{}' has low > high ({}..{})",
+                        decl.name, low, high
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+            let id = SubrangeTypeId(self.next_subrange_id);
+            self.next_subrange_id += 1;
+            let ty = Type::subrange(id, &decl.name, base, low, high);
+            self.subrange_types.insert(decl.name.clone(), ty);
+        }
+        Ok(())
+    }
+
+    /// Resolve subrange bounds. For Int bases, both bounds must be
+    /// Int literals. For enum bases, they must be variant names,
+    /// resolved to their ordinals. See ADR 0031.
+    fn resolve_subrange_bounds(
+        &self,
+        decl_name: &str,
+        base: &Type,
+        decl: &crate::frontend::ast::SubrangeDecl,
+    ) -> Result<(i64, i64)> {
+        use crate::frontend::ast::ExprKind;
+        match base {
+            Type::Int => {
+                let low = match &decl.low.kind {
+                    ExprKind::Int(n, _) => *n,
+                    _ => {
+                        return Err(CompileError::at(
+                            decl.low.span(),
+                            &format!(
+                                "Int subrange '{}' requires an integer literal for its lower bound",
+                                decl_name
+                            ),
+                            ErrorCode::E0002,
+                        ));
+                    }
+                };
+                let high = match &decl.high.kind {
+                    ExprKind::Int(n, _) => *n,
+                    _ => {
+                        return Err(CompileError::at(
+                            decl.high.span(),
+                            &format!(
+                                "Int subrange '{}' requires an integer literal for its upper bound",
+                                decl_name
+                            ),
+                            ErrorCode::E0002,
+                        ));
+                    }
+                };
+                Ok((low, high))
+            }
+            Type::Enum {
+                name: enum_name,
+                variants,
+                ..
+            } => {
+                let resolve = |expr: &crate::frontend::ast::Expr, which: &str| -> Result<i64> {
+                    match &expr.kind {
+                        ExprKind::Var(n, _) => variants
+                            .iter()
+                            .position(|v| v == n)
+                            .map(|i| i as i64)
+                            .ok_or_else(|| {
+                                CompileError::at(
+                                    expr.span(),
+                                    &format!("no variant '{}' on enum '{}'", n, enum_name),
+                                    ErrorCode::E0004,
+                                )
+                            }),
+                        _ => Err(CompileError::at(
+                            expr.span(),
+                            &format!(
+                                "enum subrange '{}' requires a variant name for its {} bound",
+                                decl_name, which
+                            ),
+                            ErrorCode::E0002,
+                        )),
+                    }
+                };
+                let low = resolve(&decl.low, "lower")?;
+                let high = resolve(&decl.high, "upper")?;
+                Ok((low, high))
+            }
+            other => Err(CompileError::at(
+                decl.span,
+                &format!(
+                    "Subrange '{}' requires an Int or enum base, found {}",
+                    decl_name, other
+                ),
+                ErrorCode::E0002,
+            )),
+        }
+    }
+
     /// Register every `type X distinct Y` declaration.
     ///
     /// Assigns a fresh `NominalTypeId` per declaration, in
@@ -273,6 +394,7 @@ impl SemanticAnalyzer {
         let records_snapshot = self.records.clone();
         let nominals_snapshot = self.nominal_types.clone();
         let enums_snapshot = self.enum_types.clone();
+        let subranges_snapshot = self.subrange_types.clone();
         for func in functions {
             let params: Vec<(String, Type)> = func
                 .params
@@ -284,6 +406,7 @@ impl SemanticAnalyzer {
                             &records_snapshot,
                             &nominals_snapshot,
                             &enums_snapshot,
+                            &subranges_snapshot,
                         )?,
                         None => Type::Unknown,
                     };
@@ -297,6 +420,7 @@ impl SemanticAnalyzer {
                     &records_snapshot,
                     &nominals_snapshot,
                     &enums_snapshot,
+                    &subranges_snapshot,
                 )?,
                 None => Type::Void,
             };
@@ -464,6 +588,9 @@ impl SemanticAnalyzer {
                 if let Some(nominal) = self.nominal_types.get(name.as_str()).cloned() {
                     return Ok(nominal);
                 }
+                if let Some(subrange) = self.subrange_types.get(name.as_str()).cloned() {
+                    return Ok(subrange);
+                }
                 if let Some(rec) = self.records.get(name.as_str()).cloned() {
                     let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
                     return Ok(Type::record(name, args));
@@ -606,6 +733,7 @@ impl SemanticAnalyzer {
         records: &HashMap<String, RecordInfo>,
         nominals: &HashMap<String, Type>,
         enums: &HashMap<String, Type>,
+        subranges: &HashMap<String, Type>,
     ) -> Result<Type> {
         match syntax {
             TypeSyntax::Named(name) => {
@@ -614,6 +742,9 @@ impl SemanticAnalyzer {
                 }
                 if let Some(nominal) = nominals.get(name.as_str()) {
                     return Ok(nominal.clone());
+                }
+                if let Some(subrange) = subranges.get(name.as_str()) {
+                    return Ok(subrange.clone());
                 }
                 if let Some(rec) = records.get(name.as_str()) {
                     let args: Vec<Type> = rec.type_params.iter().map(|_| Type::Unknown).collect();
@@ -632,13 +763,19 @@ impl SemanticAnalyzer {
                     }
                     let resolved_args: Vec<Type> = args
                         .iter()
-                        .map(|a| Self::resolve_syntax_with_records(a, records, nominals, enums))
+                        .map(|a| {
+                            Self::resolve_syntax_with_records(
+                                a, records, nominals, enums, subranges,
+                            )
+                        })
                         .collect::<Result<Vec<_>>>()?;
                     return Ok(Type::record(name, resolved_args));
                 }
                 let resolved_args: Vec<Type> = args
                     .iter()
-                    .map(|a| Self::resolve_syntax_with_records(a, records, nominals, enums))
+                    .map(|a| {
+                        Self::resolve_syntax_with_records(a, records, nominals, enums, subranges)
+                    })
                     .collect::<Result<Vec<_>>>()?;
                 let ty = match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
                     ("list", [inner]) => Type::list(inner.clone()),

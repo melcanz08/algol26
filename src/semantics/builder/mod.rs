@@ -66,6 +66,10 @@ pub struct SemanticIRBuilder {
     /// Values carry a `Type::Enum` whose `EnumTypeId` matches the
     /// one the analyzer assigned. See ADR 0030.
     pub(super) enum_types: HashMap<String, Type>,
+    /// Subrange type declarations from the frontend, keyed by name.
+    /// Values carry a `Type::Subrange` whose `SubrangeTypeId`
+    /// matches the one the analyzer assigned. See ADR 0031.
+    pub(super) subrange_types: HashMap<String, Type>,
 }
 
 #[allow(dead_code)]
@@ -83,6 +87,7 @@ impl SemanticIRBuilder {
         records: &[RecordDecl],
         nominal_types: HashMap<String, Type>,
         enum_types: HashMap<String, Type>,
+        subrange_types: HashMap<String, Type>,
     ) -> (SemanticProgram, Vec<String>) {
         let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
 
@@ -101,6 +106,7 @@ impl SemanticIRBuilder {
             record_names,
             nominal_types,
             enum_types,
+            subrange_types,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -158,6 +164,9 @@ impl SemanticIRBuilder {
                 }
                 if let Some(nominal) = self.nominal_types.get(name.as_str()) {
                     return nominal.clone();
+                }
+                if let Some(subrange) = self.subrange_types.get(name.as_str()) {
+                    return subrange.clone();
                 }
                 if self.record_names.contains(name.as_str()) {
                     return Type::record(name, Vec::new());
@@ -279,6 +288,7 @@ mod substitution_tests {
             record_names: HashSet::new(),
             nominal_types: HashMap::new(),
             enum_types: HashMap::new(),
+            subrange_types: HashMap::new(),
         }
     }
 

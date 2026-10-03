@@ -23,6 +23,7 @@ fn run(source: &str) -> String {
             &program.records,
             &[],
             &[],
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();
@@ -31,6 +32,7 @@ fn run(source: &str) -> String {
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
     );

@@ -10,7 +10,7 @@ use crate::common::span::Span;
 use crate::common::types::{NominalTypeId, Type};
 use crate::frontend::ast::{
     BinOp, DistinctDecl, EnumDecl, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr,
-    Pattern, RecordDecl, Stmt, TraitDecl, WhereClause,
+    Pattern, RecordDecl, Stmt, SubrangeDecl, TraitDecl, WhereClause,
 };
 use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
@@ -68,6 +68,12 @@ pub struct SemanticAnalyzer {
     enum_types: HashMap<String, Type>,
     /// Monotonic counter for `EnumTypeId`.
     next_enum_id: u32,
+    /// Subrange type declarations (`type X Base in Low..High`),
+    /// keyed by the declared name. Values carry the assigned
+    /// `SubrangeTypeId` plus bounds. ADR 0031.
+    subrange_types: HashMap<String, Type>,
+    /// Monotonic counter for `SubrangeTypeId`.
+    next_subrange_id: u32,
     /// Function names declared variadic via `extern "C" ...(...)`.
     /// Used to relax the arity check from "exactly N" to "at
     /// least N" for those functions.
@@ -194,6 +200,8 @@ impl SemanticAnalyzer {
             next_nominal_id: 0,
             enum_types: HashMap::new(),
             next_enum_id: 0,
+            subrange_types: HashMap::new(),
+            next_subrange_id: 0,
         }
     }
 
@@ -248,6 +256,12 @@ impl SemanticAnalyzer {
     pub fn take_enum_types(&mut self) -> HashMap<String, Type> {
         std::mem::take(&mut self.enum_types)
     }
+
+    /// Take ownership of the resolved subrange type table.
+    /// See ADR 0031.
+    pub fn take_subrange_types(&mut self) -> HashMap<String, Type> {
+        std::mem::take(&mut self.subrange_types)
+    }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
         &self.state
@@ -299,7 +313,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        self.analyze_with_spans(functions, &[], &[], &[], &[], &[])
+        self.analyze_with_spans(functions, &[], &[], &[], &[], &[], &[])
     }
 
     pub fn analyze_with_spans(
@@ -310,6 +324,7 @@ impl SemanticAnalyzer {
         records: &[RecordDecl],
         distincts: &[DistinctDecl],
         enums: &[EnumDecl],
+        subranges: &[SubrangeDecl],
     ) -> Result<()> {
         debug_assert!(
             crate::compiler::assert_all_numbered(functions),
@@ -328,6 +343,10 @@ impl SemanticAnalyzer {
         // functions: a record field or a function signature may name
         // a nominal type. Base must be primitive (ADR 0029).
         self.register_nominal_types(distincts)?;
+
+        // Subranges are registered after enums and nominal types
+        // because their base may be an enum. See ADR 0031.
+        self.register_subrange_types(subranges)?;
 
         // Records must be registered before user functions:
         // function signatures can name records as parameters or
@@ -374,7 +393,7 @@ impl SemanticAnalyzer {
         // nominal and enum types. Callers with `DistinctDecl`s or
         // `EnumDecl`s in scope should call `analyze_with_spans`
         // directly.
-        self.analyze_with_spans(functions, traits, impls, records, &[], &[])
+        self.analyze_with_spans(functions, traits, impls, records, &[], &[], &[])
     }
 
     /// Verify that every `where T: Trait` clause names a trait that

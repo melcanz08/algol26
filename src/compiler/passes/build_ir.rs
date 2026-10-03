@@ -45,6 +45,7 @@ impl Pass<Program> for BuildSemanticIRPass {
             &typed.records,
             typed.nominal_types.clone(),
             typed.enum_types.clone(),
+            typed.subrange_types.clone(),
         ) {
             Ok(sem) => {
                 program.ir = IrState::Built(sem);

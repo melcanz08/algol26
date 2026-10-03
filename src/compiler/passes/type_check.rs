@@ -40,6 +40,7 @@ impl Pass<Program> for TypeCheckPass {
             &ast.records,
             &ast.distincts,
             &ast.enums,
+            &ast.subranges,
         ) {
             Ok(typed) => {
                 program.typed = Some(typed);

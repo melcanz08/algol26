@@ -18,6 +18,7 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         &program.records,
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     )
 }
 fn run_interp(prog: SemanticProgram) -> String {
@@ -73,6 +74,7 @@ fn test_negative_type_mismatch() {
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
         &[],
         &[],
     );
@@ -164,6 +166,7 @@ fn test_negative_corpus_no_ice() {
                 std::collections::HashMap::new(),
                 algol26::ir::instantiation_plan::InstantiationPlan::default(),
                 &[],
+                std::collections::HashMap::new(),
                 std::collections::HashMap::new(),
                 std::collections::HashMap::new(),
             );

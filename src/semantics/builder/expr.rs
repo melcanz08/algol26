@@ -878,6 +878,24 @@ impl SemanticIRBuilder {
                             }
                         }
                     }
+
+                    // ADR 0031: v.to_base() where v has a subrange
+                    // type. No-op Cast to the base.
+                    if method == "to_base" && args.is_empty() {
+                        if let Some(info) = self.lookup_var(receiver) {
+                            if let Type::Subrange { base, .. } = &info.type_ {
+                                let receiver_value = TypedIRValue::Variable(
+                                    receiver.to_string(),
+                                    info.type_.clone(),
+                                );
+                                let base_ty = (**base).clone();
+                                return TypedIRValue::Cast {
+                                    value: Box::new(receiver_value),
+                                    target_type: base_ty,
+                                };
+                            }
+                        }
+                    }
                 }
 
                 // ─── METHOD CALL DISAMBIGUATION ───
@@ -1639,6 +1657,17 @@ impl SemanticIRBuilder {
                         return TypedIRValue::Cast {
                             value: Box::new(obj),
                             target_type: Type::Int,
+                        };
+                    }
+                }
+
+                // ADR 0031: `v.to_base` (no-parens form) for subranges.
+                if field == "to_base" {
+                    if let Type::Subrange { base, .. } = &obj_ty {
+                        let base_ty = (**base).clone();
+                        return TypedIRValue::Cast {
+                            value: Box::new(obj),
+                            target_type: base_ty,
                         };
                     }
                 }

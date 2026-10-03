@@ -910,6 +910,23 @@ impl SemanticAnalyzer {
                                     return Ok(Type::Int);
                                 }
                             }
+                            // ADR 0031: subrange extraction.
+                            // `p.to_base()` where p has a subrange type.
+                            if let Type::Subrange { base, .. } = &receiver_type {
+                                if method_name == "to_base" {
+                                    if !args.is_empty() {
+                                        return Err(CompileError::at(
+                                            self.current_span,
+                                            &format!(
+                                                "to_base takes no arguments, got {}",
+                                                args.len()
+                                            ),
+                                            ErrorCode::E0002,
+                                        ));
+                                    }
+                                    return Ok((**base).clone());
+                                }
+                            }
                             // ADR 0029: Nominal type instance conversion.
                             // `x.to_base()` where x has a Distinct type.
                             // Yields the base type; consumes the receiver
@@ -1277,6 +1294,13 @@ impl SemanticAnalyzer {
                 if let Type::Enum { .. } = &obj_ty {
                     if field == "to_ordinal" {
                         return Ok(Type::Int);
+                    }
+                }
+
+                // ADR 0031: Subrange extraction, no-parens form.
+                if let Type::Subrange { base, .. } = &obj_ty {
+                    if field == "to_base" {
+                        return Ok((**base).clone());
                     }
                 }
 

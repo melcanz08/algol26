@@ -107,7 +107,6 @@ tests/adversarial/4*
 tests/conformance/**/*
 !tests/conformance/**/
 !tests/conformance/**/*.gol
-!tests/conformance/**/*.gol
 !tests/conformance/**/*.sh
 !tests/conformance/**/*.md
 

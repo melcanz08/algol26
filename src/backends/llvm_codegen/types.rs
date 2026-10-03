@@ -46,6 +46,13 @@ impl<'ctx> IRCodeGen<'ctx> {
             // See ADR 0030.
             Type::Enum { .. } => self.context.i64_type().into(),
 
+            // A subrange has no runtime representation of its own;
+            // it lowers to its base (Int or an enum). The identity
+            // and the bounds are compile-time properties enforced
+            // by the analyzer's literal check and the runtime
+            // BoundsCheck instruction. See ADR 0031.
+            Type::Subrange { base, .. } => self.map_type(base),
+
             Type::List(inner) => {
                 // NOTE (Tier 2 follow-up): the current runtime
                 // representation of a list in `instruction.rs` is a

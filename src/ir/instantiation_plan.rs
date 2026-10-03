@@ -417,6 +417,10 @@ pub fn mangled_type_name(ty: &Type) -> String {
         // Two `enum Color` declarations in different modules must
         // mangle differently. See ADR 0030.
         Type::Enum { id, .. } => format!("Enum_{}", id.0),
+        // Subranges: mangle by identity, same reasoning. Two
+        // `type Percentage Int in 0..100` declarations in different
+        // modules are different types. See ADR 0031.
+        Type::Subrange { id, .. } => format!("Subrange_{}", id.0),
     }
 }
 

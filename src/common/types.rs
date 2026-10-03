@@ -24,6 +24,16 @@ pub struct NominalTypeId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EnumTypeId(pub u32);
 
+/// Subrange type identity. `type Percentage Int in 0..100` and
+/// `type WorkDay Day in Monday..Friday`. Identity is `id`; `name`,
+/// `base`, and the bounds are presentation / analysis. See ADR 0031.
+///
+/// `low` and `high` are inclusive. When `base` is `Type::Enum`,
+/// they are ordinals; the variant names are recovered from `base`
+/// at diagnostic time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SubrangeTypeId(pub u32);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     // Primitive types
@@ -99,6 +109,17 @@ pub enum Type {
         name: String,
         variants: Vec<String>,
     },
+    /// A subrange of an ordinal type. `low..high` is inclusive.
+    /// When `base` is `Type::Enum`, `low` and `high` are ordinals.
+    /// Identity is `id`; every other field is presentation or
+    /// analysis. See ADR 0031.
+    Subrange {
+        id: SubrangeTypeId,
+        name: String,
+        base: Box<Type>,
+        low: i64,
+        high: i64,
+    },
 }
 
 impl Type {
@@ -158,6 +179,18 @@ impl Type {
             id,
             name: name.to_string(),
             variants,
+        }
+    }
+
+    /// Construct a subrange type. `low..high` inclusive. When
+    /// `base` is `Type::Enum`, `low` and `high` are ordinals.
+    pub fn subrange(id: SubrangeTypeId, name: &str, base: Type, low: i64, high: i64) -> Self {
+        Type::Subrange {
+            id,
+            name: name.to_string(),
+            base: Box::new(base),
+            low,
+            high,
         }
     }
 
@@ -421,6 +454,12 @@ impl Type {
             // Enums are scalars. The variant is an integer ordinal;
             // copying it duplicates no state. See ADR 0030.
             Type::Enum { .. } => true,
+            // A subrange copies iff its base copies. Bases are
+            // restricted to Int and enums, both of which are Copy,
+            // so this is always true in practice — but recursing
+            // keeps the rule composable if a future ADR extends the
+            // set of base types.
+            Type::Subrange { base, .. } => base.is_copy(),
             _ => false,
         }
     }
@@ -491,6 +530,21 @@ impl Type {
             // ranges overlap; go through `Int` explicitly.
             (Type::Enum { .. }, Type::Int) => true,
             (Type::Int, Type::Enum { .. }) => true,
+
+            // Subrange conversions (ADR 0031). A subrange and its
+            // base share a runtime representation, so an explicit
+            // cast between them is a no-op. This is what the
+            // constructor `T(v)` and the extractor `.to_base()`
+            // lower to.
+            //
+            // Subrange-to-subrange is not allowed even when the
+            // intervals overlap; go through the base explicitly.
+            (Type::Subrange { base, .. }, target) if !matches!(target, Type::Subrange { .. }) => {
+                base.can_cast_to(target)
+            }
+            (source, Type::Subrange { base, .. }) if !matches!(source, Type::Subrange { .. }) => {
+                source.can_cast_to(base)
+            }
 
             // Default: no cast
             _ => false,
@@ -678,6 +732,8 @@ impl Type {
             Type::Record(_, args) => args.iter().any(|a| a.contains_type_var()),
             Type::Map(k, v) => k.contains_type_var() || v.contains_type_var(),
             Type::Distinct { base, .. } => base.contains_type_var(),
+            Type::Enum { .. } => false,
+            Type::Subrange { base, .. } => base.contains_type_var(),
             Type::Function {
                 params,
                 return_type,
@@ -707,6 +763,8 @@ impl Type {
             Type::Record(_, args) => args.iter().any(|a| a.contains_unknown()),
             Type::Map(k, v) => k.contains_unknown() || v.contains_unknown(),
             Type::Distinct { base, .. } => base.contains_unknown(),
+            Type::Enum { .. } => false,
+            Type::Subrange { base, .. } => base.contains_unknown(),
             Type::Function {
                 params,
                 return_type,
@@ -765,6 +823,25 @@ impl Type {
                 name: name.clone(),
                 base: Box::new(base.substitute(substitutions)),
             },
+            // Enums have no type arguments; identity and variants
+            // are fixed at registration.
+            Type::Enum { .. } => self.clone(),
+            // Same for subranges: low/high and identity are fixed.
+            // Only the base could carry a type variable (in theory);
+            // recursing keeps the rule uniform.
+            Type::Subrange {
+                id,
+                name,
+                base,
+                low,
+                high,
+            } => Type::Subrange {
+                id: *id,
+                name: name.clone(),
+                base: Box::new(base.substitute(substitutions)),
+                low: *low,
+                high: *high,
+            },
             Type::Function {
                 params,
                 return_type,
@@ -817,6 +894,8 @@ impl fmt::Display for Type {
             // print as ordinals; the name is not available at
             // runtime in v1. See ADR 0030.
             Type::Enum { name, .. } => name.clone(),
+            // Subranges print as their declared name. See ADR 0031.
+            Type::Subrange { name, .. } => name.clone(),
             Type::Pointer(t) => format!("*{}", t),
             Type::Borrow(t) => format!("Borrow<{}>", t),
             Type::MutBorrow(t) => format!("MutBorrow<{}>", t),

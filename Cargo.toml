@@ -34,3 +34,14 @@ proptest = "1.4"
 # signatures for no runtime gain: a compiler produces at most one
 # error per invocation before exiting.
 result_large_err = "allow"
+
+[profile.dev]
+debug = 0            # no DWARF; saves disk + speeds codegen
+incremental = true   # cache codegen between edits — the real win
+
+[profile.test]
+debug = 0
+incremental = true
+
+# Release stays at defaults (opt-level 3, no incremental).
+# Do NOT touch it — release is what you benchmark and ship.

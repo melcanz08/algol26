@@ -1,42 +1,43 @@
 # FFI soundness
 
-Tests in this directory exercise the **static** FFI boundary: which
-ALGOL26 types may cross an `extern "C"` declaration, and how call-site
-arity/variadics are enforced.
-
-They are run by `tests/soundness_runner.rs`, which executes:
+Tests in this directory exercise the **static** FFI boundary. They
+are run by `tests/soundness_runner.rs`, which executes:
 
     Compiler::build_semantic_ir_for(source)
       → build_cfgs_from_semantic_program
       → DataflowEngine::new(OwnershipTransfer).run_all
 
-That pipeline is **front-end only**. It has no LLVM backend, no
-linker, no runtime, and no heap model.
+That pipeline is **front-end only** — no LLVM, no linker, no runtime.
 
-## What is covered
+## What is actually enforced today
 
-- Composite types (`List<T>`, `Option<T>`) rejected at the boundary
-- References (`&T`, `&mut T`) rejected at the boundary
-- Nominal record types rejected at the boundary
-- Arity checking for non-variadic externs
-- Positive: scalar, pointer, string, and variadic call sites accepted
-
-See `docs/features/ffi.md` §"FFI type mapping" for the authoritative
-list of allowed and forbidden types.
-
-## What is **not** covered (and why)
-
-The following classes of FFI bug are **runtime properties** and
-cannot be detected by this runner. They remain an open gap:
-
-| Class | Why the runner can't see it | What would be needed |
+| Property | Test | Status |
 |---|---|---|
-| Double free across FFI | Ownership dataflow treats extern calls as opaque; no heap model | An ownership pass that understands `malloc`/`free` semantics, or a runtime harness with ASan |
-| Dangling pointer returned from C | The returned `*T` carries no region/lifetime information | Extend `SemanticProgram` to model FFI return lifetimes |
-| Struct layout mismatch through `void*` | The type checker only sees `*Unknown` | Cross-check with a C header, or a `#[repr(C)]`-style layout assertion |
-| `unsafe` enforcement at FFI call sites | Currently documented as "not enforced" in `docs/features/ffi.md` | See `ffi_unsafe_not_enforced.gol` below |
+| Arity checked for non-variadic externs | `arity_mismatch_rejected.gol` | ✅ enforced |
+| Variadic externs accept extra args | `variadic_extra_args_ok.gol` | ✅ enforced |
+| Scalar FFI (`Int`/`Float`/`Bool`) accepted | `scalar_argument_ok.gol` | ✅ enforced |
+| `String` maps to `char*` | `string_argument_ok.gol` | ✅ enforced |
 
-If/when any of the above become statically detectable, add tests
-here. If they become runtime-checkable, they belong in a separate
-`tests/ffi_runtime/` harness — *not* in this directory, because
-`soundness_runner.rs` will not run them.
+## Known gaps
+
+The following are **documented as enforced in `docs/features/ffi.md`
+but are not enforced in the analyzer today**. Each has a
+characterization test here pinning the buggy behavior. When the
+check lands, flip the test's `EXPECT:` line back to `REJECT`.
+
+- `List<T>` argument to an `extern "C"` function —
+  `list_argument_rejected.gol`
+- `Option<T>` argument — `option_argument_rejected.gol`
+- `&T` / `&mut T` argument — `reference_argument_rejected.gol`
+
+See [`docs/status/ffi-boundary.md`](../../../docs/status/ffi-boundary.md)
+for the diagnosis and the intended fix location
+(`src/semantics/analyzer/expr.rs`, extern call-site path).
+
+## What this runner cannot cover
+
+Runtime FFI properties — double-free, dangling pointers returned
+from C, layout mismatches through `void*` — are **not** testable
+here because the pipeline has no heap model, no linker, and no
+runtime. When those become checkable they belong in a separate
+`tests/ffi_runtime/` harness, not this directory.

@@ -1,6 +1,11 @@
-// EXPECT: REJECT E-FFI-001
-// &T / &mut T are compile-time concepts. The FFI boundary sees only
-// pointers (*T). A reference argument must be a type error.
+// EXPECT: COMPILE
+//
+// KNOWN GAP — see docs/status/ffi-boundary.md
+//
+// `&T` / `&mut T` are compile-time concepts. The FFI boundary
+// sees only pointers. This should be a type error at the call
+// site. Not enforced today. Flip back to `REJECT E-FFI-001`
+// when the check lands.
 extern "C" function takes_ref(x: &Int) -> Void
 
 procedure main

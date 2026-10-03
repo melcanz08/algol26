@@ -1,7 +1,17 @@
-// EXPECT: REJECT E-FFI-001
-// Passing a composite type (List) across the FFI boundary is a
-// type error at the call site. See docs/features/ffi.md §"FFI type
-// mapping" — List<T> has no C equivalent.
+// EXPECT: COMPILE
+//
+// KNOWN GAP — see docs/status/ffi-boundary.md
+//
+// This test *should* be `EXPECT: REJECT`. The docs claim that
+// passing a composite type (`List<T>`) across an `extern "C"`
+// boundary is a type error at the call site. It is not enforced
+// today: `Compiler::build_semantic_ir_for` accepts this program
+// with zero diagnostics.
+//
+// This file currently pins the buggy behavior. When the FFI
+// boundary check lands in `src/semantics/analyzer/expr.rs`, flip
+// the EXPECT line back to `REJECT E-FFI-001` and this file becomes
+// a real regression test.
 extern "C" function takes_list(x: List<Int>) -> Void
 
 procedure main

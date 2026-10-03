@@ -1,10 +1,7 @@
-// EXPECT: COMPILE
+// EXPECT: REJECT E-FFI-001
 //
-// KNOWN GAP — see docs/status/ffi-boundary.md
-//
-// `Option<T>` has no C equivalent and should be rejected at the
-// FFI boundary. Not enforced today. Flip back to
-// `REJECT E-FFI-001` when the check lands.
+// `Option<T>` has no C ABI representation. Rejected at declaration
+// site by the analyzer. See docs/status/ffi-boundary.md.
 extern "C" function takes_option(x: Option<Int>) -> Void
 
 procedure main

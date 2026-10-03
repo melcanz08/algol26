@@ -18,21 +18,17 @@ That pipeline is **front-end only** — no LLVM, no linker, no runtime.
 | Scalar FFI (`Int`/`Float`/`Bool`) accepted | `scalar_argument_ok.gol` | ✅ enforced |
 | `String` maps to `char*` | `string_argument_ok.gol` | ✅ enforced |
 
-## Known gaps
+## What is enforced
 
-The following are **documented as enforced in `docs/features/ffi.md`
-but are not enforced in the analyzer today**. Each has a
-characterization test here pinning the buggy behavior. When the
-check lands, flip the test's `EXPECT:` line back to `REJECT`.
+All FFI-boundary checks below are enforced at **declaration site**
+by `src/semantics/analyzer/items.rs` in `analyze_function`:
 
-- `List<T>` argument to an `extern "C"` function —
-  `list_argument_rejected.gol`
-- `Option<T>` argument — `option_argument_rejected.gol`
-- `&T` / `&mut T` argument — `reference_argument_rejected.gol`
+- `List<T>`, `Option<T>`, `Map<K,V>`, `Result<T,E>`, `Record`, `Array`,
+  `Tuple`, `Channel<T>` — rejected as FFI parameter or return types
+- `&T`, `&mut T` — rejected (references are compile-time only)
+- `Void` as a parameter — rejected (`Void` is only valid in return position)
 
-See [`docs/status/ffi-boundary.md`](../../../docs/status/ffi-boundary.md)
-for the diagnosis and the intended fix location
-(`src/semantics/analyzer/expr.rs`, extern call-site path).
+See `docs/status/ffi-boundary.md` for the closing note on this gap.
 
 ## What this runner cannot cover
 

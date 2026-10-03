@@ -95,13 +95,13 @@ Types that **cannot** cross the FFI boundary:
   boundary sees only pointers.
 - `Tuple`, `Array<T, N>` — no C equivalent.
 
-Passing a forbidden type to an `extern` function **should** be a type
-error at the call site. **This is not enforced today** — see
-[`../status/ffi-boundary.md`](../status/ffi-boundary.md) for the gap,
-the characterization tests that pin it, and the intended fix. The
-existing `test_ffi_type_validation` in `src/ffi/lowering.rs` covers
-only the hardcoded `Math.*` registry; it does not exercise user
-`extern "C"` declarations.
+Passing a forbidden type to an `extern` function is rejected at
+**declaration site**: `analyze_function` in
+`src/semantics/analyzer/items.rs` calls
+`Type::is_ffi_compatible` on every parameter and on the return type,
+and emits `E-FFI-001` for any type without a C ABI representation.
+The `test_ffi_type_validation` in `src/ffi/lowering.rs` still covers
+the hardcoded `Math.*` registry independently.
 
 ### Variadic declarations
 

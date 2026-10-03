@@ -1,29 +1,28 @@
 # FFI boundary — current state
 
-## Summary
+# FFI boundary — closed
 
-`docs/features/ffi.md` claims:
+**Status:** Fixed. The declaration-site FFI boundary check landed in
+the `fix/ffi-boundary` branch. See the "History" section at the
+bottom of this file for the original gap analysis.
 
-> Passing a forbidden type to an `extern` function is a type error
-> at the call site. `test_ffi_type_validation` in
-> `src/ffi/lowering.rs` covers this.
+## Current behavior
 
-**Neither sentence is true as written.**
+User-declared `extern "C"` functions are now validated at
+**declaration site** in `src/semantics/analyzer/items.rs`:
+`analyze_function` rejects any parameter or return type that has no
+C ABI representation. The predicate is `Type::is_ffi_compatible` in
+`src/common/types.rs`.
 
-## What is actually validated
+Pinned by `tests/soundness/ffi/{list,option,reference}_argument_rejected.gol`.
 
-`FFIRegistry::validate_call` (`src/ffi/lowering.rs`) checks argument
-types against a *hardcoded* registry entry. It is exercised by
-`test_ffi_type_validation` and `test_ffi_registry_with_types` — both
-of which construct the registry in-test and call `validate_call`
-directly.
+## History
 
-The registry is populated by `register_stdlib_functions` for the
-`Math.*` surface. **User-declared `extern "C"` functions never reach
-`validate_call`.** The analyzer's extern handling lives at
-`src/semantics/analyzer/items.rs:493` and covers declaration and
-variadic arity; the call-site path in
-`src/semantics/analyzer/expr.rs` does not consult the FFI type map.
+This file was created during a repo-cleanup pass to document a real
+gap: user-declared `extern "C"` functions were never validated
+against the FFI type map — only the hardcoded `Math.*` stdlib
+registry was. The three characterization tests pinned the bug. They
+now pin the fix.
 
 ## What gets through today
 

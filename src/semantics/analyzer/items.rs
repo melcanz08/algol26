@@ -491,6 +491,61 @@ impl SemanticAnalyzer {
     }
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
         if func.is_extern {
+            // Declaration-site FFI boundary check. A signature no
+            // caller could legally use is rejected here — this is
+            // strictly better than a call-site check because it
+            // catches the bug once, at its source, with a message
+            // that points at the declaration rather than an
+            // arbitrary call.
+            //
+            // See docs/status/ffi-boundary.md.
+            for (name, type_annotation) in &func.params {
+                let ty = match type_annotation {
+                    Some(annot) => self.resolve_type_syntax(annot)?,
+                    None => Type::Unknown,
+                };
+                if !ty.is_ffi_compatible() || matches!(ty, Type::Void) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "E-FFI-001: extern \"C\" parameter '{}' has type `{}`, \
+                             which cannot cross the FFI boundary",
+                            name, ty
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "FFI-compatible parameter types are Int, Float, Bool, \
+                         String, Ptr, and *T. Composite types (List, Option, \
+                         Record, Map, Array, Tuple) and references (&T, &mut T) \
+                         have no C ABI representation.",
+                    ));
+                }
+            }
+
+            if let Some(ret_annot) = &func.return_type {
+                let ret = self.resolve_type_syntax(ret_annot)?;
+                if !ret.is_ffi_compatible() {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "E-FFI-001: extern \"C\" return type `{}` cannot \
+                             cross the FFI boundary",
+                            ret
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "FFI-compatible return types are Int, Float, Bool, \
+                         String, Ptr, *T, and Void.",
+                    ));
+                }
+            }
+
             return Ok(());
         }
         self.push_scope();

@@ -214,6 +214,11 @@ pub(super) fn scan_instruction(
         // `Feature::RawMemory` on their own — regions themselves
         // do not need a feature gate.
         Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => {}
+        // ADR 0031: BoundsCheck is transparent to the capability
+        // matrix. The value's own features (if any — subrange
+        // construction only accepts Int or enum arguments) are
+        // scanned; the check itself introduces no feature.
+        Instruction::BoundsCheck { value, .. } => scan_value(value, extern_fns, used),
         Instruction::Nop => {}
     }
 }

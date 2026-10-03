@@ -365,5 +365,27 @@ pub(super) fn verify_instruction(
         // interpreter at runtime (or by the LLVM codegen treating
         // both as no-ops).
         Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => Ok(()),
+        // ADR 0031: BoundsCheck. The value must be an Int or an enum
+        // (both erase to i64 at runtime). Out-of-range at runtime is
+        // the whole point of the check; the verifier only confirms
+        // the operand is the right shape.
+        Instruction::BoundsCheck {
+            value, low, high, ..
+        } => {
+            if *low > *high {
+                return Err(format!(
+                    "Function '{}': BoundsCheck has low > high ({}..{})",
+                    func.name, low, high
+                ));
+            }
+            let v_ty = verify_value(value, env)?;
+            match v_ty {
+                Type::Int | Type::Enum { .. } | Type::Unknown => Ok(()),
+                other => Err(format!(
+                    "Function '{}': BoundsCheck value must be Int or an enum, found {:?}",
+                    func.name, other
+                )),
+            }
+        }
     }
 }

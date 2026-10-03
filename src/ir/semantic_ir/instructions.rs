@@ -89,4 +89,20 @@ pub enum Instruction {
     RegionExit {
         name: String,
     },
+    /// ADR 0031: subrange bounds check. `value` is evaluated; if it
+    /// falls outside `low..high` (inclusive), `message` is printed
+    /// and the enclosing function returns (or, in the interpreter,
+    /// evaluation fails with `EvalError::Runtime`). Emitted by the
+    /// IR builder for non-literal subrange construction where the
+    /// analyzer cannot range-check at compile time.
+    ///
+    /// At runtime the value is an `Int` for Int-based subranges and
+    /// the enum's ordinal (`i64`) for enum-based subranges. Both
+    /// reach the check as integers.
+    BoundsCheck {
+        value: TypedIRValue,
+        low: i64,
+        high: i64,
+        message: String,
+    },
 }

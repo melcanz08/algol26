@@ -271,6 +271,13 @@ fn format_instruction(out: &mut String, instr: &Instruction) {
         Instruction::RegionExit { name } => {
             write!(out, "}} // end region {}", name).unwrap();
         }
+        Instruction::BoundsCheck {
+            value, low, high, ..
+        } => {
+            out.push_str("bounds_check(");
+            format_value(out, value);
+            write!(out, ", {}..{})", low, high).unwrap();
+        }
     }
 }
 

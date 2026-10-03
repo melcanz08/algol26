@@ -280,6 +280,20 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
                             }
                         }
                     }
+                    I::BoundsCheck { value, .. } => {
+                        // ADR 0031: reading the value counts as a
+                        // use. Same shape as the Print arm — the
+                        // check reads but does not consume.
+                        if let Some(var_name) = extract_var_name(value) {
+                            instrs.push(CfgInstruction::Use { name: var_name });
+                        } else {
+                            let mut vars = Vec::new();
+                            collect_all_vars(value, &mut vars);
+                            for v in vars {
+                                instrs.push(CfgInstruction::Use { name: v });
+                            }
+                        }
+                    }
                     I::Nop => instrs.push(CfgInstruction::Nop),
                 }
             }

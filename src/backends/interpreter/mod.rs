@@ -293,6 +293,27 @@ impl Interpreter {
                 let val = self.eval_value(value)?;
                 self.output.push(val.display());
             }
+            Instruction::BoundsCheck {
+                value,
+                low,
+                high,
+                message,
+            } => {
+                let v = self.eval_value(value)?;
+                let n = match v {
+                    RuntimeValue::Int(i) => i,
+                    other => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "BoundsCheck",
+                            left: runtime::runtime_kind(&other),
+                            right: "Int",
+                        });
+                    }
+                };
+                if n < *low || n > *high {
+                    return Err(EvalError::Runtime(message.clone()));
+                }
+            }
             Instruction::Call { func, args, result } => {
                 let val = self.eval_call(func, args)?;
                 if let Some(res_name) = result {

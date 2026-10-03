@@ -773,6 +773,34 @@ impl SemanticIRBuilder {
                         } else {
                             TypedIRValue::Void
                         };
+                        // ADR 0031 A5: emit a runtime bounds check for
+                        // non-literal arguments. The analyzer already
+                        // range-checked literals at compile time.
+                        if let Type::Subrange {
+                            name: sr_name,
+                            low,
+                            high,
+                            ..
+                        } = &subrange
+                        {
+                            let is_literal = args.first().is_some_and(|a| {
+                                matches!(a.kind, crate::frontend::ast::ExprKind::Int(_, _))
+                            });
+                            if !is_literal {
+                                let message =
+                                    format!("{}: value out of range {}..{}", sr_name, low, high);
+                                self.safe_push_instruction(
+                                    func,
+                                    current_block,
+                                    SemanticInstruction::BoundsCheck {
+                                        value: inner.clone(),
+                                        low: *low,
+                                        high: *high,
+                                        message,
+                                    },
+                                );
+                            }
+                        }
                         return TypedIRValue::Cast {
                             value: Box::new(inner),
                             target_type: subrange,

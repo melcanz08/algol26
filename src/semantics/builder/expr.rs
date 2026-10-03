@@ -630,7 +630,22 @@ impl SemanticIRBuilder {
                 }
             }
             ExprKind::Number(n, _) => TypedIRValue::Float(*n),
-            ExprKind::Int(i, _) => TypedIRValue::Int(*i),
+            ExprKind::Int(i, _) => {
+                // ADR 0031: literal coercion into a subrange. The
+                // analyzer recorded the subrange type for this
+                // expression when the surrounding context demanded
+                // it (`val q: Percentage := 50`). Wrap the literal
+                // in a Cast so the IR sees the correct type — same
+                // shape as the nominal from_base and subrange T(v)
+                // intercepts produce.
+                match self.type_of_expr(expr) {
+                    Some(ty @ Type::Subrange { .. }) => TypedIRValue::Cast {
+                        value: Box::new(TypedIRValue::Int(*i)),
+                        target_type: ty,
+                    },
+                    _ => TypedIRValue::Int(*i),
+                }
+            }
             ExprKind::String(s, _) => TypedIRValue::String(s.clone()),
             ExprKind::Bool(b, _) => TypedIRValue::Bool(*b),
             ExprKind::Var(name, span) => {
@@ -745,6 +760,25 @@ impl SemanticIRBuilder {
             },
             ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
+
+                // ADR 0031: subrange construction. `Percentage(75)`.
+                // The callee is a bare identifier, not a dotted name.
+                // Emit a Cast that carries the subrange type; the
+                // runtime bounds check (A5) will be inserted
+                // separately for non-literal arguments.
+                if !clean_name.contains('.') {
+                    if let Some(subrange) = self.subrange_types.get(clean_name).cloned() {
+                        let inner = if let Some(arg) = args.first() {
+                            self.translate_expr(program, func, current_block, arg)
+                        } else {
+                            TypedIRValue::Void
+                        };
+                        return TypedIRValue::Cast {
+                            value: Box::new(inner),
+                            target_type: subrange,
+                        };
+                    }
+                }
 
                 // ADR 0029/0030: conversion intrinsics. Each lowers
                 // to a no-op Cast that carries the target type.

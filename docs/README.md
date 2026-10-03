@@ -40,16 +40,25 @@ the claim or back it.
 One file per language feature, under `features/`. Each describes the
 feature's syntax, typing, ownership, IR representation, backend
 support, and test coverage. They are the checklist for adding or
-modifying a feature — see `architecture-direction.md` for the
-rationale.
+modifying a feature — see `architecture-direction.md` for the rationale.
 
-| File | Feature |
-|------|---------|
-| `features/option.md` | `Option<T>` |
-| `features/result.md` | `Result<T, E>` |
+There are currently 21 contracts; see the directory for the full list.
 
 Contract files are updated alongside the code they describe. A
 feature change that does not update its contract is incomplete.
+
+### Subsystem investigations
+
+**Live, in-progress.** Focused notes about a single subsystem,
+narrower than `STATUS.md`. When an investigation concludes, its
+outcome is folded into `STATUS.md` (and the corresponding
+`features/<name>.md` or `decisions/NNNN-*.md` updated if the
+decision changed), and the file here is either updated or archived.
+
+| File | Subsystem | State |
+|------|-----------|-------|
+| `status/diagnostics.md` | Diagnostics & spans | Investigation (Phase 0) |
+| `status/ffi-boundary.md` | FFI static boundary | Gap documented, fix pending |
 
 ### ADR — Architecture Decision Records
 
@@ -57,17 +66,9 @@ feature change that does not update its contract is incomplete.
 If a decision changes, write a new ADR that supersedes it; do not edit
 the old one.
 
-| File | Decision |
-|------|----------|
-| `decisions/0001-significant-indentation.md` | Indentation as syntax |
-| `decisions/0002-file-extension.md` | `.gol` file extension |
-| `decisions/0003-type-system.md` | Static types with inference |
-| `decisions/0004-memory-model.md` | No garbage collector |
-| `decisions/0005-ownership-model.md` | Move and borrow semantics |
-| `decisions/0006-immutability.md` | `val` by default |
-| `decisions/0007-region-memory.md` | Region-based allocation |
-| `decisions/0008-concurrency-model.md` | `spawn` and `parallel` |
-| `decisions/0009-unsafe.md` | Unsafe blocks and FFI |
+See [`decisions/README.md`](decisions/README.md) for the full index.
+The range is 0001–0032, with a few gaps where a planned decision was
+folded into another.
 
 ### Release notes
 

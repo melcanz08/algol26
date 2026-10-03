@@ -365,6 +365,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // cast is a no-op. No runtime bounds check in v1;
                     // the analyzer rejects out-of-range literals.
                     (BasicValueEnum::IntValue(_), Type::Enum { .. }) => v,
+                    // ADR 0031: subrange wrap/unwrap. `map_type`
+                    // unwraps Subrange to its base, so the LLVM value
+                    // is always an i64 for Int and enum bases. Both
+                    // directions are no-ops at the LLVM level. The
+                    // runtime bounds check is a separate instruction
+                    // (BoundsCheck); it fires before this cast on the
+                    // construct path.
+                    (BasicValueEnum::IntValue(_), Type::Subrange { .. }) => v,
                     // ADR 0029: nominal wrap/unwrap. The nominal and
                     // its base share the same runtime representation,
                     // so the cast is a no-op. The inner value's LLVM

@@ -390,6 +390,20 @@ pub struct EnumDecl {
     pub span: Span,
 }
 
+/// A subrange type. `type Percentage Int in 0..100` or
+/// `type WorkDay Day in Monday..Friday`. Bounds are written as
+/// expressions so the analyzer can validate their shape (Int
+/// literals for Int bases, variant-name `Var` nodes for enum
+/// bases) and produce targeted diagnostics. See ADR 0031.
+#[derive(Clone, Debug)]
+pub struct SubrangeDecl {
+    pub name: String,
+    pub base: TypeSyntax,
+    pub low: Expr,
+    pub high: Expr,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug)]
 pub struct MatchCaseExpr {
     pub pattern: Pattern,
@@ -560,4 +574,5 @@ pub struct Program {
     pub records: Vec<RecordDecl>,
     pub distinct_decls: Vec<DistinctDecl>,
     pub enum_decls: Vec<EnumDecl>,
+    pub subrange_decls: Vec<SubrangeDecl>,
 }

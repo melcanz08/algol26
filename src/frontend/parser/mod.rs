@@ -2,6 +2,7 @@
 
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::span::Span;
+use crate::frontend::ast::SubrangeDecl;
 use crate::frontend::ast::{
     BinOp, DistinctDecl, EnumDecl, Expr, ExprKind, ExternDecl, FunctionDecl, ImplBlock,
     MatchCaseExpr, Pattern, Program, RecordDecl, Stmt, TraitDecl, TraitMethod, TypeSyntax, UnaryOp,

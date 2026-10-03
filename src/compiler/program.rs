@@ -24,6 +24,9 @@ pub struct AstPayload {
     /// Enum declarations (`enum Name ...`). Consumed by the
     /// analyzer in A3. See ADR 0030.
     pub enums: Vec<crate::frontend::ast::EnumDecl>,
+    /// Subrange declarations (`type Name Base in Low..High`).
+    /// See ADR 0031.
+    pub subranges: Vec<crate::frontend::ast::SubrangeDecl>,
 }
 
 /// ADR 0017. The pipeline's IR representation. Exactly one of

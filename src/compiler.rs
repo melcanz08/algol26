@@ -42,6 +42,7 @@ pub struct ParsedProgram {
     pub records: Vec<crate::frontend::ast::RecordDecl>,
     pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
     pub enums: Vec<crate::frontend::ast::EnumDecl>,
+    pub subranges: Vec<crate::frontend::ast::SubrangeDecl>,
     pub imports: Vec<String>,
 }
 
@@ -368,6 +369,7 @@ impl Compiler {
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
+            subranges: prep.parsed.subranges.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -416,6 +418,7 @@ impl Compiler {
             records: parsed.records,
             distincts: parsed.distincts,
             enums: parsed.enums,
+            subranges: parsed.subranges,
             imports: parsed.imports,
         };
 
@@ -480,6 +483,7 @@ impl Compiler {
             records: parsed.records.clone(),
             distincts: parsed.distincts.clone(),
             enums: parsed.enums.clone(),
+            subranges: parsed.subranges.clone(),
         });
         let mut ctx = CompilerContext::new(CompilerConfig::default());
 
@@ -545,6 +549,7 @@ impl Compiler {
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
+            subranges: prep.parsed.subranges.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
@@ -670,6 +675,7 @@ impl Compiler {
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
+            subranges: prep.parsed.subranges.clone(),
         });
 
         // ADR 0018: one canonical pipeline. All passes run to
@@ -750,6 +756,7 @@ impl Compiler {
             records: parsed.records.clone(),
             distincts: parsed.distincts.clone(),
             enums: parsed.enums.clone(),
+            subranges: parsed.subranges.clone(),
             imports: parsed.imports.clone(),
         }
     }
@@ -771,6 +778,7 @@ impl Compiler {
             records: parsed.records.clone(),
             distincts: parsed.distincts.clone(),
             enums: parsed.enums.clone(),
+            subranges: parsed.subranges.clone(),
             imports: parsed.imports.clone(),
         }
     }
@@ -785,6 +793,7 @@ impl Compiler {
             records: program.records,
             distincts: program.distinct_decls,
             enums: program.enum_decls,
+            subranges: program.subrange_decls,
             imports: program.imports,
         })
     }
@@ -794,6 +803,7 @@ impl Compiler {
         let mut all_records = parsed.records.clone();
         let mut all_distincts = parsed.distincts.clone();
         let mut all_enums = parsed.enums.clone();
+        let mut all_subranges = parsed.subranges.clone();
         let mut visited: HashSet<PathBuf> = HashSet::new();
 
         // Collect every import this file names: top-level declarations
@@ -819,6 +829,7 @@ impl Compiler {
                 &mut all_records,
                 &mut all_distincts,
                 &mut all_enums,
+                &mut all_subranges,
                 &mut visited,
             )?;
         }
@@ -830,6 +841,7 @@ impl Compiler {
             records: all_records,
             distincts: all_distincts,
             enums: all_enums,
+            subranges: all_subranges,
             imports: parsed.imports.clone(),
         })
     }
@@ -853,6 +865,7 @@ impl Compiler {
         all_records: &mut Vec<RecordDecl>,
         all_distincts: &mut Vec<crate::frontend::ast::DistinctDecl>,
         all_enums: &mut Vec<crate::frontend::ast::EnumDecl>,
+        all_subranges: &mut Vec<crate::frontend::ast::SubrangeDecl>,
         visited: &mut HashSet<PathBuf>,
     ) -> Result<()> {
         // Resolve, then canonicalize. `resolve_import` joins relative
@@ -923,6 +936,11 @@ impl Compiler {
                     all_enums.push(e);
                 }
             }
+            for s in imported.subrange_decls {
+                if !all_subranges.iter().any(|x| x.name == s.name) {
+                    all_subranges.push(s);
+                }
+            }
 
             // Recurse. The `current_file` for nested imports is this
             // file's canonical path, so its imports resolve relative to
@@ -937,6 +955,7 @@ impl Compiler {
                     all_records,
                     all_distincts,
                     all_enums,
+                    all_subranges,
                     visited,
                 )?;
             }
@@ -1012,6 +1031,7 @@ impl Compiler {
             records: prep.parsed.records.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
+            subranges: prep.parsed.subranges.clone(),
         });
 
         let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;

@@ -11,6 +11,7 @@ impl Parser {
         let mut records = Vec::new(); // NEW
         let mut distinct_decls = Vec::new();
         let mut enum_decls = Vec::new();
+        let mut subrange_decls = Vec::new();
 
         while !matches!(self.peek(), Token::Eof) {
             if matches!(self.peek(), Token::Trait) {
@@ -21,7 +22,15 @@ impl Parser {
                 // NEW
                 records.push(self.parse_record_decl()?); // NEW
             } else if matches!(self.peek(), Token::Identifier(s) if s == "type") {
-                distinct_decls.push(self.parse_distinct_decl()?);
+                // `type Name distinct Base` or `type Name Base in Low..High`.
+                // Peek two tokens ahead (past `type` and the name) to
+                // disambiguate.
+                let after_name = self.tokens.get(self.pos + 2).map(|ti| &ti.token);
+                if matches!(after_name, Some(Token::Identifier(s)) if s == "distinct") {
+                    distinct_decls.push(self.parse_distinct_decl()?);
+                } else {
+                    subrange_decls.push(self.parse_subrange_decl()?);
+                }
             } else if matches!(self.peek(), Token::Identifier(s) if s == "enum") {
                 enum_decls.push(self.parse_enum_decl()?);
             } else if matches!(
@@ -54,7 +63,73 @@ impl Parser {
             records, // NEW
             distinct_decls,
             enum_decls,
+            subrange_decls,
         })
+    }
+
+    /// Parse `type Name Base in Low..High`. Consumes the leading
+    /// `type` identifier.
+    ///
+    /// `Base` is a type annotation (`Int` or an enum name). `Low`
+    /// and `High` are single atoms — an Int literal or an
+    /// identifier — because bounds are restricted to literals and
+    /// variant names. Writing a full expression as a bound is
+    /// rejected at parse time with a clear message.
+    ///
+    /// The `distinct` path is chosen by the caller
+    /// (`parse_program`) via a two-token lookahead; this method
+    /// assumes the distinct form did not match.
+    pub(super) fn parse_subrange_decl(&mut self) -> Result<SubrangeDecl> {
+        let start_span = self.current_span();
+
+        // Consume `type` (an Identifier, not a reserved keyword).
+        self.advance();
+
+        let name = self.expect_identifier("type name")?;
+        let base = self.parse_type_syntax()?;
+
+        // `in` is a reserved token (`for x in list`). If we're not
+        // looking at `in` here, the user either wrote `type X Int`
+        // (an alias, not yet supported) or made a mistake. Name both
+        // legal forms so the diagnostic is actionable regardless of
+        // which one they intended.
+        if !matches!(self.peek(), Token::In) {
+            return Err(self.error(&format!(
+                "expected `distinct` (for a nominal type) or `in` \
+                 (for a subrange) after the base type of '{}'",
+                name
+            )));
+        }
+        self.advance();
+
+        let low = self.parse_subrange_bound()?;
+        if !matches!(self.peek(), Token::DotDot) {
+            return Err(self.error("expected `..` between subrange bounds"));
+        }
+        self.advance();
+        let high = self.parse_subrange_bound()?;
+
+        Ok(SubrangeDecl {
+            name,
+            base,
+            low,
+            high,
+            span: self.span_from(start_span),
+        })
+    }
+
+    /// A single subrange bound. Int literals and identifiers only;
+    /// anything else is an error. See `parse_subrange_decl`.
+    fn parse_subrange_bound(&mut self) -> Result<Expr> {
+        let span = self.current_span();
+        match self.advance() {
+            Token::IntLit(n) => Ok(Expr::new(ExprKind::Int(n, span))),
+            Token::Identifier(name) => Ok(Expr::new(ExprKind::Var(name, span))),
+            other => Err(self.error(&format!(
+                "subrange bound must be an integer literal or an enum variant name, found {:?}",
+                other
+            ))),
+        }
     }
 
     /// Parse `enum Name` followed by one variant per indented line.

@@ -298,6 +298,7 @@ fn type_check_pass_agrees_with_direct_call() {
             records: parsed.records.clone(),
             distincts: parsed.distincts.clone(),
             enums: parsed.enums.clone(),
+            subranges: parsed.subranges.clone(),
         });
         pass.run(&mut ctx, &mut program)
             .unwrap_or_else(|e| panic!("type_check pass failed on {}: {:?}", filename, e));

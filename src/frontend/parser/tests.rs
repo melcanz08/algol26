@@ -451,7 +451,14 @@ fn rejects_alias_without_distinct() {
     let lexer = Lexer::new(src.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let err = parser.parse_program().expect_err("should reject");
-    assert!(err.message.contains("distinct"), "{}", err.message);
+    // After ADR 0031, `type X Base` without a separator could be an
+    // alias (unsupported) or a subrange missing its `in`. The parser
+    // names both possibilities.
+    assert!(
+        err.message.contains("distinct") && err.message.contains("in"),
+        "expected a message naming both forms, got: {}",
+        err.message
+    );
 }
 
 // ─── Enum types (ADR 0030 A2) ────────────────────────────────────
@@ -481,4 +488,34 @@ fn rejects_empty_enum() {
         "{}",
         err.message
     );
+}
+
+// ─── Subrange types (ADR 0031 A2) ────────────────────────────────
+
+#[test]
+fn parses_subrange_declaration_with_int_bounds() {
+    let src = "type Percentage Int in 0..100\n";
+    let lexer = Lexer::new(src.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parse failed");
+    assert_eq!(program.subrange_decls.len(), 1);
+    let decl = &program.subrange_decls[0];
+    assert_eq!(decl.name, "Percentage");
+    assert!(matches!(decl.base, TypeSyntax::Named(ref n) if n == "Int"));
+    assert!(matches!(decl.low.kind, ExprKind::Int(0, _)));
+    assert!(matches!(decl.high.kind, ExprKind::Int(100, _)));
+}
+
+#[test]
+fn parses_subrange_declaration_with_enum_bounds() {
+    let src = "enum Day\n    Monday\n    Sunday\n\ntype WorkDay Day in Monday..Sunday\n";
+    let lexer = Lexer::new(src.to_string()).unwrap();
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parse failed");
+    assert_eq!(program.subrange_decls.len(), 1);
+    let decl = &program.subrange_decls[0];
+    assert_eq!(decl.name, "WorkDay");
+    assert!(matches!(decl.base, TypeSyntax::Named(ref n) if n == "Day"));
+    assert!(matches!(&decl.low.kind, ExprKind::Var(n, _) if n == "Monday"));
+    assert!(matches!(&decl.high.kind, ExprKind::Var(n, _) if n == "Sunday"));
 }

@@ -1,0 +1,15 @@
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+    Thursday
+    Friday
+    Saturday
+    Sunday
+
+type WorkDay Day in Monday..Friday
+
+procedure main
+    val d := WorkDay(Day.from_ordinal(2))
+    val base := d.to_base()
+    print base.to_ordinal()

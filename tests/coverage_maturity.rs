@@ -114,6 +114,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("map", Maturity::InterpreterOnly),
     ("list_append", Maturity::InterpreterOnly),
     ("enum_types", Maturity::InterpreterOnly),
+    ("subrange_types", Maturity::AllBackends),
     ("nominal_types", Maturity::AllBackends),
     // option / result
     ("option", Maturity::InterpreterOnly),

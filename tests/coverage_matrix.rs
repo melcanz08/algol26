@@ -493,6 +493,15 @@ pub const MATRIX: &[FeatureRow] = &[
                 selection. Same shape as `records` and `map`.",
     },
     FeatureRow {
+        name: "subrange_types",
+        conformance_dir: Some("subrange_types"),
+        interpreter: Support::Full,
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "",
+    },
+    FeatureRow {
         name: "nominal_types",
         conformance_dir: Some("nominal_types"),
         interpreter: Support::Full,

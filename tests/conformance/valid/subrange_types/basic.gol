@@ -1,0 +1,7 @@
+type Percentage Int in 0..100
+
+procedure main
+    val p := Percentage(75)
+    val q: Percentage := 50
+    print p.to_base()
+    print q.to_base

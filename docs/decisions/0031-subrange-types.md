@@ -2,7 +2,17 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+Accepted. A1-A7 implemented.
+
+Subranges over Int and user enums work end-to-end on all three
+backends. Literal bounds are checked at compile time; non-literal
+bounds check at runtime via `Instruction::BoundsCheck`. Extraction
+is `.to_base()` (parens and no-parens). Arithmetic on subranges is
+deliberately rejected — see design question 6.
+
+Deferred to a follow-up: trait-based checked arithmetic
+(`Add` for a subrange returning `Result<T, RangeError>`), and a
+`try_from_ordinal`-style non-panicking construction.
 
 ## Context
 

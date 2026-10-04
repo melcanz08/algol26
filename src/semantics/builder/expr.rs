@@ -1636,6 +1636,23 @@ impl SemanticIRBuilder {
                 TypedIRValue::List(vec![start_val, end_val], elem_type)
             }
             ExprKind::FieldAccess { object, field, .. } => {
+                // ADR 0032 (A4): qualified enum variant value.
+                // `Day.Saturday` has no object to translate — `Day`
+                // is a type name. Emit the variant's ordinal as a
+                // constant wrapped in a Cast to the enum type, which
+                // is the same shape `Day.from_ordinal(5)` produces.
+                if let ExprKind::Var(name, _) = &object.as_ref().kind {
+                    if let Some(enum_ty) = self.enum_types.get(name).cloned() {
+                        if let Type::Enum { variants, .. } = &enum_ty {
+                            if let Some(ordinal) = variants.iter().position(|v| v == field) {
+                                return TypedIRValue::Cast {
+                                    value: Box::new(TypedIRValue::Int(ordinal as i64)),
+                                    target_type: enum_ty,
+                                };
+                            }
+                        }
+                    }
+                }
                 let obj = self.translate_expr(program, func, current_block, object);
                 let obj_ty = obj.type_of();
 

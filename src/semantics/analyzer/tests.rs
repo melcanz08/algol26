@@ -21,9 +21,9 @@ fn analyze(source: &str) -> Result<()> {
         &program.traits,
         &program.impls,
         &program.records,
-        &[],
-        &[],
-        &[],
+        &program.distinct_decls,
+        &program.enum_decls,
+        &program.subrange_decls,
     )
 }
 
@@ -815,9 +815,9 @@ fn analyze_source(source: &str) -> Result<()> {
         &program.traits,
         &program.impls,
         &program.records,
-        &[],
-        &[],
-        &[],
+        &program.distinct_decls,
+        &program.enum_decls,
+        &program.subrange_decls,
     )
 }
 
@@ -1175,4 +1175,34 @@ procedure main
             print(0)
 "#;
     analyze(source).expect("Option<Sale> should resolve the record inside the generic");
+}
+
+#[test]
+fn enum_variant_value_has_enum_type() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+    Saturday
+
+procedure main
+    val d := Day.Saturday
+end
+"#;
+    analyze(source).expect("Day.Saturday should type-check");
+}
+
+#[test]
+fn enum_variant_unknown_name_rejected() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+
+procedure main
+    val d := Day.NotAVariant
+end
+"#;
+    let result = analyze(source);
+    assert!(result.is_err(), "Day.NotAVariant should be rejected");
 }

@@ -1288,6 +1288,32 @@ impl SemanticAnalyzer {
                 Ok(Type::list(start_type.common_supertype(&end_type)))
             }
             ExprKind::FieldAccess { object, field, .. } => {
+                // ADR 0032 (A4): qualified enum variant value.
+                // `Day.Saturday` where `Day` is a registered enum and
+                // `Saturday` names one of its variants. The parser
+                // produces `FieldAccess { Var("Day"), "Saturday" }`;
+                // recognize it before recursing into `object`, which
+                // would fail because `Day` is a type name, not a value.
+                if let ExprKind::Var(name, _) = &object.as_ref().kind {
+                    if let Some(enum_ty) = self.enum_types.get(name).cloned() {
+                        if let Type::Enum { variants, .. } = &enum_ty {
+                            if variants.iter().any(|v| v == field) {
+                                // The `object` sub-expression is a type
+                                // name, not a value. Record the enum type
+                                // for it so the type-table completeness
+                                // check is satisfied — this is the type
+                                // the name *refers to*, even though it
+                                // is not a runtime value.
+                                self.type_table_id.insert(object.id, enum_ty.clone());
+                                return Ok(enum_ty);
+                            }
+                            // If the name is an enum but the field is
+                            // not a variant, fall through so the
+                            // existing error path reports the mismatch.
+                        }
+                    }
+                }
+
                 let obj_ty = self.analyze_expr(object)?;
 
                 // ADR 0030: Enum ordinal extraction, no-parens form.

@@ -1,0 +1,16 @@
+// ADR 0032 (A4): qualified enum variant values.
+// `Day.Saturday` is an expression of type `Day`, equivalent
+// at runtime to `Day.from_ordinal(5)` but statically checked.
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+    Thursday
+    Friday
+    Saturday
+    Sunday
+
+procedure main
+    val weekend := Day.Saturday
+    val weekday := Day.Monday
+end

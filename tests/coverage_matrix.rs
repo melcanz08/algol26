@@ -476,7 +476,7 @@ pub const MATRIX: &[FeatureRow] = &[
     },
     FeatureRow {
         name: "enum_types",
-        conformance_dir: None,
+        conformance_dir: Some("enum_types"),
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,

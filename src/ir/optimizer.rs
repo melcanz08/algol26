@@ -636,7 +636,13 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
         TypedIRValue::FieldAccess { object, .. } => {
             collect_variables_from_value(object, vars);
         }
-
+        // ADR 0032 A5d-runtime: a set singleton's element is a use
+        // of whatever the element expression references. Without
+        // this arm, DCE would remove a variable whose only use is
+        // inside a runtime set literal.
+        TypedIRValue::SetSingleton { element, .. } => {
+            collect_variables_from_value(element, vars);
+        }
         // NEW: a record literal's field values each contribute
         // their own variable uses.
         TypedIRValue::Record { fields, .. } => {

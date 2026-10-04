@@ -440,6 +440,23 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             result_type.clone()
         }
         TypedIRValue::Set { element_type, .. } => Type::set(element_type.clone()),
+        TypedIRValue::SetSingleton {
+            element,
+            element_type,
+        } => {
+            let elem_ty = verify_value(element, env)?;
+            if !elem_ty.is_unknown()
+                && !element_type.is_unknown()
+                && elem_ty != *element_type
+                && !elem_ty.can_coerce_to(element_type)
+            {
+                return Err(format!(
+                    "SetSingleton element has type {:?} but element_type claims {:?}",
+                    elem_ty, element_type
+                ));
+            }
+            Type::set(element_type.clone())
+        }
     })
 }
 

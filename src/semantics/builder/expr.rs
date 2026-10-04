@@ -1891,14 +1891,55 @@ impl SemanticIRBuilder {
                     translated.push(self.translate_expr(program, func, current_block, e));
                 }
 
-                match Self::set_literal_bits(&translated, &element_type) {
-                    Some(bits) => TypedIRValue::Set { bits, element_type },
-                    None => unreachable!(
-                        "IR builder reached a non-constant SetLiteral, or the \
-                         element type was not recognized ({:?}). Runtime set \
-                         construction (SetInsert) is A5b-later (ADR 0032).",
-                        element_type
-                    ),
+                // Split elements into constant and non-constant.
+                // Constants fold into a base bitmask; non-constants
+                // each become a SetSingleton that the backend lowers
+                // to `1 << bit` at runtime.
+                let low: i64 = match &element_type {
+                    Type::Subrange { low, .. } => *low,
+                    _ => 0,
+                };
+
+                let mut constant_bits: u64 = 0;
+                let mut non_constant: Vec<TypedIRValue> = Vec::new();
+                for elem in &translated {
+                    match Self::extract_set_element_ordinal(elem) {
+                        Some(ord) => {
+                            let offset = ord - low;
+                            if (0..64).contains(&offset) {
+                                constant_bits |= 1u64 << offset;
+                            } else {
+                                non_constant.push(elem.clone());
+                            }
+                        }
+                        None => non_constant.push(elem.clone()),
+                    }
+                }
+
+                if non_constant.is_empty() {
+                    TypedIRValue::Set {
+                        bits: constant_bits,
+                        element_type,
+                    }
+                } else {
+                    let result_type = Type::set(element_type.clone());
+                    let mut acc = TypedIRValue::Set {
+                        bits: constant_bits,
+                        element_type: element_type.clone(),
+                    };
+                    for elem in non_constant {
+                        let singleton = TypedIRValue::SetSingleton {
+                            element: Box::new(elem),
+                            element_type: element_type.clone(),
+                        };
+                        acc = TypedIRValue::BinaryOp {
+                            op: SemanticBinOp::SetUnion,
+                            left: Box::new(acc),
+                            right: Box::new(singleton),
+                            result_type: result_type.clone(),
+                        };
+                    }
+                    acc
                 }
             }
         }

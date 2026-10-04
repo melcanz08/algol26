@@ -400,6 +400,11 @@ fn format_value(out: &mut String, value: &TypedIRValue) {
         TypedIRValue::Set { bits, element_type } => {
             write!(out, "set<{}>(0x{:x})", element_type, bits).unwrap();
         }
+        TypedIRValue::SetSingleton { element, .. } => {
+            out.push_str("set_singleton(");
+            format_value(out, element);
+            out.push(')');
+        }
     }
 }
 

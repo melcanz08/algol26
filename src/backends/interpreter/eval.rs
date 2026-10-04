@@ -201,6 +201,36 @@ impl Interpreter {
             // enums and subranges erase (they flow through `Int` too —
             // see the `Cast` arms below).
             TypedIRValue::Set { bits, .. } => RuntimeValue::Int(*bits as i64),
+            TypedIRValue::SetSingleton {
+                element,
+                element_type,
+            } => {
+                let elem_val = self.eval_value(element)?;
+                let ordinal: i64 = match elem_val {
+                    RuntimeValue::Int(i) => i,
+                    RuntimeValue::Bool(b) => {
+                        if b {
+                            1
+                        } else {
+                            0
+                        }
+                    }
+                    other => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "SetSingleton.element",
+                            left: runtime_kind(&other),
+                            right: "Int or Bool",
+                        });
+                    }
+                };
+                let low: i64 = match element_type {
+                    Type::Subrange { low, .. } => *low,
+                    _ => 0,
+                };
+                let bit = (ordinal - low) as u32;
+                let mask = 1u64.checked_shl(bit).unwrap_or(0);
+                RuntimeValue::Int(mask as i64)
+            }
         })
     }
     pub(super) fn eval_binop(

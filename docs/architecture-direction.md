@@ -591,6 +591,17 @@ new features become cheaper
     is rejected by the parser. Workaround documented in
     `docs/STATUS.md`.
 
+## Adding a new language feature
+
+When a feature ships, update four places or the test suite tells you which one you missed:
+
+1. `tests/coverage_matrix.rs` — add a `FeatureRow` with the feature name, conformance_dir, per-backend support, and refusal tests.
+2. `tests/coverage_maturity.rs` — add the matching `EXPECTED_MATURITY` entry (`AllBackends` if there's a conformance fixture and all backends are `Full`).
+3. `docs/STATUS.md` — Feature Matrix row.
+4. `docs/features/<name>.md` — the per-feature contract.
+
+The compiler-driven workflow catches the rest (adding a `Type` or `ExprKind` variant forces you to fill every exhaustive match).
+
 ## Bottom line
 
 Regression is the symptom. Semantic coupling is the cause.

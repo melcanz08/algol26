@@ -138,6 +138,14 @@ pub enum TypedIRValue {
         bits: u64,
         element_type: Type,
     },
+    /// A runtime singleton set: `{ element }`. Element is a value
+    /// of `element_type`; the backend lowers to `1 << bit_index`
+    /// where `bit_index` accounts for the element type's `low`
+    /// offset (subrange). See ADR 0032.
+    SetSingleton {
+        element: Box<TypedIRValue>,
+        element_type: Type,
+    },
 }
 
 impl TypedIRValue {
@@ -172,6 +180,7 @@ impl TypedIRValue {
             TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
             TypedIRValue::FieldAccess { field_type, .. } => field_type.clone(),
             TypedIRValue::Set { element_type, .. } => Type::set(element_type.clone()),
+            TypedIRValue::SetSingleton { element_type, .. } => Type::set(element_type.clone()),
         }
     }
 

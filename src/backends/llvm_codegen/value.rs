@@ -495,6 +495,51 @@ impl<'ctx> IRCodeGen<'ctx> {
             TypedIRValue::Set { bits, .. } => {
                 self.context.i64_type().const_int(*bits, false).into()
             }
+            TypedIRValue::SetSingleton {
+                element,
+                element_type,
+            } => {
+                let elem_llvm = self.compile_value(element)?;
+                let elem_i64 = if elem_llvm.is_int_value() {
+                    let iv = elem_llvm.into_int_value();
+                    if iv.get_type().get_bit_width() < 64 {
+                        self.builder
+                            .build_int_z_extend(iv, self.context.i64_type(), "set_singleton_ext")
+                            .unwrap()
+                    } else {
+                        iv
+                    }
+                } else {
+                    return Err(CompileError::simple(
+                        "SetSingleton element must compile to an integer",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    ));
+                };
+
+                let low: i64 = match element_type {
+                    Type::Subrange { low, .. } => *low,
+                    _ => 0,
+                };
+                let bit = if low != 0 {
+                    self.builder
+                        .build_int_sub(
+                            elem_i64,
+                            self.context.i64_type().const_int(low as u64, true),
+                            "set_singleton_adj",
+                        )
+                        .unwrap()
+                } else {
+                    elem_i64
+                };
+                let one = self.context.i64_type().const_int(1, false);
+                self.builder
+                    .build_left_shift(one, bit, "set_singleton_bit")
+                    .unwrap()
+                    .into()
+            }
         })
     }
 }

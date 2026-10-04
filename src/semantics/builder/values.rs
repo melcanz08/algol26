@@ -174,36 +174,4 @@ impl SemanticIRBuilder {
             _ => None,
         }
     }
-
-    /// Compute the u64 bitmask of a constant set literal.
-    ///
-    /// Each element is converted to a bit position within the element
-    /// type's domain, per ADR 0032:
-    /// - `Enum { .. }`: bit `i` is the variant with ordinal `i`.
-    /// - `Bool`: bit 0 is `false`, bit 1 is `true`.
-    /// - `Subrange { low, .. }` (over `Int` or `Enum`): bit `i` is
-    ///   value `low + i`.
-    ///
-    /// Returns `None` if any element is non-constant or if the element
-    /// type is not set-compatible. The analyzer guarantees the latter
-    /// before this function runs, so a `None` here means a non-constant
-    /// element — which the caller rejects for now.
-    pub(super) fn set_literal_bits(elements: &[TypedIRValue], element_type: &Type) -> Option<u64> {
-        let low: i64 = match element_type {
-            Type::Enum { .. } | Type::Bool => 0,
-            Type::Subrange { low, .. } => *low,
-            _ => return None,
-        };
-
-        let mut bits: u64 = 0;
-        for elem in elements {
-            let ordinal = Self::extract_set_element_ordinal(elem)?;
-            let offset = ordinal - low;
-            if !(0..64).contains(&offset) {
-                return None;
-            }
-            bits |= 1u64 << offset;
-        }
-        Some(bits)
-    }
 }

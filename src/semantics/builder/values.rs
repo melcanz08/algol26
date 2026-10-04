@@ -155,4 +155,55 @@ impl SemanticIRBuilder {
             _ => false,
         }
     }
+    /// Extract the runtime ordinal from a constant set element value.
+    ///
+    /// Set elements reach the IR builder wrapped in one or more `Cast`
+    /// nodes: `Day.Saturday` becomes `Cast { value: Int(5), target_type: Day }`,
+    /// and `Byte(7)` (where `Byte = Int in 0..63`) becomes
+    /// `Cast { value: Int(7), target_type: Byte }`. This unwraps those
+    /// chains to the underlying integer.
+    ///
+    /// Returns `None` for non-constant values (`Variable`, `Call`, etc.);
+    /// those are rejected by the caller for now (runtime set construction
+    /// is a later sub-phase).
+    pub(super) fn extract_set_element_ordinal(v: &TypedIRValue) -> Option<i64> {
+        match v {
+            TypedIRValue::Int(n) => Some(*n),
+            TypedIRValue::Bool(b) => Some(if *b { 1 } else { 0 }),
+            TypedIRValue::Cast { value, .. } => Self::extract_set_element_ordinal(value),
+            _ => None,
+        }
+    }
+
+    /// Compute the u64 bitmask of a constant set literal.
+    ///
+    /// Each element is converted to a bit position within the element
+    /// type's domain, per ADR 0032:
+    /// - `Enum { .. }`: bit `i` is the variant with ordinal `i`.
+    /// - `Bool`: bit 0 is `false`, bit 1 is `true`.
+    /// - `Subrange { low, .. }` (over `Int` or `Enum`): bit `i` is
+    ///   value `low + i`.
+    ///
+    /// Returns `None` if any element is non-constant or if the element
+    /// type is not set-compatible. The analyzer guarantees the latter
+    /// before this function runs, so a `None` here means a non-constant
+    /// element — which the caller rejects for now.
+    pub(super) fn set_literal_bits(elements: &[TypedIRValue], element_type: &Type) -> Option<u64> {
+        let low: i64 = match element_type {
+            Type::Enum { .. } | Type::Bool => 0,
+            Type::Subrange { low, .. } => *low,
+            _ => return None,
+        };
+
+        let mut bits: u64 = 0;
+        for elem in elements {
+            let ordinal = Self::extract_set_element_ordinal(elem)?;
+            let offset = ordinal - low;
+            if !(0..64).contains(&offset) {
+                return None;
+            }
+            bits |= 1u64 << offset;
+        }
+        Some(bits)
+    }
 }

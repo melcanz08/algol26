@@ -1799,15 +1799,32 @@ impl SemanticIRBuilder {
                     map_type,
                 }
             }
-            ExprKind::SetLiteral { .. } => {
-                // The analyzer rejects SetLiteral before this point
-                // (ADR 0032 A3 pending). Reaching here is a layering
-                // violation: either the analyzer stub is gone, or the
-                // IR builder path is being driven directly from a test.
-                unreachable!(
-                    "IR builder reached SetLiteral — analyzer should have \
-                     rejected it (ADR 0032 A3 pending)"
-                );
+            ExprKind::SetLiteral {
+                element_type: element_syntax,
+                elements,
+                ..
+            } => {
+                // ADR 0032 A5b: constant set literal. The parser
+                // strips the outer `Set<...>`, so `element_syntax`
+                // is just the inner `T` — resolve it via the
+                // builder's resolver (which knows about user-declared
+                // enums, subranges, etc.).
+                let element_type = self.resolve_type_syntax(element_syntax);
+
+                let mut translated = Vec::with_capacity(elements.len());
+                for e in elements {
+                    translated.push(self.translate_expr(program, func, current_block, e));
+                }
+
+                match Self::set_literal_bits(&translated, &element_type) {
+                    Some(bits) => TypedIRValue::Set { bits, element_type },
+                    None => unreachable!(
+                        "IR builder reached a non-constant SetLiteral, or the \
+                         element type was not recognized ({:?}). Runtime set \
+                         construction (SetInsert) is A5b-later (ADR 0032).",
+                        element_type
+                    ),
+                }
             }
         }
     }

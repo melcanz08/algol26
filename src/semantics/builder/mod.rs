@@ -190,6 +190,7 @@ impl SemanticIRBuilder {
                     }
                     ("channel", [inner]) => Type::channel(inner.clone()),
                     ("map", [k, v]) => Type::map(k.clone(), v.clone()),
+                    ("set", [inner]) => Type::set(inner.clone()),
                     _ => syntax.to_type(),
                 }
             }

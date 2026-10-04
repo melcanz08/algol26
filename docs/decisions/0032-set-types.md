@@ -14,6 +14,17 @@ as are iteration (`for d in s`) and list extraction (`s.to_list()`).
 > the 64-element limit; the example was inconsistent with the
 > decision and is corrected here rather than in the code.
 
+> **Status note (2026-10-04, A5d-runtime).** The IR representation
+> for non-constant set literals deviates from the "New instructions"
+> section below. Instead of `Instruction::SetInsert`, the
+> implementation adds `TypedIRValue::SetSingleton { element,
+> element_type }` and lowers a non-constant literal to a `SetUnion`
+> chain over constant `Set` values and singletons. Same semantics,
+> no block-level mutation, reuses the existing `SetUnion` machinery
+> on all three backends. The "Implementation order" section's
+> "A5d" step is closed by this change; only optimizer folding
+> (optional) remains.
+
 ## Context
 
 ADR 0029 gave ALGOL26 nominal types. ADR 0030 gave it ordinal

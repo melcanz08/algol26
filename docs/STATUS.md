@@ -284,6 +284,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `free` | ✅ | ✅ | ✅ | ✅ | — |
 | `extern` (FFI) | ✅ | ✅ | ⛔ | ✅ | — |
 | `import` | ✅ | ✅ | ✅ | ✅ | — |
+| `Set<T>` | ✅ | ✅ | ✅ | ✅ | — |
 
 **Note on canonical IR names.** The IR builder emits
 `BorrowShared` / `BorrowMutable` / `ReadReference` / `SendChannel`

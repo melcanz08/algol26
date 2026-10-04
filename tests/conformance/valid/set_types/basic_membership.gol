@@ -1,0 +1,18 @@
+// Set<T> literals and `in`. Enum element type, all-literal
+// elements. Prints 1 for a member and 0 for a non-member.
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+    Thursday
+    Friday
+    Saturday
+    Sunday
+
+procedure main
+    val weekend: Set<Day> := Set<Day> { Day.Saturday, Day.Sunday }
+    if Day.Saturday in weekend
+        print(1)
+    if Day.Monday in weekend
+        print(2)
+end

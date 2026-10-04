@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+Accepted and implemented (v1). Constant literals and all operators
+work on interpreter, LLVM, and WASM. Runtime construction from
+non-constant elements (SetInsert chain) is deferred to a v1.1 ADR,
+as are iteration (`for d in s`) and list extraction (`s.to_list()`).
 
 > **Status note (2026-10-04).** Amended `Percentage` example from
 > `Int in 0..100` to `Int in 0..63`. The original had 101 values,

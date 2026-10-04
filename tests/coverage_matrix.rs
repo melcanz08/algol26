@@ -502,6 +502,21 @@ pub const MATRIX: &[FeatureRow] = &[
         notes: "",
     },
     FeatureRow {
+        name: "set_types",
+        conformance_dir: Some("set_types"),
+        interpreter: Support::Full,
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "Constant Set<T> literals and all operators (union, \
+                intersection, difference, membership, subset/superset, \
+                strict variants) lower on every backend. Runtime \
+                construction from non-constant elements (SetInsert) \
+                is deferred to v1.1. Element domain ceiling is 64 \
+                values (single u64); larger domains are a follow-up. \
+                See ADR 0032.",
+    },
+    FeatureRow {
         name: "nominal_types",
         conformance_dir: Some("nominal_types"),
         interpreter: Support::Full,

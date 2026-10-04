@@ -1,0 +1,14 @@
+// Set over a subrange with a non-zero `low`. Exercises the
+// bit-offset adjustment in the IR builder. Prints 1 and 2 for
+// members and 0 for a non-member.
+type Byte Int in 10..20
+
+procedure main
+    val s: Set<Byte> := Set<Byte> { Byte(10), Byte(15), Byte(20) }
+    if Byte(10) in s
+        print(1)
+    if Byte(15) in s
+        print(2)
+    if Byte(18) in s
+        print(3)
+end

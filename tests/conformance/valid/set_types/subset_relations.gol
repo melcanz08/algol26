@@ -1,0 +1,23 @@
+// Subset, strict subset, superset, strict superset, equality.
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+
+procedure main
+    val small: Set<Day> := Set<Day> { Day.Monday }
+    val big: Set<Day> := Set<Day> { Day.Monday, Day.Tuesday }
+
+    if small <= big
+        print(1)
+    if small < big
+        print(2)
+    if big >= small
+        print(3)
+    if big > small
+        print(4)
+    if small == small
+        print(5)
+    if small != big
+        print(6)
+end

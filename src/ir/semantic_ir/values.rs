@@ -22,6 +22,17 @@ pub enum SemanticBinOp {
     LessEqual,
     Equal,
     NotEqual,
+    /// Set operations (ADR 0032). All operands are `Set<T>` for some
+    /// `T`; the result type is either `Set<T>` (the first three) or
+    /// `Bool` (the last five).
+    SetUnion,
+    SetDifference,
+    SetIntersection,
+    SetMember,
+    SetSubset,
+    SetStrictSubset,
+    SetSuperset,
+    SetStrictSuperset,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +124,20 @@ pub enum TypedIRValue {
         field: String,
         field_type: Type,
     },
+    /// A constant set value: every element known at IR-build time.
+    /// `bits` is a `u64` with bit `i` set iff domain element `i` is
+    /// a member. `element_type` is the set's element type (`Day`,
+    /// `WorkDay`, `Bool`, etc.).
+    ///
+    /// Non-constant sets — where at least one element is not a
+    /// literal — are built at runtime from a chain of `SetInsert`
+    /// operations rooted at `Set { bits: 0, .. }`. Added in A5b.
+    ///
+    /// See ADR 0032.
+    Set {
+        bits: u64,
+        element_type: Type,
+    },
 }
 
 impl TypedIRValue {
@@ -146,6 +171,7 @@ impl TypedIRValue {
             TypedIRValue::ReadReference { target_type, .. } => target_type.clone(),
             TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
             TypedIRValue::FieldAccess { field_type, .. } => field_type.clone(),
+            TypedIRValue::Set { element_type, .. } => Type::set(element_type.clone()),
         }
     }
 

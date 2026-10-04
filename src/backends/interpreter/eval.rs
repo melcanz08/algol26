@@ -195,6 +195,12 @@ impl Interpreter {
                     }
                 }
             }
+            TypedIRValue::Set { .. } => {
+                // ADR 0032 A5a: value variant exists but the IR builder
+                // doesn't yet emit it (A5b). Reaching here means the
+                // layering is out of sync.
+                unreachable!("interpreter reached TypedIRValue::Set — A5b-pending (ADR 0032)")
+            }
         })
     }
     pub(super) fn eval_binop(
@@ -281,6 +287,18 @@ impl Interpreter {
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(a <= b)),
                 _ => Err(mismatch("LessEqual")),
             },
+            // ADR 0032 A5a: set operations. The IR builder doesn't
+            // emit these yet (A5c). Interpreter lowering lands in A5d.
+            SemanticBinOp::SetUnion
+            | SemanticBinOp::SetDifference
+            | SemanticBinOp::SetIntersection
+            | SemanticBinOp::SetMember
+            | SemanticBinOp::SetSubset
+            | SemanticBinOp::SetStrictSubset
+            | SemanticBinOp::SetSuperset
+            | SemanticBinOp::SetStrictSuperset => {
+                unreachable!("interpreter reached a set operator — A5d-pending (ADR 0032)")
+            }
         }
     }
     pub(super) fn eval_builtin_call(

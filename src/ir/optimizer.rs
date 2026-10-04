@@ -263,6 +263,18 @@ impl Optimizer {
                         SemanticBinOp::LessEqual => Some(if l <= r { 1.0 } else { 0.0 }),
                         SemanticBinOp::Equal => Some(if l == r { 1.0 } else { 0.0 }),
                         SemanticBinOp::NotEqual => Some(if l != r { 1.0 } else { 0.0 }),
+                        // ADR 0032 A5a: set operations are pure functions
+                        // of two u64s and can be constant-folded in A5d.
+                        // For now, fold conservatively — return `None`
+                        // so the optimizer leaves the expression alone.
+                        SemanticBinOp::SetUnion
+                        | SemanticBinOp::SetDifference
+                        | SemanticBinOp::SetIntersection
+                        | SemanticBinOp::SetMember
+                        | SemanticBinOp::SetSubset
+                        | SemanticBinOp::SetStrictSubset
+                        | SemanticBinOp::SetSuperset
+                        | SemanticBinOp::SetStrictSuperset => None,
                     };
 
                     if let Some(res) = result {

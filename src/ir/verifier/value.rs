@@ -439,6 +439,7 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             }
             result_type.clone()
         }
+        TypedIRValue::Set { element_type, .. } => Type::set(element_type.clone()),
     })
 }
 
@@ -484,6 +485,47 @@ pub(super) fn compute_binop_type(op: &SemanticBinOp, lt: &Type, rt: &Type) -> Re
             }
         }
         SemanticBinOp::Equal | SemanticBinOp::NotEqual => Ok(Type::Bool),
+        // ADR 0032: set operations. Both operands must be `Set<T>`
+        // for the same `T`. The first three produce `Set<T>`, the
+        // last five produce `Bool`.
+        SemanticBinOp::SetUnion | SemanticBinOp::SetDifference | SemanticBinOp::SetIntersection => {
+            match (lt, rt) {
+                (Type::Set(l_el), Type::Set(r_el)) if l_el == r_el => Ok(lt.clone()),
+                (Type::Set(_), Type::Set(_)) => Err(format!(
+                    "set operator: element types differ — {:?} vs {:?}",
+                    lt, rt
+                )),
+                (Type::Unknown, _) | (_, Type::Unknown) => Ok(Type::Unknown),
+                _ => Err(format!(
+                    "set operator: both operands must be sets, found {:?} and {:?}",
+                    lt, rt
+                )),
+            }
+        }
+        SemanticBinOp::SetMember => match (lt, rt) {
+            (_, Type::Set(r_el)) if lt == r_el.as_ref() => Ok(Type::Bool),
+            (Type::Unknown, _) | (_, Type::Unknown) => Ok(Type::Bool),
+            (_, Type::Set(_)) => Err(format!(
+                "membership: element type {:?} does not match set element type",
+                lt
+            )),
+            _ => Err(format!(
+                "membership: right-hand side must be a Set, found {:?}",
+                rt
+            )),
+        },
+        SemanticBinOp::SetSubset
+        | SemanticBinOp::SetStrictSubset
+        | SemanticBinOp::SetSuperset
+        | SemanticBinOp::SetStrictSuperset => match (lt, rt) {
+            (Type::Set(l_el), Type::Set(r_el)) if l_el == r_el => Ok(Type::Bool),
+            (Type::Unknown, _) | (_, Type::Unknown) => Ok(Type::Bool),
+            _ => Err(format!(
+                "set comparison: both operands must be Set<T> with the same T, \
+                 found {:?} and {:?}",
+                lt, rt
+            )),
+        },
     }
 }
 

@@ -463,6 +463,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ));
                 }
             }
+            // ADR 0032 A5a: set operations. LLVM lowering lands in A5d.
+            SemanticBinOp::SetUnion
+            | SemanticBinOp::SetDifference
+            | SemanticBinOp::SetIntersection
+            | SemanticBinOp::SetMember
+            | SemanticBinOp::SetSubset
+            | SemanticBinOp::SetStrictSubset
+            | SemanticBinOp::SetSuperset
+            | SemanticBinOp::SetStrictSuperset => {
+                unreachable!("LLVM codegen reached a set operator — A5d-pending (ADR 0032)")
+            }
         };
         Ok(result)
     }

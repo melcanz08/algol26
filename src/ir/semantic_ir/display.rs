@@ -397,6 +397,9 @@ fn format_value(out: &mut String, value: &TypedIRValue) {
             out.push('.');
             out.push_str(field);
         }
+        TypedIRValue::Set { bits, element_type } => {
+            write!(out, "set<{}>(0x{:x})", element_type, bits).unwrap();
+        }
     }
 }
 
@@ -412,6 +415,14 @@ fn binop_str(op: &SemanticBinOp) -> &'static str {
         SemanticBinOp::LessEqual => "<=",
         SemanticBinOp::Equal => "==",
         SemanticBinOp::NotEqual => "!=",
+        SemanticBinOp::SetUnion => "|",
+        SemanticBinOp::SetDifference => "\\",
+        SemanticBinOp::SetIntersection => "&",
+        SemanticBinOp::SetMember => "in",
+        SemanticBinOp::SetSubset => "<=",
+        SemanticBinOp::SetStrictSubset => "<",
+        SemanticBinOp::SetSuperset => ">=",
+        SemanticBinOp::SetStrictSuperset => ">",
     }
 }
 

@@ -492,6 +492,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                     "llvm",
                 ));
             }
+            TypedIRValue::Set { .. } => {
+                // ADR 0032 A5a: value variant exists but the IR builder
+                // doesn't emit it yet (A5b). LLVM lowering lands in A5d.
+                unreachable!("LLVM codegen reached TypedIRValue::Set — A5b/A5d-pending (ADR 0032)")
+            }
         })
     }
 }

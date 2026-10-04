@@ -503,7 +503,14 @@ pub(super) fn compute_binop_type(op: &SemanticBinOp, lt: &Type, rt: &Type) -> Re
             }
         }
         SemanticBinOp::SetMember => match (lt, rt) {
+            // Element typed as the set's element type: direct.
             (_, Type::Set(r_el)) if lt == r_el.as_ref() => Ok(Type::Bool),
+            // Element already lowered to its bit position by the IR
+            // builder (A5d: subtraction of a subrange's `low`). It
+            // arrives as `Int`. Accept when the set's element type has
+            // a bounded domain — Bool, enum, small subrange — all of
+            // which erase to Int at runtime. See ADR 0032.
+            (Type::Int, Type::Set(r_el)) if r_el.set_domain_size().is_some() => Ok(Type::Bool),
             (Type::Unknown, _) | (_, Type::Unknown) => Ok(Type::Bool),
             (_, Type::Set(_)) => Err(format!(
                 "membership: element type {:?} does not match set element type",

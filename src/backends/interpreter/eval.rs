@@ -195,12 +195,12 @@ impl Interpreter {
                     }
                 }
             }
-            TypedIRValue::Set { .. } => {
-                // ADR 0032 A5a: value variant exists but the IR builder
-                // doesn't yet emit it (A5b). Reaching here means the
-                // layering is out of sync.
-                unreachable!("interpreter reached TypedIRValue::Set — A5b-pending (ADR 0032)")
-            }
+            // ADR 0032 A5d: sets erase to their u64 bit pattern.
+            // The IR value's `bits` field is exactly the runtime
+            // representation. Reusing `RuntimeValue::Int` matches how
+            // enums and subranges erase (they flow through `Int` too —
+            // see the `Cast` arms below).
+            TypedIRValue::Set { bits, .. } => RuntimeValue::Int(*bits as i64),
         })
     }
     pub(super) fn eval_binop(
@@ -287,18 +287,67 @@ impl Interpreter {
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(a <= b)),
                 _ => Err(mismatch("LessEqual")),
             },
-            // ADR 0032 A5a: set operations. The IR builder doesn't
-            // emit these yet (A5c). Interpreter lowering lands in A5d.
-            SemanticBinOp::SetUnion
-            | SemanticBinOp::SetDifference
-            | SemanticBinOp::SetIntersection
-            | SemanticBinOp::SetMember
-            | SemanticBinOp::SetSubset
-            | SemanticBinOp::SetStrictSubset
-            | SemanticBinOp::SetSuperset
-            | SemanticBinOp::SetStrictSuperset => {
-                unreachable!("interpreter reached a set operator — A5d-pending (ADR 0032)")
-            }
+            // ADR 0032 A5d: set operations on the u64 bit pattern,
+            // carried in RuntimeValue::Int. `i64` and `u64` have the
+            // same bit layout; `as i64`/`as u64` round-trips losslessly.
+            SemanticBinOp::SetUnion => match (&l, &r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                    Ok(RuntimeValue::Int(((*a as u64) | (*b as u64)) as i64))
+                }
+                _ => Err(mismatch("SetUnion")),
+            },
+            SemanticBinOp::SetIntersection => match (&l, &r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                    Ok(RuntimeValue::Int(((*a as u64) & (*b as u64)) as i64))
+                }
+                _ => Err(mismatch("SetIntersection")),
+            },
+            SemanticBinOp::SetDifference => match (&l, &r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                    Ok(RuntimeValue::Int(((*a as u64) & !(*b as u64)) as i64))
+                }
+                _ => Err(mismatch("SetDifference")),
+            },
+            SemanticBinOp::SetMember => match (&l, &r) {
+                (RuntimeValue::Int(d), RuntimeValue::Int(s)) => {
+                    // (1u64 << d) & s != 0. `d` has already been
+                    // shifted down to its bit position by the IR
+                    // builder (see A5d-llvm's low-subtraction).
+                    let bit = 1u64.checked_shl(*d as u32).unwrap_or(0);
+                    Ok(RuntimeValue::Bool((bit & (*s as u64)) != 0))
+                }
+                _ => Err(mismatch("SetMember")),
+            },
+            SemanticBinOp::SetSubset => match (&l, &r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                    // a <= b iff a & ~b == 0.
+                    Ok(RuntimeValue::Bool(((*a as u64) & !(*b as u64)) == 0))
+                }
+                _ => Err(mismatch("SetSubset")),
+            },
+            SemanticBinOp::SetStrictSubset => match (&l, &r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                    let au = *a as u64;
+                    let bu = *b as u64;
+                    Ok(RuntimeValue::Bool((au & !bu) == 0 && au != bu))
+                }
+                _ => Err(mismatch("SetStrictSubset")),
+            },
+            SemanticBinOp::SetSuperset => match (&l, &r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                    // b <= a.
+                    Ok(RuntimeValue::Bool(((*b as u64) & !(*a as u64)) == 0))
+                }
+                _ => Err(mismatch("SetSuperset")),
+            },
+            SemanticBinOp::SetStrictSuperset => match (&l, &r) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                    let au = *a as u64;
+                    let bu = *b as u64;
+                    Ok(RuntimeValue::Bool((bu & !au) == 0 && au != bu))
+                }
+                _ => Err(mismatch("SetStrictSuperset")),
+            },
         }
     }
     pub(super) fn eval_builtin_call(

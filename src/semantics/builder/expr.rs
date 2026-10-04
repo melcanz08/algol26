@@ -738,11 +738,34 @@ impl SemanticIRBuilder {
                                 _ => 0,
                             };
                             if low != 0 {
-                                TypedIRValue::BinaryOp {
-                                    op: SemanticBinOp::Subtract,
-                                    left: Box::new(l),
-                                    right: Box::new(TypedIRValue::Int(low)),
-                                    result_type: Type::Int,
+                                // Constant case: fold `ordinal - low`
+                                // to a plain Int here, so no Subtract
+                                // node is emitted. Handles the common
+                                // `Byte(15)` form, which reaches us as
+                                // `Cast { value: Int(15), target_type: Byte }`.
+                                if let Some(ordinal) = Self::extract_set_element_ordinal(&l) {
+                                    TypedIRValue::Int(ordinal - low)
+                                } else {
+                                    // Non-constant: unwrap the type tag
+                                    // so both Subtract operands are
+                                    // Int-typed. Subranges and enums
+                                    // erase to Int at runtime, so the
+                                    // underlying value is already an
+                                    // Int — the Cast/Variable type
+                                    // annotation is what we're dropping.
+                                    let l_int = match &l {
+                                        TypedIRValue::Cast { value, .. } => (**value).clone(),
+                                        TypedIRValue::Variable(name, _) => {
+                                            TypedIRValue::Variable(name.clone(), Type::Int)
+                                        }
+                                        other => other.clone(),
+                                    };
+                                    TypedIRValue::BinaryOp {
+                                        op: SemanticBinOp::Subtract,
+                                        left: Box::new(l_int),
+                                        right: Box::new(TypedIRValue::Int(low)),
+                                        result_type: Type::Int,
+                                    }
                                 }
                             } else {
                                 l

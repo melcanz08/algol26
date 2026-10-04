@@ -713,16 +713,39 @@ impl SemanticIRBuilder {
                     let l = self.translate_expr(program, func, current_block, left);
                     let r = self.translate_expr(program, func, current_block, right);
 
-                    // ADR 0032 (A3c): set operations are typechecked by
-                    // the analyzer but have no IR lowering yet — that
-                    // lands in A5. Fail loudly so any test that drives
-                    // these through IR catches the layering violation
-                    // instead of silently producing wrong IR.
-                    if matches!(l.type_of(), Type::Set(_)) || matches!(r.type_of(), Type::Set(_)) {
-                        unreachable!(
-                            "IR builder reached a set operation — set lowering \
-                             is A5-pending (ADR 0032)"
-                        );
+                    // ADR 0032 A5c: set operations. The analyzer has
+                    // already verified the operand shapes (both set
+                    // for the eight operators, scalar-in-set for `in`),
+                    // so we just pick the SemanticBinOp variant.
+                    let l_is_set = matches!(l.type_of(), Type::Set(_));
+                    let r_is_set = matches!(r.type_of(), Type::Set(_));
+                    if l_is_set || r_is_set {
+                        let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                        let semantic_op = match op {
+                            BinOp::Add => SemanticBinOp::SetUnion,
+                            BinOp::Subtract => SemanticBinOp::SetDifference,
+                            BinOp::Multiply => SemanticBinOp::SetIntersection,
+                            BinOp::In => SemanticBinOp::SetMember,
+                            BinOp::LessEqual => SemanticBinOp::SetSubset,
+                            BinOp::Less => SemanticBinOp::SetStrictSubset,
+                            BinOp::GreaterEqual => SemanticBinOp::SetSuperset,
+                            BinOp::Greater => SemanticBinOp::SetStrictSuperset,
+                            // Equality is reused — u64 bit-equality is
+                            // correct for sets, so no SetEqual variant.
+                            BinOp::Equal => SemanticBinOp::Equal,
+                            BinOp::NotEqual => SemanticBinOp::NotEqual,
+                            other => unreachable!(
+                                "IR builder reached {:?} with set operands — \
+                                 the analyzer should have rejected it (ADR 0032)",
+                                other
+                            ),
+                        };
+                        return TypedIRValue::BinaryOp {
+                            op: semantic_op,
+                            left: Box::new(l),
+                            right: Box::new(r),
+                            result_type,
+                        };
                     }
 
                     // ─── UNIFY TYPES ─── Type comes from the analyzer.

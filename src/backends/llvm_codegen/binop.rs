@@ -463,16 +463,146 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ));
                 }
             }
-            // ADR 0032 A5a: set operations. LLVM lowering lands in A5d.
-            SemanticBinOp::SetUnion
-            | SemanticBinOp::SetDifference
-            | SemanticBinOp::SetIntersection
-            | SemanticBinOp::SetMember
-            | SemanticBinOp::SetSubset
-            | SemanticBinOp::SetStrictSubset
-            | SemanticBinOp::SetSuperset
-            | SemanticBinOp::SetStrictSuperset => {
-                unreachable!("LLVM codegen reached a set operator — A5d-pending (ADR 0032)")
+            // ADR 0032 A5d: set operations on u64 bitsets. Operands
+            // arrive as i64 (map_type lowers Set<T> to i64). Bitwise
+            // ops on i64 and unsigned comparisons are correct; the
+            // representation treats the top bit as just another bit.
+            SemanticBinOp::SetUnion => self
+                .builder
+                .build_or(left.into_int_value(), right.into_int_value(), "set_union")
+                .unwrap()
+                .into(),
+            SemanticBinOp::SetIntersection => self
+                .builder
+                .build_and(
+                    left.into_int_value(),
+                    right.into_int_value(),
+                    "set_intersect",
+                )
+                .unwrap()
+                .into(),
+            SemanticBinOp::SetDifference => {
+                // s1 & ~s2. `~x` is `x ^ all_ones`.
+                let all_ones = self.context.i64_type().const_int(u64::MAX, false);
+                let not_r = self
+                    .builder
+                    .build_xor(right.into_int_value(), all_ones, "not_r")
+                    .unwrap();
+                self.builder
+                    .build_and(left.into_int_value(), not_r, "set_diff")
+                    .unwrap()
+                    .into()
+            }
+            SemanticBinOp::SetMember => {
+                // (1 << d) & s != 0
+                let one = self.context.i64_type().const_int(1, false);
+                let bit = self
+                    .builder
+                    .build_left_shift(one, left.into_int_value(), "set_bit")
+                    .unwrap();
+                let masked = self
+                    .builder
+                    .build_and(bit, right.into_int_value(), "set_masked")
+                    .unwrap();
+                let zero = self.context.i64_type().const_int(0, false);
+                self.builder
+                    .build_int_compare(inkwell::IntPredicate::NE, masked, zero, "set_member")
+                    .unwrap()
+                    .into()
+            }
+            SemanticBinOp::SetSubset => {
+                // (s1 & ~s2) == 0
+                let all_ones = self.context.i64_type().const_int(u64::MAX, false);
+                let not_r = self
+                    .builder
+                    .build_xor(right.into_int_value(), all_ones, "not_r")
+                    .unwrap();
+                let diff = self
+                    .builder
+                    .build_and(left.into_int_value(), not_r, "subset_diff")
+                    .unwrap();
+                let zero = self.context.i64_type().const_int(0, false);
+                self.builder
+                    .build_int_compare(inkwell::IntPredicate::EQ, diff, zero, "subset")
+                    .unwrap()
+                    .into()
+            }
+            SemanticBinOp::SetStrictSubset => {
+                // (s1 & ~s2) == 0  AND  s1 != s2
+                let all_ones = self.context.i64_type().const_int(u64::MAX, false);
+                let not_r = self
+                    .builder
+                    .build_xor(right.into_int_value(), all_ones, "not_r")
+                    .unwrap();
+                let diff = self
+                    .builder
+                    .build_and(left.into_int_value(), not_r, "ssubset_diff")
+                    .unwrap();
+                let zero = self.context.i64_type().const_int(0, false);
+                let subset_ok = self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::EQ, diff, zero, "ssubset_ok")
+                    .unwrap();
+                let neq = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::NE,
+                        left.into_int_value(),
+                        right.into_int_value(),
+                        "ssubset_neq",
+                    )
+                    .unwrap();
+                self.builder
+                    .build_and(subset_ok, neq, "strict_subset")
+                    .unwrap()
+                    .into()
+            }
+            SemanticBinOp::SetSuperset => {
+                // (s2 & ~s1) == 0
+                let all_ones = self.context.i64_type().const_int(u64::MAX, false);
+                let not_l = self
+                    .builder
+                    .build_xor(left.into_int_value(), all_ones, "not_l")
+                    .unwrap();
+                let diff = self
+                    .builder
+                    .build_and(right.into_int_value(), not_l, "superset_diff")
+                    .unwrap();
+                let zero = self.context.i64_type().const_int(0, false);
+                self.builder
+                    .build_int_compare(inkwell::IntPredicate::EQ, diff, zero, "superset")
+                    .unwrap()
+                    .into()
+            }
+            SemanticBinOp::SetStrictSuperset => {
+                // (s2 & ~s1) == 0  AND  s1 != s2
+                let all_ones = self.context.i64_type().const_int(u64::MAX, false);
+                let not_l = self
+                    .builder
+                    .build_xor(left.into_int_value(), all_ones, "not_l")
+                    .unwrap();
+                let diff = self
+                    .builder
+                    .build_and(right.into_int_value(), not_l, "ssuperset_diff")
+                    .unwrap();
+                let zero = self.context.i64_type().const_int(0, false);
+                let superset_ok = self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::EQ, diff, zero, "ssuperset_ok")
+                    .unwrap();
+                let neq = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::NE,
+                        left.into_int_value(),
+                        right.into_int_value(),
+                        "ssuperset_neq",
+                    )
+                    .unwrap();
+                self.builder
+                    .build_and(superset_ok, neq, "strict_superset")
+                    .unwrap()
+                    .into()
             }
         };
         Ok(result)

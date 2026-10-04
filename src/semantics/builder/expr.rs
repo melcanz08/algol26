@@ -721,6 +721,35 @@ impl SemanticIRBuilder {
                     let r_is_set = matches!(r.type_of(), Type::Set(_));
                     if l_is_set || r_is_set {
                         let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                        // For `in`, shift the element's ordinal down
+                        // to its bit position when the set's element
+                        // type is a subrange with a non-zero low.
+                        // `Byte(5)` where `Byte = Int in 10..73` maps
+                        // to bit `5 - 10`... which is negative, so the
+                        // analyzer must reject values below `low`. For
+                        // the common case `low == 0` (enums, Bool) this
+                        // is a no-op.
+                        let l = if matches!(op, BinOp::In) {
+                            let low = match r.type_of() {
+                                Type::Set(el) => match el.as_ref() {
+                                    Type::Subrange { low, .. } => *low,
+                                    _ => 0,
+                                },
+                                _ => 0,
+                            };
+                            if low != 0 {
+                                TypedIRValue::BinaryOp {
+                                    op: SemanticBinOp::Subtract,
+                                    left: Box::new(l),
+                                    right: Box::new(TypedIRValue::Int(low)),
+                                    result_type: Type::Int,
+                                }
+                            } else {
+                                l
+                            }
+                        } else {
+                            l
+                        };
                         let semantic_op = match op {
                             BinOp::Add => SemanticBinOp::SetUnion,
                             BinOp::Subtract => SemanticBinOp::SetDifference,

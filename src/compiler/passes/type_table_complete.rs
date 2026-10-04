@@ -311,6 +311,11 @@ impl<'a> Walker<'a> {
                     self.visit_expr(v);
                 }
             }
+            ExprKind::SetLiteral { elements, .. } => {
+                for e in elements {
+                    self.visit_expr(e);
+                }
+            }
         }
     }
 
@@ -391,6 +396,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::FieldAccess { .. } => "field_access",
         ExprKind::RecordLiteral { .. } => "record_literal",
         ExprKind::MapLiteral { .. } => "map_literal",
+        ExprKind::SetLiteral { .. } => "set_literal",
     }
 }
 

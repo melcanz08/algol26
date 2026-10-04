@@ -113,6 +113,11 @@ fn check_expr_spans(expr: &Expr, path: &str) {
             check_expr_spans(try_branch, &format!("{}/try.branch", path));
             check_expr_spans(catch_branch, &format!("{}/try.catch", path));
         }
+        ExprKind::SetLiteral { elements, .. } => {
+            for (i, e) in elements.iter().enumerate() {
+                check_expr_spans(e, &format!("{}/set[{}]", path, i));
+            }
+        }
         _ => {}
     }
 }
@@ -194,6 +199,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::FieldAccess { .. } => "FieldAccess",
         ExprKind::RecordLiteral { .. } => "RecordLiteral",
         ExprKind::MapLiteral { .. } => "MapLiteral",
+        ExprKind::SetLiteral { .. } => "SetLiteral",
     }
 }
 

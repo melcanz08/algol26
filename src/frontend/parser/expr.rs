@@ -437,14 +437,25 @@ impl Parser {
             self.parse_map_literal(None, None, ident_span)
         } else if name == "Map"
             && matches!(self.peek(), Token::Lt)
-            && self.looks_like_map_type_args()
+            && self.looks_like_type_args_followed_by_brace()
         {
             // `Map<K, V> { ... }` — explicit type arguments. The empty
             // literal `Map<String, Int> {}` is only expressible this way.
             let (key_type, value_type) = self.parse_map_type_args()?;
             self.parse_map_literal(Some(key_type), Some(value_type), ident_span)
+        } else if name == "Set"
+            && matches!(self.peek(), Token::Lt)
+            && self.looks_like_type_args_followed_by_brace()
+        {
+            // `Set<T> { ... }` — element type required. Unlike Map,
+            // there is no `Set { ... }` brace-only form: the inferred
+            // form is not supported in v1 (ADR 0032 design question 5).
+            let element_type = self.parse_set_type_arg()?;
+            self.parse_set_literal(element_type, ident_span)
         } else if matches!(self.peek(), Token::LBrace) {
-            // existing record-literal branch — unchanged
+            // existing record-literal branch — unchanged.
+            // Must come AFTER the Set branch: `Set<Day> { ... }` is
+            // otherwise claimed by this general brace-literal path.
             self.parse_record_literal(name, Vec::new(), ident_span)
         } else if matches!(self.peek(), Token::Dot) {
             self.advance();
@@ -703,20 +714,55 @@ impl Parser {
         }))
     }
 
+    /// Parse `<T>` after the `Set` identifier. Assumes the current
+    /// token is `<`.
+    fn parse_set_type_arg(&mut self) -> Result<TypeSyntax> {
+        self.expect_token(Token::Lt, "'<'")?;
+        let element_type = self.parse_type_syntax()?;
+        self.expect_token(Token::Gt, "'>'")?;
+        Ok(element_type)
+    }
+
+    /// Parse `{ e1, e2, ... }` after `Set<T>`. Both empty (`{}`) and
+    /// non-empty forms are accepted. Elements are comma-separated
+    /// expressions; the analyzer checks them against the declared
+    /// element type in A3.
+    pub(super) fn parse_set_literal(
+        &mut self,
+        element_type: TypeSyntax,
+        start_span: Span,
+    ) -> Result<Expr> {
+        self.expect_token(Token::LBrace, "'{'")?;
+        let mut elements = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            elements.push(self.parse_expr()?);
+            if matches!(self.peek(), Token::Comma) {
+                self.advance();
+            }
+        }
+        self.expect_token(Token::RBrace, "'}'")?;
+        Ok(Expr::new(ExprKind::SetLiteral {
+            element_type,
+            elements,
+            span: self.span_from(start_span),
+        }))
+    }
+
     /// Lookahead: from the current position (which must be `<`), scan
     /// forward to the matching `>`. Return `true` iff every intervening
     /// token is legal in a type-argument list AND the token after the
     /// matching `>` is `{`.
     ///
-    /// This is what disambiguates `Map<K, V> { ... }` from a comparison
-    /// `Map < x`. The rule is conservative: any token that is not a
-    /// type-syntax token causes an early `false`, at which point the
-    /// caller falls through to treating `<` as the comparison operator.
+    /// Disambiguates `Map<K, V> { ... }` and `Set<T> { ... }` from
+    /// comparisons like `Map < x`. The rule is conservative: any token
+    /// that is not a type-syntax token causes an early `false`, at
+    /// which point the caller falls through to treating `<` as the
+    /// comparison operator.
     ///
     /// Nested type args (`Map<Int, Map<String, Bool>>`) push and pop on
     /// depth, so `>>` — which the lexer produces as two `Gt` tokens —
     /// closes both levels correctly.
-    fn looks_like_map_type_args(&self) -> bool {
+    fn looks_like_type_args_followed_by_brace(&self) -> bool {
         debug_assert!(matches!(self.peek(), Token::Lt));
         let mut depth: i32 = 0;
         let mut i = self.pos;

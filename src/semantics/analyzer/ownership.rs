@@ -404,6 +404,11 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(v, captured);
                 }
             }
+            ExprKind::SetLiteral { elements, .. } => {
+                for e in elements {
+                    self.collect_expr_captures(e, captured);
+                }
+            }
         }
     }
 }

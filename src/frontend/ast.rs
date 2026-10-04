@@ -173,6 +173,15 @@ pub enum ExprKind {
         entries: Vec<(Expr, Expr)>,
         span: Span,
     },
+    /// Set literal: `Set<T> { e1, e2, ... }`. The element type is
+    /// required — the inferred form `Set { ... }` is not supported
+    /// in v1 (ADR 0032 design question 5). The empty form is
+    /// `Set<T> {}`. See ADR 0032.
+    SetLiteral {
+        element_type: TypeSyntax,
+        elements: Vec<Expr>,
+        span: Span,
+    },
 }
 
 impl ExprKind {
@@ -209,6 +218,7 @@ impl ExprKind {
             ExprKind::FieldAccess { span, .. } => *span,
             ExprKind::RecordLiteral { span, .. } => *span,
             ExprKind::MapLiteral { span, .. } => *span,
+            ExprKind::SetLiteral { span, .. } => *span,
         }
     }
 }

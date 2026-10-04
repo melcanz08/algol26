@@ -1783,6 +1783,16 @@ impl SemanticIRBuilder {
                     map_type,
                 }
             }
+            ExprKind::SetLiteral { .. } => {
+                // The analyzer rejects SetLiteral before this point
+                // (ADR 0032 A3 pending). Reaching here is a layering
+                // violation: either the analyzer stub is gone, or the
+                // IR builder path is being driven directly from a test.
+                unreachable!(
+                    "IR builder reached SetLiteral — analyzer should have \
+                     rejected it (ADR 0032 A3 pending)"
+                );
+            }
         }
     }
 

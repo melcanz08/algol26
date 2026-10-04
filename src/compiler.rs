@@ -1223,6 +1223,11 @@ fn number_expr(expr: &mut Expr, next: &mut u32) {
                 number_expr(v, next);
             }
         }
+        ExprKind::SetLiteral { elements, .. } => {
+            for e in elements.iter_mut() {
+                number_expr(e, next);
+            }
+        }
         ExprKind::FieldAccess { object, .. } => number_expr(object, next),
         ExprKind::Number(..)
         | ExprKind::Int(..)

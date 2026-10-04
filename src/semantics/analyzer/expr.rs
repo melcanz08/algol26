@@ -1538,6 +1538,17 @@ impl SemanticAnalyzer {
 
                 Ok(Type::map(key_ty, value_ty))
             }
+            ExprKind::SetLiteral { span, .. } => {
+                // ADR 0032 A2 stub. The parser produces `Set<T> { ... }`;
+                // A3 replaces this with element-domain validation and
+                // literal typechecking. Until then, reject loudly so no
+                // test silently passes.
+                Err(CompileError::at(
+                    *span,
+                    "Set<T> literals are not yet supported (ADR 0032 A3 pending)",
+                    ErrorCode::E0002,
+                ))
+            }
         }
     }
 

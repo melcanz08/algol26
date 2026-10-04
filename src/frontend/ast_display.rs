@@ -568,6 +568,21 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
             }
             let _ = write!(out, " }}");
         }
+        ExprKind::SetLiteral {
+            element_type,
+            elements,
+            ..
+        } => {
+            let _ = write!(out, "Set<{}>", element_type.to_string_rep());
+            let _ = write!(out, " {{ ");
+            for (i, e) in elements.iter().enumerate() {
+                if i > 0 {
+                    let _ = write!(out, ", ");
+                }
+                format_expr(out, level, e);
+            }
+            let _ = write!(out, " }}");
+        }
     }
 }
 

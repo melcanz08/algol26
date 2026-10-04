@@ -109,12 +109,21 @@ capability barrier.
 
 ## Non-constant elements
 
-Currently the IR builder requires set literal elements to be
-**constant** (`Day.Saturday`, `Byte(15)`, `true`/`false`). A
-literal whose elements are variables or function-call results
-panics with `unreachable!`. Runtime construction via a chain of
-`SetInsert` instructions is deferred to v1.1 — see the "Open
-questions" section of ADR 0032.
+Set literal elements may be constant (`Day.Saturday`, `Byte(15)`,
+`true`/`false`) or runtime values (a variable, a function call
+result). Constants fold into a base `u64` bitmask at IR-build time.
+Non-constant elements each become a `TypedIRValue::SetSingleton`,
+and the whole literal lowers to a `SetUnion` chain over the
+constants and singletons.
+
+At runtime, a `SetSingleton` computes `1 << (ordinal - low)` for
+its element, where `low` is the subrange offset (0 for enums and
+`Bool`). All three backends support this path.
+
+A function whose *return type* is an enum is a separate
+limitation: the LLVM and WASM backends currently refuse such
+functions at the capability check, before any set work runs. The
+interpreter handles them. See `docs/features/enum_types.md`.
 
 ## Iteration
 

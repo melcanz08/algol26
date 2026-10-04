@@ -1,0 +1,94 @@
+// pascal_progression.gol
+//
+// All four Pascal-borrowed features in one program.
+//
+//   ADR 0029  Nominal types    type ContractorId distinct Int
+//   ADR 0030  Enum types       enum Day ...
+//   ADR 0031  Subrange types   type WorkDay Day in Monday..Friday
+//                              type Rating Int in 0..9
+//   ADR 0032  Sets             Set<Day> { ... }
+//
+// Scenario: two contractors, different weekly availability.
+// We ask about coverage, overlap, and ratings.
+
+// ─── ADR 0030: Enum types ───
+// Ordinal enum, seven variants. Runtime value is an Int 0..6.
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+    Thursday
+    Friday
+    Saturday
+    Sunday
+
+// ─── ADR 0031: Subrange types ───
+// Subrange over an enum: five values, ordinals 0..4.
+type WorkDay Day in Monday..Friday
+
+// Subrange over Int: ten values, 0..9 inclusive.
+type Rating Int in 0..9
+
+// ─── ADR 0029: Nominal types ───
+// Same runtime representation as Int, distinct identity.
+type ContractorId distinct Int
+
+procedure main
+    // ─── Nominal values ───
+    val alice: ContractorId := ContractorId.from_base(1)
+    val bob: ContractorId := ContractorId.from_base(2)
+
+    // ─── Subrange values ───
+    val alice_rating: Rating := Rating(8)
+    val bob_rating: Rating := Rating(6)
+
+    // ─── Sets over an enum element type ───
+    val alice_days: Set<Day> := Set<Day> {
+        Day.Monday, Day.Wednesday, Day.Friday,
+    }
+    val bob_days: Set<Day> := Set<Day> {
+        Day.Tuesday, Day.Wednesday, Day.Saturday,
+    }
+
+    // Set union: every day at least one of them is free.
+    val covered: Set<Day> := alice_days + bob_days
+
+    // Set intersection: days BOTH are free.
+    val overlap: Set<Day> := alice_days * bob_days
+
+    // Set difference: days only Alice is free.
+    val alice_only: Set<Day> := alice_days - bob_days
+
+    // ─── Membership ───
+    if Day.Wednesday in overlap
+        print(1)   // 1: both free Wednesday
+
+    if Day.Monday in overlap
+        print(2)   // skipped: only Alice free Monday
+
+    // ─── Subset ───
+    if alice_days <= covered
+        print(3)   // 3: every Alice day is covered
+
+    if Day.Monday in alice_only
+        print(4)   // 4: Monday is Alice-only
+
+    // ─── Sets over a subrange element type ───
+    // ADR 0032 uses the shorthand `WorkDay(Monday)`; here we
+    // write the fully-qualified `WorkDay(Day.Monday)` since bare
+    // variants are deferred (design question 4).
+    val work_week: Set<WorkDay> := Set<WorkDay> {
+        WorkDay(Day.Monday),
+        WorkDay(Day.Tuesday),
+        WorkDay(Day.Wednesday),
+        WorkDay(Day.Thursday),
+        WorkDay(Day.Friday),
+    }
+
+    if work_week <= work_week
+        print(5)   // 5: reflexivity
+
+    // ─── Subrange extraction ───
+    if alice_rating.to_base() > bob_rating.to_base()
+        print(6)   // 6: Alice rated higher
+end

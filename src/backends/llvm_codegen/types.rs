@@ -53,6 +53,13 @@ impl<'ctx> IRCodeGen<'ctx> {
             // BoundsCheck instruction. See ADR 0031.
             Type::Subrange { base, .. } => self.map_type(base),
 
+            // A set's runtime value is a single u64 bitset: bit `i`
+            // is set iff domain element `i` is a member. The element
+            // type is a compile-time property, used only by the
+            // analyzer and the IR builder to compute bit positions.
+            // See ADR 0032.
+            Type::Set(_) => self.context.i64_type().into(),
+
             Type::List(inner) => {
                 // NOTE (Tier 2 follow-up): the current runtime
                 // representation of a list in `instruction.rs` is a

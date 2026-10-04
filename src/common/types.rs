@@ -120,6 +120,15 @@ pub enum Type {
         low: i64,
         high: i64,
     },
+    /// A set of ordinal values: `Set<Day>`, `Set<WorkDay>`,
+    /// `Set<Percentage>`, `Set<Bool>`. Runtime representation is a
+    /// single `u64`: bit `i` is set iff domain element `i` is a
+    /// member. The element type must have a bounded domain of at
+    /// most 64 values; see `set_domain_size`.
+    ///
+    /// Sets are structural — no `SetTypeId`. Two `Set<Day>` are the
+    /// same type iff their `Day` is the same enum. See ADR 0032.
+    Set(Box<Type>),
 }
 
 impl Type {
@@ -192,6 +201,13 @@ impl Type {
             low,
             high,
         }
+    }
+
+    /// Construct a `Set<T>` type. The caller is responsible for
+    /// validating that `element` satisfies `set_domain_size`; this
+    /// constructor does not check.
+    pub fn set(element: Type) -> Self {
+        Type::Set(Box::new(element))
     }
 
     pub fn list(element_type: Type) -> Self {
@@ -409,6 +425,52 @@ impl Type {
         )
     }
 
+    /// Whether `self` is an ordinal type — a type with a bounded,
+    /// well-founded domain that can serve as the element type of a
+    /// `Set<T>` in principle. Actual set membership additionally
+    /// requires the domain to fit in 64 bits; see `set_domain_size`.
+    ///
+    /// Ordinal types: `Bool`, `Enum { .. }`, `Subrange { .. }` with
+    /// an ordinal base. Non-ordinal: `Int` (unbounded), `Float`
+    /// (not discrete), `String`, `Distinct` (nominal identity, even
+    /// when its base is ordinal), and every composite type. See
+    /// ADR 0032 design question 2.
+    pub fn is_ordinal(&self) -> bool {
+        matches!(self, Type::Bool | Type::Enum { .. } | Type::Subrange { .. })
+    }
+
+    /// The number of distinct values in `self`'s domain, if bounded
+    /// and no larger than 64. `None` for non-ordinal types and for
+    /// ordinal types whose domain exceeds 64.
+    ///
+    /// This is the validity predicate for `Set<T>` element types:
+    /// `Set<T>` is well-formed iff `T.set_domain_size()` is
+    /// `Some(_)`. See ADR 0032.
+    pub fn set_domain_size(&self) -> Option<u64> {
+        match self {
+            Type::Bool => Some(2),
+            Type::Enum { variants, .. } => {
+                let n = variants.len() as u64;
+                (n <= 64).then_some(n)
+            }
+            Type::Subrange {
+                base, low, high, ..
+            } => {
+                // Per ADR 0031, subrange bases are Int or Enum.
+                // `Int` is not ordinal on its own (unbounded), but a
+                // subrange over Int is bounded by `low`/`high`. The
+                // bounds, not the base, give the domain.
+                let valid_base = matches!(base.as_ref(), Type::Int | Type::Enum { .. });
+                if !valid_base || high < low {
+                    return None;
+                }
+                let size = (*high - *low + 1) as u64;
+                (size <= 64).then_some(size)
+            }
+            _ => None,
+        }
+    }
+
     /// Whether `self` may cross an `extern "C"` boundary.
     ///
     /// FFI-compatible types are exactly those with a well-defined C
@@ -468,6 +530,7 @@ impl Type {
                 | Type::Option(_)
                 | Type::Map(_, _)
                 | Type::Result { .. }
+                | Type::Set(_)
         )
     }
 
@@ -510,6 +573,8 @@ impl Type {
             // keeps the rule composable if a future ADR extends the
             // set of base types.
             Type::Subrange { base, .. } => base.is_copy(),
+            // Sets are a single u64 — trivially Copy. See ADR 0032.
+            Type::Set(_) => true,
             _ => false,
         }
     }
@@ -661,7 +726,8 @@ impl Type {
                     && a1.len() == a2.len()
                     && a1.iter().zip(a2.iter()).all(|(x, y)| x.can_coerce_to(y))
             }
-
+            // Set covariance: same element type required. See ADR 0032.
+            (Type::Set(a), Type::Set(b)) => a.can_coerce_to(b),
             _ => false,
         }
     }
@@ -737,7 +803,8 @@ impl Type {
                         .collect(),
                 )
             }
-
+            // Set supertype: same element type required.
+            (Type::Set(a), Type::Set(b)) => Type::set(a.common_supertype(b)),
             // Default to Unknown
             _ => Type::Unknown,
         }
@@ -788,6 +855,7 @@ impl Type {
                 params,
                 return_type,
             } => params.iter().any(|p| p.contains_type_var()) || return_type.contains_type_var(),
+            Type::Set(inner) => inner.contains_type_var(),
             _ => false,
         }
     }
@@ -819,6 +887,7 @@ impl Type {
                 params,
                 return_type,
             } => params.iter().any(|p| p.contains_unknown()) || return_type.contains_unknown(),
+            Type::Set(inner) => inner.contains_unknown(),
             _ => false,
         }
     }
@@ -899,6 +968,7 @@ impl Type {
                 params: params.iter().map(|p| p.substitute(substitutions)).collect(),
                 return_type: Box::new(return_type.substitute(substitutions)),
             },
+            Type::Set(inner) => Type::set(inner.substitute(substitutions)),
             _ => self.clone(),
         }
     }
@@ -946,6 +1016,7 @@ impl fmt::Display for Type {
             Type::Enum { name, .. } => name.clone(),
             // Subranges print as their declared name. See ADR 0031.
             Type::Subrange { name, .. } => name.clone(),
+            Type::Set(inner) => format!("Set<{}>", inner),
             Type::Pointer(t) => format!("*{}", t),
             Type::Borrow(t) => format!("Borrow<{}>", t),
             Type::MutBorrow(t) => format!("MutBorrow<{}>", t),
@@ -1452,5 +1523,81 @@ mod tests {
         // If the ids are not constructible here, replace with a
         // type-alias approach or check via a helper.
         // --- placeholder, we'll adjust if compilation complains ---
+    }
+
+    #[test]
+    fn set_variant_constructs() {
+        let s = Type::set(Type::Bool);
+        assert!(matches!(s, Type::Set(_)));
+    }
+
+    #[test]
+    fn ordinal_recognizes_valid_domains() {
+        assert!(Type::Bool.is_ordinal());
+        assert!(
+            Type::enum_type(EnumTypeId(0), "Day", vec!["Mon".into(), "Tue".into()]).is_ordinal()
+        );
+        assert!(Type::subrange(SubrangeTypeId(0), "Pct", Type::Int, 0, 100).is_ordinal());
+    }
+
+    #[test]
+    fn ordinal_rejects_unbounded_and_nominal() {
+        assert!(!Type::Int.is_ordinal());
+        assert!(!Type::Float.is_ordinal());
+        assert!(!Type::String.is_ordinal());
+        assert!(!Type::Unknown.is_ordinal());
+        assert!(!Type::List(Box::new(Type::Int)).is_ordinal());
+        // Distinct is nominal, even when its base is ordinal.
+        assert!(!Type::distinct(NominalTypeId(0), "UserId", Type::Int).is_ordinal());
+    }
+
+    #[test]
+    fn domain_size_enum() {
+        let day = Type::enum_type(
+            EnumTypeId(0),
+            "Day",
+            (0..7).map(|i| format!("V{}", i)).collect(),
+        );
+        assert_eq!(day.set_domain_size(), Some(7));
+
+        let big = Type::enum_type(
+            EnumTypeId(1),
+            "Big",
+            (0..65).map(|i| format!("V{}", i)).collect(),
+        );
+        assert_eq!(big.set_domain_size(), None);
+    }
+
+    #[test]
+    fn domain_size_subrange() {
+        // 0..=100 has 101 values, exceeds the 64-element ceiling.
+        assert_eq!(
+            Type::subrange(SubrangeTypeId(0), "Pct", Type::Int, 0, 100).set_domain_size(),
+            None
+        );
+
+        // 0..=63 has exactly 64 values.
+        assert_eq!(
+            Type::subrange(SubrangeTypeId(1), "Byte", Type::Int, 0, 63).set_domain_size(),
+            Some(64)
+        );
+
+        // 0..=64 has 65 values, exceeds.
+        assert_eq!(
+            Type::subrange(SubrangeTypeId(2), "TooBig", Type::Int, 0, 64).set_domain_size(),
+            None
+        );
+    }
+
+    #[test]
+    fn domain_size_bool() {
+        assert_eq!(Type::Bool.set_domain_size(), Some(2));
+    }
+
+    #[test]
+    fn domain_size_rejects_non_ordinal() {
+        assert_eq!(Type::Int.set_domain_size(), None);
+        assert_eq!(Type::Float.set_domain_size(), None);
+        assert_eq!(Type::List(Box::new(Type::Bool)).set_domain_size(), None);
     }
 }

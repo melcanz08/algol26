@@ -421,6 +421,7 @@ pub fn mangled_type_name(ty: &Type) -> String {
         // `type Percentage Int in 0..100` declarations in different
         // modules are different types. See ADR 0031.
         Type::Subrange { id, .. } => format!("Subrange_{}", id.0),
+        Type::Set(inner) => format!("Set_{}", mangled_type_name(inner)),
     }
 }
 

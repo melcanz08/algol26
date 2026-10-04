@@ -685,6 +685,7 @@ fn binop_str(op: &BinOp) -> &'static str {
         BinOp::NotEqual => "!=",
         BinOp::And => "and",
         BinOp::Or => "or",
+        BinOp::In => "in",
     }
 }
 

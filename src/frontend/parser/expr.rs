@@ -50,6 +50,7 @@ impl Parser {
                 | Token::LessEqual
                 | Token::Equal
                 | Token::NotEqual
+                | Token::In
         ) {
             let op = self.advance();
             let binop = match op {
@@ -59,6 +60,7 @@ impl Parser {
                 Token::Lt => BinOp::Less,
                 Token::Equal => BinOp::Equal,
                 Token::NotEqual => BinOp::NotEqual,
+                Token::In => BinOp::In,
                 other => {
                     return Err(self.error(&format!("Unexpected comparison operator: {:?}", other)))
                 }

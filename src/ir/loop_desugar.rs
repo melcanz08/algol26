@@ -507,6 +507,7 @@ fn eval_const_expr(expr: &Expr) -> Option<bool> {
                 BinOp::LessEqual => Some(l <= r),
                 BinOp::Equal => Some(l == r),
                 BinOp::NotEqual => Some(l != r),
+                BinOp::In => None,
                 _ => None,
             }
         }

@@ -1396,3 +1396,150 @@ end
 "#;
     analyze(source).expect("Set<Byte> {} should typecheck");
 }
+
+#[test]
+fn membership_in_set_literal() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+    Saturday
+    Sunday
+
+procedure main
+    val weekend: Set<Day> := Set<Day> { Day.Saturday, Day.Sunday }
+    val b: Bool := Day.Saturday in weekend
+end
+"#;
+    analyze(source).expect("Day.Saturday in Set<Day> should typecheck");
+}
+
+#[test]
+fn membership_type_mismatch_rejected() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+
+enum Color
+    Red
+    Blue
+
+procedure main
+    val s: Set<Day> := Set<Day> {}
+    val b: Bool := Color.Red in s
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("`in` type mismatch"),
+        "expected `in` mismatch, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn membership_with_non_set_rhs_rejected() {
+    let source = r#"
+procedure main
+    val b: Bool := 5 in 10
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("`in` requires a set"),
+        "expected `in` set-required diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn set_union_same_element_type() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+
+procedure main
+    val a: Set<Day> := Set<Day> { Day.Monday }
+    val b: Set<Day> := Set<Day> { Day.Tuesday }
+    val u: Set<Day> := a + b
+end
+"#;
+    analyze(source).expect("Set<Day> + Set<Day> should typecheck");
+}
+
+#[test]
+fn set_union_mismatched_element_types_rejected() {
+    let source = r#"
+enum Day
+    Monday
+
+enum Color
+    Red
+
+procedure main
+    val a: Set<Day> := Set<Day> { Day.Monday }
+    val b: Set<Color> := Set<Color> { Color.Red }
+    val u := a + b
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("set element types must match"),
+        "expected element-type mismatch, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn set_subset_operator_returns_bool() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+
+procedure main
+    val a: Set<Day> := Set<Day> {}
+    val b: Set<Day> := Set<Day> {}
+    val s: Bool := a <= b
+end
+"#;
+    analyze(source).expect("Set <= Set should typecheck to Bool");
+}
+
+#[test]
+fn set_equality_returns_bool() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+
+procedure main
+    val a: Set<Day> := Set<Day> {}
+    val b: Set<Day> := Set<Day> {}
+    val s: Bool := a == b
+end
+"#;
+    analyze(source).expect("Set == Set should typecheck to Bool");
+}
+
+#[test]
+fn set_plus_int_rejected() {
+    let source = r#"
+enum Day
+    Monday
+
+procedure main
+    val a: Set<Day> := Set<Day> {}
+    val n := a + 5
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message
+            .contains("set operator requires both operands to be sets"),
+        "expected mixed-operand diagnostic, got: {}",
+        err.message
+    );
+}

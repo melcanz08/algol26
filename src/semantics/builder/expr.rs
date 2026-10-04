@@ -713,6 +713,18 @@ impl SemanticIRBuilder {
                     let l = self.translate_expr(program, func, current_block, left);
                     let r = self.translate_expr(program, func, current_block, right);
 
+                    // ADR 0032 (A3c): set operations are typechecked by
+                    // the analyzer but have no IR lowering yet — that
+                    // lands in A5. Fail loudly so any test that drives
+                    // these through IR catches the layering violation
+                    // instead of silently producing wrong IR.
+                    if matches!(l.type_of(), Type::Set(_)) || matches!(r.type_of(), Type::Set(_)) {
+                        unreachable!(
+                            "IR builder reached a set operation — set lowering \
+                             is A5-pending (ADR 0032)"
+                        );
+                    }
+
                     // ─── UNIFY TYPES ─── Type comes from the analyzer.
                     let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
 
@@ -749,6 +761,10 @@ impl SemanticIRBuilder {
                         BinOp::And | BinOp::Or => {
                             unreachable!("And/Or handled by translate_short_circuit arm above")
                         }
+                        BinOp::In => unreachable!(
+                            "IR builder reached BinOp::In — set operations \
+                             are A5-pending (ADR 0032)"
+                        ),
                     };
                     TypedIRValue::BinaryOp {
                         op: semantic_op,

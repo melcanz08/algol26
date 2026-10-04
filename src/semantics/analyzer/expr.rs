@@ -55,6 +55,83 @@ impl SemanticAnalyzer {
         Ok(ty)
     }
 
+    /// ADR 0032 (A3c). Set operations and set membership.
+    ///
+    /// Returns `Ok(Some(result_type))` when the operation is a set
+    /// operation. Returns `Ok(None)` when neither operand is a set
+    /// and `op` isn't `In`, so the caller falls through to the
+    /// existing numeric/string dispatch.
+    ///
+    /// Errors when the operation is a set operation with ill-typed
+    /// operands (mismatched element types, `in` with a non-set
+    /// right-hand side).
+    fn try_set_binop(&self, op: &BinOp, left: &Type, right: &Type) -> Result<Option<Type>> {
+        // `in` always dispatches here — there is no non-set meaning.
+        if matches!(op, BinOp::In) {
+            let Type::Set(element) = right else {
+                return Err(CompileError::at(
+                    self.current_span,
+                    &format!("`in` requires a set on the right, found {}", right),
+                    ErrorCode::E0002,
+                )
+                .with_suggestion("The right-hand side of `in` must be a `Set<T>` value"));
+            };
+            if left != element.as_ref() && !left.can_coerce_to(element) {
+                return Err(CompileError::at(
+                    self.current_span,
+                    &format!(
+                        "`in` type mismatch: element type is `{}`, set element type is `{}`",
+                        left, element
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+            return Ok(Some(Type::Bool));
+        }
+
+        // The eight binary operators fall through unless at least
+        // one side is a set.
+        let (Type::Set(l_el), Type::Set(r_el)) = (left, right) else {
+            // If exactly one side is a set, that's a type error for
+            // every operator we handle here.
+            if matches!(left, Type::Set(_)) || matches!(right, Type::Set(_)) {
+                return Err(CompileError::at(
+                    self.current_span,
+                    &format!(
+                        "set operator requires both operands to be sets, found {} and {}",
+                        left, right
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+            return Ok(None);
+        };
+
+        if l_el != r_el && !l_el.can_coerce_to(r_el) && !r_el.can_coerce_to(l_el) {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!("set element types must match: `{}` vs `{}`", l_el, r_el),
+                ErrorCode::E0002,
+            )
+            .with_suggestion("Both sides of a set operator must have the same element type"));
+        }
+
+        let result = match op {
+            BinOp::Add | BinOp::Subtract | BinOp::Multiply => Type::Set(l_el.clone()),
+            BinOp::Equal
+            | BinOp::NotEqual
+            | BinOp::Less
+            | BinOp::LessEqual
+            | BinOp::Greater
+            | BinOp::GreaterEqual => Type::Bool,
+            // `In` is handled above; every other operator falls
+            // through to the numeric/string dispatch.
+            _ => return Ok(None),
+        };
+
+        Ok(Some(result))
+    }
+
     // The actual match arm dispatch (renamed from the original).
     pub(super) fn analyze_expr_inner(
         &mut self,
@@ -759,8 +836,17 @@ impl SemanticAnalyzer {
                 if let Type::MutBorrow(inner) = &right_type {
                     right_type = (**inner).clone();
                 }
-
+                // ADR 0032 (A3c): set operations dispatch on operand
+                // type. If either side is a set, or if this is `in`,
+                // handle it here and return; otherwise fall through to
+                // the existing numeric/string dispatch below.
+                if let Some(result) = self.try_set_binop(op, &left_type, &right_type)? {
+                    return Ok(result);
+                }
                 match op {
+                    BinOp::In => {
+                        unreachable!("BinOp::In should have been handled by try_set_binop above")
+                    }
                     BinOp::Add => {
                         if left_type == Type::String && right_type == Type::String {
                             Ok(Type::String)

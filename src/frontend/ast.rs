@@ -245,6 +245,11 @@ pub enum BinOp {
     NotEqual,
     And,
     Or,
+    /// `x in s` — set membership. Left is an element of the
+    /// right-hand set's element type; right is `Set<T>`. See
+    /// ADR 0032. The parser produces this at relational
+    /// precedence (same tier as `<`, `>`).
+    In,
 }
 
 #[derive(Clone, Debug)]

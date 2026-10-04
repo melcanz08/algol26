@@ -4,6 +4,13 @@
 
 Proposed. Not yet implemented.
 
+> **Status note (2026-10-04).** Amended `Percentage` example from
+> `Int in 0..100` to `Int in 0..63`. The original had 101 values,
+> exceeding the 64-element ceiling the ADR itself specifies. The
+> implementation in A1 (`Type::set_domain_size`) already enforces
+> the 64-element limit; the example was inconsistent with the
+> decision and is corrected here rather than in the code.
+
 ## Context
 
 ADR 0029 gave ALGOL26 nominal types. ADR 0030 gave it ordinal
@@ -40,7 +47,7 @@ enum Day
     Sunday
 
 type WorkDay Day in Monday..Friday
-type Percentage Int in 0..100
+type Percentage Int in 0..63
 
 val weekend: Set<Day> { Day.Saturday, Day.Sunday }
 val weekdays: Set<WorkDay> { WorkDay(Monday), ... }
@@ -67,7 +74,7 @@ domain element `i` is in the set. Domain elements are numbered:
 - **Enum `Day`:** bit `i` is the variant with ordinal `i`.
   `Monday` is bit 0, `Sunday` is bit 6.
 - **Subrange over Int `Int in L..H`:** bit `i` is the value `L + i`.
-  For `Percentage = Int in 0..100`: bit 5 is `Percentage(5)`.
+  For `Percentage = Int in 0..63`: bit 5 is `Percentage(5)`.
 - **Subrange over enum `Day in A..B`:** bit `i` is the enum
   variant with ordinal `A + i`. For `WorkDay = Day in
   Monday..Friday`: bit 0 is `Monday`, bit 4 is `Friday`.

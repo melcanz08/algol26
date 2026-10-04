@@ -1206,3 +1206,101 @@ end
     let result = analyze(source);
     assert!(result.is_err(), "Day.NotAVariant should be rejected");
 }
+
+#[test]
+fn set_of_enum_in_signature_resolves() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+
+function first(s: Set<Day>) -> Day
+    return Day.Monday
+
+procedure main
+end
+"#;
+    analyze(source).expect("Set<Day> should resolve in a signature");
+}
+
+#[test]
+fn set_of_bool_in_signature_resolves() {
+    let source = r#"
+function is_empty(s: Set<Bool>) -> Bool
+    return true
+
+procedure main
+end
+"#;
+    analyze(source).expect("Set<Bool> should resolve");
+}
+
+#[test]
+fn set_of_int_in_signature_rejected() {
+    let source = r#"
+function f(s: Set<Int>) -> Int
+    return 0
+
+procedure main
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("set element type"),
+        "expected domain-size diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn set_of_float_in_signature_rejected() {
+    let source = r#"
+function f(s: Set<Float>) -> Float
+    return 0.0
+
+procedure main
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("set element type"),
+        "expected domain-size diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn set_of_small_subrange_resolves() {
+    // Int in 0..63 has exactly 64 values — fits.
+    let source = r#"
+type Byte Int in 0..63
+
+function f(s: Set<Byte>) -> Int
+    return 0
+
+procedure main
+end
+"#;
+    analyze(source).expect("Set<Byte> should resolve");
+}
+
+#[test]
+fn set_of_large_subrange_rejected() {
+    // Int in 0..100 has 101 values — one over the ceiling.
+    let source = r#"
+type Percentage Int in 0..100
+
+function f(s: Set<Percentage>) -> Int
+    return 0
+
+procedure main
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("set element type"),
+        "expected domain-size diagnostic, got: {}",
+        err.message
+    );
+}

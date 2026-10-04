@@ -686,6 +686,32 @@ impl SemanticAnalyzer {
                     }
                     ("channel", [inner]) => Type::channel(inner.clone()),
                     ("map", [k, v]) => Type::map(k.clone(), v.clone()),
+                    ("set", [inner]) => {
+                        // ADR 0032: the element type must have a
+                        // bounded domain of at most 64 values. This
+                        // is checked here rather than in the parser
+                        // so that `Set<T>` as a type annotation and
+                        // `Set<T> { ... }` as a literal share the
+                        // same validation.
+                        if inner.set_domain_size().is_none() {
+                            return Err(CompileError::simple(
+                                &format!(
+                                    "`{}` cannot be a set element type: its domain is \
+                                     unbounded or exceeds 64 values",
+                                    inner
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion(
+                                "Set element types must be Bool, an enum with ≤ 64 \
+                                 variants, or a subrange of ≤ 64 values",
+                            ));
+                        }
+                        Type::set(inner.clone())
+                    }
                     _ => syntax.to_type(),
                 };
                 Ok(ty)

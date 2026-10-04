@@ -621,6 +621,35 @@ impl SemanticAnalyzer {
         }
         ty
     }
+    /// ADR 0032: verify that `ty` is a legal `Set<T>` element type.
+    ///
+    /// Legal: `Bool`, `Enum` with ≤ 64 variants, `Subrange` with
+    /// ≤ 64 values. Everything else — `Int` (unbounded), `Float`
+    /// (not ordinal), `String`, `Distinct`, and every composite
+    /// type — is rejected here.
+    ///
+    /// This is called from two places: `resolve_type_syntax` when
+    /// the whole `Set<T>` appears in type-syntax position, and the
+    /// analyzer's `SetLiteral` arm when the parser has already
+    /// split off the outer `Set<...>` and handed us only `T`.
+    pub(super) fn validate_set_element_type(&self, ty: &Type, span: Span) -> Result<()> {
+        if ty.set_domain_size().is_some() {
+            return Ok(());
+        }
+        Err(CompileError::at(
+            span,
+            &format!(
+                "`{}` cannot be a set element type: its domain is \
+                 unbounded or exceeds 64 values",
+                ty
+            ),
+            ErrorCode::E0002,
+        )
+        .with_suggestion(
+            "Set element types must be Bool, an enum with ≤ 64 variants, \
+             or a subrange of ≤ 64 values",
+        ))
+    }
     /// Resolve a `TypeSyntax` in the analyzer's current context.
     ///
     /// `TypeSyntax::to_type` is a pure syntax-to-type function — it
@@ -687,29 +716,10 @@ impl SemanticAnalyzer {
                     ("channel", [inner]) => Type::channel(inner.clone()),
                     ("map", [k, v]) => Type::map(k.clone(), v.clone()),
                     ("set", [inner]) => {
-                        // ADR 0032: the element type must have a
-                        // bounded domain of at most 64 values. This
-                        // is checked here rather than in the parser
-                        // so that `Set<T>` as a type annotation and
-                        // `Set<T> { ... }` as a literal share the
-                        // same validation.
-                        if inner.set_domain_size().is_none() {
-                            return Err(CompileError::simple(
-                                &format!(
-                                    "`{}` cannot be a set element type: its domain is \
-                                     unbounded or exceeds 64 values",
-                                    inner
-                                ),
-                                0,
-                                0,
-                                "",
-                                ErrorCode::E0002,
-                            )
-                            .with_suggestion(
-                                "Set element types must be Bool, an enum with ≤ 64 \
-                                 variants, or a subrange of ≤ 64 values",
-                            ));
-                        }
+                        // ADR 0032. The whole `Set<T>` is present in
+                        // type-syntax position here, so validation
+                        // happens right here.
+                        self.validate_set_element_type(inner, Span::new(0, 0, 0, 0))?;
                         Type::set(inner.clone())
                     }
                     _ => syntax.to_type(),

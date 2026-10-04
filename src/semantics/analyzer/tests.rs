@@ -1304,3 +1304,95 @@ end
         err.message
     );
 }
+
+#[test]
+fn empty_set_literal_resolves() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+
+procedure main
+    val s: Set<Day> := Set<Day> {}
+end
+"#;
+    analyze(source).expect("Set<Day> {} should typecheck");
+}
+
+#[test]
+fn set_literal_with_variant_elements() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+    Thursday
+    Friday
+    Saturday
+    Sunday
+
+procedure main
+    val weekend: Set<Day> := Set<Day> { Day.Saturday, Day.Sunday }
+end
+"#;
+    analyze(source).expect("Set<Day> { Day.Saturday, Day.Sunday } should typecheck");
+}
+
+#[test]
+fn set_literal_element_type_mismatch_rejected() {
+    let source = r#"
+enum Day
+    Monday
+    Tuesday
+
+procedure main
+    val s: Set<Day> := Set<Day> { 1, 2 }
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("set element"),
+        "expected element-mismatch diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn set_literal_with_bad_element_type_rejected() {
+    // Set<Int> in the literal itself should be rejected by
+    // resolve_type_syntax, same as in a signature.
+    let source = r#"
+procedure main
+    val s := Set<Int> {}
+end
+"#;
+    let err = analyze(source).unwrap_err();
+    assert!(
+        err.message.contains("set element type"),
+        "expected domain-size diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn set_literal_of_bool() {
+    let source = r#"
+procedure main
+    val s: Set<Bool> := Set<Bool> {}
+end
+"#;
+    analyze(source).expect("Set<Bool> {} should typecheck");
+}
+
+#[test]
+fn set_literal_of_small_subrange() {
+    let source = r#"
+type Byte Int in 0..63
+
+procedure main
+    val s: Set<Byte> := Set<Byte> {}
+end
+"#;
+    analyze(source).expect("Set<Byte> {} should typecheck");
+}

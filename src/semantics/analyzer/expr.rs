@@ -1538,16 +1538,34 @@ impl SemanticAnalyzer {
 
                 Ok(Type::map(key_ty, value_ty))
             }
-            ExprKind::SetLiteral { span, .. } => {
-                // ADR 0032 A2 stub. The parser produces `Set<T> { ... }`;
-                // A3 replaces this with element-domain validation and
-                // literal typechecking. Until then, reject loudly so no
-                // test silently passes.
-                Err(CompileError::at(
-                    *span,
-                    "Set<T> literals are not yet supported (ADR 0032 A3 pending)",
-                    ErrorCode::E0002,
-                ))
+            ExprKind::SetLiteral {
+                element_type: element_syntax,
+                elements,
+                span,
+            } => {
+                // ADR 0032 design question 1: the element type is
+                // required. There is no inferred `Set { ... }` form.
+                //
+                // Note: `element_syntax` is just the inner `T` from
+                // `Set<T>`, not the whole `Set<T>`. The parser's
+                // `parse_set_type_arg` strips the outer wrapper. So
+                // domain validation must happen here, not in
+                // `resolve_type_syntax`.
+                let element_ty = self.resolve_type_syntax(element_syntax)?;
+                self.validate_set_element_type(&element_ty, *span)?;
+
+                for elem in elements {
+                    let elem_ty = self.analyze_expr_with_context(elem, Some(&element_ty))?;
+                    if !elem_ty.is_unknown() && !elem_ty.can_coerce_to(&element_ty) {
+                        return Err(CompileError::at(
+                            self.current_span,
+                            &format!("set element: expected {}, found {}", element_ty, elem_ty),
+                            ErrorCode::E0002,
+                        ));
+                    }
+                }
+
+                Ok(Type::set(element_ty))
             }
         }
     }

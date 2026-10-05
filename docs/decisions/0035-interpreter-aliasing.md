@@ -4,7 +4,7 @@
 
 Accepted. Implemented.
 
-> **Implementation note (2026-10-06).** Shipped in commit `10816fb`.
+> **Implementation note (2026-10-06).** Shipped in commit `eae632e`.
 > `eval_call` in `src/backends/interpreter/eval.rs` now scans the
 > caller's argument list for `BorrowMutable { expr: Variable(name) }`,
 > captures the callee's final parameter value before frame restore,

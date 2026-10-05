@@ -741,28 +741,42 @@ impl Compiler {
 
     fn expand_impl_methods(&self, parsed: &ParsedProgram) -> ParsedProgram {
         let mut all_functions = (*parsed.functions).clone();
-        for impl_block in &parsed.impls {
-            let type_name = impl_block.target_type.clone();
-            for method in &impl_block.methods {
-                let mut renamed = method.clone();
-                renamed.name = format!("{}_{}", type_name, method.name);
 
-                // Don't insert a self param if the parser already saw one.
-                let has_self = renamed.params.first().is_some_and(|(n, _)| n == "self");
-                debug_assert!(
-                    method.receiver.is_none() || has_self,
-                    "impl method declares a receiver but params[0] is not `self`",
-                );
-                if !has_self {
-                    renamed.params.insert(
-                        0,
-                        (
-                            "self".to_string(),
-                            Some(TypeSyntax::Named(type_name.clone())),
-                        ),
-                    );
+        // ADR 0033 precedence. When two impls of the same type provide a
+        // method with the same mangled name, the inherent impl wins — the
+        // trait impl's version is unreachable via `u.method()` today
+        // (qualified `Trait::method(u)` syntax is deferred). Two *trait*
+        // impls providing the same name are left in place and rejected by
+        // `register_user_functions` as a duplicate (ambiguous trait method).
+
+        // Pass 1: inherent impls claim their names.
+        let mut inherent_names: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for impl_block in &parsed.impls {
+            if impl_block.trait_name.is_some() {
+                continue;
+            }
+            for method in &impl_block.methods {
+                let mangled = format!("{}_{}", impl_block.target_type, method.name);
+                inherent_names.insert(mangled);
+                all_functions.push(self.make_impl_method(method, &impl_block.target_type));
+            }
+        }
+
+        // Pass 2: trait impls. Skip any name already claimed by an
+        // inherent method. Do NOT dedup between trait impls — two traits
+        // providing the same method name is an error, and the duplicate
+        // detection in `register_user_functions` is what surfaces it.
+        for impl_block in &parsed.impls {
+            if impl_block.trait_name.is_none() {
+                continue;
+            }
+            for method in &impl_block.methods {
+                let mangled = format!("{}_{}", impl_block.target_type, method.name);
+                if inherent_names.contains(&mangled) {
+                    continue;
                 }
-                all_functions.push(renamed);
+                all_functions.push(self.make_impl_method(method, &impl_block.target_type));
             }
         }
 
@@ -776,6 +790,32 @@ impl Compiler {
             subranges: parsed.subranges.clone(),
             imports: parsed.imports.clone(),
         }
+    }
+
+    /// Build the flattened `FunctionDecl` for a single impl method:
+    /// rename `method` to `Type_method` and insert `self` as the first
+    /// parameter if the parser didn't already.
+    fn make_impl_method(&self, method: &FunctionDecl, type_name: &str) -> FunctionDecl {
+        let mut renamed = method.clone();
+        renamed.name = format!("{}_{}", type_name, method.name);
+
+        let has_self = renamed.params.first().is_some_and(|(n, _)| n == "self");
+
+        debug_assert!(
+            method.receiver.is_none() || has_self,
+            "impl method declares a receiver but params[0] is not `self`",
+        );
+
+        if !has_self {
+            renamed.params.insert(
+                0,
+                (
+                    "self".to_string(),
+                    Some(TypeSyntax::Named(type_name.to_string())),
+                ),
+            );
+        }
+        renamed
     }
 
     fn lex(&self, source: &str) -> Result<LexedProgram> {

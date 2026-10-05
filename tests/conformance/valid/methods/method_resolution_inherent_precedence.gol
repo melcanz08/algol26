@@ -1,0 +1,17 @@
+rec User
+    name: String
+
+trait Greeter
+    function greet(self: &User) -> String
+
+impl Greeter for User
+    function greet(self: &User) -> String
+        return "trait"
+
+impl User
+    function greet(self: &User) -> String
+        return "inherent"
+
+procedure main
+    val u := User { name: "Alice" }
+    print(u.greet())

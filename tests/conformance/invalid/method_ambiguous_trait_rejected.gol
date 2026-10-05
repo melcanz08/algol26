@@ -1,0 +1,21 @@
+// ERROR_CODE: E0002
+rec User
+    name: String
+
+trait Saveable
+    function save(self: &User)
+
+trait Persistable
+    function save(self: &User)
+
+impl Saveable for User
+    function save(self: &User)
+        print("saveable")
+
+impl Persistable for User
+    function save(self: &User)
+        print("persistable")
+
+procedure main
+    val u := User { name: "Alice" }
+    u.save()

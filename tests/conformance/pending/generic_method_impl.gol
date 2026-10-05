@@ -1,0 +1,14 @@
+trait Showable
+    function show(self: &Self) -> String
+
+rec Pair<T>
+    first: T
+    second: T
+
+impl<T> Showable for Pair<T>
+    function show(self: &Pair<T>) -> String
+        return "pair"
+
+procedure main
+    val p := Pair<Int> { first: 1, second: 2 }
+    print(p.show())

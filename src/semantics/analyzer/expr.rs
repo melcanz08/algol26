@@ -1122,6 +1122,20 @@ impl SemanticAnalyzer {
                                     if let Some((_, self_ty)) = func_info.params.first() {
                                         match self_ty {
                                             Type::MutBorrow(_) => {
+                                                if !mutable {
+                                                    return Err(CompileError::at(
+                                                        self.current_span,
+                                                        &format!(
+                                                            "Cannot call `&mut self` method on immutable variable '{}'",
+                                                            receiver
+                                                        ),
+                                                        ErrorCode::E0007,
+                                                    )
+                                                    .with_suggestion(&format!(
+                                                        "Declare '{}' with `var` instead of `val`",
+                                                        receiver
+                                                    )));
+                                                }
                                                 self.check_borrow_rules(receiver, true)?;
                                             }
                                             Type::Borrow(_) => {
@@ -1129,8 +1143,6 @@ impl SemanticAnalyzer {
                                             }
                                             Type::Unknown => {}
                                             other => {
-                                                // By-value self: mark the receiver moved
-                                                // if the receiver type is non-Copy.
                                                 if !self.is_type_copy(&receiver_type) {
                                                     let span = self.current_span;
                                                     self.mark_moved(receiver, span);

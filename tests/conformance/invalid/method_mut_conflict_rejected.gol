@@ -1,0 +1,11 @@
+// ERROR_CODE: E0007
+rec User
+    name: String
+
+impl User
+    function rename(self: &mut User, new_name: String)
+        self.name := new_name
+
+procedure main
+    val u := User { name: "Alice" }
+    u.rename("Alicia")

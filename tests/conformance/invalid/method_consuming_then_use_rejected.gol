@@ -1,0 +1,12 @@
+// ERROR_CODE: E0007
+rec User
+    name: String
+
+impl User
+    function into_name(self: User) -> String
+        return self.name
+
+procedure main
+    val u := User { name: "Alice" }
+    val n := u.into_name()
+    print(u.name)

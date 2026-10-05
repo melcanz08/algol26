@@ -1,0 +1,12 @@
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+
+impl Day
+    function is_weekday(self: &Day) -> Bool
+        return true
+
+procedure main
+    val d := Day.Monday
+    print(d.is_weekday())

@@ -11,12 +11,20 @@ impl SemanticIRBuilder {
         receiver_type: &Type,
         method_name: &str,
     ) -> Option<String> {
-        // Records have no builtin base name, so try the impl-mangled
-        // form directly: `expand_impl_methods` renames `show` on
-        // `Sale` to `Sale_show`, which is registered in
-        // `function_types` just like a builtin. Fall through to the
-        // generic path only if that misses.
-        if let Type::Record(name, _) = receiver_type {
+        // User-defined types (records, enums, nominal types, subranges)
+        // use the underscore form: `Type_method`. Their names come from
+        // the type's own identity, not from a builtin base name.
+
+        // Keep in sync with `owner_name` in `src/semantics/analyzer/expr.rs`
+        // — both must agree on which type forms own inherent methods.
+        let user_type_name: Option<&String> = match receiver_type {
+            Type::Record(name, _) => Some(name),
+            Type::Enum { name, .. } => Some(name),
+            Type::Distinct { name, .. } => Some(name),
+            Type::Subrange { name, .. } => Some(name),
+            _ => None,
+        };
+        if let Some(name) = user_type_name {
             let mangled = format!("{}_{}", name, method_name);
             if self.function_types.contains_key(&mangled) {
                 return Some(mangled);
@@ -24,15 +32,16 @@ impl SemanticIRBuilder {
             return None;
         }
 
+        // Builtin types: `Type.method` for registered builtins, and
+        // `Type_method` for anything the builtin registry may have
+        // prefixed with an underscore form.
         let base = Self::base_type_name(receiver_type)?;
 
-        // Dot form — matches Math.sqrt, String.length, List.sum, File.read, …
         let dot_form = format!("{}.{}", base, method_name);
         if self.function_types.contains_key(&dot_form) {
             return Some(dot_form);
         }
 
-        // Underscore form — matches names produced by expand_impl_methods.
         let underscore_form = format!("{}_{}", base, method_name);
         if self.function_types.contains_key(&underscore_form) {
             return Some(underscore_form);

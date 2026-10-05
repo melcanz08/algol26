@@ -1,0 +1,9 @@
+type UserId distinct Int
+
+impl UserId
+    function describe(self: &UserId) -> String
+        return "user"
+
+procedure main
+    val id := UserId.from_base(1)
+    print(id.describe())

@@ -1092,6 +1092,10 @@ impl SemanticAnalyzer {
                             // already flattened `impl User { function rename }`
                             // into a `User_rename` FunctionDecl, which
                             // `register_user_functions` put in `self.functions`.
+
+                            // Keep in sync with `resolve_method_call` in
+                            // `src/semantics/builder/values.rs` — both must agree on which
+                            // type forms own inherent methods.
                             let owner_name: Option<String> = match &receiver_type {
                                 Type::Record(n, _) => Some(n.clone()),
                                 Type::Distinct { name, .. } => Some(name.clone()),

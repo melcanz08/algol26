@@ -214,7 +214,7 @@ mangled callee name and the receiver as the first argument.
 
 | Backend | Support | Notes |
 |---|---|---|
-| Interpreter | Partial | Read-only receivers (`self: T`, `self: &T`) run end-to-end. `&mut self` write-through is not modeled; the interpreter has no aliasing. |
+| Interpreter | Yes | All three receiver modes run end-to-end. `&mut self` write-through uses copy-in/copy-out — see ADR 0035. |
 | LLVM | Not yet | Records are refused by the capability check. Method IR is correct, but the backend cannot lower record literals or field access. |
 | WASM | Not yet | Same as LLVM, plus the WASM backend additionally refuses references. |
 

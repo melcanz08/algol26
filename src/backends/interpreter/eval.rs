@@ -1055,6 +1055,25 @@ impl Interpreter {
             .find(|f| f.name == function)
             .cloned()
         {
+            // ─── ADR 0035: write-back plan for `&mut self` receivers ───
+            // The builder emits `BorrowMutable { expr: Variable(name) }`
+            // for a mutable receiver. Scan the argument list for that
+            // shape and record (position, caller_binding_name) so the
+            // callee's final parameter value can be written back to the
+            // caller after the frame is restored. This is a syntactic
+            // scan — nothing is evaluated here.
+            let write_back_plan: Vec<(usize, String)> = args
+                .iter()
+                .enumerate()
+                .filter_map(|(i, arg)| match arg {
+                    TypedIRValue::BorrowMutable { expr, .. } => match &**expr {
+                        TypedIRValue::Variable(name, _) => Some((i, name.clone())),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect();
+
             let mut arg_vals = Vec::with_capacity(args.len());
             for a in args {
                 arg_vals.push(self.eval_value(a)?);
@@ -1080,9 +1099,29 @@ impl Interpreter {
                 }
             };
 
+            // ─── ADR 0035: capture write-backs before restoring ───
+            // Read the callee's final parameter values from the still-
+            // installed frame. `self.variables` currently holds only the
+            // callee's params and locals; the caller's bindings are in
+            // `saved_vars`.
+            let mut write_backs: Vec<(String, RuntimeValue)> =
+                Vec::with_capacity(write_back_plan.len());
+            for (i, caller_name) in &write_back_plan {
+                if let Some((param_name, _)) = callee.params.get(*i) {
+                    if let Some(val) = self.variables.get(param_name).cloned() {
+                        write_backs.push((caller_name.clone(), val));
+                    }
+                }
+            }
+
             self.variables = saved_vars;
             self.return_value = saved_ret;
             self.region_stack = saved_regions;
+
+            // ─── ADR 0035: apply write-backs to the caller's frame ───
+            for (caller_name, val) in write_backs {
+                self.variables.insert(caller_name, val);
+            }
 
             // Wrap the callee's error with the function name so
             // nested calls produce a readable chain

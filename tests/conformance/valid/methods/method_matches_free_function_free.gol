@@ -1,0 +1,10 @@
+rec User
+    name: String
+
+function rename(u: &mut User, new_name: String)
+    u.name := new_name
+
+procedure main
+    var u := User { name: "Alice" }
+    rename(&mut u, "Alicia")
+    print(u.name)

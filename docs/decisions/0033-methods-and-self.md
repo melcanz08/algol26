@@ -19,27 +19,10 @@ Accepted. Not yet implemented.
 > end of this ADR for the audit trail. The implementation order
 > (B1–B5) is unchanged; none of it has shipped yet.
 
-> **Status note (2026-10-05, post-implementation).** B1–B4 are
-> implemented for non-generic user types (records, enums, nominal
-> types). Eleven of thirteen conformance fixtures pass on the
-> interpreter. Two are deferred:
->
-> - `generic_method_impl.gol` — generic impls (`impl<T> Trait for
->   Pair<T>`) are not parseable today; `parse_impl` does not accept
->   `impl<T>`, `ImplBlock` has no `type_params` field, and
->   `expand_impl_methods`'s mangling scheme does not accommodate
->   generic arguments in the type name. This is a follow-up ADR.
->
 > - `method_mut_receiver.gol` and `method_matches_free_function.gol`
->   — write-through-`&mut self` requires either the interpreter to
->   model aliasing or LLVM to support records. Backend-blocked;
->   see the parity-gap work.
->
-> The invariants the ADR commits to are implemented and verified:
-> receiver modes through the ordinary ownership machinery, method
-> resolution precedence (inherent > trait), field/method collision
-> rejection, `self` outside `impl` rejection, `Self` substitution in
-> trait method validation, and the desugaring-to-`Call` invariant.
+>   — write-through-`&mut self` was backend-blocked; ADR 0035
+>   implemented interpreter copy-in/copy-out and both fixtures now
+>   pass.
 
 ## Context
 

@@ -2,17 +2,25 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+Accepted. Implemented.
 
+> **Implementation note (2026-10-06).** Shipped in commit `10816fb`.
+> `eval_call` in `src/backends/interpreter/eval.rs` now scans the
+> caller's argument list for `BorrowMutable { expr: Variable(name) }`,
+> captures the callee's final parameter value before frame restore,
+> and writes it back to the caller's binding after restore.
+> `method_mut_receiver.gol` and the two
+> `method_matches_free_function_*.gol` fixtures pass on the
+> interpreter. No IR, analyzer, or capability changes — the change
+> is contained to one function.
+>
 > **Status note (2026-10-05).** This ADR is a direct follow-up to
 > ADR 0033. That ADR shipped methods for non-generic user types and
 > verified them on the interpreter, except for one case: a method
 > with a `&mut self` receiver that writes through `self`. The
 > interpreter saves and restores its variable frame around every
 > call, so a `self.name := new_name` inside a method mutates a
-> local copy and never reaches the caller's binding. Two conformance
-> fixtures are parked: `method_mut_receiver.gol` and
-> `method_matches_free_function.gol`.
+> local copy and never reaches the caller's binding.
 >
 > **Revision note (2026-10-05, pre-implementation).** The first
 > draft of this ADR proposed a `RuntimeValue::Ref(name)` transient
@@ -24,6 +32,12 @@ Proposed. Not yet implemented.
 > **copy-in / copy-out**, which fits the existing frame model and
 > requires no new runtime value. See §Alternatives considered for
 > the discarded draft.
+
+> **Status note (2026-10-06).** Implemented in `eval_call`'s
+> write-back plan. `method_mut_receiver.gol` and
+> `method_matches_free_function_*.gol` pass on the interpreter. No
+> IR, analyzer, or capability changes; the change is contained to
+> one function.
 
 ## Context
 

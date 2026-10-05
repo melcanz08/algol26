@@ -337,11 +337,12 @@ See ADR 0034 for the implementation plan and the coherence rule it
 introduces. Test file parked at 
 `tests/conformance/pending/generic_method_impl.gol`.
 
-**2. Write-through-`&mut self`.** A mutating method body such as
-`self.name := new_name` requires the runtime to write back to the
-caller's binding. The interpreter has no aliasing model; LLVM refuses
-records. Both fix paths are backend work, not method-feature work. See
-the parity-gap follow-up.
+**2. Write-through-`&mut self`.** A mutating method body such as 
+`self.name := new_name` requires the runtime to write back to the 
+caller's binding. See ADR 0035 for the interpreter-side fix. 
+LLVM refuses records, which is separate parity work. Test files 
+parked at `tests/conformance/pending/method_mut_receiver.gol` and 
+`tests/conformance/pending/method_matches_free_function.gol`.
 
 **3. Complex-receiver method calls.** The parser restricts method calls
 to receivers that are bare identifiers. `f().method()` and `arr[0].method()`

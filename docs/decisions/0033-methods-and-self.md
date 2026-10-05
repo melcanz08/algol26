@@ -655,6 +655,8 @@ impl needs its own design pass.
   receiver-bearing declarations, resolution precedence, and
   receiver-mode semantics.
 - `docs/features/trait.md` — the trait mechanism
+- `docs/decisions/0035-interpreter-aliasing.md` — the follow-up ADR that
+  makes `&mut self` write-through runnable on the interpreter.
 - `docs/decisions/0034-generic-impls.md` — the follow-up ADR that
   lifts the generic-impl limitation ADR 0033 deferred.
 - `docs/decisions/README.md` — the ADR index and convention

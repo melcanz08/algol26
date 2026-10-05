@@ -336,19 +336,19 @@ Methods on non-generic user types
 
 ## Known limitations
 
-Three items are explicitly deferred or blocked as of ADR 0033:
+Two items remain deferred or blocked as of ADR 0033:
 
 **1. Generic impls.** `impl<T> Trait for Pair<T>` is not parseable today.
-See ADR 0034 for the implementation plan and the coherence rule it 
-introduces. Test file parked at 
+See ADR 0034 for the implementation plan and the coherence rule it
+introduces. Test file parked at
 `tests/conformance/pending/generic_method_impl.gol`.
 
-**2. Write-through-`&mut self`.** A mutating method body such as 
-`self.name := new_name` requires the runtime to write back to the 
-caller's binding. See ADR 0035 for the interpreter-side fix. 
-LLVM refuses records, which is separate parity work. Test files 
-parked at `tests/conformance/pending/method_mut_receiver.gol` and 
-`tests/conformance/pending/method_matches_free_function.gol`.
+**2. Methods on non-interpreter backends.** Records and references are
+refused by LLVM and WASM at the capability boundary, so no method call
+can compile to native or WASM code today. Interpreter support is
+complete, including write-through `&mut self` (ADR 0035). Closing the
+backend gap is ADR 0036 (LLVM records) and ADR 0037 (WASM records and
+references).
 
 ## Checklist for related features
 

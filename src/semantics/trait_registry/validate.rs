@@ -21,7 +21,7 @@ impl TraitRegistry {
 
         for required in required_methods {
             if let Some(provided) = provided_methods.get(&required.name) {
-                self.validate_method_signature(required, provided)?;
+                self.validate_method_signature(required, provided, &impl_block.target_type)?;
             } else {
                 let has_default = self
                     .default_methods
@@ -43,6 +43,7 @@ impl TraitRegistry {
         &self,
         required: &TraitMethod,
         provided: &FunctionDecl,
+        target_type: &str,
     ) -> Result<(), String> {
         // Check parameter count
         if required.params.len() != provided.params.len() {
@@ -54,15 +55,22 @@ impl TraitRegistry {
             ));
         }
 
+        // ADR 0033: substitute `Self` with the impl's target type before
+        // comparing. The trait's declared signature may contain `Self` at
+        // any depth (`Self`, `Borrow<Self>`, `MutBorrow<Self>`, ...); a
+        // bare `Self` check was the previous behavior and only handled
+        // the outer case.
+        let substitute = |s: String| s.replace("Self", target_type);
+
         // Check parameter types
         for (i, ((_req_name, req_type), (_prov_name, prov_type))) in
             required.params.iter().zip(&provided.params).enumerate()
         {
             if let (Some(req_t), Some(prov_t)) = (req_type, prov_type) {
-                let req_str = req_t.to_string_rep();
+                let req_str = substitute(req_t.to_string_rep());
                 let prov_str = prov_t.to_string_rep();
 
-                if req_str != prov_str && req_str != "Self" {
+                if req_str != prov_str {
                     return Err(format!(
                         "Method '{}' parameter {} type mismatch: expected {}, got {}",
                         required.name, i, req_str, prov_str
@@ -73,10 +81,10 @@ impl TraitRegistry {
 
         // Check return type
         if let (Some(req_ret), Some(prov_ret)) = (&required.return_type, &provided.return_type) {
-            let req_str = req_ret.to_string_rep();
+            let req_str = substitute(req_ret.to_string_rep());
             let prov_str = prov_ret.to_string_rep();
 
-            if req_str != prov_str && req_str != "Self" {
+            if req_str != prov_str {
                 return Err(format!(
                     "Method '{}' return type mismatch: expected {}, got {}",
                     required.name, req_str, prov_str

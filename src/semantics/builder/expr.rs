@@ -1043,12 +1043,31 @@ impl SemanticIRBuilder {
                             if let Some(resolved_name) =
                                 self.resolve_method_call(&receiver_type, method_name)
                             {
-                                // Receiver is passed as the first argument — same
-                                // convention expand_impl_methods uses for `self`.
-                                let receiver_value = TypedIRValue::Variable(
+                                let raw_receiver = TypedIRValue::Variable(
                                     receiver_name.to_string(),
                                     receiver_type.clone(),
                                 );
+
+                                // Wrap the receiver to match the method's declared self mode.
+                                // `User_label(self: &User)` expects `Borrow<User>`; passing a
+                                // bare `User` fails the verifier's arg-type check. Same for
+                                // `&mut self`. By-value `self: T` passes through unchanged.
+                                let receiver_value = match self
+                                    .function_types
+                                    .get(&resolved_name)
+                                    .and_then(|sig| sig.params.first())
+                                    .map(|(_, t)| t.clone())
+                                {
+                                    Some(Type::Borrow(_)) => TypedIRValue::BorrowShared {
+                                        expr: Box::new(raw_receiver),
+                                        target_type: Type::borrow(receiver_type.clone()),
+                                    },
+                                    Some(Type::MutBorrow(_)) => TypedIRValue::BorrowMutable {
+                                        expr: Box::new(raw_receiver),
+                                        target_type: Type::mut_borrow(receiver_type.clone()),
+                                    },
+                                    _ => raw_receiver,
+                                };
 
                                 let mut call_args = vec![receiver_value];
                                 for arg in args {
@@ -1059,10 +1078,7 @@ impl SemanticIRBuilder {
                                         arg,
                                     ));
                                 }
-
-                                // ─── UNIFY TYPES ─── analyzer already inferred the return type.
                                 let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
-
                                 return TypedIRValue::Call {
                                     function: resolved_name,
                                     args: call_args,
@@ -1746,7 +1762,11 @@ impl SemanticIRBuilder {
                 }
                 let obj = self.translate_expr(program, func, current_block, object);
                 let obj_ty = obj.type_of();
-
+                // Auto-deref to match the analyzer's field-access behavior.
+                let obj_ty = match &obj_ty {
+                    Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+                    _ => obj_ty.clone(),
+                };
                 // ADR 0029: `v.to_base` (no-parens form). Same as the
                 // parenthesized FunctionCall form above.
                 if field == "to_base" {

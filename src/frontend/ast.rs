@@ -364,6 +364,13 @@ pub struct WhereClause {
     pub trait_name: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReceiverMode {
+    Consume,
+    Shared,
+    Exclusive,
+}
+
 #[derive(Clone, Debug)]
 pub struct FunctionDecl {
     pub name: String,
@@ -374,6 +381,7 @@ pub struct FunctionDecl {
     pub ffi_info: Option<ExternDecl>,
     pub type_params: Vec<String>,
     pub where_clauses: Vec<WhereClause>,
+    pub receiver: Option<ReceiverMode>,
 }
 
 #[derive(Clone, Debug)]
@@ -473,9 +481,9 @@ pub struct TraitMethod {
 
 #[derive(Clone, Debug)]
 pub struct ImplBlock {
-    pub trait_name: String,
     pub target_type: String,
     pub methods: Vec<FunctionDecl>,
+    pub trait_name: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

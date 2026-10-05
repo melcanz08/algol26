@@ -271,10 +271,13 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Refused,
         llvm: Support::Full,
         wasm: Support::Refused,
-        refusal_tests: &["interpreter_rejects_references", "wasm_rejects_references"],
-        notes: "Interpreter and WASM refuse via `Feature::References` in the \
-                capability check. LLVM lowers the four reference operations \
-                in llvm_codegen/value.rs and the reference types in types.rs.",
+        refusal_tests: &["wasm_rejects_references"],
+        notes: "WASM refuses via `Feature::References` in the capability check. \
+            LLVM lowers the four reference operations in \
+            llvm_codegen/value.rs and the reference types in types.rs. \
+            The interpreter (ADR 0033) treats read-only references as \
+            pass-through — `&x`, `&mut x`, `*r`, and `AddrOf` evaluate to \
+            their inner value; write-through mutation is not modeled.",
     },
     FeatureRow {
         name: "region",

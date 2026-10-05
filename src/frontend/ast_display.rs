@@ -139,7 +139,14 @@ fn format_trait_method(out: &mut String, level: usize, m: &TraitMethod) {
 
 fn format_impl(out: &mut String, level: usize, im: &ImplBlock) {
     indent(out, level);
-    write!(out, "impl {} for {}", im.trait_name, im.target_type).unwrap();
+    match &im.trait_name {
+        Some(trait_name) => {
+            write!(out, "impl {} for {}", trait_name, im.target_type).unwrap();
+        }
+        None => {
+            write!(out, "impl {}", im.target_type).unwrap();
+        }
+    }
     end_line(out);
     for m in &im.methods {
         format_function(out, level + 1, m);
@@ -711,6 +718,7 @@ mod tests {
             ffi_info: None,
             type_params: vec![],
             where_clauses: vec![],
+            receiver: None,
         }
     }
 
@@ -795,7 +803,7 @@ mod tests {
             }],
         };
         let im = ImplBlock {
-            trait_name: "Display".into(),
+            trait_name: Some("Display".into()),
             target_type: "Int".into(),
             methods: vec![],
         };

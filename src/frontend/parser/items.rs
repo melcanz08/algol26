@@ -1,6 +1,7 @@
 // src/frontend/parser/items.rs
 
 use super::*;
+use crate::frontend::ast::ReceiverMode;
 
 impl Parser {
     pub fn parse_program(&mut self) -> Result<Program> {
@@ -250,6 +251,7 @@ impl Parser {
 
         // parameters
         let mut params = Vec::new();
+        let mut receiver: Option<ReceiverMode> = None;
         if matches!(self.peek(), Token::LParen) {
             self.advance();
             while !matches!(self.peek(), Token::RParen | Token::Eof) {
@@ -262,6 +264,27 @@ impl Parser {
                 }
                 let param_name = self.expect_identifier("parameter name")?;
                 let param_type = self.parse_type_annotation()?;
+
+                // `self` in first position: derive ReceiverMode from the type.
+                if param_name == "self" && params.is_empty() {
+                    receiver = Some(match &param_type {
+                        Some(TypeSyntax::Named(_)) => ReceiverMode::Consume,
+                        Some(TypeSyntax::Generic { name, args })
+                            if args.len() == 1 && name.eq_ignore_ascii_case("borrow") =>
+                        {
+                            ReceiverMode::Shared
+                        }
+                        Some(TypeSyntax::Generic { name, args })
+                            if args.len() == 1
+                                && (name.eq_ignore_ascii_case("mutborrow")
+                                    || name.eq_ignore_ascii_case("mut_borrow")) =>
+                        {
+                            ReceiverMode::Exclusive
+                        }
+                        _ => return Err(self.error("`self` must have type `T`, `&T`, or `&mut T`")),
+                    });
+                }
+
                 params.push((param_name, param_type));
                 if matches!(self.peek(), Token::Comma) {
                     self.advance();
@@ -341,6 +364,7 @@ impl Parser {
             ffi_info,
             type_params,
             where_clauses,
+            receiver,
         })
     }
 
@@ -395,19 +419,22 @@ impl Parser {
 
     pub(super) fn parse_impl(&mut self) -> Result<ImplBlock> {
         self.advance();
-        let trait_name = self.expect_identifier("trait name")?;
-        if matches!(self.peek(), Token::For) {
+        let first_ident = self.expect_identifier("trait or type name")?;
+
+        let (trait_name, target_type) = if matches!(self.peek(), Token::For) {
             self.advance();
+            let target = self.expect_identifier("target type")?;
+            (Some(first_ident), target)
         } else {
-            return Err(self.error("Expected 'for' in impl block"));
-        }
-        let target_type = self.expect_identifier("target type")?;
+            // Inherent impl: `impl User`
+            (None, first_ident)
+        };
+
         let mut methods = Vec::new();
         if let Token::Indent = self.peek() {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
-                let method = self.parse_function()?;
-                methods.push(method);
+                methods.push(self.parse_function()?);
             }
             if let Token::Dedent = self.peek() {
                 self.advance();

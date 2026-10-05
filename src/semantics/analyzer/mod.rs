@@ -370,6 +370,39 @@ impl SemanticAnalyzer {
                 return Err(CompileError::simple(&err, 0, 0, "", ErrorCode::E0002));
             }
         }
+        // ─── ADR 0033: inherent impl checks ───
+        // Field/method collision is a compile error: `impl User { function name }`
+        // where `User` already has field `name` would make `u.name` ambiguous
+        // between a field read and a zero-argument method call.
+        //
+        // Only inherent impls (`trait_name.is_none()`) are checked. Trait
+        // impls can legitimately share a name with a field, since the
+        // trait's method is called through its own resolution path.
+        for impl_block in impls {
+            if impl_block.trait_name.is_some() {
+                continue;
+            }
+            let Some(rec) = self.records.get(&impl_block.target_type) else {
+                // Target may be an enum or nominal type, which have no
+                // fields. No collision is possible.
+                continue;
+            };
+            for method in &impl_block.methods {
+                if rec.fields.iter().any(|(fname, _)| *fname == method.name) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Method '{}' on '{}' collides with a field of the same name",
+                            method.name, impl_block.target_type
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+            }
+        }
+
         for func in functions {
             self.analyze_function(func)?;
         }

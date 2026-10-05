@@ -36,7 +36,7 @@ fn test_type_implements_trait() {
     registry.register_trait(trait_decl);
 
     let impl_block = ImplBlock {
-        trait_name: "Comparable".to_string(),
+        trait_name: Some("Comparable".to_string()),
         target_type: "Int".to_string(),
         methods: vec![FunctionDecl {
             name: "compare".to_string(),
@@ -47,6 +47,7 @@ fn test_type_implements_trait() {
             ffi_info: None,
             type_params: vec![],
             where_clauses: vec![],
+            receiver: None,
         }],
     };
     registry.register_impl(impl_block);
@@ -73,7 +74,7 @@ fn test_validate_impl_signature_mismatch() {
     registry.register_trait(trait_decl);
 
     let impl_block = ImplBlock {
-        trait_name: "Comparable".to_string(),
+        trait_name: Some("Comparable".to_string()),
         target_type: "Int".to_string(),
         methods: vec![FunctionDecl {
             name: "compare".to_string(),
@@ -84,6 +85,7 @@ fn test_validate_impl_signature_mismatch() {
             ffi_info: None,
             type_params: vec![],
             where_clauses: vec![],
+            receiver: None,
         }],
     };
 
@@ -106,7 +108,7 @@ fn test_generic_impl() {
 
     // Generic impl for List<T>
     let impl_block = ImplBlock {
-        trait_name: "Display".to_string(),
+        trait_name: Some("Display".to_string()),
         target_type: "List<T>".to_string(),
         methods: vec![FunctionDecl {
             name: "display".to_string(),
@@ -117,6 +119,7 @@ fn test_generic_impl() {
             ffi_info: None,
             type_params: vec!["T".to_string()],
             where_clauses: vec![],
+            receiver: None,
         }],
     };
     registry.register_impl(impl_block);

@@ -953,21 +953,16 @@ impl SemanticAnalyzer {
                 let clean_name = name.trim_end_matches("()");
 
                 // ADR 0031: Subrange constructor. `Percentage(75)`.
-                // Same reasoning as nominal from_base — the callee is
-                // a type name, not a variable.
                 if let Some(ty) = self.try_subrange_construct(clean_name, args)? {
                     return Ok(ty);
                 }
 
                 // ADR 0029: Nominal type constructor. `UserId.from_base(x)`.
-                // The receiver is a *type name*, not a variable, so this
-                // must run before the ordinary dotted-name dispatch below.
                 if let Some(ty) = self.try_nominal_from_base(clean_name, args)? {
                     return Ok(ty);
                 }
 
                 // ADR 0030: Enum ordinal constructor. `Day.from_ordinal(x)`.
-                // Same shape as nominal `from_base`.
                 if let Some(ty) = self.try_enum_from_ordinal(clean_name, args)? {
                     return Ok(ty);
                 }
@@ -979,8 +974,7 @@ impl SemanticAnalyzer {
                         let method_name = parts[1];
 
                         if let Some((receiver_type, mutable)) = self.lookup_variable(receiver) {
-                            // ADR 0030: Enum ordinal extraction.
-                            // `d.to_ordinal()` where d has an Enum type.
+                            // ADR 0030: Enum ordinal extraction. `d.to_ordinal()`.
                             if let Type::Enum { .. } = &receiver_type {
                                 if method_name == "to_ordinal" {
                                     if !args.is_empty() {
@@ -996,8 +990,8 @@ impl SemanticAnalyzer {
                                     return Ok(Type::Int);
                                 }
                             }
-                            // ADR 0031: subrange extraction.
-                            // `p.to_base()` where p has a subrange type.
+
+                            // ADR 0031: subrange extraction. `p.to_base()`.
                             if let Type::Subrange { base, .. } = &receiver_type {
                                 if method_name == "to_base" {
                                     if !args.is_empty() {
@@ -1013,10 +1007,8 @@ impl SemanticAnalyzer {
                                     return Ok((**base).clone());
                                 }
                             }
-                            // ADR 0029: Nominal type instance conversion.
-                            // `x.to_base()` where x has a Distinct type.
-                            // Yields the base type; consumes the receiver
-                            // if the base is non-Copy.
+
+                            // ADR 0029: Nominal type instance conversion. `x.to_base()`.
                             if let Type::Distinct { base, .. } = &receiver_type {
                                 if method_name == "to_base" {
                                     if !args.is_empty() {
@@ -1037,10 +1029,8 @@ impl SemanticAnalyzer {
                                     return Ok(base_ty);
                                 }
                             }
+
                             // ─── List.append dispatch ───
-                            // Like Map methods, `List.append` needs the receiver's
-                            // concrete element type and a mutability check, which the
-                            // generic builtin path doesn't provide.
                             if let Type::List(elem_ty) = &receiver_type {
                                 if method_name == "append" {
                                     if !mutable {
@@ -1074,23 +1064,16 @@ impl SemanticAnalyzer {
                                         && !arg_ty.can_coerce_to(elem_ty)
                                     {
                                         return Err(CompileError::at(self.current_span, &format!(
-                                                "List.append element type mismatch: expected {}, found {}",
-                                                elem_ty, arg_ty
-                                            ), ErrorCode::E0002));
+                                            "List.append element type mismatch: expected {}, found {}",
+                                            elem_ty, arg_ty
+                                        ), ErrorCode::E0002));
                                     }
-                                    // The list is now longer than the analyzer previously
-                                    // knew; drop the tracked length so a stale OOB check
-                                    // doesn't fire on a now-valid index.
                                     self.clear_list_length(receiver);
                                     return Ok(Type::Void);
                                 }
                             }
+
                             // ─── Map method dispatch ───
-                            // Map methods need the concrete K and V from the receiver to
-                            // check argument types precisely. The generic builtin path
-                            // below only checks arg count, so Map gets its own dispatch
-                            // (ADR 0027). `&Box<Type>` deref-coerces to `&Type` at the
-                            // call site.
                             if let Type::Map(k, v) = &receiver_type {
                                 return self.analyze_map_method_call(
                                     receiver,
@@ -1102,29 +1085,93 @@ impl SemanticAnalyzer {
                                 );
                             }
 
+                            // ─── Inherent impl method lookup (ADR 0033) ───
+                            // Placed above the trait tier so an inherent method
+                            // shadows a trait method of the same name, per the
+                            // ADR's precedence rule. `expand_impl_methods` has
+                            // already flattened `impl User { function rename }`
+                            // into a `User_rename` FunctionDecl, which
+                            // `register_user_functions` put in `self.functions`.
+                            let owner_name: Option<String> = match &receiver_type {
+                                Type::Record(n, _) => Some(n.clone()),
+                                Type::Distinct { name, .. } => Some(name.clone()),
+                                Type::Enum { name, .. } => Some(name.clone()),
+                                _ => None,
+                            };
+                            if let Some(owner) = owner_name {
+                                let mangled = format!("{}_{}", owner, method_name);
+                                if let Some(func_info) = self.functions.get(&mangled).cloned() {
+                                    // params[0] is `self`; the rest are user args.
+                                    let expected_extra = func_info.params.len().saturating_sub(1);
+                                    if args.len() != expected_extra {
+                                        return Err(CompileError::at(
+                                            self.current_span,
+                                            &format!(
+                                                "Method '{}' expects {} argument(s) after the receiver, got {}",
+                                                method_name, expected_extra, args.len()
+                                            ),
+                                            ErrorCode::E0002,
+                                        ));
+                                    }
+
+                                    // Receiver ownership: match params[0]'s mode.
+                                    if let Some((_, self_ty)) = func_info.params.first() {
+                                        match self_ty {
+                                            Type::MutBorrow(_) => {
+                                                self.check_borrow_rules(receiver, true)?;
+                                            }
+                                            Type::Borrow(_) => {
+                                                self.check_borrow_rules(receiver, false)?;
+                                            }
+                                            Type::Unknown => {}
+                                            other => {
+                                                // By-value self: mark the receiver moved
+                                                // if the receiver type is non-Copy.
+                                                if !self.is_type_copy(&receiver_type) {
+                                                    let span = self.current_span;
+                                                    self.mark_moved(receiver, span);
+                                                }
+                                                let _ = other;
+                                            }
+                                        }
+                                    }
+
+                                    // Type-check user args against params[1..].
+                                    for (arg, (pname, pty)) in
+                                        args.iter().zip(func_info.params.iter().skip(1))
+                                    {
+                                        let arg_ty =
+                                            self.analyze_expr_with_context(arg, Some(pty))?;
+                                        if !arg_ty.can_coerce_to(pty) && *pty != Type::Unknown {
+                                            return Err(CompileError::at(
+                                                self.current_span,
+                                                &format!(
+                                                    "Argument '{}' type mismatch: expected {}, found {}",
+                                                    pname, pty, arg_ty
+                                                ),
+                                                ErrorCode::E0002,
+                                            ));
+                                        }
+                                    }
+                                    return Ok(func_info.return_type);
+                                }
+                            }
+
                             // ─── Built-in method form ───
-                            // `list.length()` → `List.length`. The call dispatches
-                            // through the built-in registry, not the trait registry.
                             if let Some(base) = Self::base_type_name(&receiver_type) {
                                 let builtin_form = format!("{}.{}", base, method_name);
                                 if let Some(func_info) = self.functions.get(&builtin_form).cloned()
                                 {
-                                    // Analyze each explicit arg. The receiver is
-                                    // implicitly the first argument at IR-build time,
-                                    // so its type is already known.
                                     for arg in args {
                                         self.analyze_expr(arg)?;
                                         self.register_call_arg_temporary(arg);
                                     }
-                                    // Optional strict check: if the built-in takes N
-                                    // params and the receiver counts as one, then
-                                    // `args.len() + 1 == N` should hold.
                                     let expected_extra = func_info.params.len().saturating_sub(1);
                                     if args.len() != expected_extra {
                                         return Err(CompileError::at(self.current_span, &format!(
-                                                "Method '{}' expects {} argument(s) after the receiver, got {}",
-                                                method_name, expected_extra, args.len()
-                                            ), ErrorCode::E0002));
+                                            "Method '{}' expects {} argument(s) after the receiver, got {}",
+                                            method_name, expected_extra, args.len()
+                                        ), ErrorCode::E0002));
                                     }
                                     return Ok(func_info.return_type);
                                 }
@@ -1158,10 +1205,14 @@ impl SemanticAnalyzer {
                                     if !arg_type.can_coerce_to(&expected_type)
                                         && expected_type != Type::Unknown
                                     {
-                                        return Err(CompileError::at(self.current_span, &format!(
-                                                "Argument '{}' type mismatch: expected {}, found {}",
-                                                param_name, expected_type, arg_type
-                                            ), ErrorCode::E0002));
+                                        return Err(CompileError::at(
+                                            self.current_span,
+                                            &format!(
+                                            "Argument '{}' type mismatch: expected {}, found {}",
+                                            param_name, expected_type, arg_type
+                                        ),
+                                            ErrorCode::E0002,
+                                        ));
                                     }
                                 }
                                 return Ok(method
@@ -1171,7 +1222,7 @@ impl SemanticAnalyzer {
                                     .unwrap_or(Type::Void));
                             }
 
-                            // ─── Neither built-in nor trait method ───
+                            // ─── Neither inherent, built-in, nor trait method ───
                             return Err(CompileError::at(
                                 self.current_span,
                                 &format!(
@@ -1189,13 +1240,7 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                // ADR 0015: `alloc` and `free` manipulate raw memory
-                // directly and require an unsafe block. Both are
-                // registered builtins, so `clean_name` is stable.
-                // Checked before the arity check — "you need unsafe"
-                // is a more useful first diagnostic than "wrong
-                // argument count" when the surrounding code is
-                // already outside a safety boundary.
+                // ADR 0015: `alloc` and `free` require an unsafe block.
                 if (clean_name == "alloc" || clean_name == "free") && self.unsafe_depth == 0 {
                     return Err(CompileError::at(
                         self.current_span,
@@ -1220,11 +1265,6 @@ impl SemanticAnalyzer {
                     ))
                 })?;
 
-                // Variadic extern functions accept any number of
-                // arguments at or above the fixed count. Extra
-                // arguments are the variadic tail — their types
-                // are not checked (matching C). Non-variadic
-                // functions still require exact arity.
                 let is_variadic = self.variadic_functions.contains(clean_name);
                 let arity_ok = if is_variadic {
                     args.len() >= func_info.params.len()
@@ -1250,13 +1290,6 @@ impl SemanticAnalyzer {
                     .with_suggestion(&format!("Provide {} to '{}'", expected_msg, name)));
                 }
 
-                // Variadic tail: any args past `params.len()` have no
-                // declared type. Analyze them in an uncontexted way so
-                // their types land in `type_table` (otherwise
-                // TypeTableCompletePass warns about every extra arg).
-                // Their types are not checked — this matches C's
-                // variadic ABI where extra arg types are the caller's
-                // responsibility.
                 if is_variadic {
                     for arg in args.iter().skip(func_info.params.len()) {
                         self.analyze_expr(arg)?;
@@ -1270,16 +1303,8 @@ impl SemanticAnalyzer {
                     self.register_call_arg_temporary(arg);
                     let resolved_param_type = self.resolve_type(param_type);
 
-                    // Bind any type variables the parameter contains. Recursive —
-                    // `List<T>` against `List<Int>` binds T = Int; `TypeVar("T")`
-                    // directly binds as before.
                     self.unify_types(&resolved_param_type, &arg_type, &mut type_bindings)?;
 
-                    // The coercion check only fires when the parameter type is
-                    // fully concrete. A generic parameter (`List<T>`, `Option<U>`)
-                    // was checked structurally by `unify_types` above; re-checking
-                    // it with `can_coerce_to` would treat the type variable as a
-                    // concrete non-supertype and produce spurious mismatches.
                     if !resolved_param_type.contains_type_var()
                         && !resolved_param_type.contains_unknown()
                         && !arg_type.contains_unknown()
@@ -1300,18 +1325,6 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                // Record a generic instantiation fact. `InstantiationPlan`
-                // consumes these in `type_check_program`; the IR builder
-                // reads the closed plan to emit one specialization per
-                // concrete type-argument combination. Only functions
-                // with non-empty `type_params` are recorded — a call to
-                // a non-generic function is fully resolved here and
-                // needs no entry.
-                //
-                // `type_args` may contain `Type::Unknown` if an
-                // argument's type could not be inferred; the
-                // executable-IR verifier is responsible for rejecting
-                // such cases. See ADR 0013.
                 if !func_info.type_params.is_empty() {
                     let type_params = func_info.type_params.clone();
                     let type_args: Vec<Type> = type_params
@@ -1401,6 +1414,14 @@ impl SemanticAnalyzer {
                 }
 
                 let obj_ty = self.analyze_expr(object)?;
+
+                // Auto-deref: `self.name` where `self: &User`, or any field
+                // access on a borrowed value. Unwrap one level of reference
+                // before checking whether the type has fields.
+                let obj_ty = match &obj_ty {
+                    Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+                    _ => obj_ty,
+                };
 
                 // ADR 0030: Enum ordinal extraction, no-parens form.
                 if let Type::Enum { .. } = &obj_ty {

@@ -741,22 +741,28 @@ impl Compiler {
 
     fn expand_impl_methods(&self, parsed: &ParsedProgram) -> ParsedProgram {
         let mut all_functions = (*parsed.functions).clone();
-
         for impl_block in &parsed.impls {
             let type_name = impl_block.target_type.clone();
             for method in &impl_block.methods {
-                let mut renamed_method = method.clone();
-                // Rename "compare" to "Int_compare"
-                renamed_method.name = format!("{}_{}", type_name, method.name);
-                // Add self parameter (the receiver) as first param
-                renamed_method.params.insert(
-                    0,
-                    (
-                        "self".to_string(),
-                        Some(TypeSyntax::Named(type_name.clone())),
-                    ),
+                let mut renamed = method.clone();
+                renamed.name = format!("{}_{}", type_name, method.name);
+
+                // Don't insert a self param if the parser already saw one.
+                let has_self = renamed.params.first().is_some_and(|(n, _)| n == "self");
+                debug_assert!(
+                    method.receiver.is_none() || has_self,
+                    "impl method declares a receiver but params[0] is not `self`",
                 );
-                all_functions.push(renamed_method);
+                if !has_self {
+                    renamed.params.insert(
+                        0,
+                        (
+                            "self".to_string(),
+                            Some(TypeSyntax::Named(type_name.clone())),
+                        ),
+                    );
+                }
+                all_functions.push(renamed);
             }
         }
 

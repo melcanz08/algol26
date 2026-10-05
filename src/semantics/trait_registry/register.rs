@@ -7,15 +7,17 @@ impl TraitRegistry {
         self.traits.insert(trait_decl.name.clone(), trait_decl);
     }
     pub fn register_impl(&mut self, impl_block: ImplBlock) {
-        let key = (
-            impl_block.trait_name.clone(),
-            impl_block.target_type.clone(),
-        );
+        // Inherent impls (`impl User`) have no trait; the trait registry
+        // only tracks trait impls. ADR 0033.
+        let Some(trait_name) = impl_block.trait_name.clone() else {
+            return;
+        };
 
-        // Check if this is a generic impl
+        let key = (trait_name.clone(), impl_block.target_type.clone());
+
         if impl_block.target_type.contains('<') {
             self.generic_impls.push(GenericImpl {
-                trait_name: impl_block.trait_name.clone(),
+                trait_name,
                 type_pattern: self.parse_type_pattern(&impl_block.target_type),
                 methods: impl_block.methods.clone(),
             });

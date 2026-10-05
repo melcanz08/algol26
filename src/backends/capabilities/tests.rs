@@ -527,7 +527,11 @@ fn wasm_rejects_spawn() {
 }
 
 #[test]
-fn interpreter_rejects_references() {
+fn interpreter_accepts_references() {
+    // ADR 0033: the interpreter has no memory model, so `&x` and
+    // `*r` evaluate to their inner value. Read-only references pass
+    // through. Mutable writes through a reference are still refused
+    // (see `interpreter_rejects_write_through_reference`).
     let program = program_with(
         Instruction::Declare {
             name: "r".to_string(),
@@ -540,12 +544,8 @@ fn interpreter_rejects_references() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
-    assert!(
-        err.message.contains("reference"),
-        "expected reference diagnostic, got: {}",
-        err.message
-    );
+    check_backend(&program, &BackendCapabilities::interpreter())
+        .expect("interpreter should accept read-only references (ADR 0033)");
 }
 
 #[test]
@@ -609,7 +609,10 @@ fn reference_parameter_requires_capability() {
         entry_block: entry,
         is_extern: false,
     });
-    let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
+    // The interpreter now supports references (ADR 0033), so use WASM —
+    // which still refuses them — to prove the scan fires on a `&T`
+    // parameter even when the body has no reference operation.
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
     assert!(
         err.message.contains("reference"),
         "expected reference diagnostic for &T parameter, got: {}",

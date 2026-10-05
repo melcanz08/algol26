@@ -29,7 +29,7 @@ impl Comparable for Int
     assert_eq!(traits.len(), 1);
     assert_eq!(traits[0].name, "Comparable");
     assert_eq!(impls.len(), 1);
-    assert_eq!(impls[0].trait_name, "Comparable");
+    assert_eq!(impls[0].trait_name.as_deref(), Some("Comparable"));
     assert_eq!(impls[0].target_type, "Int");
     assert_eq!(impls[0].methods.len(), 1);
     assert_eq!(impls[0].methods[0].name, "compare");
@@ -55,7 +55,7 @@ fn test_trait_registry_resolution() {
 
     // Register impl for Int
     let impl_block = algol26::frontend::ast::ImplBlock {
-        trait_name: "Comparable".to_string(),
+        trait_name: Some("Comparable".to_string()),
         target_type: "Int".to_string(),
         methods: vec![algol26::frontend::ast::FunctionDecl {
             name: "compare".to_string(),
@@ -69,6 +69,7 @@ fn test_trait_registry_resolution() {
             ffi_info: None,
             type_params: vec![],
             where_clauses: vec![],
+            receiver: None,
         }],
     };
     registry.register_impl(impl_block);

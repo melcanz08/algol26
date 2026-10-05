@@ -26,7 +26,7 @@ use coverage_matrix::MATRIX;
 /// Directories under `tests/conformance/valid/` that group fixtures
 /// by category rather than by a single feature. They are exempt from
 /// the "every directory is referenced by a matrix row" rule.
-const NON_FEATURE_DIRS: &[&str] = &["basics", "control_flow"];
+const NON_FEATURE_DIRS: &[&str] = &["basics", "control_flow", "methods"];
 
 fn conformance_valid_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/conformance/valid")

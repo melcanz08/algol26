@@ -28,6 +28,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0007](0007-region-memory.md) | Region Memory | Drifted (see status note) |
 | [0008](0008-concurrency-model.md) | Concurrency Model | Drifted (see status note) |
 | [0009](0009-unsafe.md) | Unsafe Boundary | Drifted (see status note) |
+| [0033](0033-methods-and-self.md) | Methods, Receivers, and the OOP Direction | Accepted |
 
 ## Current state
 

@@ -444,6 +444,7 @@ mod tests {
             ffi_info: None,
             type_params: vec![],
             where_clauses: vec![],
+            receiver: None,
         }];
         assign_expr_ids(&mut functions);
 

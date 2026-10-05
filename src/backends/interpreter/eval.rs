@@ -156,15 +156,10 @@ impl Interpreter {
             // The interpreter does not model references or regions.
             // Refuse loudly; the capability matrix should have caught
             // this before the interpreter ran.
-            TypedIRValue::BorrowShared { .. }
-            | TypedIRValue::BorrowMutable { .. }
-            | TypedIRValue::ReadReference { .. }
-            | TypedIRValue::AddrOf { .. } => {
-                return Err(EvalError::Unsupported {
-                    construct: "references",
-                    hint: "use the LLVM backend (--interpreter does not model borrows)",
-                });
-            }
+            TypedIRValue::BorrowShared { expr, .. }
+            | TypedIRValue::BorrowMutable { expr, .. }
+            | TypedIRValue::ReadReference { expr, .. }
+            | TypedIRValue::AddrOf { expr, .. } => self.eval_value(expr)?,
 
             TypedIRValue::Range(..) => {
                 return Err(EvalError::Unsupported {

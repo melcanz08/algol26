@@ -222,6 +222,10 @@ impl BackendCapabilities {
         supported.insert(Feature::Conversions);
         supported.insert(Feature::Map);
         supported.insert(Feature::ListAppend);
+        // ADR 0033: the interpreter has no memory model. `&x` / `*r`
+        // evaluate to the inner value via the eval arm in
+        // `interpreter/eval.rs`; read-only references pass through.
+        supported.insert(Feature::References);
         // FFI is not supported by the interpreter (a tree-walker
         // cannot call into C).
         BackendCapabilities {

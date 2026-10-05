@@ -4,10 +4,12 @@ use super::*;
 
 impl TraitRegistry {
     pub fn validate_impl(&self, impl_block: &ImplBlock) -> Result<(), String> {
-        let trait_name = &impl_block.trait_name;
+        let Some(trait_name) = &impl_block.trait_name else {
+            // Inherent impls have no trait to validate against. ADR 0033.
+            return Ok(());
+        };
 
-        // Reject impls of traits that were never declared. Without this,
-        // `impl MadeUpTrait for Int { ... }` would silently be accepted.
+        // Reject impls of traits that were never declared.
         let trait_decl = self
             .traits
             .get(trait_name)
@@ -21,8 +23,6 @@ impl TraitRegistry {
             if let Some(provided) = provided_methods.get(&required.name) {
                 self.validate_method_signature(required, provided)?;
             } else {
-                // A missing method is permitted only if there's a default
-                // implementation registered for it.
                 let has_default = self
                     .default_methods
                     .get(trait_name)

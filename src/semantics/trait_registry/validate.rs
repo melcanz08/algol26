@@ -19,9 +19,24 @@ impl TraitRegistry {
         let provided_methods: HashMap<&String, &FunctionDecl> =
             impl_block.methods.iter().map(|m| (&m.name, m)).collect();
 
+        // ADR 0034: for a generic impl (`impl<T> Showable for Pair<T>`),
+        // `Self` must substitute to the *full* target type, including
+        // its type arguments. The AST carries the base name and the
+        // args separately; reconstruct the display form here.
+        let target_str = if impl_block.target_type_args.is_empty() {
+            impl_block.target_type.clone()
+        } else {
+            let args: Vec<String> = impl_block
+                .target_type_args
+                .iter()
+                .map(|t| t.to_string_rep())
+                .collect();
+            format!("{}<{}>", impl_block.target_type, args.join(", "))
+        };
+
         for required in required_methods {
             if let Some(provided) = provided_methods.get(&required.name) {
-                self.validate_method_signature(required, provided, &impl_block.target_type)?;
+                self.validate_method_signature(required, provided, &target_str)?;
             } else {
                 let has_default = self
                     .default_methods

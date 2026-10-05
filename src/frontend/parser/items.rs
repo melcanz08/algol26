@@ -418,16 +418,33 @@ impl Parser {
     }
 
     pub(super) fn parse_impl(&mut self) -> Result<ImplBlock> {
-        self.advance();
+        self.advance(); // consume `impl`
+
+        // ADR 0034: optional impl-level type parameters.
+        //   impl<T> Trait for Type<T>
+        //   impl<T> Type<T>
+        let mut type_params = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.advance();
+            while !matches!(self.peek(), Token::Gt | Token::Eof) {
+                type_params.push(self.expect_identifier("type parameter")?);
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                }
+            }
+            self.expect_token(Token::Gt, "'>'")?;
+        }
+
         let first_ident = self.expect_identifier("trait or type name")?;
 
-        let (trait_name, target_type) = if matches!(self.peek(), Token::For) {
+        let (trait_name, target_type, target_type_args) = if matches!(self.peek(), Token::For) {
             self.advance();
             let target = self.expect_identifier("target type")?;
-            (Some(first_ident), target)
+            let args = self.parse_type_args()?;
+            (Some(first_ident), target, args)
         } else {
-            // Inherent impl: `impl User`
-            (None, first_ident)
+            let args = self.parse_type_args()?;
+            (None, first_ident, args)
         };
 
         let mut methods = Vec::new();
@@ -440,13 +457,31 @@ impl Parser {
                 self.advance();
             }
         }
+
         Ok(ImplBlock {
             trait_name,
-            type_params: Vec::new(),
+            type_params,
             target_type,
-            target_type_args: Vec::new(),
+            target_type_args,
             methods,
         })
+    }
+
+    /// Parse an optional `<T1, T2, ...>` type-argument list. Returns an
+    /// empty vector when the current token isn't `<`.
+    pub(super) fn parse_type_args(&mut self) -> Result<Vec<TypeSyntax>> {
+        let mut args = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.advance();
+            while !matches!(self.peek(), Token::Gt | Token::Eof) {
+                args.push(self.parse_type_syntax()?);
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                }
+            }
+            self.expect_token(Token::Gt, "'>'")?;
+        }
+        Ok(args)
     }
 
     pub(super) fn parse_record_decl(&mut self) -> Result<RecordDecl> {

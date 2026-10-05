@@ -463,10 +463,27 @@ impl Parser {
             // form is not supported in v1 (ADR 0032 design question 5).
             let element_type = self.parse_set_type_arg()?;
             self.parse_set_literal(element_type, ident_span)
+        } else if matches!(self.peek(), Token::Lt) && self.looks_like_type_args_followed_by_brace()
+        {
+            // ADR 0034: generic user-type record literal.
+            //   `Pair<Int> { first: 1, second: 2 }`
+            //
+            // The Map and Set branches above handle those builtins
+            // specifically because they need custom literal parsing
+            // (Map takes key:value pairs, Set takes a single element
+            // list). For every other name, this branch parses a
+            // standard record literal with explicit type arguments.
+            //
+            // The `looks_like_type_args_followed_by_brace` guard
+            // requires `{` immediately after the matching `>`, so
+            // `Pair < Int` (comparison) never falls into this arm.
+            let type_args = self.parse_type_args()?;
+            self.parse_record_literal(name, type_args, ident_span)
         } else if matches!(self.peek(), Token::LBrace) {
-            // existing record-literal branch — unchanged.
-            // Must come AFTER the Set branch: `Set<Day> { ... }` is
-            // otherwise claimed by this general brace-literal path.
+            // Non-generic record literal: `User { name: "Alice" }`.
+            // Must come AFTER the Set and generic-literal branches:
+            // `Set<Day> { ... }` and `Pair<Int> { ... }` are otherwise
+            // claimed by this general brace-literal path.
             self.parse_record_literal(name, Vec::new(), ident_span)
         } else if matches!(self.peek(), Token::Dot) {
             self.advance();

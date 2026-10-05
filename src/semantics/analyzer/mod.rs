@@ -359,6 +359,34 @@ impl SemanticAnalyzer {
         }
 
         self.register_user_functions(functions)?;
+        // ─── ADR 0033: `self` is only legal inside an impl block ───
+        // `expand_impl_methods` has already renamed impl methods to
+        // `Type_method`, so any function in `functions` with a receiver
+        // whose name doesn't match a known impl's mangled form is a
+        // top-level declaration that misuses `self`.
+        for func in functions {
+            if func.receiver.is_none() {
+                continue;
+            }
+            let is_impl_method = impls.iter().any(|b| {
+                b.methods
+                    .iter()
+                    .any(|m| format!("{}_{}", b.target_type, m.name) == func.name)
+            });
+            if !is_impl_method {
+                return Err(CompileError::simple(
+                    &format!(
+                        "`self` receiver is only allowed inside an `impl` block, \
+                         found in top-level function '{}'",
+                        func.name
+                    ),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
+                ));
+            }
+        }
         for trait_decl in traits {
             self.trait_registry.register_trait(trait_decl.clone());
         }

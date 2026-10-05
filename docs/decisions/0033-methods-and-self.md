@@ -640,6 +640,10 @@ impl needs its own design pass.
 - `docs/features/trait.md` — the trait mechanism
 - `docs/decisions/0034-generic-impls.md` — the follow-up ADR that
   lifts the generic-impl limitation ADR 0033 deferred.
+- `docs/decisions/0036-llvm-records.md` — the follow-up ADR for
+  record support on LLVM, which unblocks methods on that backend.
+- `docs/decisions/0037-wasm-records-references.md` — the follow-up ADR
+  for record and reference support on WASM.
 - `docs/decisions/0035-interpreter-aliasing.md` — the follow-up ADR that
   makes `&mut self` write-through runnable on the interpreter.
 - `docs/decisions/README.md` — the ADR index and convention

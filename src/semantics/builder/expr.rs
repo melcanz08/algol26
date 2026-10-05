@@ -1132,6 +1132,54 @@ impl SemanticIRBuilder {
                     return_type,
                 }
             }
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                // Complex-receiver method call. The receiver is
+                // translated as an expression, not looked up by
+                // name. `&mut self` on a complex receiver was
+                // already rejected by the analyzer, so only
+                // shared and by-value receivers reach here.
+                let receiver_value = self.translate_expr(program, func, current_block, receiver);
+                let receiver_type = receiver_value.type_of();
+
+                if let Some(resolved_name) = self.resolve_method_call(&receiver_type, method) {
+                    let wrapped = match self
+                        .function_types
+                        .get(&resolved_name)
+                        .and_then(|sig| sig.params.first())
+                        .map(|(_, t)| t.clone())
+                    {
+                        Some(Type::Borrow(_)) => TypedIRValue::BorrowShared {
+                            expr: Box::new(receiver_value),
+                            target_type: Type::borrow(receiver_type.clone()),
+                        },
+                        Some(Type::MutBorrow(_)) => TypedIRValue::BorrowMutable {
+                            expr: Box::new(receiver_value),
+                            target_type: Type::mut_borrow(receiver_type.clone()),
+                        },
+                        _ => receiver_value,
+                    };
+
+                    let mut call_args = vec![wrapped];
+                    for arg in args {
+                        call_args.push(self.translate_expr(program, func, current_block, arg));
+                    }
+                    let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                    return TypedIRValue::Call {
+                        function: resolved_name,
+                        args: call_args,
+                        return_type,
+                    };
+                }
+
+                self.diagnostics
+                    .push(format!("Type {} has no method '{}'", receiver_type, method));
+                TypedIRValue::Void
+            }
             ExprKind::ArrayAccess { array, index, .. } => {
                 let array_value = self.translate_expr(program, func, current_block, array);
                 let index_value = self.translate_expr(program, func, current_block, index);

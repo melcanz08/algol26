@@ -1,0 +1,12 @@
+rec User
+    name: String
+
+impl User
+    function label(self: &User) -> String
+        return self.name
+
+function make_user() -> User
+    return User { name: "Alice" }
+
+procedure main
+    print(make_user().label())

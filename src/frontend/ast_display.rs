@@ -418,6 +418,22 @@ fn format_expr(out: &mut String, level: usize, expr: &Expr) {
             }
             out.push(')');
         }
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+            ..
+        } => {
+            format_expr(out, level, receiver);
+            write!(out, ".{}(", method).unwrap();
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                format_expr(out, level, arg);
+            }
+            out.push(')');
+        }
         ExprKind::Block {
             statements,
             trailing_expr,

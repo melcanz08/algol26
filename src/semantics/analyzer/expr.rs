@@ -1358,6 +1358,153 @@ impl SemanticAnalyzer {
                 let return_type = self.substitute_type_vars(&func_info.return_type, &type_bindings);
                 Ok(return_type)
             }
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                // Method call on a complex receiver: `f().foo()`,
+                // `arr[0].foo()`. The Var-receiver form goes through
+                // `FunctionCall { name: "x.foo" }` and its existing
+                // path; this arm handles everything else.
+
+                let receiver_type = self.analyze_expr(receiver)?;
+
+                // ─── Inherent tier ───
+                let owner_name: Option<String> = match &receiver_type {
+                    Type::Record(n, _) => Some(n.clone()),
+                    Type::Distinct { name, .. } => Some(name.clone()),
+                    Type::Enum { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+                if let Some(owner) = owner_name {
+                    let mangled = format!("{}_{}", owner, method);
+                    if let Some(func_info) = self.functions.get(&mangled).cloned() {
+                        // v1: `&mut self` on a complex receiver is
+                        // rejected. The mutability check requires a
+                        // named binding to consult `val`/`var`;
+                        // complex receivers have no such binding.
+                        if let Some((_, self_ty)) = func_info.params.first() {
+                            if let Type::MutBorrow(_) = self_ty {
+                                return Err(CompileError::at(
+                                    self.current_span,
+                                    &format!(
+                                        "Cannot call `&mut self` method '{}' on a \
+                                         complex receiver; bind the receiver to a \
+                                         variable first",
+                                        method
+                                    ),
+                                    ErrorCode::E0007,
+                                )
+                                .with_suggestion(
+                                    "Assign the receiver to a `var` binding, then \
+                                     call the method on that binding",
+                                ));
+                            }
+                        }
+
+                        let expected_extra = func_info.params.len().saturating_sub(1);
+                        if args.len() != expected_extra {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Method '{}' expects {} argument(s) after the receiver, got {}",
+                                    method,
+                                    expected_extra,
+                                    args.len()
+                                ),
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        for (arg, (pname, pty)) in args.iter().zip(func_info.params.iter().skip(1))
+                        {
+                            let arg_ty = self.analyze_expr_with_context(arg, Some(pty))?;
+                            if !arg_ty.can_coerce_to(pty) && *pty != Type::Unknown {
+                                return Err(CompileError::at(
+                                    self.current_span,
+                                    &format!(
+                                        "Argument '{}' type mismatch: expected {}, found {}",
+                                        pname, pty, arg_ty
+                                    ),
+                                    ErrorCode::E0002,
+                                ));
+                            }
+                        }
+                        return Ok(func_info.return_type);
+                    }
+                }
+
+                // ─── Builtin tier ───
+                if let Some(base) = Self::base_type_name(&receiver_type) {
+                    let builtin_form = format!("{}.{}", base, method);
+                    if let Some(func_info) = self.functions.get(&builtin_form).cloned() {
+                        for arg in args {
+                            self.analyze_expr(arg)?;
+                            self.register_call_arg_temporary(arg);
+                        }
+                        let expected_extra = func_info.params.len().saturating_sub(1);
+                        if args.len() != expected_extra {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Method '{}' expects {} argument(s) after the receiver, got {}",
+                                    method,
+                                    expected_extra,
+                                    args.len()
+                                ),
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        return Ok(func_info.return_type);
+                    }
+                }
+
+                // ─── Trait tier ───
+                if let Some(m) = self.resolve_trait_method(&receiver_type, method) {
+                    if args.len() != m.params.len() {
+                        return Err(CompileError::at(
+                            self.current_span,
+                            &format!(
+                                "Method '{}' expects {} arguments, got {}",
+                                method,
+                                m.params.len(),
+                                args.len()
+                            ),
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    for (arg, (pname, pty)) in args.iter().zip(&m.params) {
+                        let arg_ty = self.analyze_expr(arg)?;
+                        self.register_call_arg_temporary(arg);
+                        let expected = match pty {
+                            Some(s) => self.resolve_type_syntax(s)?,
+                            None => Type::Unknown,
+                        };
+                        if !arg_ty.can_coerce_to(&expected) && expected != Type::Unknown {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Argument '{}' type mismatch: expected {}, found {}",
+                                    pname, expected, arg_ty
+                                ),
+                                ErrorCode::E0002,
+                            ));
+                        }
+                    }
+                    return Ok(m
+                        .return_type
+                        .as_ref()
+                        .map(|t| t.to_type())
+                        .unwrap_or(Type::Void));
+                }
+
+                Err(CompileError::at(
+                    self.current_span,
+                    &format!("Type {} has no method '{}'", receiver_type, method),
+                    ErrorCode::E0004,
+                ))
+            }
             ExprKind::Unary { op, expr, .. } => {
                 let operand_type = self.analyze_expr_with_context(expr, expected_type)?;
                 match op {

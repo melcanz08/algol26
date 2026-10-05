@@ -413,11 +413,16 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RParen, "')'")?;
-                Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
+                // Continue the postfix chain so `foo().bar()` and
+                // `foo().field` parse as a single expression
+                // statement.
+                let call = Expr::new(ExprKind::FunctionCall {
                     name,
                     args,
                     span: ident_span,
-                })))
+                });
+                let expr = self.parse_postfix(call)?;
+                Ok(Stmt::Expression(expr))
             }
             Token::LBracket => {
                 self.advance();
@@ -434,11 +439,16 @@ impl Parser {
                         span: ident_span,
                     })
                 } else {
-                    Ok(Stmt::Expression(Expr::new(ExprKind::ArrayAccess {
+                    // Continue the postfix chain so `arr[0].method()`
+                    // and `arr[0].field` parse as a single expression
+                    // statement.
+                    let arr_expr = Expr::new(ExprKind::ArrayAccess {
                         array: Expr::boxed(ExprKind::Var(name, ident_span)),
                         index: Box::new(index),
                         span: ident_span,
-                    })))
+                    });
+                    let expr = self.parse_postfix(arr_expr)?;
+                    Ok(Stmt::Expression(expr))
                 }
             }
             Token::Assign => {

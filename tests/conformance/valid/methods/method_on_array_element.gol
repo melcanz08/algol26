@@ -1,0 +1,11 @@
+rec User
+    name: String
+
+impl User
+    function label(self: &User) -> String
+        return self.name
+
+procedure main
+    val arr := [User { name: "Alice" }, User { name: "Bob" }]
+    print(arr[0].label())
+    print(arr[1].label())

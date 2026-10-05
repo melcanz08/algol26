@@ -1214,6 +1214,12 @@ fn number_expr(expr: &mut Expr, next: &mut u32) {
                 number_expr(e, next);
             }
         }
+        ExprKind::MethodCall { receiver, args, .. } => {
+            number_expr(receiver, next);
+            for arg in args {
+                number_expr(arg, next);
+            }
+        }
         ExprKind::TryCatch {
             try_branch,
             catch_branch,

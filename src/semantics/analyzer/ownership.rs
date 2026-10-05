@@ -304,6 +304,12 @@ impl SemanticAnalyzer {
                     self.collect_expr_captures(arg, captured);
                 }
             }
+            ExprKind::MethodCall { receiver, args, .. } => {
+                self.collect_expr_captures(receiver, captured);
+                for arg in args {
+                    self.collect_expr_captures(arg, captured);
+                }
+            }
             ExprKind::ArrayAccess { array, index, .. } => {
                 self.collect_expr_captures(array, captured);
                 self.collect_expr_captures(index, captured);

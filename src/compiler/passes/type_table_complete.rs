@@ -247,6 +247,12 @@ impl<'a> Walker<'a> {
                     self.visit_expr(e);
                 }
             }
+            ExprKind::MethodCall { receiver, args, .. } => {
+                self.visit_expr(receiver);
+                for arg in args {
+                    self.visit_expr(arg);
+                }
+            }
             ExprKind::TryCatch {
                 try_branch,
                 catch_branch,
@@ -383,6 +389,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::Binary { .. } => "binary",
         ExprKind::Unary { .. } => "unary",
         ExprKind::FunctionCall { .. } => "call",
+        ExprKind::MethodCall { .. } => "method_call",
         ExprKind::Some { .. } => "some",
         ExprKind::None(_) => "none",
         ExprKind::Ok { .. } => "ok",

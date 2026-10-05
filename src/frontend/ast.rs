@@ -117,6 +117,17 @@ pub enum ExprKind {
         args: Vec<Expr>,
         span: Span,
     },
+    /// Method call on a complex receiver: `f().method()`,
+    /// `arr[0].method()`, `a.b.c.method()`. The bare-Var form
+    /// `x.method()` keeps using `FunctionCall { name: "x.method" }`
+    /// for backward compatibility with existing analyzer and
+    /// builder dispatch.
+    MethodCall {
+        receiver: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
     Some {
         value: Box<Expr>,
         span: Span,
@@ -219,6 +230,7 @@ impl ExprKind {
             ExprKind::RecordLiteral { span, .. } => *span,
             ExprKind::MapLiteral { span, .. } => *span,
             ExprKind::SetLiteral { span, .. } => *span,
+            ExprKind::MethodCall { span, .. } => *span,
         }
     }
 }

@@ -78,6 +78,12 @@ val n := s.length()    // parenthesized form, equivalent
 { object: u, field: "method" }`. Both surface forms go through the same
 analyzer dispatch.
 
+The parenthesized form works on any expression: `f().method()`,
+`arr[0].method()`, `a.b.c.method()`. The `&mut self` receiver mode is
+restricted to named bindings — the mutability check needs a `val`/`var`
+declaration to consult. To call a mutating method on a temporary, bind
+it to a `var` first.
+
 ## Which types may receive inherent impls
 
 In v1, inherent impls (`impl Type`, without a `for` clause) may target:
@@ -343,13 +349,6 @@ caller's binding. See ADR 0035 for the interpreter-side fix.
 LLVM refuses records, which is separate parity work. Test files 
 parked at `tests/conformance/pending/method_mut_receiver.gol` and 
 `tests/conformance/pending/method_matches_free_function.gol`.
-
-**3. Complex-receiver method calls.** The parser restricts method calls
-to receivers that are bare identifiers. `f().method()` and `arr[0].method()`
-are rejected at parse time with an explicit error. This is a general
-limitation of the current `parse_postfix` grammar, predating ADR 0033;
-documented here for completeness. The workaround is to bind the receiver
-to a variable first.
 
 ## Checklist for related features
 

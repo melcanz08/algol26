@@ -209,15 +209,11 @@ impl Parser {
                     self.advance();
                     let member = self.expect_identifier("member name")?;
                     if matches!(self.peek(), Token::LParen) {
-                        // Method call. Only a bare identifier receiver is
-                        // expressible in `ExprKind::FunctionCall { name }`.
-                        let ExprKind::Var(name, _) = &expr.kind else {
-                            return Err(self.error(
-                                "method calls on complex receiver expressions are \
-                                 not yet supported; bind the receiver to a variable first",
-                            ));
-                        };
-                        let receiver = name.clone();
+                        // Method call. Bare-Var receivers keep the
+                        // existing FunctionCall form for backward
+                        // compatibility; anything else produces a
+                        // dedicated MethodCall node.
+                        let is_var_receiver = matches!(&expr.kind, ExprKind::Var(_, _));
                         self.advance();
                         let mut args = Vec::new();
                         while !matches!(self.peek(), Token::RParen | Token::Eof) {
@@ -227,11 +223,24 @@ impl Parser {
                             }
                         }
                         self.expect_token(Token::RParen, "')'")?;
-                        expr = Expr::new(ExprKind::FunctionCall {
-                            name: format!("{}.{}", receiver, member),
-                            args,
-                            span,
-                        });
+
+                        if is_var_receiver {
+                            let ExprKind::Var(name, _) = &expr.kind else {
+                                unreachable!("is_var_receiver checked above")
+                            };
+                            expr = Expr::new(ExprKind::FunctionCall {
+                                name: format!("{}.{}", name, member),
+                                args,
+                                span,
+                            });
+                        } else {
+                            expr = Expr::new(ExprKind::MethodCall {
+                                receiver: Box::new(expr),
+                                method: member,
+                                args,
+                                span,
+                            });
+                        }
                     } else {
                         expr = Expr::new(ExprKind::FieldAccess {
                             object: Box::new(expr),

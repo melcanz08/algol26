@@ -217,7 +217,7 @@ docs/features/
     generic.md
     list.md
     map.md
-    method_call.md
+    methods.md
     option.md
     range.md
     record.md

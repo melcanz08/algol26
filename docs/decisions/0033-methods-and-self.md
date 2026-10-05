@@ -249,7 +249,7 @@ The canonical scheme is provided by `mangled_type_name` in
 with the method name:
 
 ```
-method_symbol(T, m) = format!("{}__{}", mangled_type_name(T), m)
+method_symbol(T, m) = format!("{}_{}", mangled_type_name(T), m)
 ```
 
 **Known pre-existing issue (must be resolved in B4):**
@@ -460,6 +460,14 @@ B3. Analyzer: declare self; resolve dot-call to method with the
 B4. IR: mangled names using canonical type identity. Resolve the
     pre-existing Type::Record mangling ambiguity (see §Method
     mangling). Lower method calls to ordinary Call nodes.
+    B4 as implemented (2026-10-05). Mangling was already handled by
+    expand_impl_methods; the IR builder's resolve_method_call already
+    looked up Type_method. B4's actual work was extending that lookup
+    from Type::Record to all four user-defined type forms. The
+    Type::Record identity question remains open — it's not blocking
+    methods because expand_impl_methods doesn't currently collide on
+    same-named records in different modules, but it's still worth
+    resolving.
 B5. Conformance fixtures, feature doc, STATUS.md row, coverage
     matrix row + EXPECTED_MATURITY entry.
 ```
@@ -643,7 +651,8 @@ impl needs its own design pass.
 
 ## See also
 
-- `docs/features/method_call.md` — current method-call syntax
-  (builtin and trait methods only)
+- `docs/features/methods.md` — the feature contract for
+  receiver-bearing declarations, resolution precedence, and
+  receiver-mode semantics.
 - `docs/features/trait.md` — the trait mechanism
 - `docs/decisions/README.md` — the ADR index and convention

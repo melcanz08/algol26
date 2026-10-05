@@ -822,6 +822,8 @@ mod tests {
             trait_name: Some("Display".into()),
             target_type: "Int".into(),
             methods: vec![],
+            type_params: Vec::new(),
+            target_type_args: Vec::new(),
         };
         let out = format_program(&[], &[tr], &[im]);
         assert!(out.contains("trait Display"), "got:\n{}", out);

@@ -442,7 +442,9 @@ impl Parser {
         }
         Ok(ImplBlock {
             trait_name,
+            type_params: Vec::new(),
             target_type,
+            target_type_args: Vec::new(),
             methods,
         })
     }

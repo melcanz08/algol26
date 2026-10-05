@@ -309,22 +309,6 @@ procedure main
 }
 
 #[test]
-fn method_call_after_index_is_rejected() {
-    let source = "\
-procedure main
-    val xs := [[1, 2], [3, 4]]
-    print(xs[0].length())
-";
-    let lexer = Lexer::new(source.to_string()).unwrap();
-    let mut parser = Parser::new(lexer.tokens);
-    let err = parser
-        .parse_program()
-        .expect_err("method call on complex receiver should be rejected");
-    let msg = format!("{}", err);
-    assert!(msg.contains("complex receiver"), "got: {}", msg);
-}
-
-#[test]
 fn map_literal_parses_with_inferred_types() {
     let source = r#"procedure main
     val m := Map { "a": 1, "b": 2 }

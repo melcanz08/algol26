@@ -66,6 +66,12 @@ fn check_expr_spans(expr: &Expr, path: &str) {
                 check_expr_spans(e, &format!("{}/call.arg[{}]", path, i));
             }
         }
+        ExprKind::MethodCall { receiver, args, .. } => {
+            check_expr_spans(receiver, &format!("{}/method.receiver", path));
+            for (i, e) in args.iter().enumerate() {
+                check_expr_spans(e, &format!("{}/method.arg[{}]", path, i));
+            }
+        }
         ExprKind::ArrayAccess { array, index, .. } => {
             check_expr_spans(array, &format!("{}/access.array", path));
             check_expr_spans(index, &format!("{}/access.index", path));
@@ -200,6 +206,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::RecordLiteral { .. } => "RecordLiteral",
         ExprKind::MapLiteral { .. } => "MapLiteral",
         ExprKind::SetLiteral { .. } => "SetLiteral",
+        ExprKind::MethodCall { .. } => "MethodCall",
     }
 }
 

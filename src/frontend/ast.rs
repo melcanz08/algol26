@@ -493,9 +493,11 @@ pub struct TraitMethod {
 
 #[derive(Clone, Debug)]
 pub struct ImplBlock {
-    pub target_type: String,
-    pub methods: Vec<FunctionDecl>,
     pub trait_name: Option<String>,
+    pub type_params: Vec<String>,
+    pub target_type: String,
+    pub target_type_args: Vec<TypeSyntax>,
+    pub methods: Vec<FunctionDecl>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -332,12 +332,10 @@ Methods on non-generic user types
 
 Three items are explicitly deferred or blocked as of ADR 0033:
 
-**1. Generic impls.** `impl<T> Trait for Pair<T>` is not parseable — the
-parser rejects `<` after `impl`. Supporting it requires: a `type_params`
-field on `ImplBlock`, parser changes for the generic impl head, mangling
-that tolerates type args in the owner name, and analyzer substitution of
-the impl's type params into method signatures. Deferred to a follow-up
-ADR. Test file parked at `tests/conformance/pending/generic_method_impl.gol`.
+**1. Generic impls.** `impl<T> Trait for Pair<T>` is not parseable today.
+See ADR 0034 for the implementation plan and the coherence rule it 
+introduces. Test file parked at 
+`tests/conformance/pending/generic_method_impl.gol`.
 
 **2. Write-through-`&mut self`.** A mutating method body such as
 `self.name := new_name` requires the runtime to write back to the

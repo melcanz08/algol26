@@ -29,6 +29,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0008](0008-concurrency-model.md) | Concurrency Model | Drifted (see status note) |
 | [0009](0009-unsafe.md) | Unsafe Boundary | Drifted (see status note) |
 | [0033](0033-methods-and-self.md) | Methods, Receivers, and the OOP Direction | Accepted |
+- [0034 — Generic Impls](0034-generic-impls.md)
 
 ## Current state
 

@@ -33,6 +33,8 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0035](0035-interpreter-aliasing.md) | Interpreter Write-Through for &mut self Receivers | Accepted |
 | [0036](0036-llvm-records.md) | LLVM Record Support | Proposed |
 | [0037](0037-wasm-records-references.md) | WASM Records and References | Superseded by 0036 |
+| [0038](0038-dynamic-dispatch.md) | Dynamic Dispatch (`dyn Trait`) | Proposed |
+| [0039](0039-visibility.md) | Visibility Modifiers | Proposed |
 
 ## Current state
 

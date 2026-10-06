@@ -539,11 +539,102 @@ impl<'ctx> IRCodeGen<'ctx> {
             TypedIRValue::Range(_, _) => {
                 return Err(CompileError::unsupported_operation("range value", "llvm"));
             }
-            TypedIRValue::FieldAccess { .. } => {
-                return Err(CompileError::unsupported_operation(
-                    "field access (no struct support)",
-                    "llvm",
-                ));
+            TypedIRValue::FieldAccess {
+                object,
+                field,
+                field_type,
+            } => {
+                // ADR 0036 L3. `p.x` compiles to GEP to the field
+                // address followed by a load. The object compiles to
+                // a pointer to the record's alloca (records have no
+                // by-value representation in the current backend).
+                let object_type = object.type_of();
+                let record_name = match &object_type {
+                    Type::Record(name, _) => name.clone(),
+                    _ => {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: field access on non-record type {:?}",
+                                object_type
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                };
+
+                let rec_decl = match self.record_decls.get(&record_name) {
+                    Some(r) => r.clone(),
+                    None => {
+                        return Err(CompileError::simple(
+                            &format!("LLVM codegen: unknown record '{}'", record_name),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0003,
+                        ));
+                    }
+                };
+
+                let field_idx = match rec_decl.fields.iter().position(|(n, _)| n == field) {
+                    Some(i) => i,
+                    None => {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: record '{}' has no field '{}'",
+                                record_name, field
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
+                        ));
+                    }
+                };
+
+                let struct_ty = match self.map_type(&object_type) {
+                    BasicTypeEnum::StructType(s) => s,
+                    _ => unreachable!(
+                        "map_type(Type::Record) returned a non-struct type for '{}'",
+                        record_name
+                    ),
+                };
+
+                let obj_val = self.compile_value(object)?;
+                if !obj_val.is_pointer_value() {
+                    return Err(CompileError::simple(
+                        "LLVM codegen: record object is not a pointer",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+
+                let field_ptr = unsafe {
+                    self.builder
+                        .build_gep(
+                            struct_ty,
+                            obj_val.into_pointer_value(),
+                            &[
+                                self.context.i32_type().const_zero(),
+                                self.context.i32_type().const_int(field_idx as u64, false),
+                            ],
+                            &format!("{}_{}_ptr", record_name, field),
+                        )
+                        .unwrap()
+                };
+
+                let field_llvm_ty = self.map_type(field_type);
+                self.builder
+                    .build_load(
+                        field_llvm_ty,
+                        field_ptr,
+                        &format!("{}_{}", record_name, field),
+                    )
+                    .unwrap()
             }
             TypedIRValue::Set { bits, .. } => {
                 self.context.i64_type().const_int(*bits, false).into()

@@ -639,7 +639,7 @@ impl needs its own design pass.
   receiver-mode semantics.
 - `docs/features/trait.md` — the trait mechanism
 - `docs/decisions/0034-generic-impls.md` — the follow-up ADR that
-  lifts the generic-impl limitation ADR 0033 deferred.
+  lifted the generic-impl limitation ADR 0033 deferred (implemented 2026-10-06).
 - `docs/decisions/0036-llvm-records.md` — the follow-up ADR for
   record support on LLVM, which unblocks methods on that backend.
 - `docs/decisions/0037-wasm-records-references.md` — the follow-up ADR

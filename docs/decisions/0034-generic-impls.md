@@ -2,7 +2,20 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+Accepted. Implemented.
+
+> **Implementation note (2026-10-06).** Shipped across commits
+> `bcaeb34` (C1 AST), `84533c4` (C2 parser + C4 partial), `273a13d`
+> (C4 coherence), and `6824d40` (C4/C5 monomorphization).
+>
+> C3 (mangling) required no code change: because C1/C2 split
+> `target_type` and `target_type_args`, `expand_impl_methods`'s
+> `format!("{}_{}", target_type, name)` already produced
+> `Pair_show`, not `Pair<T>_show`.
+>
+> Fixtures: `generic_method_impl.gol` (returns a literal) and
+> `generic_impl_uses_type_param.gol` (returns a `T`-typed field)
+> both pass on the interpreter.
 
 > **Status note (2026-10-05).** This ADR is a direct follow-up to
 > ADR 0033. That ADR shipped methods for non-generic user types

@@ -15,7 +15,7 @@ mod tests;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     // Keywords
-    Procedure,
+    Proc,
     Function,
     Return,
     Var,
@@ -162,7 +162,7 @@ pub struct Lexer {
 lazy_static::lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token> = {
         let mut m = HashMap::new();
-        m.insert("procedure", Token::Procedure);
+        m.insert("proc", Token::Proc);
         m.insert("function", Token::Function);
         m.insert("var", Token::Var);
         m.insert("val", Token::Val);
@@ -459,16 +459,10 @@ impl Lexer {
         tokens: &mut Vec<Token>,
         positions: &mut Vec<(usize, usize)>,
     ) -> Result<()> {
-        if trimmed.starts_with("procedure") {
-            Lexer::parse_declaration(
-                Token::Procedure,
-                "procedure".len(),
-                trimmed,
-                tokens,
-                positions,
-            );
+        if trimmed.starts_with("proc") {
+            Lexer::parse_declaration(Token::Proc, "proc".len(), trimmed, tokens, positions);
         } else if trimmed.starts_with("proc") {
-            Lexer::parse_declaration(Token::Procedure, "proc".len(), trimmed, tokens, positions);
+            Lexer::parse_declaration(Token::Proc, "proc".len(), trimmed, tokens, positions);
         } else if trimmed.starts_with("function") {
             Lexer::parse_declaration(
                 Token::Function,

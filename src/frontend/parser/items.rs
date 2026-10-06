@@ -34,10 +34,7 @@ impl Parser {
                 }
             } else if matches!(self.peek(), Token::Identifier(s) if s == "enum") {
                 enum_decls.push(self.parse_enum_decl()?);
-            } else if matches!(
-                self.peek(),
-                Token::Procedure | Token::Function | Token::Extern
-            ) {
+            } else if matches!(self.peek(), Token::Proc | Token::Function | Token::Extern) {
                 functions.push(self.parse_function()?);
             } else if matches!(self.peek(), Token::Import) {
                 self.advance();
@@ -228,8 +225,8 @@ impl Parser {
         }
 
         let is_function = matches!(self.peek(), Token::Function);
-        if !is_function && !matches!(self.peek(), Token::Procedure) {
-            return Err(self.error("Expected 'function' or 'procedure'"));
+        if !is_function && !matches!(self.peek(), Token::Proc) {
+            return Err(self.error("Expected 'function' or 'Proc'"));
         }
         self.advance();
 
@@ -376,7 +373,7 @@ impl Parser {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
                 let is_function = matches!(self.peek(), Token::Function);
-                if !is_function && !matches!(self.peek(), Token::Procedure) {
+                if !is_function && !matches!(self.peek(), Token::Proc) {
                     return Err(self.error("Expected 'function' in trait method"));
                 }
                 self.advance();

@@ -5,6 +5,7 @@ use super::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::TypedIRValue;
+use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 
@@ -80,11 +81,63 @@ impl<'ctx> IRCodeGen<'ctx> {
                     "llvm",
                 ));
             }
-            TypedIRValue::Record { .. } => {
-                unreachable!(
-                    "LLVM codegen reached TypedIRValue::Record — \
-                     records should have been refused by check_backend"
-                );
+            TypedIRValue::Record {
+                name,
+                fields,
+                record_type,
+            } => {
+                // ADR 0036 L2. A record literal becomes an alloca of
+                // the record's LLVM struct type, with each field
+                // stored into its slot. The expression's value is a
+                // pointer to that alloca.
+                //
+                // Records are still refused by the capability check,
+                // so this code path is unreachable until L1e. Its
+                // shape mirrors the list-literal handling in
+                // `instruction.rs:22`: allocate once, store each
+                // element, return the pointer.
+                let struct_ty = match self.map_type(record_type) {
+                    BasicTypeEnum::StructType(s) => s,
+                    _ => unreachable!(
+                        "map_type(Type::Record) returned a non-struct type for '{}'",
+                        name
+                    ),
+                };
+                let alloca = self
+                    .builder
+                    .build_alloca(struct_ty, &format!("{}_tmp", name))
+                    .unwrap();
+                let rec_decl = match self.record_decls.get(name) {
+                    Some(r) => r,
+                    None => {
+                        unreachable!("record '{}' missing from record_decls — compiler bug", name)
+                    }
+                };
+                for (i, (fname, fval)) in fields.iter().enumerate() {
+                    // Field ordering must match the struct type's
+                    // declaration order. `map_type` built the struct
+                    // from `rec_decl.fields`, so indices line up as
+                    // long as the literal lists fields in the same
+                    // order — which the analyzer enforces.
+                    let _ = fname;
+                    let fptr = unsafe {
+                        self.builder
+                            .build_gep(
+                                struct_ty,
+                                alloca,
+                                &[
+                                    self.context.i32_type().const_zero(),
+                                    self.context.i32_type().const_int(i as u64, false),
+                                ],
+                                &format!("{}_field_{}", name, i),
+                            )
+                            .unwrap()
+                    };
+                    let fv = self.compile_value(fval)?;
+                    self.builder.build_store(fptr, fv).unwrap();
+                }
+                let _ = rec_decl;
+                alloca.into()
             }
             TypedIRValue::Map { .. } => {
                 unreachable!(

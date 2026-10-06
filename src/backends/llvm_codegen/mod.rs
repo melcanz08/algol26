@@ -251,11 +251,38 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
         for (i, (param_name, param_type)) in func.params.iter().enumerate() {
             let param = function.get_nth_param(i as u32).unwrap();
-            let alloca = self.create_entry_alloca(param_name, param_type);
-            self.builder.build_store(alloca, param).unwrap();
-            self.variables.insert(param_name.clone(), alloca);
-            self.var_types
-                .insert(param_name.clone(), param_type.clone());
+
+            // ADR 0036. Reference-typed parameters arrive as the
+            // pointer to the caller's storage. Storing that pointer
+            // into a fresh alloca would make `variables[name]` the
+            // address of the pointer, not the record — and with
+            // LLVM's opaque pointers, subsequent GEPs would compile
+            // without error but write into the wrong location.
+            // Register the incoming pointer directly.
+            if matches!(param_type, Type::Borrow(_) | Type::MutBorrow(_)) {
+                if !param.is_pointer_value() {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "LLVM codegen: reference parameter '{}' is not a pointer",
+                            param_name
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                self.variables
+                    .insert(param_name.clone(), param.into_pointer_value());
+                self.var_types
+                    .insert(param_name.clone(), param_type.clone());
+            } else {
+                let alloca = self.create_entry_alloca(param_name, param_type);
+                self.builder.build_store(alloca, param).unwrap();
+                self.variables.insert(param_name.clone(), alloca);
+                self.var_types
+                    .insert(param_name.clone(), param_type.clone());
+            }
         }
         for block in &func.blocks {
             if let Some(bb) = self.blocks.get(&block.id).copied() {

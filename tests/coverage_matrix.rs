@@ -268,16 +268,15 @@ pub const MATRIX: &[FeatureRow] = &[
     FeatureRow {
         name: "borrow",
         conformance_dir: Some("ownership"),
-        interpreter: Support::Refused,
+        interpreter: Support::Partial,
         llvm: Support::Full,
-        wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_references"],
-        notes: "WASM refuses via `Feature::References` in the capability check. \
-            LLVM lowers the four reference operations in \
-            llvm_codegen/value.rs and the reference types in types.rs. \
-            The interpreter (ADR 0033) treats read-only references as \
-            pass-through — `&x`, `&mut x`, `*r`, and `AddrOf` evaluate to \
-            their inner value; write-through mutation is not modeled.",
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "All three backends accept references (ADR 0037). \
+                Interpreter is Partial: read-only references pass through \
+                (ADR 0033); mutable writes through references are not \
+                modeled. LLVM and WASM use the shared LLVM codegen's \
+                pointer lowering, which handles both read and write.",
     },
     FeatureRow {
         name: "region",
@@ -403,12 +402,11 @@ pub const MATRIX: &[FeatureRow] = &[
         conformance_dir: None,
         interpreter: Support::Full,
         llvm: Support::Full,
-        wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_records"],
-        notes: "ADR 0036. Records lower to named LLVM struct types via \
-                GEP+load/store; literals allocate a stack alloca. WASM \
-                inherits the LLVM codegen but its capability matrix still \
-                refuses Feature::Records pending toolchain verification.",
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "All three backends support records (ADR 0036). Records \
+                lower to named LLVM structs; WASM inherits the LLVM \
+                codegen and links with wasm-ld.",
     },
     // ─── unsafe / range ───
     FeatureRow {

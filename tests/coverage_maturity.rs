@@ -110,7 +110,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("list_indexing", Maturity::AllBackends),
     ("list_print", Maturity::InterpreterOnly),
     ("list_sum_max_min", Maturity::InterpreterOnly),
-    ("records", Maturity::InterpreterAndLlvm),
+    ("records", Maturity::Universal),
     ("map", Maturity::InterpreterOnly),
     ("list_append", Maturity::InterpreterOnly),
     ("enum_types", Maturity::InterpreterOnly),
@@ -122,7 +122,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("result", Maturity::InterpreterOnly),
     ("try_catch", Maturity::InterpreterOnly),
     // ownership
-    ("borrow", Maturity::LlvmOnly),
+    ("borrow", Maturity::AllBackends),
     ("region", Maturity::Universal),
     ("alloc_free", Maturity::InterpreterAndLlvm),
     // concurrency

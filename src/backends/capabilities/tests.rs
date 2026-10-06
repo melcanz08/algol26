@@ -569,7 +569,10 @@ fn llvm_accepts_references() {
 }
 
 #[test]
-fn wasm_rejects_references() {
+fn wasm_accepts_references() {
+    // ADR 0037: WASM now declares Feature::References. The
+    // capability check passes; the shared LLVM codegen lowers the
+    // reference operations.
     let program = program_with(
         Instruction::Declare {
             name: "r".to_string(),
@@ -582,42 +585,8 @@ fn wasm_rejects_references() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
-    assert!(
-        err.message.contains("reference"),
-        "expected reference diagnostic, got: {}",
-        err.message
-    );
-}
-
-#[test]
-fn reference_parameter_requires_capability() {
-    // A function parameter of reference type requires the
-    // capability even when the body contains no reference
-    // operation — the caller produces the reference.
-    let mut program = SemanticProgram::new();
-    let entry = program.new_block_id();
-    program.functions.push(SemanticFunction {
-        name: "use_ref".to_string(),
-        params: vec![("r".to_string(), Type::borrow(Type::Int))],
-        return_type: Type::Void,
-        blocks: vec![SemanticBlock {
-            id: entry,
-            instructions: vec![],
-            terminator: Some(simple_return()),
-        }],
-        entry_block: entry,
-        is_extern: false,
-    });
-    // The interpreter now supports references (ADR 0033), so use WASM —
-    // which still refuses them — to prove the scan fires on a `&T`
-    // parameter even when the body has no reference operation.
-    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
-    assert!(
-        err.message.contains("reference"),
-        "expected reference diagnostic for &T parameter, got: {}",
-        err.message
-    );
+    check_backend(&program, &BackendCapabilities::wasm())
+        .expect("WASM should accept references (ADR 0037)");
 }
 
 #[test]
@@ -782,10 +751,14 @@ fn llvm_accepts_records() {
 }
 
 #[test]
-fn wasm_rejects_records() {
+fn wasm_accepts_records() {
     let program = build_ir(RECORD_SOURCE);
     let result = super::check_backend(&program, &super::BackendCapabilities::wasm());
-    assert!(result.is_err(), "WASM should refuse records");
+    assert!(
+        result.is_ok(),
+        "WASM should accept records, got: {:?}",
+        result.err()
+    );
 }
 
 #[test]

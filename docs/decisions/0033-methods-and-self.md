@@ -642,6 +642,10 @@ impl needs its own design pass.
   lifted the generic-impl limitation ADR 0033 deferred (implemented 2026-10-06).
 - `docs/decisions/0036-llvm-records.md` — the follow-up ADR for
   record support on LLVM, which unblocks methods on that backend.
+- `docs/decisions/0038-dynamic-dispatch.md` — adds runtime polymorphism
+  (`&dyn Trait`) on top of the static trait system.
+- `docs/decisions/0039-visibility.md` — adds `pub` and default-private
+  encapsulation.
 - `docs/decisions/0037-wasm-records-references.md` — the follow-up ADR
   for record and reference support on WASM.
 - `docs/decisions/0035-interpreter-aliasing.md` — the follow-up ADR that

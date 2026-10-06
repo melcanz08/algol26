@@ -159,11 +159,26 @@ the scan passes and the codegen arms fire.
 In scope for v1:
 
 - Non-generic records.
-- Records with fields of primitive type, `String`, `List<T>`,
-  `Map<K,V>`, other records, and references.
+- Records with fields of primitive type (`Int`, `Float`, `Bool`),
+  `String`, and other records.
 - Record literals, field access, field assignment, methods with
   all three receiver modes, records as function parameters and
   return values.
+
+**Amended (2026-10-06, pre-implementation).** Fields of `List<T>`,
+`Map<K,V>`, or `Channel<T>` type are **not** in scope for v1. Two
+blockers, documented in `docs/features/list_llvm.md`:
+
+1. `TypedIRValue::List` has no LLVM lowering — a record literal
+   with a list-typed field would need one to construct the field
+   value.
+2. `map_type(Type::List(_))` returns a shape that disagrees with the
+   runtime representation. A record field of list type would inherit
+   the disagreement.
+
+Deferred to a follow-up ADR once LLVM has a dynamic list
+representation. The interpreter supports list-typed record fields
+today; the LLVM backend does not.
 
 Not in scope for v1 (each needs its own ADR or follow-up):
 

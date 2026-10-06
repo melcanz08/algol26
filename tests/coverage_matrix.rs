@@ -402,15 +402,13 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "records",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
+        llvm: Support::Full,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_records", "wasm_rejects_records"],
-        notes: "No conformance fixture yet. Records are interpreter-only \
-                (ADR 0024). LLVM and WASM refuse `rec` programs at the \
-                capability check (`Feature::Records`) rather than at \
-                codegen. A fixture would need `--interpreter`; the \
-                harness does not currently support per-fixture backend \
-                selection.",
+        refusal_tests: &["wasm_rejects_records"],
+        notes: "ADR 0036. Records lower to named LLVM struct types via \
+                GEP+load/store; literals allocate a stack alloca. WASM \
+                inherits the LLVM codegen but its capability matrix still \
+                refuses Feature::Records pending toolchain verification.",
     },
     // ─── unsafe / range ───
     FeatureRow {

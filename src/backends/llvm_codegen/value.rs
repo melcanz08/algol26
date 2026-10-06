@@ -33,6 +33,73 @@ impl<'ctx> IRCodeGen<'ctx> {
             TypedIRValue::BorrowShared { expr, .. } | TypedIRValue::BorrowMutable { expr, .. } => {
                 self.compile_value(expr)
             }
+            // Reference-to-element: GEP to the element's address,
+            // no load. The array's alloca lives in `list_arrays`
+            // under the source variable's name; its LLVM type is in
+            // `list_array_types`. Using `map_type(Type::List(_))`
+            // would be wrong — that mapping returns a `{elem, i64}`
+            // stub that disagrees with the runtime `[N x elem]` shape.
+            TypedIRValue::ArrayAccess { array, index, .. } => {
+                let array_name = match &**array {
+                    TypedIRValue::Variable(n, _) => n.clone(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "reference to element of non-variable array \
+                             (nested arrays not supported)",
+                            "llvm",
+                        ));
+                    }
+                };
+                let arr_ptr = self.list_arrays.get(&array_name).copied().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!("reference to unknown array `{}`", array_name),
+                        "llvm",
+                    )
+                })?;
+                let arr_ty = self
+                    .list_array_types
+                    .get(&array_name)
+                    .copied()
+                    .ok_or_else(|| {
+                        CompileError::unsupported_operation(
+                            &format!("array `{}` has no registered LLVM type", array_name),
+                            "llvm",
+                        )
+                    })?;
+
+                // Evaluate the index, truncating to i32 to match the
+                // static-index GEPs used when the array was built.
+                let idx_val = self.compile_value(index)?;
+                let idx_int = match idx_val {
+                    BasicValueEnum::IntValue(v) => {
+                        if v.get_type().get_bit_width() == 32 {
+                            v
+                        } else {
+                            self.builder
+                                .build_int_truncate(v, self.context.i32_type(), "idx32")
+                                .unwrap()
+                        }
+                    }
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "array index must be an integer",
+                            "llvm",
+                        ));
+                    }
+                };
+
+                let ptr = unsafe {
+                    self.builder
+                        .build_gep(
+                            arr_ty,
+                            arr_ptr,
+                            &[self.context.i32_type().const_zero(), idx_int],
+                            "elem_ref",
+                        )
+                        .unwrap()
+                };
+                Ok(ptr.into())
+            }
             // Anything else falls back to producing a value; the caller
             // (or verifier) is responsible for ensuring it's used as a
             // reference only when the inner form is addressable.
@@ -461,6 +528,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 }
             }
             TypedIRValue::BorrowShared { expr, .. } => self.compile_reference(expr)?,
+
             TypedIRValue::BorrowMutable { expr, .. } => self.compile_reference(expr)?,
             TypedIRValue::ReadReference { expr, target_type } => {
                 let ptr = self.compile_value(expr)?;
@@ -553,14 +621,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // so a Variable receiver resolves by looking it up
                 // — not by calling `compile_value`, which would load
                 // a struct value through the alloca.
-                let object_type = object.type_of();
+                let raw_object_type = object.type_of();
+                // Auto-deref through a reference. Inside a method,
+                // `self: &Pair<T>` gives `self` type `Borrow<Record>`,
+                // so `self.first` reaches this arm with a borrowed
+                // object. The GEP works the same way: the borrow's
+                // value is already a pointer to the record's alloca.
+                let object_type = match &raw_object_type {
+                    Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+                    other => other.clone(),
+                };
                 let record_name = match &object_type {
                     Type::Record(name, _) => name.clone(),
                     _ => {
                         return Err(CompileError::simple(
                             &format!(
                                 "LLVM codegen: field access on non-record type {:?}",
-                                object_type
+                                raw_object_type
                             ),
                             0,
                             0,

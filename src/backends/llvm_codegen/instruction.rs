@@ -827,7 +827,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // The target is a variable name (the analyzer rejects
                 // field assignment on non-variable receivers), so the
                 // record's alloca is found via the variables map.
-                let var_ty = match self.var_types.get(target).cloned() {
+                let raw_var_ty = match self.var_types.get(target).cloned() {
                     Some(t) => t,
                     None => {
                         return Err(CompileError::simple(
@@ -843,11 +843,25 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 };
 
+                // Auto-deref through a reference. Inside a method or a
+                // free function taking `u: &mut User`, the target
+                // variable's type is `MutBorrow(Record)`. The pointer
+                // in `variables[target]` already points at the record's
+                // alloca, so the GEP+store work the same way once the
+                // borrow wrapper is stripped.
+                let var_ty = match &raw_var_ty {
+                    Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+                    other => other.clone(),
+                };
+
                 let record_name = match &var_ty {
                     Type::Record(name, _) => name.clone(),
                     _ => {
                         return Err(CompileError::simple(
-                            &format!("LLVM codegen: field assign on non-record type {:?}", var_ty),
+                            &format!(
+                                "LLVM codegen: field assign on non-record type {:?}",
+                                raw_var_ty
+                            ),
                             0,
                             0,
                             "",

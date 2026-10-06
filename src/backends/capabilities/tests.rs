@@ -769,15 +769,15 @@ fn interpreter_accepts_records() {
 }
 
 #[test]
-fn llvm_rejects_records() {
+fn llvm_accepts_records() {
+    // ADR 0036: LLVM now lowers record literals, field access, and
+    // field assignment to named struct types with GEP+load/store.
     let program = build_ir(RECORD_SOURCE);
     let result = super::check_backend(&program, &super::BackendCapabilities::llvm());
-    let err = result.expect_err("LLVM should refuse records");
-    let msg = format!("{}", err);
     assert!(
-        msg.contains("record"),
-        "expected diagnostic mentioning records, got: {}",
-        msg
+        result.is_ok(),
+        "LLVM should accept records, got: {:?}",
+        result.err()
     );
 }
 

@@ -196,9 +196,17 @@ impl BackendCapabilities {
     }
 
     pub fn wasm() -> Self {
+        let mut supported = HashSet::new();
+        // ADR 0036/0037: WASM reuses the LLVM codegen
+        // (`wasm_backend.rs` emits LLVM IR and links with
+        // `wasm-ld`). Features that lower cleanly through LLVM's
+        // codegen are declared here. Start minimal and add as the
+        // smoke tests pass.
+        supported.insert(Feature::Records);
+        supported.insert(Feature::References);
         BackendCapabilities {
             name: "WASM",
-            supported: HashSet::new(),
+            supported,
             has_interpreter_fallback: true,
         }
     }

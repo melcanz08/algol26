@@ -654,7 +654,6 @@ impl SemanticIRBuilder {
                     .type_of_expr(expr)
                     .or_else(|| self.lookup_var(name).map(|i| i.type_.clone()))
                     .unwrap_or(Type::Unknown);
-
                 if ty == Type::Unknown && self.lookup_var(name).is_none() {
                     self.diagnostics.push(format!(
                         "Use of undeclared variable '{}' at {}:{}",

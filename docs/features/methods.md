@@ -18,7 +18,7 @@ impl User
     function label(self: &User) -> String
         return self.name
 
-procedure main
+proc main
     val u := User { name: "Alice" }
     print(u.label())          // "Alice"
 ```

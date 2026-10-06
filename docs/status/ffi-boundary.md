@@ -33,7 +33,7 @@ extern "C" function takes_list(x: List<Int>) -> Void
 extern "C" function takes_option(x: Option<Int>) -> Void
 extern "C" function takes_ref(x: &Int) -> Void
 
-procedure main
+proc main
     val xs := [1, 2, 3]
     takes_list(xs)          // List<Int> crosses the boundary
     takes_option(Some(5))   // Option<Int> crosses the boundary

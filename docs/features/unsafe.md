@@ -56,7 +56,7 @@ the ALGOL26 `unsafe` keyword.
 ### What this means in practice
 
 ```gol
-procedure main
+proc main
     val p := alloc(4)          // rejected: alloc requires unsafe
     unsafe
         val q := alloc(4)      // accepted
@@ -75,7 +75,7 @@ indented block. No `do` or `end unsafe` — the body is determined by
 indentation, like every other ALGOL26 block.
 
 ```gol
-procedure main
+proc main
     unsafe
         print("inside")
 ```

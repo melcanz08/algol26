@@ -49,7 +49,7 @@ introducing statement.
 ### 1.5 Keywords
 
 ```
-procedure   function    return
+proc   function    return
 var         val         if
 else        for         while
 in          do          true
@@ -414,7 +414,7 @@ runtime behavior matches the language semantics.
 function add(x: Float, y: Float) -> Float
     return x + y
 
-procedure main
+proc main
     print(add(1.0, 2.0))
 ```
 
@@ -811,7 +811,7 @@ import "utils.gol"
 import "data/parser.gol"
 import "analysis/stats.gol"
 
-procedure main
+proc main
     import "config.gol"
     ...
 ```

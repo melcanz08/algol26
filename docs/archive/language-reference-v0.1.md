@@ -71,7 +71,7 @@ match value
 function add(x: float, y: float) -> float
     return x + y
 
-procedure main
+proc main
     val result := add(5.0, 3.0)
     Terminal.print(result)
 ```

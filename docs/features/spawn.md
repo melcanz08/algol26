@@ -32,7 +32,7 @@ the current implementation.
 Spawn:
 
 ```gol
-procedure main
+proc main
     print("before")
     spawn
         print("spawned")
@@ -42,7 +42,7 @@ procedure main
 Parallel:
 
 ```gol
-procedure main
+proc main
     print("start")
     parallel
         print("A")
@@ -53,7 +53,7 @@ procedure main
 Combined with channels (the common pattern):
 
 ```gol
-procedure main
+proc main
     val ch: Channel<Int> := channel
     spawn
         send ch, 42

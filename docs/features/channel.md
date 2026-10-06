@@ -50,7 +50,7 @@ print(v)
 A minimal two-task example:
 
 ```gol
-procedure main
+proc main
     val ch: Channel<Int> := channel
     spawn
         send ch, 42

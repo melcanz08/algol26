@@ -33,7 +33,7 @@ points. There is no `Instruction::Defer` variant.
 Basic form:
 
 ```gol
-procedure main
+proc main
     defer print("cleanup")
     print("body")
 ```
@@ -43,7 +43,7 @@ Output: `body` then `cleanup`.
 Multiple defers:
 
 ```gol
-procedure main
+proc main
     defer print("first")
     defer print("second")
     defer print("third")
@@ -54,7 +54,7 @@ Output: `third`, `second`, `first`. LIFO order.
 Defer inside a nested scope:
 
 ```gol
-procedure main
+proc main
     if true then
         defer print("inner")
         print("in if")
@@ -69,7 +69,7 @@ to the function. See `test_defer_in_nested_scope` in
 Defer inside a loop:
 
 ```gol
-procedure main
+proc main
     var i := 0
     while i < 3 do
         defer print("iter")
@@ -148,7 +148,7 @@ variable at the defer's source position — with one important
 difference discussed below.
 
 ```gol
-procedure main
+proc main
     val x := 42
     defer print(x)
     // x is captured by the defer
@@ -164,7 +164,7 @@ until the defer fires.
 **Example:**
 
 ```gol
-procedure main
+proc main
     val s := "hello"
     defer print(s)
     consume(s)   // compile error: s is captured by the pending defer
@@ -189,7 +189,7 @@ to a borrow.
 ### Move inside defer
 
 ```gol
-procedure main
+proc main
     val s := "hello"
     defer consume(s)
 ```

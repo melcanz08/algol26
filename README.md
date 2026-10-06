@@ -43,7 +43,7 @@ rec Point
 function sum_point(p: Point) -> Int
     return p.x + p.y
 
-procedure main
+proc main
     val p := Point { x: 3, y: 4 }
     print(sum_point(p))
 

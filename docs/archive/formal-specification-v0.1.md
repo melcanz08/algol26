@@ -87,7 +87,7 @@ function name(param1: type1, param2: type2) -> return_type
     // body
     return value
 
-procedure main
+proc main
     // entry point
 ```
 

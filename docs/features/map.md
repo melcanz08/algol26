@@ -215,7 +215,7 @@ and on any `Map.*` call name.
 ## Example
 
 ```
-procedure main
+proc main
     var counts := Map<String, Int> {}
 
     val words := ["apple", "banana", "apple", "cherry", "banana", "apple"]

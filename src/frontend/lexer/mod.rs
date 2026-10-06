@@ -461,8 +461,6 @@ impl Lexer {
     ) -> Result<()> {
         if trimmed.starts_with("proc") {
             Lexer::parse_declaration(Token::Proc, "proc".len(), trimmed, tokens, positions);
-        } else if trimmed.starts_with("proc") {
-            Lexer::parse_declaration(Token::Proc, "proc".len(), trimmed, tokens, positions);
         } else if trimmed.starts_with("function") {
             Lexer::parse_declaration(
                 Token::Function,

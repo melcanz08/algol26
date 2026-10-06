@@ -112,7 +112,7 @@ asserts is consistent via `builtin_signatures_match_analyzer_table`.
 function consume(s: String) -> Int
     return String.length(s)
 
-procedure main
+proc main
     val s := "hello"
     val n := consume(s)   // s is moved into consume
     print(s)              // compile error: use after move
@@ -133,7 +133,7 @@ A string literal in an expression position creates a fresh string
 value each time it is evaluated. This means:
 
 ```gol
-procedure main
+proc main
     print("hello")   // fresh string
     print("hello")   // another fresh string
 ```
@@ -162,7 +162,7 @@ the codepoint semantics:
 
 ```rust
 let source = r#"
-procedure main
+proc main
     val s := "héllo"
     print(String.length(s))
 "#;

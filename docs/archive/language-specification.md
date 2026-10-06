@@ -41,7 +41,7 @@ ALGOL26 source files use the `.gol` extension.
 
 ### 2.4 Keywords
 ```
-procedure    function    return
+proc    function    return
 var          val         if
 else         for         while
 in           do          true

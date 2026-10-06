@@ -257,7 +257,7 @@ while condition do
 
 ### Procedures
 ```gol
-procedure calculate_stats(data)
+proc calculate_stats(data)
     var total := 0.0
     for val in data do
         total := total + val

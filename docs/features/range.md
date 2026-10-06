@@ -96,7 +96,7 @@ currently exists.
 ### What this means in practice
 
 ```gol
-procedure main
+proc main
     val r := 0..10       // analyzer: probably type error
 ```
 

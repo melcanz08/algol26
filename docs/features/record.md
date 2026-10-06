@@ -95,7 +95,7 @@ impl Show for Point
     function show() -> String
         return "(" + Int.to_string(self.x) + ", " + Int.to_string(self.y) + ")"
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     print(p.show())    // (1, 2)
 ```
@@ -235,7 +235,7 @@ impl Show for Point
 function add(a: Point, b: Point) -> Point
     return Point { x: a.x + b.x, y: a.y + b.y }
 
-procedure main
+proc main
     var p := Point { x: 1, y: 2 }
     p.x := 10
     val q := add(p, Point { x: 5, y: 5 })

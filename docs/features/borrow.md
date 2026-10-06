@@ -49,7 +49,7 @@ Borrow in argument position — this is the common case and is
 function add(x: &Int, y: &Int) -> Int
     return *x + *y
 
-procedure main
+proc main
     val a := 10
     val b := 32
     print(add(&a, &b))

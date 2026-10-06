@@ -27,7 +27,7 @@ function) closes it. There is no way to reopen a region.
 Basic form:
 
 ```gol
-procedure main
+proc main
     region scratch
         val p := alloc(64)
         // ... use p ...

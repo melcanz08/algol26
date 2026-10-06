@@ -134,14 +134,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                     return (*cached).into();
                 }
 
-                let rec = self.record_decls.get(name).unwrap_or_else(|| {
-                    panic!(
+                let rec = match self.record_decls.get(name) {
+                    Some(r) => r,
+                    None => unreachable!(
                         "LLVM codegen: unknown record '{}' — check_backend \
                          accepted the program but the record isn't in \
                          record_decls. This is a compiler bug.",
                         name
-                    )
-                });
+                    ),
+                };
 
                 // Opaque placeholder inserted before recursing into
                 // fields, so a nested reference to this record's type

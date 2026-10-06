@@ -32,7 +32,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0034](0034-generic-impls.md) | Generic Impls | Accepted |
 | [0035](0035-interpreter-aliasing.md) | Interpreter Write-Through for &mut self Receivers | Accepted |
 | [0036](0036-llvm-records.md) | LLVM Record Support | Proposed |
-| [0037](0037-wasm-records-references.md) | WASM Records and References | Proposed |
+| [0037](0037-wasm-records-references.md) | WASM Records and References | Superseded by 0036 |
 
 ## Current state
 

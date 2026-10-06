@@ -168,7 +168,7 @@ mod tests {
         std::fs::write(&input_path, "hello from disk").expect("write fixture");
 
         let source = format!(
-            "procedure main\n    val text := File.read(\"{}\")\n    print(text)\n",
+            "proc main\n    val text := File.read(\"{}\")\n    print(text)\n",
             input_path.display()
         );
 
@@ -198,7 +198,7 @@ mod tests {
         let out_path = dir.join("output.txt");
 
         let source = format!(
-            "procedure main\n    val n := File.write(\"{}\", \"written\")\n    print(n)\n",
+            "proc main\n    val n := File.write(\"{}\", \"written\")\n    print(n)\n",
             out_path.display()
         );
 
@@ -315,7 +315,7 @@ mod tests {
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     affirm(1 < 2, "one less than two")
     print("ok")
 "#;
@@ -337,7 +337,7 @@ procedure main
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     affirm(1 > 2, "one is not greater than two")
 "#;
 
@@ -362,7 +362,7 @@ procedure main
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     val xs := args()
     print(List.length(xs))
     for a in xs
@@ -386,7 +386,7 @@ procedure main
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     val xs := args()
     print(List.length(xs))
     for a in xs
@@ -411,7 +411,7 @@ procedure main
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     val s := Int.to_string(42)
     print(s)
     val n := String.to_int("123")
@@ -444,7 +444,7 @@ procedure main
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     print(String.trim("  hello  "))
     print(String.trim("no-trim"))
     print(String.trim(""))
@@ -474,7 +474,7 @@ procedure main
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     val parts := String.split("a,b,c", ",")
     print(List.length(parts))
     for p in parts
@@ -514,7 +514,7 @@ procedure main
         use crate::compiler::Compiler;
 
         let source = r#"
-procedure main
+proc main
     val xs := ["a", "b", "c"]
     print(String.join(xs, ","))
     print(String.join(xs, " | "))

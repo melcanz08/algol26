@@ -1,5 +1,5 @@
 // OUTPUT: 42
 // OUTPUT: -7
-procedure main
+proc main
     print(42)
     print(0 - 7)

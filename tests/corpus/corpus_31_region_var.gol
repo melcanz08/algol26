@@ -1,7 +1,7 @@
 // BACKEND: interpreter
 // OUTPUT: 10
 // OUTPUT: 20
-procedure main
+proc main
     region r
         var x := 10
         print(x)

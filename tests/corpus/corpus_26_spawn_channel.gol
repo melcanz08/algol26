@@ -1,7 +1,7 @@
 // KNOWN_FAILURE: channel runtime not implemented in any backend
 // BACKEND: interpreter
 // OUTPUT: 99
-procedure main
+proc main
     channel c Int
     spawn
         send c, 99

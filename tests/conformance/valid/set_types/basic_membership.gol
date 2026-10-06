@@ -9,7 +9,7 @@ enum Day
     Saturday
     Sunday
 
-procedure main
+proc main
     val weekend: Set<Day> := Set<Day> { Day.Saturday, Day.Sunday }
     if Day.Saturday in weekend
         print(1)

@@ -3,5 +3,5 @@
 function standalone(self: Int) -> Int
     return self
 
-procedure main
+proc main
     print(standalone(5))

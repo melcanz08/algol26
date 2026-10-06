@@ -29,7 +29,7 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>, Vec<FunctionDecl>) {
 
 #[test]
 fn test_wasm_backend_name() {
-    let source = "procedure main\n    print(\"Hello\")\n";
+    let source = "proc main\n    print(\"Hello\")\n";
     let (_ir, _diag, _functions) = build_ir(source);
 
     let backend = WasmBackend::new();
@@ -39,7 +39,7 @@ fn test_wasm_backend_name() {
 
 #[test]
 fn test_wasm_backend_description() {
-    let source = "procedure main\n    print(\"Hello\")\n";
+    let source = "proc main\n    print(\"Hello\")\n";
     let (_ir, _diag, _functions) = build_ir(source);
 
     let backend = WasmBackend::new();
@@ -48,7 +48,7 @@ fn test_wasm_backend_description() {
 
 #[test]
 fn test_backend_registry_includes_wasm() {
-    let source = "procedure main\n    print(\"Hello\")\n";
+    let source = "proc main\n    print(\"Hello\")\n";
     let (_ir, _diag, _functions) = build_ir(source);
 
     let mut registry = BackendRegistry::new();
@@ -64,7 +64,7 @@ fn test_backend_registry_includes_wasm() {
 
 #[test]
 fn test_wasm_backend_trait_contract() {
-    let source = "procedure main\n    print(\"Hello\")\n";
+    let source = "proc main\n    print(\"Hello\")\n";
     let (_ir, _diag, _functions) = build_ir(source);
 
     let wasm: Box<dyn Backend> = Box::new(WasmBackend::new());

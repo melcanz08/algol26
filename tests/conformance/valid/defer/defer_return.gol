@@ -5,5 +5,5 @@ function compute() -> Int
         print("cleanup")
     return 42
 
-procedure main
+proc main
     print(compute())

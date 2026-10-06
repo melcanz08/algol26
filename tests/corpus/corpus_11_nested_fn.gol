@@ -6,6 +6,6 @@ function inner(a: Int) -> Int
 function outer(a: Int) -> Int
     return inner(a) * inner(a) - a
 
-procedure main
+proc main
     print(outer(5))
     print(inner(outer(5)))

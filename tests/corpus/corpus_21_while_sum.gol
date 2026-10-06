@@ -1,5 +1,5 @@
 // OUTPUT: 55
-procedure main
+proc main
     var i := 1
     var total := 0
     while i <= 10 do

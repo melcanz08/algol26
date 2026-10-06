@@ -1,4 +1,4 @@
-procedure main
+proc main
     val a := 10
     val b := 3
     val c := 2.5

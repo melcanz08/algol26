@@ -6,6 +6,6 @@ function add(a: Int, b: Int) -> Int
 function square(n: Int) -> Int
     return n * n
 
-procedure main
+proc main
     print(add(3, 4))
     print(square(add(3, 4)))

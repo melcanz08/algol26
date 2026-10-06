@@ -1,5 +1,5 @@
 // invalid_nested_if_defer.al26
-procedure main
+proc main
     if true then
         defer
         if if

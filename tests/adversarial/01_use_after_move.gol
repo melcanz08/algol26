@@ -1,6 +1,6 @@
 // ADVERSARIAL: ownership
 // EXPECT: REJECT
-procedure main
+proc main
     val x := "hello"
     val y := x
     print(x)

@@ -6,6 +6,6 @@ function fact(n: Int) -> Int
     else
         return n * fact(n - 1)
 
-procedure main
+proc main
     print(fact(5))
     print(fact(1))

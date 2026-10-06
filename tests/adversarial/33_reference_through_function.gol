@@ -3,7 +3,7 @@
 function deref(p: &Float) -> Float
     return *p
 
-procedure main
+proc main
     val x := 3.14
     val y := deref(&x)
     print(y)

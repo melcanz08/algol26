@@ -4,7 +4,7 @@ function get_ref() -> &Int
     return &x
 end
 
-procedure main
+proc main
     val r := get_ref()
     print r
 end

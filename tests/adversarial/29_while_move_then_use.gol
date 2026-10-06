@@ -1,6 +1,6 @@
 // ADVERSARIAL: ownership + loop flow
 // EXPECT: REJECT
-procedure main
+proc main
     val x := "hello"
     while true
         val y := x

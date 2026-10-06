@@ -1,5 +1,5 @@
 // Fixed: Type mismatch with proper syntax
-procedure main
+proc main
     var x := 5
     var y := "string"
     x := y

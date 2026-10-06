@@ -7,6 +7,6 @@ impl Day
     function is_weekday(self: &Day) -> Bool
         return true
 
-procedure main
+proc main
     val d := Day.Monday
     print(d.is_weekday())

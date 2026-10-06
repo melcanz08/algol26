@@ -39,14 +39,14 @@ fn run_before_after(source: &str) -> (String, String) {
 }
 #[test]
 fn test_negative_invalid_syntax() {
-    let source = "procedure main\n val x := (1 + 2";
+    let source = "proc main\n val x := (1 + 2";
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     assert!(parser.parse_program().is_err());
 }
 #[test]
 fn test_negative_undefined_variable() {
-    let source = "procedure main\n print(undefined_var)\n";
+    let source = "proc main\n print(undefined_var)\n";
     let (_ir, diags) = build_ir(source);
     assert!(!diags.is_empty());
 }
@@ -59,7 +59,7 @@ fn test_negative_type_mismatch() {
 
     // NOTE: no leading whitespace on any line, otherwise the lexer emits
     // a top-level Indent token and the parser rejects it.
-    let source = "procedure main\n    var x: Int := \"hello\"\n";
+    let source = "proc main\n    var x: Int := \"hello\"\n";
 
     let lexer = Lexer::new(source.to_string()).expect("lexer failed");
     let mut parser = Parser::new(lexer.tokens);
@@ -94,7 +94,7 @@ fn test_negative_type_mismatch() {
 }
 #[test]
 fn test_stress_nested_control_flow() {
-    let source = r#"procedure main
+    let source = r#"proc main
     val arr := [1.0, 2.0, 3.0, 4.0, 5.0]
     var total := 0.0
     for item in arr do
@@ -194,7 +194,7 @@ fn test_negative_corpus_no_ice() {
 
 #[test]
 fn test_stress_10_level_nested_if_for_defer_break_return() {
-    let mut src = String::from("procedure main\n var sum := 0.0\n");
+    let mut src = String::from("proc main\n var sum := 0.0\n");
     for i in 0..10 {
         src.push_str(&format!(
             "{}for i{} in [1.0, 2.0] do\n",
@@ -228,7 +228,7 @@ fn test_stress_10_level_closure_capture() {
         }
         src.push('\n');
     }
-    src.push_str("procedure main\n val r := f9(0.0)\n print(r)\n");
+    src.push_str("proc main\n val r := f9(0.0)\n print(r)\n");
     let start = Instant::now();
     let (ir, diags) = build_ir(&src);
     assert!(start.elapsed().as_secs_f64() < 2.0);
@@ -237,7 +237,7 @@ fn test_stress_10_level_closure_capture() {
 }
 #[test]
 fn test_stress_100_vars_single_scope() {
-    let mut src = String::from("procedure main\n");
+    let mut src = String::from("proc main\n");
     for i in 0..100 {
         src.push_str(&format!(" val v{} := {}.0\n", i, i));
     }
@@ -254,7 +254,7 @@ fn test_stress_100_vars_single_scope() {
 #[test]
 fn test_optimization_preserves_semantics() {
     let (before, after) = run_before_after(
-        r#"procedure main
+        r#"proc main
     val x := 5.0 + 3.0
     val y := x * 2.0
     print(y)
@@ -264,7 +264,7 @@ fn test_optimization_preserves_semantics() {
 }
 #[test]
 fn test_optimizer_idempotent() {
-    let source = r#"procedure main
+    let source = r#"proc main
     val x := 5.0 + 3.0
     print(x)
 "#;
@@ -278,7 +278,7 @@ fn test_optimizer_idempotent() {
 #[test]
 fn test_optimization_preserves_arithmetic() {
     let (before, after) = run_before_after(
-        r#"procedure main
+        r#"proc main
     val a := 10.0 + 20.0 * 2.0
     val b := (a - 5.0) / 5.0
     val c := b * b
@@ -290,7 +290,7 @@ fn test_optimization_preserves_arithmetic() {
 #[test]
 fn test_optimization_preserves_strings() {
     let (before, after) = run_before_after(
-        r#"procedure main
+        r#"proc main
     val greeting := "Hello"
     val name := "World"
     val combined := String.concat(greeting, " ")
@@ -303,7 +303,7 @@ fn test_optimization_preserves_strings() {
 #[test]
 fn test_optimization_preserves_lists() {
     let (before, after) = run_before_after(
-        r#"procedure main
+        r#"proc main
     val arr := [1.0, 2.0, 3.0]
     var sum := 0.0
     for x in arr do
@@ -315,7 +315,7 @@ fn test_optimization_preserves_lists() {
 }
 #[test]
 fn test_optimization_preserves_borrow_semantics() {
-    let source = r#"procedure main
+    let source = r#"proc main
     var x := 5.0
     val r := &x
     print(*r)

@@ -5,6 +5,6 @@ impl User
     function into_name(self: User) -> String
         return self.name
 
-procedure main
+proc main
     val u := User { name: "Alice" }
     print(u.into_name())

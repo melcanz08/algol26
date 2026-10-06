@@ -15,7 +15,7 @@ function fact(n: Int) -> Int
     else
         return n * fact(n - 1)
 
-procedure main
+proc main
     print(sum_to(5))
     print(fact(5))
     print(sum_to(2) + 2)

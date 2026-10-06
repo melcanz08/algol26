@@ -8,6 +8,6 @@ impl Persistable for User
     function save(self: &User)
         print("saved")
 
-procedure main
+proc main
     val u := User { name: "Alice" }
     u.save()

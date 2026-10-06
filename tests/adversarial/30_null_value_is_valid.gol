@@ -1,6 +1,6 @@
 // POSITIVE CONTROL: null as a value
 // EXPECT: ACCEPT
-procedure main
+proc main
     val p := null
     if p == null then
         print("no pointer")

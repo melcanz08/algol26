@@ -868,7 +868,7 @@ function f<T>(x: T) -> T
 function g<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val y := f(42)
     print(y)
 "#;
@@ -898,7 +898,7 @@ function g<T>(x: T) -> T
 function h<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val y := f(42)
     print(y)
 "#;
@@ -920,7 +920,7 @@ function outer<T>(x: T) -> T
 function inner<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val list := [1, 2, 3]
     val y := outer(list)
     print(y)
@@ -950,7 +950,7 @@ function outer<T>(x: T) -> T
 function inner<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val a := outer(1)
     val b := outer("hello")
     print(a)
@@ -975,7 +975,7 @@ function f<T>(x: T) -> T
 function g<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val y := f(42)
     print(y)
 "#;

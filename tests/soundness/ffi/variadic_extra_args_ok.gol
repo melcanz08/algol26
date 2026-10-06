@@ -3,6 +3,6 @@
 // extra args are untyped, matching C's variadic ABI.
 extern "C" function printf(fmt: String, ...) -> Int
 
-procedure main
+proc main
     val n := printf("%d %s %f\n", 1, "x", 2.5)
 end

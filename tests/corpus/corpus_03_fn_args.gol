@@ -3,6 +3,6 @@
 function add3(a: float, b: float, c: float) -> float
     return a + b + c
 
-procedure main
+proc main
     print(add3(3.0, 5.0, 6.0))
     print(add3(1.0, 2.0, 3.0))

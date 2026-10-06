@@ -1,6 +1,6 @@
 // ADVERSARIAL: nested defer ordering
 // EXPECT: REVIEW
-procedure main
+proc main
     defer
         print("outer")
         defer

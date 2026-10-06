@@ -6,6 +6,6 @@ impl Constant for Int
     function value() -> Int
         return 1
 
-procedure main
+proc main
     val x := 10
     print(x.value())

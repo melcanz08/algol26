@@ -1,7 +1,7 @@
 // BACKEND: interpreter
 // OUTPUT: 5
 // OUTPUT: 99
-procedure main
+proc main
     val ok := try
         Ok(5)
     catch e

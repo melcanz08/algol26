@@ -2,7 +2,7 @@
 function increment(x: &mut Int)
 end
 
-procedure main
+proc main
     var x := 5
     increment(&mut x)
     print x

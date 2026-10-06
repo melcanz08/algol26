@@ -1,5 +1,5 @@
 // BACKEND: interpreter
 // OUTPUT: inside
-procedure main
+proc main
     unsafe
         print("inside")

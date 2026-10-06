@@ -3,7 +3,7 @@
 // OUTPUT: A
 // OUTPUT: B
 // OUTPUT: end
-procedure main
+proc main
     print("start")
     parallel
         print("A")

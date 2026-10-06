@@ -1,7 +1,7 @@
 // Temperature Analysis System
 // Uses List operations directly
 
-procedure main
+proc main
     // Sample temperature data for 7 days
     val temperatures := [22.5, 24.1, 19.8, 26.3, 21.0, 23.7, 25.2]
     

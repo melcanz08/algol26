@@ -61,7 +61,7 @@ fn test_double_borrow_fails() {
     use algol26::semantics::analyzer::SemanticAnalyzer;
 
     // Plain string (not r#"..."#) to avoid top-level Indent tokens.
-    let source = "procedure main\n    var x := 5.0\n    var y := &mut x\n    var z := &mut x\n";
+    let source = "proc main\n    var x := 5.0\n    var y := &mut x\n    var z := &mut x\n";
 
     let lexer = Lexer::new(source.to_string()).expect("lexer failed");
     let mut parser = Parser::new(lexer.tokens);

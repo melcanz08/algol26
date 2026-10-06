@@ -1,7 +1,7 @@
 // POSITIVE CONTROL: concurrency
 // EXPECT: ACCEPT
 // BACKEND: interpreter
-procedure main
+proc main
     val x := 42
     spawn
         print(x)

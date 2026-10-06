@@ -1,5 +1,5 @@
 type UserId distinct Int
 type UserId distinct Int
 
-procedure main
+proc main
     print 1

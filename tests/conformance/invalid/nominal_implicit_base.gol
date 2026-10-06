@@ -1,5 +1,5 @@
 type UserId distinct Int
 
-procedure main
+proc main
     var x: UserId := 5
     print 1

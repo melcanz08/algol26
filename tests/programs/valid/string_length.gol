@@ -1,4 +1,4 @@
-procedure main
+proc main
     val greeting := "Hello World"
     val len := String.length(greeting)
     print(len)

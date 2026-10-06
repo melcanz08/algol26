@@ -2,7 +2,7 @@
 // BACKEND: interpreter
 // OUTPUT: 1
 // OUTPUT: 2
-procedure main
+proc main
     channel a Int
     channel b Int
     send a, 1

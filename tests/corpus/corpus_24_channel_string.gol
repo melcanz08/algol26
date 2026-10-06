@@ -1,7 +1,7 @@
 // KNOWN_FAILURE: channel runtime not implemented in any backend
 // BACKEND: interpreter
 // OUTPUT: hello
-procedure main
+proc main
     channel c String
     send c, "hello"
     receive c into v

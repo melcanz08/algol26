@@ -9,7 +9,7 @@ enum Day
     Saturday
     Sunday
 
-procedure main
+proc main
     val a: Set<Day> := Set<Day> { Day.Monday, Day.Tuesday }
     val b: Set<Day> := Set<Day> { Day.Tuesday, Day.Wednesday }
     val u: Set<Day> := a + b

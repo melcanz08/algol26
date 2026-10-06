@@ -4,7 +4,7 @@
 // site by the analyzer. See docs/status/ffi-boundary.md.
 extern "C" function takes_option(x: Option<Int>) -> Void
 
-procedure main
+proc main
     val o := Some(5)
     takes_option(o)
 end

@@ -1,5 +1,5 @@
 type UserId distinct Int
 
-procedure main
+proc main
     val id := UserId.from_base(1, 2)
     print 1

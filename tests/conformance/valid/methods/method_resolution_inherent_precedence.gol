@@ -12,6 +12,6 @@ impl User
     function greet(self: &User) -> String
         return "inherent"
 
-procedure main
+proc main
     val u := User { name: "Alice" }
     print(u.greet())

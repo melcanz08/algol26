@@ -1,6 +1,6 @@
 // BACKEND: interpreter
 // OUTPUT: 42
-procedure main
+proc main
     val opt := Some(42)
     match opt
         case Some(v)

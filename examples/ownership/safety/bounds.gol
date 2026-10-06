@@ -1,5 +1,5 @@
 // Future ALGOL26 bounds checking example (not yet implemented)
-procedure main
+proc main
     var values := [10, 20, 30]
     
     // This would be caught at compile time or runtime

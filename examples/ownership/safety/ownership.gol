@@ -1,5 +1,5 @@
 // Future ALGOL26 ownership example (not yet implemented)
-procedure main
+proc main
     // Safe allocation
     var x := allocate(100)
     

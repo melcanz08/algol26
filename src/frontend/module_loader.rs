@@ -186,7 +186,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let file = dir.join("test.gol");
-        std::fs::write(&file, "procedure main\n    print(\"test\")").unwrap();
+        std::fs::write(&file, "proc main\n    print(\"test\")").unwrap();
 
         let source1 = loader.load_file(&file).unwrap();
         let source2 = loader.load_file(&file).unwrap();

@@ -1,6 +1,6 @@
 // ADVERSARIAL: ownership + control flow
 // EXPECT: REJECT
-procedure main
+proc main
     val x := "hello"
     if true
         val y := x

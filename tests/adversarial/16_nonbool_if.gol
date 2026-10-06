@@ -1,5 +1,5 @@
 // ADVERSARIAL: control flow typing
 // EXPECT: REJECT
-procedure main
+proc main
     if 1
         print("bad")

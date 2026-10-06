@@ -33,7 +33,7 @@ fn test_lexer_no_panic_random_strings() {
 fn test_parser_no_panic_random_strings() {
     let random_strings = vec![
         "function main() -> Int\n    return 0",
-        "procedure main\n    print 1",
+        "proc main\n    print 1",
         "val x := 5",
         "if true\n    print 1",
         "for i in [1, 2, 3]\n    print i",

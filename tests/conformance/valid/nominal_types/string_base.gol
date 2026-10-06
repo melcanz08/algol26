@@ -1,5 +1,5 @@
 type Name distinct String
 
-procedure main
+proc main
     val n := Name.from_base("hello")
     print n.to_base

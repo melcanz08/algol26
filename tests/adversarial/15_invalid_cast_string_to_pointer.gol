@@ -1,6 +1,6 @@
 // ADVERSARIAL: type + memory safety
 // EXPECT: REJECT
-procedure main
+proc main
     val x := "hello"
     val p := cast(x, Pointer<Int>)
     print(p)

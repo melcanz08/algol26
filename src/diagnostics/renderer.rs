@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn source_argument_produces_snippet() {
-        let source = "procedure main\n    var x := 5.5\n    print x\n";
+        let source = "proc main\n    var x := 5.5\n    print x\n";
         let err = CompileError::at(Span::new(2, 5, 2, 7), "type mismatch", ErrorCode::E0002)
             .with_file("main.gol");
         let s = render_one_with_source(&err, Some(source));

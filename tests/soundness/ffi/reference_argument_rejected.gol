@@ -5,7 +5,7 @@
 // See docs/status/ffi-boundary.md.
 extern "C" function takes_ref(x: &Int) -> Void
 
-procedure main
+proc main
     var n := 5
     takes_ref(&n)
 end

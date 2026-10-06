@@ -1,4 +1,4 @@
-procedure main
+proc main
     val arr := [1.0, 2.0, 3.0]
     print(List.length(arr))
     print(List.sum(arr))

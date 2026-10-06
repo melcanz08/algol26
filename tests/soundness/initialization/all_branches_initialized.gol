@@ -1,5 +1,5 @@
 // EXPECT: COMPILE
-procedure main
+proc main
     var y := 5
     var x := 0
     if y > 3

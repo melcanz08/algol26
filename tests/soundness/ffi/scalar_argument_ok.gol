@@ -3,6 +3,6 @@
 // scalar ABI-compatible mappings.
 extern "C" function scalars(i: Int, f: Float, b: Bool) -> Int
 
-procedure main
+proc main
     val n := scalars(1, 2.5, true)
 end

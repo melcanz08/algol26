@@ -1,5 +1,5 @@
 // tests/programs/valid/ffi_math.gol
-procedure main
+proc main
     print(Math.sqrt(16.0))
     print(Math.pow(2.0, 3.0))
     print(Math.sin(0.0))

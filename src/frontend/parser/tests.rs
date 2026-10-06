@@ -240,7 +240,7 @@ fn ampersand_produces_borrow_not_addrof() {
     use crate::frontend::parser::Parser;
 
     let src = "\
-procedure main
+proc main
     val x := 5.0
     val p := &x
 ";
@@ -267,7 +267,7 @@ procedure main
 
 #[test]
 fn parses_record_decl_and_literal() {
-    let src = "rec Point\n    x: Int\n    y: Int\n\nprocedure main\n    val p := Point { x: 1, y: 2 }\n    print(p.x)\n";
+    let src = "rec Point\n    x: Int\n    y: Int\n\nproc main\n    val p := Point { x: 1, y: 2 }\n    print(p.x)\n";
     let toks = crate::frontend::lexer::Lexer::new(src.to_string())
         .unwrap()
         .tokens;
@@ -298,7 +298,7 @@ fn record_declaration_parses() {
 #[test]
 fn field_access_after_index() {
     let source = "\
-procedure main
+proc main
     val pts := [Point { x: 1, y: 2 }]
     print(pts[0].x)
 ";
@@ -310,7 +310,7 @@ procedure main
 
 #[test]
 fn map_literal_parses_with_inferred_types() {
-    let source = r#"procedure main
+    let source = r#"proc main
     val m := Map { "a": 1, "b": 2 }
 "#;
     let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
@@ -338,7 +338,7 @@ fn map_literal_parses_with_inferred_types() {
 
 #[test]
 fn map_literal_parses_with_explicit_types() {
-    let source = r#"procedure main
+    let source = r#"proc main
     val m := Map<String, Int> { "a": 1 }
 "#;
     let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
@@ -369,7 +369,7 @@ fn empty_map_literal_parses() {
     // `Map {}` has no entries and no type args. The parser accepts
     // it; the analyzer is what requires the type args to be
     // recoverable from context.
-    let source = r#"procedure main
+    let source = r#"proc main
     val m := Map {}
 "#;
     let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
@@ -390,7 +390,7 @@ fn empty_map_literal_parses() {
 
 #[test]
 fn nested_map_literal_parses() {
-    let source = r#"procedure main
+    let source = r#"proc main
     val m := Map { "outer": Map { "inner": 1 } }
 "#;
     let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();

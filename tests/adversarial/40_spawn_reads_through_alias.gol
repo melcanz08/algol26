@@ -7,7 +7,7 @@
 //
 // EXPECT: REVIEW
 // BACKEND: interpreter
-procedure main
+proc main
     var x := 5.0
     val p := &x
     spawn

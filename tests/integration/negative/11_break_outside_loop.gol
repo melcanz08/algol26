@@ -1,4 +1,4 @@
 // break_outside_loop.al26
-procedure main
+proc main
     break
     print("unreachable")

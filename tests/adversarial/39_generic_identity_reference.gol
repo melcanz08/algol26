@@ -4,7 +4,7 @@
 function identity<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val v := 5.0
     val p := &v
     val q := identity(p)

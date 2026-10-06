@@ -7,7 +7,7 @@
 function to_fahrenheit(c: float) -> float
     return c * 9.0 / 5.0 + 32.0
 
-procedure main
+proc main
     val temps := [18.5, 19.2, 20.1, 21.4, 22.8, 23.5, 22.9, 21.0, 19.8, 18.3]
 
     // First pass: mean

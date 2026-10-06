@@ -1,4 +1,4 @@
-procedure main
+proc main
     val temps := [22.5, 24.1, 19.8, 26.3]
     var min := temps[0]
     var max := temps[0]

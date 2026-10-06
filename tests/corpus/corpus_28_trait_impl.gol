@@ -6,6 +6,6 @@ impl Doubler for Int
     function double(n: Int) -> Int
         return n * 2
 
-procedure main
+proc main
     val x := 10
     print(x.double(x))

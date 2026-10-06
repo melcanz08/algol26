@@ -8,5 +8,5 @@ impl User
 function make_user() -> User
     return User { name: "Alice" }
 
-procedure main
+proc main
     print(make_user().label())

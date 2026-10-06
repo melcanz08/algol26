@@ -1,6 +1,6 @@
 // ADVERSARIAL: defer + ownership
 // EXPECT: REJECT
-procedure main
+proc main
     val x := "hello"
     defer
         print(x)

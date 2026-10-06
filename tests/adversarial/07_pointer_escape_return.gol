@@ -4,6 +4,6 @@ function leak() -> Pointer<Int>
     val x := 42
     return &x
 
-procedure main
+proc main
     val p := leak()
     print(p)

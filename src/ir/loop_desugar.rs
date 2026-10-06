@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn loop_with_var_decl_from_outer_var_is_not_unrolled() {
         let src = "\
-procedure main
+proc main
     var x := [1.0, 2.0]
     for a in [1.0] do
         var y := x
@@ -714,7 +714,7 @@ procedure main
     #[test]
     fn loop_without_move_is_unrolled() {
         let src = "\
-procedure main
+proc main
     for a in [1.0, 2.0] do
         print(a)
 ";
@@ -728,7 +728,7 @@ procedure main
     #[test]
     fn nested_move_loop_is_not_unrolled() {
         let src = "\
-procedure main
+proc main
     var x := [1.0, 2.0]
     for a in [1.0] do
         for b in [1.0] do
@@ -748,7 +748,7 @@ procedure main
         // 2-element list. Before the fix, the inner VarDecl overwrote
         // `env["x"]` and the outer loop unrolled over the wrong list.
         let src = "\
-procedure main
+proc main
     var x := [1.0, 2.0]
     if true
         var x := [10.0, 20.0, 30.0]
@@ -789,7 +789,7 @@ procedure main
         // `x` is reassigned to a 3-element list before the loop.
         // The loop must unroll over the new value, not the initial one.
         let src = "\
-procedure main
+proc main
     var x := [1.0, 2.0]
     x := [3.0, 4.0, 5.0]
     for a in x
@@ -825,7 +825,7 @@ procedure main
         // `i` remained unsubstituted and the unrolled body referenced
         // an undeclared variable.
         let src = "\
-procedure main
+proc main
     for i in [1.0, 2.0]
         region r
             print(i)

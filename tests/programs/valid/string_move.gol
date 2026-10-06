@@ -1,5 +1,5 @@
 // String move semantics - strings are Move types
-procedure main
+proc main
     val s := "hello"
     val t := s    // Move - s is transferred to t
     print(t)

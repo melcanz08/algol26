@@ -5,7 +5,7 @@
 // OUTPUT: iter
 // OUTPUT: 3
 // OUTPUT: done
-procedure main
+proc main
     for i in [1, 2, 3] do
         print("iter")
         print(i)

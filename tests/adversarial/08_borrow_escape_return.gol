@@ -4,6 +4,6 @@ function leak() -> Borrow<Int>
     val x := 42
     return &x
 
-procedure main
+proc main
     val r := leak()
     print(r)

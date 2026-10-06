@@ -1,4 +1,4 @@
-procedure main
+proc main
     val x := 10.0
     var y := 20.0
     y := 30.0

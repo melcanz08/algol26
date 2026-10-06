@@ -1,4 +1,4 @@
-procedure main
+proc main
     val x := 5
     val y := 3.14
     val sum := x + y

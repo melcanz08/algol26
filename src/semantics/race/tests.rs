@@ -106,7 +106,7 @@ fn test_val_sharing_is_not_a_race() {
     use crate::frontend::parser::Parser;
 
     let src = "\
-procedure main
+proc main
     val x := 42
     spawn
         print(x)
@@ -131,7 +131,7 @@ fn test_var_read_during_spawn_is_conservatively_flagged() {
     use crate::frontend::parser::Parser;
 
     let src = "\
-procedure main
+proc main
     var x := 42
     spawn
         print(x)

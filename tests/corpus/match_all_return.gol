@@ -9,6 +9,6 @@ function unwrap(r: Result<Int, String>) -> Int
         case Error(e)
             return 0
 
-procedure main
+proc main
     print(unwrap(Ok(42)))
     print(unwrap(Error("bad")))

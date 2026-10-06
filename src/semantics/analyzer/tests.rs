@@ -32,7 +32,7 @@ fn test_mut_borrow_released_at_scope_exit() {
     // Borrow in the inner block should be released before the second
     // borrow at the outer scope.
     let source = "\
-procedure main
+proc main
     var x := 5.0
     region r
         var y := &mut x
@@ -44,7 +44,7 @@ procedure main
 #[test]
 fn test_double_mut_borrow_same_scope_fails() {
     let source = "\
-procedure main
+proc main
     var x := 5.0
     var y := &mut x
     var z := &mut x
@@ -56,7 +56,7 @@ procedure main
 #[test]
 fn test_literal_null_deref_rejected() {
     let source = "\
-procedure main
+proc main
     val x := *null
 ";
     assert!(analyze(source).is_err());
@@ -65,7 +65,7 @@ procedure main
 #[test]
 fn test_known_null_binding_deref_rejected() {
     let source = "\
-procedure main
+proc main
     val p := null
     val x := *p
 ";
@@ -75,7 +75,7 @@ procedure main
 #[test]
 fn test_null_as_value_accepted() {
     let source = "\
-procedure main
+proc main
     val p := null
     if p == null then
         print(\"ok\")
@@ -86,7 +86,7 @@ procedure main
 #[test]
 fn test_if_branch_void_mismatch_rejected() {
     let source = "\
-procedure main
+proc main
     val x := if true
         print(\"done\")
     else
@@ -101,7 +101,7 @@ procedure main
 #[test]
 fn test_if_both_branches_void_accepted() {
     let source = "\
-procedure main
+proc main
     if true
         print(\"a\")
     else
@@ -116,7 +116,7 @@ procedure main
 #[test]
 fn test_if_both_branches_produce_value_accepted() {
     let source = "\
-procedure main
+proc main
     val x := if true
         1.0
     else
@@ -132,7 +132,7 @@ procedure main
 #[test]
 fn test_match_arm_void_mismatch_rejected() {
     let source = "\
-procedure main
+proc main
     val x := match 1
         case 1
             42.0
@@ -148,7 +148,7 @@ procedure main
 #[test]
 fn test_assign_to_val_rejected() {
     let source = "\
-procedure main
+proc main
     val x := 5.0
     x := 10.0
 ";
@@ -168,7 +168,7 @@ procedure main
 #[test]
 fn test_assign_to_var_accepted() {
     let source = "\
-procedure main
+proc main
     var x := 5.0
     x := 10.0
 ";
@@ -183,7 +183,7 @@ fn test_for_loop_local_move_accepted() {
     // A variable declared inside a loop body is recreated each
     // iteration. Moving it must not be flagged as a loop-body move.
     let source = "\
-procedure main
+proc main
     for i in [1.0, 2.0]
         val local := \"hello\"
         val other := local
@@ -199,7 +199,7 @@ fn test_for_loop_outer_move_rejected() {
     // Moving an outer variable inside a loop body is a genuine problem:
     // iteration 2 would re-move an already-moved value.
     let source = "\
-procedure main
+proc main
     val x := \"hello\"
     for i in [1.0, 2.0]
         val y := x
@@ -218,7 +218,7 @@ fn test_param_is_assignable() {
     // is required for functions like `increment(x: &mut float)` that
     // write through their parameter.
     let source = "\
-procedure bump(x: &mut float)
+proc bump(x: &mut float)
     x := x + 1.0
 ";
     assert!(
@@ -232,7 +232,7 @@ fn test_uncaptured_move_in_nested_scope_accepted() {
     // Without a defer, moving a variable into a nested scope is fine.
     // `y` is used inside the region, where it's in scope.
     let source = "\
-procedure main
+proc main
     val x := \"hello\"
     region r
         val y := x
@@ -250,7 +250,7 @@ fn test_defer_capture_blocks_move_in_nested_scope() {
     // scope must be rejected — the defer runs at the *outer* scope's
     // exit and would observe a moved-from value.
     let source = "\
-procedure main
+proc main
     val x := \"hello\"
     defer print(x)
     region r
@@ -371,7 +371,7 @@ fn test_variadic_extern_accepts_extra_args() {
     let source = "\
 extern \"C\" function printf(fmt: String, ...) -> Int
 
-procedure main
+proc main
     printf(\"hello\\n\")
     printf(\"value: %lld\\n\", 42)
 ";
@@ -386,7 +386,7 @@ fn test_variadic_extern_rejects_too_few_args() {
     let source = "\
 extern \"C\" function printf(fmt: String, ...) -> Int
 
-procedure main
+proc main
     printf()
 ";
     let result = analyze(source);
@@ -402,7 +402,7 @@ procedure main
 #[test]
 fn break_out_of_region_is_rejected() {
     let source = "\
-procedure main
+proc main
     var x := 10.0
     while x > 0
         region r
@@ -414,7 +414,7 @@ procedure main
 #[test]
 fn continue_out_of_region_is_rejected() {
     let source = "\
-procedure main
+proc main
     var x := 10.0
     while x > 0
         region r
@@ -426,7 +426,7 @@ procedure main
 #[test]
 fn loop_inside_region_break_accepted() {
     let source = "\
-procedure main
+proc main
     var x := 10.0
     region r
         while x > 0
@@ -438,7 +438,7 @@ procedure main
 #[test]
 fn nested_loop_inside_region_break_accepted() {
     let source = "\
-procedure main
+proc main
     var x := 10.0
     region r
         while x > 0
@@ -459,7 +459,7 @@ fn records_instantiation_for_generic_call_with_int_argument() {
 function identity<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val x := identity(42)
     print(x)
 ";
@@ -509,7 +509,7 @@ fn records_instantiation_for_generic_call_with_reference_argument() {
 function identity<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val v := 1.0
     val p := &v
     val q := identity(p)
@@ -555,7 +555,7 @@ fn non_generic_calls_record_no_instantiation() {
 function add(x: Int, y: Int) -> Int
     return x + y
 
-procedure main
+proc main
     val z := add(1, 2)
     print(z)
 ";
@@ -615,7 +615,7 @@ fn analyze_unsafe(source: &str) -> Result<()> {
 #[test]
 fn test_alloc_outside_unsafe_rejected() {
     let source = r#"
-procedure main
+proc main
     val p := alloc(4)
 "#;
     let err = analyze_unsafe(source).unwrap_err();
@@ -629,7 +629,7 @@ procedure main
 #[test]
 fn test_alloc_inside_unsafe_accepted() {
     let source = r#"
-procedure main
+proc main
     unsafe
         val p := alloc(4)
 "#;
@@ -639,7 +639,7 @@ procedure main
 #[test]
 fn test_free_inside_unsafe_accepted() {
     let source = r#"
-procedure main
+proc main
     unsafe
         val p := alloc(4)
         free(p)
@@ -652,7 +652,7 @@ fn test_nested_unsafe_depth() {
     // A free nested inside two unsafe blocks sees unsafe_depth == 2
     // and is accepted. Exercises the increment/decrement pairing.
     let source = r#"
-procedure main
+proc main
     unsafe
         unsafe
             val p := alloc(4)
@@ -666,7 +666,7 @@ fn test_unsafe_does_not_leak_across_block_boundary() {
     // After an unsafe block ends, unsafe_depth returns to zero,
     // so an operation in a subsequent statement is rejected.
     let source = r#"
-procedure main
+proc main
     unsafe
         val q := alloc(4)
         free(q)
@@ -687,7 +687,7 @@ fn test_deref_pointer_parameter_outside_unsafe_rejected() {
     // not accept `Pointer<Int>` as a parameter type, replace
     // with the syntax the language actually uses.
     let source = r#"
-procedure use_pointer(p: Pointer<Int>)
+proc use_pointer(p: Pointer<Int>)
     val x := *p
 "#;
     let err = analyze_unsafe(source).unwrap_err();
@@ -701,7 +701,7 @@ procedure use_pointer(p: Pointer<Int>)
 #[test]
 fn test_deref_pointer_parameter_inside_unsafe_accepted() {
     let source = r#"
-procedure use_pointer(p: Pointer<Int>)
+proc use_pointer(p: Pointer<Int>)
     unsafe
         val x := *p
 "#;
@@ -715,7 +715,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     p.x := 99
 "#;
@@ -778,7 +778,7 @@ fn single_letter_type_param_still_resolves() {
 function identity<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     print(identity(42))
 ";
     analyze(source).expect("type parameter should not be treated as a user type");
@@ -828,7 +828,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     val q := p
     print(p.x)
@@ -848,7 +848,7 @@ rec Person
     name: String
     age: Int
 
-procedure main
+proc main
     val p := Person { name: "Alice", age: 30 }
     val q := p
     print(p.name)
@@ -873,7 +873,7 @@ rec Point
 function manhattan(p: Point) -> Int
     return p.x + p.y
 
-procedure main
+proc main
     val p := Point { x: 3, y: 4 }
     val d := manhattan(p)
     print(p.x)
@@ -894,7 +894,7 @@ rec Line
     left: Point
     right: Point
 
-procedure main
+proc main
     val a := Point { x: 0, y: 0 }
     val b := Point { x: 1, y: 1 }
     val l := Line { left: a, right: b }
@@ -920,7 +920,7 @@ rec NamedPoint
     name: String
     pt: Point
 
-procedure main
+proc main
     val p := NamedPoint { name: "origin", pt: Point { x: 0, y: 0 } }
     val q := p
     print(p.name)
@@ -943,7 +943,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     p.x := 99
 "#;
@@ -964,7 +964,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     var p := Point { x: 1, y: 2 }
     val r := &p
     val v := *r
@@ -985,7 +985,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val maybe := Some(Point { x: 1, y: 2 })
     val other := maybe
     print(maybe)
@@ -1001,7 +1001,7 @@ procedure main
 #[test]
 fn map_literal_infers_key_and_value_types() {
     let source = r#"
-procedure main
+proc main
     val m := Map { "a": 1, "b": 2 }
 "#;
     let result = analyze_source(source);
@@ -1011,7 +1011,7 @@ procedure main
 #[test]
 fn map_with_explicit_type_args_accepts_matching_entries() {
     let source = r#"
-procedure main
+proc main
     val m := Map<String, Int> { "a": 1 }
 "#;
     assert!(analyze_source(source).is_ok());
@@ -1020,7 +1020,7 @@ procedure main
 #[test]
 fn empty_map_uses_expected_type_from_annotation() {
     let source = r#"
-procedure main
+proc main
     var m: Map<String, Int> := Map {}
 "#;
     assert!(analyze_source(source).is_ok());
@@ -1029,7 +1029,7 @@ procedure main
 #[test]
 fn empty_map_without_context_is_rejected() {
     let source = r#"
-procedure main
+proc main
     val m := Map {}
 "#;
     let err = analyze_source(source).expect_err("should need a type annotation");
@@ -1044,7 +1044,7 @@ procedure main
 #[test]
 fn map_key_type_must_be_hashable() {
     let source = r#"
-procedure main
+proc main
     val m := Map<Float, Int> { 1.5: 1 }
 "#;
     let err = analyze_source(source).expect_err("Float key should be rejected");
@@ -1059,7 +1059,7 @@ procedure main
 #[test]
 fn map_insert_requires_mutable_binding() {
     let source = r#"
-procedure main
+proc main
     val m := Map<String, Int> {}
     m.insert("a", 1)
 "#;
@@ -1075,7 +1075,7 @@ procedure main
 #[test]
 fn map_insert_accepts_matching_types() {
     let source = r#"
-procedure main
+proc main
     var m := Map<String, Int> {}
     m.insert("a", 1)
 "#;
@@ -1085,7 +1085,7 @@ procedure main
 #[test]
 fn map_insert_rejects_wrong_value_type() {
     let source = r#"
-procedure main
+proc main
     var m := Map<String, Int> {}
     m.insert("a", "not an int")
 "#;
@@ -1103,7 +1103,7 @@ fn map_get_returns_option_of_value_type() {
     // Type-level assertion: the call succeeds; the precise return
     // type is exercised indirectly through the type table.
     let source = r#"
-procedure main
+proc main
     val m := Map { "a": 1 }
     val x := m.get("a")
     match x
@@ -1118,7 +1118,7 @@ procedure main
 #[test]
 fn map_length_accepts_zero_args() {
     let source = r#"
-procedure main
+proc main
     val m := Map { "a": 1 }
     val n := m.length()
     print(n)
@@ -1129,7 +1129,7 @@ procedure main
 #[test]
 fn append_requires_var() {
     let source = r#"
-procedure main
+proc main
     val xs: List<Int> := []
     xs.append(1)
 "#;
@@ -1145,7 +1145,7 @@ procedure main
 #[test]
 fn append_rejects_wrong_element_type() {
     let source = r#"
-procedure main
+proc main
     var xs: List<Int> := []
     xs.append("nope")
 "#;
@@ -1167,7 +1167,7 @@ rec Sale
 function maybe_sale() -> Option<Sale>
     return None
 
-procedure main
+proc main
     match maybe_sale()
         case Some(s)
             print(s.amount)
@@ -1185,7 +1185,7 @@ enum Day
     Tuesday
     Saturday
 
-procedure main
+proc main
     val d := Day.Saturday
 end
 "#;
@@ -1199,7 +1199,7 @@ enum Day
     Monday
     Tuesday
 
-procedure main
+proc main
     val d := Day.NotAVariant
 end
 "#;
@@ -1218,7 +1218,7 @@ enum Day
 function first(s: Set<Day>) -> Day
     return Day.Monday
 
-procedure main
+proc main
 end
 "#;
     analyze(source).expect("Set<Day> should resolve in a signature");
@@ -1230,7 +1230,7 @@ fn set_of_bool_in_signature_resolves() {
 function is_empty(s: Set<Bool>) -> Bool
     return true
 
-procedure main
+proc main
 end
 "#;
     analyze(source).expect("Set<Bool> should resolve");
@@ -1242,7 +1242,7 @@ fn set_of_int_in_signature_rejected() {
 function f(s: Set<Int>) -> Int
     return 0
 
-procedure main
+proc main
 end
 "#;
     let err = analyze(source).unwrap_err();
@@ -1259,7 +1259,7 @@ fn set_of_float_in_signature_rejected() {
 function f(s: Set<Float>) -> Float
     return 0.0
 
-procedure main
+proc main
 end
 "#;
     let err = analyze(source).unwrap_err();
@@ -1279,7 +1279,7 @@ type Byte Int in 0..63
 function f(s: Set<Byte>) -> Int
     return 0
 
-procedure main
+proc main
 end
 "#;
     analyze(source).expect("Set<Byte> should resolve");
@@ -1294,7 +1294,7 @@ type Percentage Int in 0..100
 function f(s: Set<Percentage>) -> Int
     return 0
 
-procedure main
+proc main
 end
 "#;
     let err = analyze(source).unwrap_err();
@@ -1313,7 +1313,7 @@ enum Day
     Tuesday
     Wednesday
 
-procedure main
+proc main
     val s: Set<Day> := Set<Day> {}
 end
 "#;
@@ -1332,7 +1332,7 @@ enum Day
     Saturday
     Sunday
 
-procedure main
+proc main
     val weekend: Set<Day> := Set<Day> { Day.Saturday, Day.Sunday }
 end
 "#;
@@ -1346,7 +1346,7 @@ enum Day
     Monday
     Tuesday
 
-procedure main
+proc main
     val s: Set<Day> := Set<Day> { 1, 2 }
 end
 "#;
@@ -1363,7 +1363,7 @@ fn set_literal_with_bad_element_type_rejected() {
     // Set<Int> in the literal itself should be rejected by
     // resolve_type_syntax, same as in a signature.
     let source = r#"
-procedure main
+proc main
     val s := Set<Int> {}
 end
 "#;
@@ -1378,7 +1378,7 @@ end
 #[test]
 fn set_literal_of_bool() {
     let source = r#"
-procedure main
+proc main
     val s: Set<Bool> := Set<Bool> {}
 end
 "#;
@@ -1390,7 +1390,7 @@ fn set_literal_of_small_subrange() {
     let source = r#"
 type Byte Int in 0..63
 
-procedure main
+proc main
     val s: Set<Byte> := Set<Byte> {}
 end
 "#;
@@ -1406,7 +1406,7 @@ enum Day
     Saturday
     Sunday
 
-procedure main
+proc main
     val weekend: Set<Day> := Set<Day> { Day.Saturday, Day.Sunday }
     val b: Bool := Day.Saturday in weekend
 end
@@ -1425,7 +1425,7 @@ enum Color
     Red
     Blue
 
-procedure main
+proc main
     val s: Set<Day> := Set<Day> {}
     val b: Bool := Color.Red in s
 end
@@ -1441,7 +1441,7 @@ end
 #[test]
 fn membership_with_non_set_rhs_rejected() {
     let source = r#"
-procedure main
+proc main
     val b: Bool := 5 in 10
 end
 "#;
@@ -1460,7 +1460,7 @@ enum Day
     Monday
     Tuesday
 
-procedure main
+proc main
     val a: Set<Day> := Set<Day> { Day.Monday }
     val b: Set<Day> := Set<Day> { Day.Tuesday }
     val u: Set<Day> := a + b
@@ -1478,7 +1478,7 @@ enum Day
 enum Color
     Red
 
-procedure main
+proc main
     val a: Set<Day> := Set<Day> { Day.Monday }
     val b: Set<Color> := Set<Color> { Color.Red }
     val u := a + b
@@ -1499,7 +1499,7 @@ enum Day
     Monday
     Tuesday
 
-procedure main
+proc main
     val a: Set<Day> := Set<Day> {}
     val b: Set<Day> := Set<Day> {}
     val s: Bool := a <= b
@@ -1515,7 +1515,7 @@ enum Day
     Monday
     Tuesday
 
-procedure main
+proc main
     val a: Set<Day> := Set<Day> {}
     val b: Set<Day> := Set<Day> {}
     val s: Bool := a == b
@@ -1530,7 +1530,7 @@ fn set_plus_int_rejected() {
 enum Day
     Monday
 
-procedure main
+proc main
     val a: Set<Day> := Set<Day> {}
     val n := a + 5
 end

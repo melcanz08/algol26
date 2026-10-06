@@ -4,6 +4,6 @@ impl UserId
     function describe(self: &UserId) -> String
         return "user"
 
-procedure main
+proc main
     val id := UserId.from_base(1)
     print(id.describe())

@@ -9,7 +9,7 @@ function add_values(x: float, y: float) -> float
 function string_processor(text: string) -> string
     return String.to_upper(text)
 
-procedure main
+proc main
     print("=== ALGOL26 COMPREHENSIVE TEST ===")
     
     // Test 1: Variables

@@ -3,6 +3,6 @@ type UserId distinct Int
 function show(id: UserId) -> Int
     return id.to_base()
 
-procedure main
+proc main
     val id := UserId.from_base(42)
     print show(id)

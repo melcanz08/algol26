@@ -4,7 +4,7 @@ function double_value(x: Float) -> Float
 function add(x: Float, y: Float) -> Float
     return x + y
 
-procedure main
+proc main
     val a := 5.0
     val b := 10.0
     

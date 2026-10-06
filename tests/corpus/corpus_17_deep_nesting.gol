@@ -1,5 +1,5 @@
 // OUTPUT: 7
-procedure main
+proc main
     var total := 0
     for a in [1, 2, 3] do
         for b in [1, 2, 3] do

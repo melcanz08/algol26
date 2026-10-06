@@ -2,6 +2,6 @@
 // Declared arity must match call-site arity for non-variadic externs.
 extern "C" function takes_two(a: Int, b: Int) -> Int
 
-procedure main
+proc main
     val r := takes_two(1)
 end

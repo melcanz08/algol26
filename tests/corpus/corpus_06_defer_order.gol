@@ -1,7 +1,7 @@
 // OUTPUT: inner
 // OUTPUT: result
 // OUTPUT: outer
-procedure main
+proc main
     defer print("outer")
     print(compute())
 

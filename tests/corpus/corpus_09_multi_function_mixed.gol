@@ -6,7 +6,7 @@ function c_to_f(c: float) -> float
 function double_int(n: Int) -> Int
     return n * 2
 
-procedure main
+proc main
     val temp := c_to_f(3.0)
     print(temp + 0.1)
     print(double_int(21))

@@ -1,7 +1,7 @@
 // ADVERSARIAL: concurrency
 // EXPECT: REJECT
 // BACKEND: interpreter
-procedure main
+proc main
     var x := 0
     parallel
         x := 1

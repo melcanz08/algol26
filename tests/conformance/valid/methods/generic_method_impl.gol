@@ -9,6 +9,6 @@ impl<T> Showable for Pair<T>
     function show(self: &Pair<T>) -> String
         return "pair"
 
-procedure main
+proc main
     val p := Pair<Int> { first: 1, second: 2 }
     print(p.show())

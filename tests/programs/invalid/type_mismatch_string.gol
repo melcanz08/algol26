@@ -1,5 +1,5 @@
 // Fixed syntax: type mismatch test
-procedure main
+proc main
     val x := 5.0
     val y := x + "bad"  // ERROR: Cannot add float and string
     print(y)

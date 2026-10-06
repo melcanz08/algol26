@@ -10,7 +10,7 @@ enum Day
     Saturday
     Sunday
 
-procedure main
+proc main
     val weekend := Day.Saturday
     val weekday := Day.Monday
 end

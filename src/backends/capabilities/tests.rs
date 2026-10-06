@@ -721,7 +721,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     print(p.x)
 "#;
@@ -826,7 +826,7 @@ fn llvm_rejects_map_method_calls_without_literal() {
 function get_first(m: Map<String, Int>) -> Option<Int>
     return m.get("first")
 
-procedure main
+proc main
     print("x")
 "#;
     let program = build_ir(SOURCE);
@@ -838,7 +838,7 @@ procedure main
 }
 
 const LIST_APPEND_SOURCE: &str = r#"
-procedure main
+proc main
     var xs: List<Int> := []
     xs.append(1)
 "#;
@@ -855,7 +855,7 @@ fn interpreter_accepts_list_append() {
 }
 
 const MAP_SOURCE: &str = r#"
-procedure main
+proc main
     val m := Map { "a": 1 }
     print(m.length())
 "#;

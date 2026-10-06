@@ -33,7 +33,7 @@ type Rating Int in 0..9
 // Same runtime representation as Int, distinct identity.
 type ContractorId distinct Int
 
-procedure main
+proc main
     // ─── Nominal values ───
     val alice: ContractorId := ContractorId.from_base(1)
     val bob: ContractorId := ContractorId.from_base(2)

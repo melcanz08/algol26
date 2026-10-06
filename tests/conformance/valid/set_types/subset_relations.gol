@@ -4,7 +4,7 @@ enum Day
     Tuesday
     Wednesday
 
-procedure main
+proc main
     val small: Set<Day> := Set<Day> { Day.Monday }
     val big: Set<Day> := Set<Day> { Day.Monday, Day.Tuesday }
 

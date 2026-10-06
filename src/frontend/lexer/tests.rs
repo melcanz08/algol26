@@ -35,7 +35,7 @@ fn test_simple_tokens() {
 
 #[test]
 fn test_indentation() {
-    let source = "procedure main\n    var x := 5\n    if x > 3\n        print x";
+    let source = "proc main\n    var x := 5\n    if x > 3\n        print x";
     let lexer = Lexer::new(source.to_string()).expect("ICE");
     assert!(has_token(&lexer, &Token::Indent));
     assert!(has_token(&lexer, &Token::Dedent));
@@ -188,7 +188,7 @@ fn test_mut_in_signature_lexes_as_keyword() {
 
 #[test]
 fn multi_line_list_literal_emits_one_indent() {
-    let source = "procedure main\n    val xs := [\n        1,\n        2,\n        3]\n";
+    let source = "proc main\n    val xs := [\n        1,\n        2,\n        3]\n";
     let lexer = Lexer::new(source.to_string()).unwrap();
     let indents = lexer
         .tokens
@@ -206,7 +206,7 @@ fn multi_line_list_literal_emits_one_indent() {
 
 #[test]
 fn multi_line_function_call_emits_one_indent() {
-    let source = "procedure main\n    val x := add(\n        1,\n        2)\n";
+    let source = "proc main\n    val x := add(\n        1,\n        2)\n";
     let lexer = Lexer::new(source.to_string()).unwrap();
     let indents = lexer
         .tokens
@@ -224,7 +224,7 @@ fn multi_line_function_call_emits_one_indent() {
 
 #[test]
 fn single_line_list_unchanged() {
-    let source = "procedure main\n    val xs := [1, 2, 3]\n";
+    let source = "proc main\n    val xs := [1, 2, 3]\n";
     let lexer = Lexer::new(source.to_string()).unwrap();
     let indents = lexer
         .tokens
@@ -242,7 +242,7 @@ fn single_line_list_unchanged() {
 
 #[test]
 fn nested_multiline_brackets_emit_one_indent() {
-    let source = "procedure main\n    val xs := foo([\n        1,\n        2],\n        [3, 4])\n";
+    let source = "proc main\n    val xs := foo([\n        1,\n        2],\n        [3, 4])\n";
     let lexer = Lexer::new(source.to_string()).unwrap();
     let indents = lexer
         .tokens
@@ -254,7 +254,7 @@ fn nested_multiline_brackets_emit_one_indent() {
 
 #[test]
 fn multi_line_list_after_statement() {
-    let source = "procedure main\n    val xs := [\n        1\n    ]\n    print(xs)\n";
+    let source = "proc main\n    val xs := [\n        1\n    ]\n    print(xs)\n";
     let lexer = Lexer::new(source.to_string()).unwrap();
 
     let indents = lexer

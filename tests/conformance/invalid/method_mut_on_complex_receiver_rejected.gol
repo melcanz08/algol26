@@ -6,6 +6,6 @@ impl User
     function rename(self: &mut User, new_name: String)
         self.name := new_name
 
-procedure main
+proc main
     var arr := [User { name: "Alice" }]
     arr[0].rename("Alicia")

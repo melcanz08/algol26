@@ -1,4 +1,4 @@
-procedure main
+proc main
     function get_val(x: float) -> float
         val y := x + 1.0
         // missing return

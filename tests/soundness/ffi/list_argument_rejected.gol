@@ -4,7 +4,7 @@
 // site by the analyzer. See docs/status/ffi-boundary.md.
 extern "C" function takes_list(x: List<Int>) -> Void
 
-procedure main
+proc main
     val xs := [1, 2, 3]
     takes_list(xs)
 end

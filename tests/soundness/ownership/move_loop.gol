@@ -1,5 +1,5 @@
 // EXPECT: REJECT E-MOVE-002
-procedure main
+proc main
     var x := 5
     while x > 0
         free x

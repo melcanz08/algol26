@@ -1,7 +1,7 @@
 // OUTPUT: 2.5
 // OUTPUT: 6.0
 // OUTPUT: 5.0
-procedure main
+proc main
     val x := 5
     val y := 2.5
     print(x - y)

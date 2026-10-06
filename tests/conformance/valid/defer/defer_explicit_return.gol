@@ -1,6 +1,6 @@
 // OUTPUT: body
 // OUTPUT: cleanup
-procedure main
+proc main
     defer print("cleanup")
     print("body")
     return

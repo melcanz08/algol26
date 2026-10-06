@@ -1,6 +1,6 @@
 type Percentage Int in 0..100
 
-procedure main
+proc main
     val p := Percentage(75)
     val q: Percentage := 50
     print p.to_base()

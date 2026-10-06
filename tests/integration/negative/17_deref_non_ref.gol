@@ -1,2 +1,2 @@
-procedure main
+proc main
     print(undefined_xyz)

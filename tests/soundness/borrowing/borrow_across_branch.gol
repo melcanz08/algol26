@@ -1,5 +1,5 @@
 // EXPECT: COMPILE
-procedure main
+proc main
     var x := 5
     if x > 3
         val r := &x

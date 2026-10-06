@@ -1,5 +1,5 @@
 // Race test - should DETECT and report races
-procedure main
+proc main
     var shared := 0.0
     
     // This SHOULD trigger race detection

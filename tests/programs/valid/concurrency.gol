@@ -1,5 +1,5 @@
 // Concurrency test - valid concurrent patterns
-procedure main
+proc main
     // Safe: no shared mutable state
     print("Before")
     

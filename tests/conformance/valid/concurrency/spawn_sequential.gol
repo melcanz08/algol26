@@ -2,7 +2,7 @@
 // OUTPUT: before
 // OUTPUT: spawned
 // OUTPUT: after
-procedure main
+proc main
     print("before")
     spawn
         print("spawned")

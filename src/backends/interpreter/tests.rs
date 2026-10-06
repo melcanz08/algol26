@@ -30,7 +30,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     print(p.x)
     print(p.y)
@@ -47,7 +47,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     var p := Point { x: 1, y: 2 }
     p.x := 99
     print(p.x)
@@ -65,7 +65,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     match p
         case Point { x, y }
@@ -83,7 +83,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val pts := [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]
     print(pts[1].x)
 "#,
@@ -95,7 +95,7 @@ procedure main
 fn map_insert_and_get_roundtrip() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var m := Map<String, Int> {}
     m.insert("a", 1)
     m.insert("b", 2)
@@ -114,7 +114,7 @@ procedure main
 fn map_get_missing_key_returns_none() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val m := Map { "a": 1 }
     val x := m.get("z")
     match x
@@ -131,7 +131,7 @@ procedure main
 fn map_insert_overwrites_existing_key() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var m := Map<String, Int> {}
     m.insert("a", 1)
     m.insert("a", 99)
@@ -150,7 +150,7 @@ procedure main
 fn map_contains_returns_bool() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val m := Map { "a": 1, "b": 2 }
     print(m.contains("a"))
     print(m.contains("z"))
@@ -163,7 +163,7 @@ procedure main
 fn map_keys_returns_all_keys() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val m := Map { "b": 1, "a": 2, "c": 3 }
     val ks := m.keys()
     print(ks.length())
@@ -176,7 +176,7 @@ procedure main
 fn map_values_returns_all_values() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val m := Map { "a": 1, "b": 2, "c": 3 }
     val vs := m.values()
     print(vs.length())
@@ -189,7 +189,7 @@ procedure main
 fn map_length_counts_entries() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val m := Map { "a": 1, "b": 2 }
     print(m.length())
 "#,
@@ -201,7 +201,7 @@ procedure main
 fn map_with_int_keys() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var m := Map<Int, String> {}
     m.insert(1, "one")
     m.insert(2, "two")
@@ -220,7 +220,7 @@ procedure main
 fn map_with_bool_keys() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var m := Map<Bool, Int> {}
     m.insert(true, 1)
     m.insert(false, 0)
@@ -239,7 +239,7 @@ procedure main
 fn map_of_maps() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var inner := Map<String, Int> {}
     inner.insert("x", 100)
     inner.insert("y", 200)
@@ -267,7 +267,7 @@ procedure main
 fn map_iteration_via_keys() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var m := Map<String, Int> {}
     m.insert("a", 1)
     m.insert("b", 2)
@@ -290,7 +290,7 @@ procedure main
 fn map_values_can_be_lists() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var m := Map<String, List<Int>> {}
     m.insert("a", [1, 2, 3])
     m.insert("b", [4, 5])
@@ -310,7 +310,7 @@ procedure main
 fn append_grows_list_by_one() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var xs := [1, 2]
     xs.append(3)
     print(xs.length())
@@ -323,7 +323,7 @@ procedure main
 fn append_to_empty_annotated_list() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var xs: List<Int> := []
     xs.append(1)
     xs.append(2)
@@ -340,7 +340,7 @@ fn append_moves_non_copy_value() {
     // enforced by the analyzer.
     let output = run_source(
         r#"
-procedure main
+proc main
     var names := ["a", "b"]
     names.append("c")
     print(names.length())
@@ -353,7 +353,7 @@ procedure main
 fn append_copies_copy_value() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var xs := [1, 2]
     val x := 3
     xs.append(x)
@@ -368,7 +368,7 @@ procedure main
 fn append_to_nested_list() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var outer := [[1, 2]]
     outer.append([3, 4])
     print(outer.length())
@@ -381,7 +381,7 @@ procedure main
 fn filter_via_append() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val source := [1, 2, 3, 4, 5, 6]
     var small: List<Int> := []
     for x in source
@@ -400,7 +400,7 @@ fn append_invalidates_static_length() {
     // compile time and succeeds at runtime.
     let output = run_source(
         r#"
-procedure main
+proc main
     var xs := [10, 20, 30]
     xs.append(40)
     print(xs[3])
@@ -413,7 +413,7 @@ procedure main
 fn int_division_then_compare_diagnostic() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val x := 5
     print(x / 2)
     print(x - (x / 2) * 2)
@@ -426,7 +426,7 @@ procedure main
 fn diag_if_append_no_loop() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var small: List<Int> := []
     val x := 2
     if x < 3
@@ -441,7 +441,7 @@ procedure main
 fn diag_for_append_no_if() {
     let output = run_source(
         r#"
-procedure main
+proc main
     val source := [1, 2, 3]
     var small: List<Int> := []
     for x in source
@@ -456,7 +456,7 @@ procedure main
 fn append_inside_match_case() {
     let output = run_source(
         r#"
-procedure main
+proc main
     var small: List<Int> := []
     val x := 2
     match x
@@ -481,7 +481,7 @@ function make() -> Int
     print("making")
     return 42
 
-procedure main
+proc main
     val x := make()
     print(x)
 "#,
@@ -497,7 +497,7 @@ function make() -> Int
     print("side effect")
     return 42
 
-procedure main
+proc main
     val unused := make()
     print("done")
 "#,
@@ -516,7 +516,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     val q := p.x
     print(q + 10)
@@ -540,7 +540,7 @@ impl Show for Point
     function show() -> String
         return "(" + Int.to_string(self.x) + "," + Int.to_string(self.y) + ")"
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     print(p.show())
 "#,

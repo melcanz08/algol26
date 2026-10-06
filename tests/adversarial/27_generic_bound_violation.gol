@@ -3,6 +3,6 @@
 function show<T>(x: T) -> String where T: Display
     return "ok"
 
-procedure main
+proc main
     val p := [1, 2, 3]
     print(show(p))

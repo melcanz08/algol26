@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Renamed the `procedure` keyword to `proc`. Programs using
+  `procedure` must be updated to `proc`.
+
 ## [0.8.0-hardening] - 2026-05-13
 ### Level 5 Hardening Complete
 

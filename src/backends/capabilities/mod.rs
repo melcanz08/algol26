@@ -187,6 +187,7 @@ impl BackendCapabilities {
         // references (`fn f() -> &T`) still fail at codegen with
         // a fail-closed E0002, not a silent miscompile.
         supported.insert(Feature::References);
+        supported.insert(Feature::Records);
         BackendCapabilities {
             name: "LLVM",
             supported,

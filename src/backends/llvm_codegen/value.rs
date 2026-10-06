@@ -545,9 +545,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                 field_type,
             } => {
                 // ADR 0036 L3. `p.x` compiles to GEP to the field
-                // address followed by a load. The object compiles to
-                // a pointer to the record's alloca (records have no
-                // by-value representation in the current backend).
+                // address followed by a load.
+                //
+                // The record's storage IS the struct alloca created
+                // by L2 (`compile_value(Record{...})`). Declare and
+                // Assign store that pointer directly in `variables`,
+                // so a Variable receiver resolves by looking it up
+                // — not by calling `compile_value`, which would load
+                // a struct value through the alloca.
                 let object_type = object.type_of();
                 let record_name = match &object_type {
                     Type::Record(name, _) => name.clone(),
@@ -602,22 +607,42 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ),
                 };
 
-                let obj_val = self.compile_value(object)?;
-                if !obj_val.is_pointer_value() {
-                    return Err(CompileError::simple(
-                        "LLVM codegen: record object is not a pointer",
-                        0,
-                        0,
-                        "",
-                        ErrorCode::E0002,
-                    ));
-                }
+                // Resolve the record's struct alloca pointer.
+                let obj_ptr = match &**object {
+                    TypedIRValue::Variable(var_name, _) => {
+                        match self.variables.get(var_name).copied() {
+                            Some(p) => p,
+                            None => {
+                                return Err(CompileError::simple(
+                                    &format!("LLVM codegen: unknown variable '{}'", var_name),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0003,
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        let val = self.compile_value(object)?;
+                        if !val.is_pointer_value() {
+                            return Err(CompileError::simple(
+                                "LLVM codegen: record object is not a pointer",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        val.into_pointer_value()
+                    }
+                };
 
                 let field_ptr = unsafe {
                     self.builder
                         .build_gep(
                             struct_ty,
-                            obj_val.into_pointer_value(),
+                            obj_ptr,
                             &[
                                 self.context.i32_type().const_zero(),
                                 self.context.i32_type().const_int(field_idx as u64, false),

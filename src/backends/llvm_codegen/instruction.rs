@@ -59,6 +59,31 @@ impl<'ctx> IRCodeGen<'ctx> {
                     return Ok(());
                 }
 
+                if let TypedIRValue::Record { .. } = value {
+                    // ADR 0036 L4. A record's storage IS the alloca
+                    // that `compile_value(Record{...})` creates (L2).
+                    // Storing that pointer in a second alloca would
+                    // try to store a `%Point*` into a `%Point` slot;
+                    // instead, `variables[name]` holds the struct
+                    // pointer directly. Consumers that want the
+                    // pointer (FieldAccess, FieldAssign) look it up
+                    // via `self.variables` without a load.
+                    let val = self.compile_value(value)?;
+                    if !val.is_pointer_value() {
+                        return Err(CompileError::simple(
+                            "LLVM codegen: record literal did not produce a pointer",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    self.variables
+                        .insert(name.clone(), val.into_pointer_value());
+                    self.var_types.insert(name.clone(), type_.clone());
+                    return Ok(());
+                }
+
                 // Non-list: single alloca, straightforward store.
                 let alloca = self.create_entry_alloca(name, type_);
                 let val = self.compile_value(value)?;
@@ -103,6 +128,21 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .insert(target.clone(), array_ty.into());
                     self.list_lengths.insert(target.clone(), len);
                     self.variables.insert(target.clone(), arr_alloca);
+                    return Ok(());
+                }
+                if let TypedIRValue::Record { .. } = value {
+                    let val = self.compile_value(value)?;
+                    if !val.is_pointer_value() {
+                        return Err(CompileError::simple(
+                            "LLVM codegen: record reassignment did not produce a pointer",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    self.variables
+                        .insert(target.clone(), val.into_pointer_value());
                     return Ok(());
                 }
                 let ptr = self.variables.get(target).cloned().ok_or_else(|| {

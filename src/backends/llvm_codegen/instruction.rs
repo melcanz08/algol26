@@ -778,15 +778,114 @@ impl<'ctx> IRCodeGen<'ctx> {
                     )),
                 }
             }
-            Instruction::FieldAssign { .. } => {
-                // Records are refused by the capability check (`Feature::Records`
-                // is not in `BackendCapabilities::llvm()`), so this arm should
-                // never be reached. If it is, the capability matrix got out of
-                // sync with the IR.
-                unreachable!(
-                    "LLVM codegen reached Instruction::FieldAssign — \
-                     records should have been refused by check_backend"
-                );
+            Instruction::FieldAssign {
+                target,
+                field,
+                value,
+            } => {
+                // ADR 0036 L4. `p.x := v` compiles to GEP + store.
+                // The target is a variable name (the analyzer rejects
+                // field assignment on non-variable receivers), so the
+                // record's alloca is found via the variables map.
+                let var_ty = match self.var_types.get(target).cloned() {
+                    Some(t) => t,
+                    None => {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: field assign to unknown variable '{}'",
+                                target
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
+                        ));
+                    }
+                };
+
+                let record_name = match &var_ty {
+                    Type::Record(name, _) => name.clone(),
+                    _ => {
+                        return Err(CompileError::simple(
+                            &format!("LLVM codegen: field assign on non-record type {:?}", var_ty),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                };
+
+                let rec_decl = match self.record_decls.get(&record_name).cloned() {
+                    Some(r) => r,
+                    None => {
+                        return Err(CompileError::simple(
+                            &format!("LLVM codegen: unknown record '{}'", record_name),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0003,
+                        ));
+                    }
+                };
+
+                let field_idx = match rec_decl.fields.iter().position(|(n, _)| n == field) {
+                    Some(i) => i,
+                    None => {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: record '{}' has no field '{}'",
+                                record_name, field
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
+                        ));
+                    }
+                };
+
+                let struct_ty = match self.map_type(&var_ty) {
+                    BasicTypeEnum::StructType(s) => s,
+                    _ => unreachable!(
+                        "map_type(Type::Record) returned a non-struct type for '{}'",
+                        record_name
+                    ),
+                };
+
+                let record_ptr = match self.variables.get(target).copied() {
+                    Some(p) => p,
+                    None => {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: no alloca for field-assign target '{}'",
+                                target
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
+                        ));
+                    }
+                };
+
+                let field_ptr = unsafe {
+                    self.builder
+                        .build_gep(
+                            struct_ty,
+                            record_ptr,
+                            &[
+                                self.context.i32_type().const_zero(),
+                                self.context.i32_type().const_int(field_idx as u64, false),
+                            ],
+                            &format!("{}_{}_ptr", record_name, field),
+                        )
+                        .unwrap()
+                };
+
+                let val = self.compile_value(value)?;
+                self.builder.build_store(field_ptr, val).unwrap();
+                Ok(())
             }
         }
     }

@@ -1385,25 +1385,22 @@ impl SemanticAnalyzer {
                         // rejected. The mutability check requires a
                         // named binding to consult `val`/`var`;
                         // complex receivers have no such binding.
-                        if let Some((_, self_ty)) = func_info.params.first() {
-                            if let Type::MutBorrow(_) = self_ty {
-                                return Err(CompileError::at(
-                                    self.current_span,
-                                    &format!(
-                                        "Cannot call `&mut self` method '{}' on a \
-                                         complex receiver; bind the receiver to a \
-                                         variable first",
-                                        method
-                                    ),
-                                    ErrorCode::E0007,
-                                )
-                                .with_suggestion(
-                                    "Assign the receiver to a `var` binding, then \
-                                     call the method on that binding",
-                                ));
-                            }
+                        if let Some((_, Type::MutBorrow(_))) = func_info.params.first() {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Cannot call `&mut self` method '{}' on a \
+                                     complex receiver; bind the receiver to a \
+                                     variable first",
+                                    method
+                                ),
+                                ErrorCode::E0007,
+                            )
+                            .with_suggestion(
+                                "Assign the receiver to a `var` binding, then \
+                                 call the method on that binding",
+                            ));
                         }
-
                         let expected_extra = func_info.params.len().saturating_sub(1);
                         if args.len() != expected_extra {
                             return Err(CompileError::at(

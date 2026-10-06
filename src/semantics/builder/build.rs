@@ -315,7 +315,7 @@ impl SemanticIRBuilder {
                 }
             }
         }
-
+        program.records = self.records.clone();
         program
     }
 

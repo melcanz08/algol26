@@ -49,6 +49,13 @@ impl Backend for WasmBackend {
         let context = Context::create();
         let mut codegen = IRCodeGen::new(&context, "algol26_wasm");
 
+        // ADR 0036 L1c: populate the record table before any
+        // function is compiled. `map_type(Type::Record(..))` reads
+        // this table to build named LLVM struct types.
+        for rec in &ir.program().records {
+            codegen.record_decls.insert(rec.name.clone(), rec.clone());
+        }
+
         codegen.compile(ir.program()).map_err(|e| {
             let error_msg = format!("WASM code generation failed: {}", e);
             e.display();

@@ -67,6 +67,10 @@ pub struct SemanticProgram {
     /// codegen so the declared function type is variadic, and
     /// by the IR verifier to relax its arity check.
     pub variadic_functions: std::collections::HashSet<String>,
+    /// Record declarations from the frontend, keyed by name. Consumed
+    /// by LLVM codegen's `map_type` to build named struct types.
+    /// ADR 0036 L1.
+    pub records: Vec<crate::frontend::ast::RecordDecl>,
 }
 
 impl Default for SemanticProgram {
@@ -83,6 +87,7 @@ impl SemanticProgram {
             ffi_symbols: HashMap::new(),
             ffi_libraries: Vec::new(),
             variadic_functions: std::collections::HashSet::new(),
+            records: Vec::new(),
         }
     }
     pub fn new_block_id(&mut self) -> usize {

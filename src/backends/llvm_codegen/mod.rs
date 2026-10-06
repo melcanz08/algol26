@@ -69,6 +69,14 @@ pub struct IRCodeGen<'ctx> {
     /// snapshot slots). Distinct from the semantic IR builder's
     /// counter — this one is LLVM-codegen-local.
     pub(super) iter_counter: usize,
+    /// Record declarations, keyed by name. Populated once at
+    /// compile time from `SemanticProgram.records`. ADR 0036 L1.
+    pub(super) record_decls: HashMap<String, crate::frontend::ast::RecordDecl>,
+    /// Cache of LLVM named struct types built from `record_decls`.
+    /// `RefCell` because `map_type` takes `&self` but the cache is
+    /// lazily populated on first use.
+    pub(super) record_struct_types:
+        std::cell::RefCell<HashMap<String, inkwell::types::StructType<'ctx>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +141,8 @@ impl<'ctx> IRCodeGen<'ctx> {
             variadic_functions: std::collections::HashSet::new(),
             region_frames: Vec::new(),
             iter_counter: 0,
+            record_decls: HashMap::new(),
+            record_struct_types: std::cell::RefCell::new(HashMap::new()),
         }
     }
 

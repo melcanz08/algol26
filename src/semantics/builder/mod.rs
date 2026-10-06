@@ -58,6 +58,7 @@ pub struct SemanticIRBuilder {
     /// registering `function_types` — `Option<Sale>` becomes
     /// `Option<Record("Sale", []))>` rather than `Option<Unknown>`.
     pub(super) record_names: HashSet<String>,
+    pub(super) records: Vec<RecordDecl>,
     /// Nominal type declarations from the frontend, keyed by name.
     /// Values carry a `Type::Distinct` whose `NominalTypeId` matches
     /// the one the analyzer assigned. See ADR 0029.
@@ -104,6 +105,7 @@ impl SemanticIRBuilder {
             current_subst: HashMap::new(),
             plan,
             record_names,
+            records: records.to_vec(),
             nominal_types,
             enum_types,
             subrange_types,
@@ -287,6 +289,7 @@ mod substitution_tests {
             current_subst: subst,
             plan: InstantiationPlan::default(),
             record_names: HashSet::new(),
+            records: Vec::new(),
             nominal_types: HashMap::new(),
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),

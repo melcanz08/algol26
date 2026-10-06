@@ -6,6 +6,38 @@ use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::AddressSpace;
 
 impl<'ctx> IRCodeGen<'ctx> {
+    /// Resolve a field's syntactic type annotation to a `Type`,
+    /// consulting the codegen's `record_decls` table so that a
+    /// field whose type is another record resolves to
+    /// `Type::Record(name, [])` rather than `Type::Unknown`.
+    /// Used only when lowering a `RecordDecl`'s fields, which live
+    /// in the AST as `TypeSyntax` rather than `Type`. ADR 0036 L1.
+    fn resolve_field_type(&self, ts: &crate::frontend::ast::TypeSyntax) -> Type {
+        use crate::frontend::ast::TypeSyntax;
+        match ts {
+            TypeSyntax::Named(name) => {
+                if self.record_decls.contains_key(name) {
+                    return Type::record(name, Vec::new());
+                }
+                ts.to_type()
+            }
+            TypeSyntax::Generic { name, args } => {
+                let resolved_args: Vec<Type> =
+                    args.iter().map(|a| self.resolve_field_type(a)).collect();
+                match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
+                    ("list", [inner]) => Type::list(inner.clone()),
+                    ("option", [inner]) => Type::option(inner.clone()),
+                    ("borrow", [inner]) => Type::borrow(inner.clone()),
+                    ("mutborrow", [inner]) | ("mut_borrow", [inner]) => {
+                        Type::mut_borrow(inner.clone())
+                    }
+                    _ if self.record_decls.contains_key(name) => Type::record(name, resolved_args),
+                    _ => Type::Unknown,
+                }
+            }
+            TypeSyntax::Unknown => Type::Unknown,
+        }
+    }
     /// Map an ALGOL26 type to an LLVM type.
     ///
     /// Fail-closed for the three variants that should not appear in
@@ -75,15 +107,59 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .struct_type(&[elem_ty, len_ty.into()], false)
                     .into()
             }
-            Type::Record(..) => {
-                // Records are refused by the capability check. If this
-                // function is reached with a Record type, the matrix is out
-                // of sync. Returning `void` here would silently miscompile;
-                // panic instead.
-                unreachable!(
-                    "LLVM codegen reached Type::Record — \
-                     records should have been refused by check_backend"
+            Type::Record(name, args) => {
+                // ADR 0036 L1. Named LLVM struct type, cached so
+                // repeated references to the same record share one
+                // type. Two-pass construction (opaque first, body
+                // after) is required for records that reference
+                // themselves indirectly through Option/pointer
+                // fields; the language currently forbids direct
+                // recursion, but the pattern is the LLVM-recommended
+                // default.
+                //
+                // Non-generic records only in v1 — generic record
+                // types are excluded by ADR 0036's scope boundary.
+                // The `args` vector is ignored here; if a
+                // `Type::Record` with non-empty args reaches this
+                // arm, the caller took a path ADR 0036 didn't cover.
+                debug_assert!(
+                    args.is_empty(),
+                    "LLVM codegen reached generic record type {:?}<{:?}> — \
+                     not supported in ADR 0036 v1",
+                    name,
+                    args
                 );
+
+                if let Some(cached) = self.record_struct_types.borrow().get(name) {
+                    return (*cached).into();
+                }
+
+                let rec = self.record_decls.get(name).unwrap_or_else(|| {
+                    panic!(
+                        "LLVM codegen: unknown record '{}' — check_backend \
+                         accepted the program but the record isn't in \
+                         record_decls. This is a compiler bug.",
+                        name
+                    )
+                });
+
+                // Opaque placeholder inserted before recursing into
+                // fields, so a nested reference to this record's type
+                // resolves to the same StructType.
+                let struct_ty = self.context.opaque_struct_type(name);
+                self.record_struct_types
+                    .borrow_mut()
+                    .insert(name.clone(), struct_ty);
+
+                let field_types: Vec<BasicTypeEnum<'ctx>> = rec
+                    .fields
+                    .iter()
+                    .map(|(_, field_ty)| self.map_type(&self.resolve_field_type(field_ty)))
+                    .collect();
+
+                struct_ty.set_body(&field_types, false);
+
+                struct_ty.into()
             }
             Type::Array(inner, size) => {
                 let elem_ty = self.map_type(inner);

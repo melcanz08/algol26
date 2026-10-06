@@ -398,6 +398,44 @@ impl SemanticAnalyzer {
                 return Err(CompileError::simple(&err, 0, 0, "", ErrorCode::E0002));
             }
         }
+
+        // ─── ADR 0034: impl coherence ───
+        // One impl per (trait_name, target_type). The mangled method
+        // name is `{target_type}_{method_name}`; two impls with the
+        // same trait and target therefore produce colliding symbols,
+        // which previously surfaced later as a confusing "duplicate
+        // function name" error from `register_user_functions`.
+        //
+        // Inherent impls (`trait_name = None`) are subject to the
+        // same rule against other inherent impls of the same type.
+        //
+        // Specialization (a more specific impl winning over a more
+        // general one) is out of scope — see ADR 0034 §"What remains
+        // out of scope".
+        {
+            let mut seen: HashMap<(Option<String>, String), ()> = HashMap::new();
+            for impl_block in impls {
+                let key = (
+                    impl_block.trait_name.clone(),
+                    impl_block.target_type.clone(),
+                );
+                if seen.contains_key(&key) {
+                    let what = match &impl_block.trait_name {
+                        Some(t) => format!("trait '{}' for type '{}'", t, impl_block.target_type),
+                        None => format!("inherent impl on type '{}'", impl_block.target_type),
+                    };
+                    return Err(CompileError::simple(
+                        &format!("Conflicting impl: {} is declared more than once", what),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                seen.insert(key, ());
+            }
+        }
+
         // ─── ADR 0033: inherent impl checks ───
         // Field/method collision is a compile error: `impl User { function name }`
         // where `User` already has field `name` would make `u.name` ambiguous

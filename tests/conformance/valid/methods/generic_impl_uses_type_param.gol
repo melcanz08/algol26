@@ -1,0 +1,11 @@
+rec Pair<T>
+    first: T
+    second: T
+
+impl<T> Pair<T>
+    function get_first(self: &Pair<T>) -> T
+        return self.first
+
+procedure main
+    val p := Pair<Int> { first: 42, second: 7 }
+    print(p.get_first())

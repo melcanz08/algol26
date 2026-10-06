@@ -759,7 +759,7 @@ impl Compiler {
             for method in &impl_block.methods {
                 let mangled = format!("{}_{}", impl_block.target_type, method.name);
                 inherent_names.insert(mangled);
-                all_functions.push(self.make_impl_method(method, &impl_block.target_type));
+                all_functions.push(self.make_impl_method(impl_block, method));
             }
         }
 
@@ -776,7 +776,7 @@ impl Compiler {
                 if inherent_names.contains(&mangled) {
                     continue;
                 }
-                all_functions.push(self.make_impl_method(method, &impl_block.target_type));
+                all_functions.push(self.make_impl_method(impl_block, method));
             }
         }
 
@@ -795,23 +795,24 @@ impl Compiler {
     /// Build the flattened `FunctionDecl` for a single impl method:
     /// rename `method` to `Type_method` and insert `self` as the first
     /// parameter if the parser didn't already.
-    fn make_impl_method(&self, method: &FunctionDecl, type_name: &str) -> FunctionDecl {
+    fn make_impl_method(&self, impl_block: &ImplBlock, method: &FunctionDecl) -> FunctionDecl {
         let mut renamed = method.clone();
-        renamed.name = format!("{}_{}", type_name, method.name);
+        renamed.name = format!("{}_{}", impl_block.target_type, method.name);
+        // ADR 0034: propagate the impl's type parameters onto the
+        // flattened method so `register_user_functions` records it
+        // as a generic function and the analyzer can bind them at
+        // call sites.
+        renamed.type_params = impl_block.type_params.clone();
 
         let has_self = renamed.params.first().is_some_and(|(n, _)| n == "self");
-
-        debug_assert!(
-            method.receiver.is_none() || has_self,
-            "impl method declares a receiver but params[0] is not `self`",
-        );
+        debug_assert!(method.receiver.is_none() || has_self, "...");
 
         if !has_self {
             renamed.params.insert(
                 0,
                 (
                     "self".to_string(),
-                    Some(TypeSyntax::Named(type_name.to_string())),
+                    Some(TypeSyntax::Named(impl_block.target_type.clone())),
                 ),
             );
         }

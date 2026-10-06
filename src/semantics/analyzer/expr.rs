@@ -1169,7 +1169,51 @@ impl SemanticAnalyzer {
                                             ));
                                         }
                                     }
-                                    return Ok(func_info.return_type);
+                                    // ADR 0034: monomorphization. If the
+                                    // method came from a generic impl, the
+                                    // receiver's concrete type arguments
+                                    // bind the impl's type params; record
+                                    // the instantiation so the IR builder
+                                    // emits a specialized body, and
+                                    // substitute in the return type so the
+                                    // call site has a concrete type.
+                                    let mut type_bindings: HashMap<String, Type> = HashMap::new();
+                                    if !func_info.type_params.is_empty() {
+                                        let declared_self = match func_info.params.first() {
+                                            Some((_, Type::Borrow(inner)))
+                                            | Some((_, Type::MutBorrow(inner))) => {
+                                                (**inner).clone()
+                                            }
+                                            Some((_, other)) => other.clone(),
+                                            None => Type::Unknown,
+                                        };
+                                        self.unify_types(
+                                            &declared_self,
+                                            &receiver_type,
+                                            &mut type_bindings,
+                                        )?;
+                                        let type_args: Vec<Type> = func_info
+                                            .type_params
+                                            .iter()
+                                            .map(|p| {
+                                                type_bindings
+                                                    .get(p)
+                                                    .cloned()
+                                                    .unwrap_or(Type::Unknown)
+                                            })
+                                            .collect();
+                                        self.instantiations.push(Instantiation {
+                                            call_site: expr.id,
+                                            function: mangled.clone(),
+                                            type_params: func_info.type_params.clone(),
+                                            type_args,
+                                        });
+                                    }
+
+                                    return Ok(self.substitute_type_vars(
+                                        &func_info.return_type,
+                                        &type_bindings,
+                                    ));
                                 }
                             }
 
@@ -1428,7 +1472,33 @@ impl SemanticAnalyzer {
                                 ));
                             }
                         }
-                        return Ok(func_info.return_type);
+                        // ADR 0034: monomorphization — same as the
+                        // FunctionCall arm above.
+                        let mut type_bindings: HashMap<String, Type> = HashMap::new();
+                        if !func_info.type_params.is_empty() {
+                            let declared_self = match func_info.params.first() {
+                                Some((_, Type::Borrow(inner)))
+                                | Some((_, Type::MutBorrow(inner))) => (**inner).clone(),
+                                Some((_, other)) => other.clone(),
+                                None => Type::Unknown,
+                            };
+                            self.unify_types(&declared_self, &receiver_type, &mut type_bindings)?;
+                            let type_args: Vec<Type> = func_info
+                                .type_params
+                                .iter()
+                                .map(|p| type_bindings.get(p).cloned().unwrap_or(Type::Unknown))
+                                .collect();
+                            self.instantiations.push(Instantiation {
+                                call_site: expr.id,
+                                function: mangled.clone(),
+                                type_params: func_info.type_params.clone(),
+                                type_args,
+                            });
+                        }
+
+                        return Ok(
+                            self.substitute_type_vars(&func_info.return_type, &type_bindings)
+                        );
                     }
                 }
 

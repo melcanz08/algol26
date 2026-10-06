@@ -1078,9 +1078,14 @@ impl SemanticIRBuilder {
                                         arg,
                                     ));
                                 }
+                                // ADR 0034: rewrite to the specialization's
+                                // mangled name if the analyzer recorded an
+                                // instantiation for this call site. Non-generic
+                                // methods return `resolved_name` unchanged.
+                                let emitted_name = self.resolved_callee_name(expr, &resolved_name);
                                 let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
                                 return TypedIRValue::Call {
-                                    function: resolved_name,
+                                    function: emitted_name,
                                     args: call_args,
                                     return_type,
                                 };
@@ -1168,9 +1173,11 @@ impl SemanticIRBuilder {
                     for arg in args {
                         call_args.push(self.translate_expr(program, func, current_block, arg));
                     }
+                    // ADR 0034: same rewrite as the FunctionCall arm.
+                    let emitted_name = self.resolved_callee_name(expr, &resolved_name);
                     let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
                     return TypedIRValue::Call {
-                        function: resolved_name,
+                        function: emitted_name,
                         args: call_args,
                         return_type,
                     };

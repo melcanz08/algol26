@@ -45,7 +45,7 @@ rec Point
     x: Int
     y: Int
 
-procedure main
+proc main
     val p := Point { x: 1, y: 2 }
     print(p.x)
 ";

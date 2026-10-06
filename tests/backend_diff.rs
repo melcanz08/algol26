@@ -23,7 +23,7 @@ fn build_ir(src: &str) -> algol26::ir::semantic_ir::SemanticProgram {
 #[test]
 fn test_56_borrow_not_removed() {
     let src = r#"
-procedure main
+proc main
     var arr := [1.0, 2.0, 3.0]
     val r := &arr
     print(r)

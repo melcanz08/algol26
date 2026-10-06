@@ -57,7 +57,7 @@ function f() -> Int
         print(\"cleanup\")
     return 42
 
-procedure main
+proc main
     print(f())
 ";
     let (_, diagnostics, output) = build_and_run(source);
@@ -74,7 +74,7 @@ procedure main
 #[test]
 fn test_defer_preserves_order() {
     let source = "\
-procedure main
+proc main
     defer print(\"First registered\")
     defer print(\"Second registered\")
     print(\"Main body\")
@@ -99,7 +99,7 @@ procedure main
 #[test]
 fn test_multiple_defers_in_same_scope() {
     let source = "\
-procedure main
+proc main
     defer print(\"First cleanup\")
     defer print(\"Second cleanup\")
     print(\"Main body\")
@@ -127,7 +127,7 @@ fn test_defer_in_nested_scope() {
     // fires on the function's return. We only assert that the program
     // compiles.
     let source = "\
-procedure main
+proc main
     if true then
         defer print(\"Inner cleanup\")
     print(\"After\")
@@ -147,7 +147,7 @@ fn test_defer_with_loop() {
     // fire on return (not per iteration). We only assert that the
     // program compiles.
     let source = "\
-procedure main
+proc main
     val arr := [1.0, 2.0, 3.0]
     for item in arr do
         defer print(\"Loop cleanup\")
@@ -165,7 +165,7 @@ procedure main
 #[test]
 fn test_defer_with_break() {
     let source = "\
-procedure main
+proc main
     val arr := [1.0, 2.0, 3.0]
     for item in arr do
         defer print(\"Break cleanup\")
@@ -191,7 +191,7 @@ fn list_declared_by_vardecl_iterates_through_llvm() {
     // this path, and the subsequent IteratorInit fell back to
     // `f64.array[0]`. This test pins the fix.
     let source = r#"
-procedure main
+proc main
     val xs := [1, 2, 3]
     var total := 0
     for n in xs

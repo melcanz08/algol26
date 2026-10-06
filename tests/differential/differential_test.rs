@@ -10,7 +10,7 @@ static COUNTER: AtomicU32 = AtomicU32::new(0);
 #[test]
 fn test_differential_basic() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := 20.0
     print(x + y)
@@ -27,7 +27,7 @@ procedure main
 #[test]
 fn test_differential_arrays() {
     let source = r#"
-procedure main
+proc main
     val arr := [1.0, 2.0, 3.0, 4.0, 5.0]
     var total := 0.0
     
@@ -45,7 +45,7 @@ procedure main
 #[test]
 fn test_differential_strings() {
     let source = r#"
-procedure main
+proc main
     val greeting := "Hello"
     print(greeting)
     print("World")
@@ -60,7 +60,7 @@ procedure main
 #[test]
 fn test_differential_booleans() {
     let source = r#"
-procedure main
+proc main
     val a := 10.0
     val b := 20.0
     
@@ -82,7 +82,7 @@ procedure main
 #[test]
 fn test_differential_control_flow() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     
     if x > 5.0 then
@@ -102,7 +102,7 @@ fn test_differential_functions() {
 function square(x: float) -> float
     return x * x
 
-procedure main
+proc main
     val result := square(4.0)
     print(result)
 "#;
@@ -163,7 +163,7 @@ fn find_compiler() -> PathBuf {
 fn test_differential_bool_print() {
     // The interpreter prints true/false; the LLVM backend must match.
     let source = "\
-procedure main
+proc main
     print(true)
     print(false)
     print(1.0 == 1.0)

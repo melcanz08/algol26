@@ -88,7 +88,7 @@ function main() -> Int
 #[test]
 fn test_oracle_strings() {
     let source = r#"
-procedure main
+proc main
     print("hello")
     print(String.to_upper("hello"))
     print(String.length("hello"))

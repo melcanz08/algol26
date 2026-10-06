@@ -188,10 +188,10 @@ fn every_non_extern_function_has_a_cfg_and_is_visited() {
     use algol26::ir::cfg::{build_cfgs_from_semantic_program, DataflowEngine, OwnershipTransfer};
 
     let source = r#"
-procedure helper(x: Int)
+proc helper(x: Int)
     print(x)
 
-procedure main
+proc main
     helper(1)
 "#;
 
@@ -227,10 +227,10 @@ fn parameter_is_initialized_at_entry() {
     use algol26::ir::cfg::{build_cfgs_from_semantic_program, DataflowEngine, OwnershipTransfer};
 
     let source = r#"
-procedure takes_arg(x: Int)
+proc takes_arg(x: Int)
     print(x)
 
-procedure main
+proc main
     takes_arg(1)
 "#;
 
@@ -315,7 +315,7 @@ fn well_formed_multi_function_program_passes() {
 function helper(x: Int) -> Int
     return x + 1
 
-procedure main
+proc main
     val y := helper(1)
     print(y)
 "#;

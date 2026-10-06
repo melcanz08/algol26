@@ -9,7 +9,7 @@ static COUNTER: AtomicU32 = AtomicU32::new(0);
 fn test_memory_safety_guarantees() {
     // Test use-after-free prevention
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     free(&x)  // Should fail - can't free stack variable
     print(x)
@@ -22,7 +22,7 @@ procedure main
 fn test_ownership_transfer() {
     // Test move semantics for non-Copy types
     let source = r#"
-procedure main
+proc main
     val s := "hello"
     val t := s    // Move
     print(t)      // Valid
@@ -47,7 +47,7 @@ function get_ref() -> &float
 fn test_concurrent_safety() {
     // Race condition should be detected
     let source = r#"
-procedure main
+proc main
     var counter := 0.0
     
     parallel do

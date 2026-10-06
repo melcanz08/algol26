@@ -81,7 +81,7 @@ fn generic_function_reaches_backend_with_resolved_types() {
 function identity<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val q := identity(42)
     print(q)
 "#;

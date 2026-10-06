@@ -112,7 +112,7 @@ function multiply(x: float, y: float) -> float
     return x * y
 function compute(x: float) -> float
     return multiply(add(x, 2.0), add(x, 3.0))
-procedure main
+proc main
     val result := compute(5.0)
     print(result)
 "#;
@@ -123,7 +123,7 @@ procedure main
 fn test_stress_multiple_imports() {
     let source = r#"import "utils.gol"
 import "math.gol"
-procedure main
+proc main
     print("With imports")
 "#;
     let lexer = Lexer::new(source.to_string()).unwrap();
@@ -355,7 +355,7 @@ fn test_optimization_diff_interpreter_complex() {
     let (before, after) = run_before_after(
         r#"function add(a: float, b: float) -> float
     return a + b
-procedure main
+proc main
     val x := 5.0 + 3.0
     val y := x + x
     val z := add(y, 2.0)

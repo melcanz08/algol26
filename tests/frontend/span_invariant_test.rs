@@ -216,7 +216,7 @@ fn every_ast_node_has_a_real_span() {
 function add(x: Float, y: Float) -> Float
     return x + y
 
-procedure main
+proc main
     var a := 5.0
     var b := 10.0
     val sum := add(a, b)

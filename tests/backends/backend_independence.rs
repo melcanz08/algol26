@@ -47,7 +47,7 @@ fn test_semantic_ir_is_backend_independent() {
 function add(x: float, y: float) -> float
     return x + y
 
-procedure main
+proc main
     val result := add(5.0, 3.0)
     print(result)
 "#;
@@ -97,7 +97,7 @@ procedure main
 #[test]
 fn test_semantic_ir_preserves_types() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     val y := 10.0
     val sum := x + y
@@ -133,7 +133,7 @@ procedure main
 #[test]
 fn test_semantic_ir_handles_string_operations() {
     let source = r#"
-procedure main
+proc main
     val greeting := "Hello"
     val name := "World"
     val combined := String.concat(greeting, name)
@@ -163,7 +163,7 @@ procedure main
 #[test]
 fn test_semantic_ir_is_deterministic() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     val y := 10.0
     val sum := x + y
@@ -183,7 +183,7 @@ procedure main
 #[test]
 fn test_semantic_ir_handles_control_flow() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
 
     if x > 5.0 then

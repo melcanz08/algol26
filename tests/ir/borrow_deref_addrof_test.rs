@@ -10,7 +10,7 @@ fn compile_and_check(source: &str) -> Result<()> {
 #[test]
 fn test_borrow_expression() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     val y := &x
     print(y)
@@ -25,7 +25,7 @@ procedure main
 #[test]
 fn test_deref_expression() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     val y := &x
     val z := *y
@@ -41,7 +41,7 @@ procedure main
 #[test]
 fn test_addrof_expression() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     val y := &x
     print(y)
@@ -98,7 +98,7 @@ fn test_double_borrow_fails() {
 #[test]
 fn test_borrow_immutable_fails() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     var y := &mut x
 "#;
@@ -112,7 +112,7 @@ procedure main
 #[test]
 fn test_deref_non_pointer_fails() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     val y := *x
 "#;
@@ -133,7 +133,7 @@ fn test_method_call_desugars_to_function_call() {
     use algol26::semantics::builder::SemanticIRBuilder;
 
     let source = "\
-procedure main
+proc main
     var list := [1.0, 2.0, 3.0]
     var n := list.length()
 ";
@@ -202,7 +202,7 @@ fn test_if_expr_in_vardecl_keeps_following_statements() {
     use algol26::semantics::builder::SemanticIRBuilder;
 
     let source = "\
-procedure main
+proc main
     val x := if true
         42
     else

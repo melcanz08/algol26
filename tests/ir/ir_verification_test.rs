@@ -271,7 +271,7 @@ fn generic_call_emits_specialized_function_and_rewrites_callee() {
 function identity<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val v := 1.0
     val p := &v
     val q := identity(p)
@@ -339,7 +339,7 @@ function outer<T>(x: T) -> T
 function inner<T>(x: T) -> T
     return x
 
-procedure main
+proc main
     val q := outer(42)
     print(q)
 "#;
@@ -369,7 +369,7 @@ fn test_affirm_lowers_to_llvm() {
     use algol26::compiler::Compiler;
 
     let source = r#"
-procedure main
+proc main
     affirm(1 < 2, "always true")
     print("done")
 "#;

@@ -46,7 +46,7 @@ function side_effect() -> Bool
     print(\"evaluated\")
     return true
 
-procedure main
+proc main
     val x := false and side_effect()
     print(x)
 ";
@@ -66,7 +66,7 @@ function side_effect() -> Bool
     print(\"evaluated\")
     return false
 
-procedure main
+proc main
     val y := true or side_effect()
     print(y)
 ";
@@ -86,7 +86,7 @@ function side_effect() -> Bool
     print(\"evaluated\")
     return true
 
-procedure main
+proc main
     val x := true and side_effect()
     print(x)
 ";
@@ -102,7 +102,7 @@ function side_effect() -> Bool
     print(\"evaluated\")
     return true
 
-procedure main
+proc main
     val y := false or side_effect()
     print(y)
 ";
@@ -123,7 +123,7 @@ fn test_short_circuit_in_if_condition() {
     // lowering was first added — the outer Branch was attached to a
     // block already terminated by the short-circuit's internal Branch.
     let source = "\
-procedure main
+proc main
     val a := 10.0
     val b := 20.0
     if a > 5.0 and b > 15.0 then
@@ -138,7 +138,7 @@ procedure main
 fn test_short_circuit_in_while_condition() {
     // Same regression, in a while condition.
     let source = "\
-procedure main
+proc main
     var n := 0
     while n < 3 and n >= 0 do
         print(n)

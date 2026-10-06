@@ -118,7 +118,7 @@ fn diag_position_points_at_condition() {
     use algol26::semantics::analyzer::SemanticAnalyzer;
 
     let source = "\
-procedure main
+proc main
     var x := 5
     if x
         print \"hello\"

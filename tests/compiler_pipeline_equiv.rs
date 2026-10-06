@@ -349,7 +349,7 @@ fn run_pipeline_for_reaches_verified_state() {
     use algol26::compiler::Compiler;
 
     let source = r#"
-procedure main
+proc main
     print(42)
 "#;
 
@@ -368,7 +368,7 @@ fn run_pipeline_for_rejects_invalid_program() {
     use algol26::compiler::Compiler;
 
     let source = r#"
-procedure main
+proc main
     val x := undefined_variable
 "#;
 

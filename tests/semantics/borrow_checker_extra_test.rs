@@ -21,7 +21,7 @@ fn analyze(source: &str) -> Result<(), String> {
 #[test]
 fn test_borrow_across_loop_continue() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := &x
     val arr := [1.0, 2.0, 3.0]
@@ -37,7 +37,7 @@ procedure main
 #[test]
 fn test_borrow_across_loop_break() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := &x
     val arr := [1.0, 2.0, 3.0]
@@ -54,7 +54,7 @@ procedure main
 #[test]
 fn test_borrow_across_defer() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := &x
     defer print(y)
@@ -66,7 +66,7 @@ procedure main
 #[test]
 fn test_borrow_in_defer_after_move() {
     let source = r#"
-procedure main
+proc main
     val x := "hello"
     defer print(x)
     val y := x  // Move x
@@ -82,7 +82,7 @@ fn test_move_in_branch() {
     // FIXED: Should specifically test that move in one branch
     // makes variable unavailable in subsequent code
     let source = r#"
-procedure main
+proc main
     val s := "hi"
     if true then
         val moved := s
@@ -102,7 +102,7 @@ procedure main
 fn test_move_in_conditional_both_branches() {
     // Moving in both branches should make variable unavailable after
     let source = r#"
-procedure main
+proc main
     val s := "hi"
     if true then
         val moved1 := s
@@ -120,7 +120,7 @@ procedure main
 fn test_move_in_loop_body() {
     // Moving in loop body should fail - variable moved multiple times
     let source = r#"
-procedure main
+proc main
     val s := "hi"
     for i in 1..3 do
         val moved := s  // Can't move s multiple times
@@ -139,7 +139,7 @@ procedure main
 fn test_borrow_in_nested_scope() {
     // Borrow in nested scope should end at scope boundary
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     
     if true then
@@ -170,7 +170,7 @@ fn test_borrow_across_function_boundary() {
 function read_value(x: &float) -> float
     return x
 
-procedure main
+proc main
     val value := 42.0
     val result := read_value(&value)
     print(result)
@@ -188,7 +188,7 @@ procedure main
 fn test_mutable_borrow_in_loop() {
     // Mutable borrow in loop should be checked
     let source = r#"
-procedure main
+proc main
     var x := 0.0
     
     for i in 1..5 do
@@ -206,7 +206,7 @@ procedure main
 fn test_double_borrow_in_parallel() {
     // Borrows in parallel blocks should be checked
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     
     parallel do
@@ -229,7 +229,7 @@ procedure main
 fn test_borrow_after_conditional_move() {
     // Borrow after conditional move should fail
     let source = r#"
-procedure main
+proc main
     val x := "hello"
     
     if true then
@@ -255,7 +255,7 @@ fn test_two_mut_borrows_in_same_call_rejected() {
 function take(a: &mut float, b: &mut float) -> float
     return a
 
-procedure main
+proc main
     var x := 0.0
     val y := take(&mut x, &mut x)
     print(y)
@@ -280,7 +280,7 @@ function f(a: &mut float) -> float
 function g(a: &mut float) -> float
     return a
 
-procedure main
+proc main
     var x := 0.0
     val y := f(&mut x) + g(&mut x)
     print(y)
@@ -304,7 +304,7 @@ function f(a: &mut float) -> float
 function g(a: &mut float) -> float
     return a
 
-procedure main
+proc main
     var x := 0.0
     val y := f(&mut x)
     val z := g(&mut x)
@@ -327,7 +327,7 @@ fn test_mut_borrow_then_read_in_next_statement_accepted() {
 function f(a: &mut float) -> float
     return a
 
-procedure main
+proc main
     var x := 0.0
     val y := f(&mut x)
     print(x)

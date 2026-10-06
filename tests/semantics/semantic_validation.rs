@@ -7,7 +7,7 @@ static COUNTER: AtomicU32 = AtomicU32::new(0);
 #[test]
 fn test_type_safety_guaranteed() {
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     x := "hello"
 "#;
@@ -23,7 +23,7 @@ procedure main
 #[test]
 fn test_immutability_guaranteed() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     x := 20.0
 "#;
@@ -39,7 +39,7 @@ procedure main
 #[test]
 fn test_bounds_guaranteed() {
     let source = r#"
-procedure main
+proc main
     val arr := [1.0, 2.0, 3.0]
     print(arr[10])
 "#;
@@ -56,7 +56,7 @@ procedure main
 fn test_string_move_guaranteed() {
     // Strings are Move types, so this should fail
     let source = r#"
-procedure main
+proc main
     val s := "hello"
     val t := s    // Move
     print(s)      // ERROR: Use after move
@@ -74,7 +74,7 @@ procedure main
 fn test_float_copy_valid() {
     // Floats are Copy types, so this should succeed
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     var y := x    // Copy
     print(x)      // Valid
@@ -92,7 +92,7 @@ procedure main
 #[test]
 fn test_valid_program_accepted() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := 20.0
     print(x + y)
@@ -110,7 +110,7 @@ procedure main
 fn test_borrow_rules_enforced() {
     // Double mutable borrow should fail
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     var y := &mut x
     var z := &mut x
@@ -128,7 +128,7 @@ procedure main
 fn test_borrow_scope_release() {
     // Borrow should be released at scope end
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     
     if true then
@@ -152,7 +152,7 @@ procedure main
 fn test_race_detection() {
     // Race condition should be detected
     let source = r#"
-procedure main
+proc main
     var shared := 0.0
     
     spawn

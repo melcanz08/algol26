@@ -24,7 +24,7 @@ fn analyze(source: &str) -> Result<(), String> {
 #[test]
 fn test_borrow_basic_works() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := &x
     print(x)
@@ -37,7 +37,7 @@ procedure main
 #[test]
 fn test_borrow_does_not_move() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := &x
     print(x)
@@ -53,7 +53,7 @@ procedure main
 #[test]
 fn test_borrow_moved_variable_fails() {
     let source = r#"
-procedure main
+proc main
     val x := "hello"
     val y := x
     val z := &x
@@ -68,7 +68,7 @@ procedure main
 #[test]
 fn test_multiple_immutable_borrows_ok() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := &x
     val z := &x
@@ -85,7 +85,7 @@ procedure main
 #[test]
 fn test_double_mutable_borrow_fails() {
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     var y := &mut x
     var z := &mut x
@@ -100,7 +100,7 @@ procedure main
 #[test]
 fn test_read_during_mutable_borrow_fails() {
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     var y := &mut x
     print(x)
@@ -116,7 +116,7 @@ procedure main
 fn test_borrow_scope_end_allows_reuse() {
     // FIXED: Should properly handle scope-based borrow ending
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     
     if true then
@@ -140,7 +140,7 @@ fn test_borrow_in_function_scope() {
 function get_value(x: &float) -> float
     return x
 
-procedure main
+proc main
     val value := 10.0
     val result := get_value(&value)
     print(result)
@@ -155,7 +155,7 @@ procedure main
 #[test]
 fn test_mutable_borrow_then_immutable_fails() {
     let source = r#"
-procedure main
+proc main
     var x := 10.0
     var y := &mut x
     val z := &x
@@ -171,7 +171,7 @@ procedure main
 fn test_borrow_chain() {
     // Borrow of a borrow should work
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := &x
     val z := &y
@@ -188,7 +188,7 @@ fn test_borrow_across_function_calls() {
 function add_one(x: &float) -> float
     return x + 1.0
 
-procedure main
+proc main
     val value := 10.0
     val result := add_one(&value)
     print(result)
@@ -208,7 +208,7 @@ fn test_mutable_borrow_across_functions() {
 function increment(x: &mut float)
     x := x + 1.0
 
-procedure main
+proc main
     var value := 10.0
     increment(&mut value)
     print(value)
@@ -224,7 +224,7 @@ procedure main
 fn test_borrow_in_loop() {
     // Borrow inside loop should work
     let source = r#"
-procedure main
+proc main
     val values := [1.0, 2.0, 3.0]
     
     for v in values
@@ -239,7 +239,7 @@ procedure main
 fn test_borrow_moved_in_loop_fails() {
     // Can't borrow after move in loop
     let source = r#"
-procedure main
+proc main
     val x := "hello"
     
     for i in 1..10
@@ -259,7 +259,7 @@ procedure main
 fn test_multiple_borrows_different_variables() {
     // Borrows of different variables should be independent
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := 20.0
     val x_ref := &x
@@ -278,7 +278,7 @@ procedure main
 fn test_borrow_in_conditional() {
     // Borrow in conditional should work
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     
     if true then
@@ -295,7 +295,7 @@ procedure main
 #[test]
 fn test_mut_borrow_of_immutable_fails() {
     let source = "\
-procedure main
+proc main
     val x := 5.0
     var y := &mut x
 ";

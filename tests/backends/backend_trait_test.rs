@@ -37,7 +37,7 @@ fn test_backend_registry() {
     let mut registry = BackendRegistry::new();
 
     let source = r#"
-procedure main
+proc main
     print("Hello")
 "#;
     let (_ir, _diagnostics, _functions) = build_semantic_ir(source);
@@ -53,7 +53,7 @@ procedure main
 #[test]
 fn test_llvm_backend_name() {
     let source = r#"
-procedure main
+proc main
     print("Hello")
 "#;
     let (_ir, _diagnostics, _functions) = build_semantic_ir(source);
@@ -73,7 +73,7 @@ fn test_interpreter_backend_name() {
 #[test]
 fn test_backend_trait_contract() {
     let source = r#"
-procedure main
+proc main
     print("Hello")
 "#;
     let (_ir, diagnostics, _functions) = build_semantic_ir(source);

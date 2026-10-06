@@ -44,7 +44,7 @@ fn run_source(source: &str) -> String {
 #[test]
 fn test_try_catch_ok_path() {
     let source = "\
-procedure main
+proc main
     val x := try
         Ok(42)
     catch e
@@ -57,7 +57,7 @@ procedure main
 #[test]
 fn test_try_catch_error_path() {
     let source = "\
-procedure main
+proc main
     val x := try
         Error(\"oops\")
     catch e

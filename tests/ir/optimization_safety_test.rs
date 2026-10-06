@@ -96,7 +96,7 @@ fn test_dce_preserves_list_declare_used_by_indexing() {
     use algol26::semantics::builder::SemanticIRBuilder;
 
     let source = "\
-procedure main
+proc main
     val arr := [10.0, 20.0, 30.0]
     var first := arr[0]
     print(first)

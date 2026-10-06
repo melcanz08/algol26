@@ -89,7 +89,7 @@ pub fn run_interpreter(source: &str) -> String {
 #[test]
 fn test_differential_basic_arithmetic() {
     let source = r#"
-procedure main
+proc main
     val x := 10.0
     val y := 20.0
     print(x + y)
@@ -109,7 +109,7 @@ procedure main
 #[test]
 fn test_differential_array_sum() {
     let source = r#"
-procedure main
+proc main
     val arr := [1.0, 2.0, 3.0, 4.0, 5.0]
     var total := 0.0
 
@@ -133,7 +133,7 @@ procedure main
 #[test]
 fn test_differential_string_output() {
     let source = r#"
-procedure main
+proc main
     val greeting := "Hello"
     print(greeting)
     print("World")
@@ -155,7 +155,7 @@ procedure main
 #[test]
 fn test_differential_boolean_logic() {
     let source = r#"
-procedure main
+proc main
     val a := 10.0
     val b := 20.0
 
@@ -185,7 +185,7 @@ fn test_differential_functions_with_params() {
 function add(x: float, y: float) -> float
     return x + y
 
-procedure main
+proc main
     val result := add(10.0, 32.0)
     print(result)
 "#;
@@ -204,7 +204,7 @@ procedure main
 #[test]
 fn test_differential_mixed_types() {
     let source = r#"
-procedure main
+proc main
     val x := 5
     val y := 3.5
     val sum := x + y
@@ -225,7 +225,7 @@ procedure main
 #[test]
 fn test_differential_while_loop() {
     let source = r#"
-procedure main
+proc main
     var counter := 0.0
     while counter < 3.0 do
         print(counter)
@@ -256,7 +256,7 @@ function double(x: float) -> float
 function add(x: float, y: float) -> float
     return x + y
 
-procedure main
+proc main
     val result := double(add(10.0, 11.0))
     print(result)
 "#;
@@ -279,7 +279,7 @@ procedure main
 #[test]
 fn test_differential_negate_float() {
     let source = r#"
-procedure main
+proc main
     val x := 5.0
     print(-x)
 "#;
@@ -296,7 +296,7 @@ procedure main
 #[test]
 fn test_differential_mixed_subtract() {
     let source = r#"
-procedure main
+proc main
     val x := 5
     val y := 2.5
     print(x - y)
@@ -314,7 +314,7 @@ procedure main
 #[test]
 fn test_differential_mixed_multiply() {
     let source = r#"
-procedure main
+proc main
     val x := 4
     val y := 1.5
     print(x * y)
@@ -332,7 +332,7 @@ procedure main
 #[test]
 fn test_differential_mixed_divide() {
     let source = r#"
-procedure main
+proc main
     val x := 10
     val y := 2.0
     print(x / y)
@@ -350,7 +350,7 @@ procedure main
 #[test]
 fn test_differential_defer() {
     let source = r#"
-procedure main
+proc main
     defer print("cleanup")
     print("body")
 "#;
@@ -371,7 +371,7 @@ procedure main
 #[test]
 fn test_differential_defer_with_return() {
     let source = r#"
-procedure main
+proc main
     defer print("cleanup")
     print("body")
     return
@@ -393,7 +393,7 @@ procedure main
 #[test]
 fn test_differential_int_print() {
     let source = r#"
-procedure main
+proc main
     print(42)
 "#;
     let llvm_output = run_llvm(source);
@@ -409,7 +409,7 @@ procedure main
 #[test]
 fn test_differential_int_print_negative() {
     let source = r#"
-procedure main
+proc main
     print(0 - 7)
 "#;
     let llvm_output = run_llvm(source);
@@ -425,7 +425,7 @@ procedure main
 #[test]
 fn test_differential_int_division() {
     let source = r#"
-procedure main
+proc main
     val x := 10
     val y := 3
     print(x / y)
@@ -447,7 +447,7 @@ procedure main
 #[test]
 fn test_differential_int_vs_float_print() {
     let source = r#"
-procedure main
+proc main
     print(5)
     print(5.0)
 "#;
@@ -469,7 +469,7 @@ fn test_differential_int_float_equality() {
     // became `"1" == "1.0"` → false, while LLVM coerced and returned
     // true. This test pins the coerced semantics.
     let source = r#"
-procedure main
+proc main
     print(1 == 1.0)
     print(1.0 == 1)
     print(2 == 2.5)
@@ -496,7 +496,7 @@ procedure main
 #[test]
 fn test_differential_int_div_by_zero_literal() {
     let source = r#"
-procedure main
+proc main
     print(5 / 0)
 "#;
     let (llvm_stdout, llvm_ok) = run_llvm_raw(source);
@@ -527,7 +527,7 @@ procedure main
 #[test]
 fn test_differential_int_div_by_zero_runtime() {
     let source = r#"
-procedure main
+proc main
     val x := 10
     val y := 0
     print(x / y)
@@ -552,7 +552,7 @@ procedure main
 fn test_differential_float_div_by_zero() {
     // IEEE 754: 5.0 / 0.0 is +inf in both. No special handling needed.
     let source = r#"
-procedure main
+proc main
     print(5.0 / 0.0)
 "#;
     let llvm_output = run_llvm(source);
@@ -567,7 +567,7 @@ procedure main
 #[test]
 fn test_differential_string_length_builtin() {
     let source = r#"
-procedure main
+proc main
     val s := "hello"
     print(String.length(s))
 "#;
@@ -580,7 +580,7 @@ procedure main
 #[test]
 fn test_differential_list_length_builtin() {
     let source = r#"
-procedure main
+proc main
     val nums := [1.0, 2.0, 3.0]
     print(List.length(nums))
 "#;
@@ -601,7 +601,7 @@ procedure main
 #[test]
 fn test_differential_method_syntax_no_parens() {
     let source = r#"
-procedure main
+proc main
     val s := "hello"
     print(s.length)
 "#;
@@ -618,12 +618,12 @@ procedure main
 #[test]
 fn test_differential_method_syntax_parens_matches_bare() {
     let bare = r#"
-procedure main
+proc main
     val s := "hello"
     print(s.length)
 "#;
     let parens = r#"
-procedure main
+proc main
     val s := "hello"
     print(s.length())
 "#;
@@ -642,7 +642,7 @@ procedure main
 #[test]
 fn test_spawn_llvm_refused() {
     let source = r#"
-procedure main
+proc main
     print("before")
     spawn
         print("spawned")
@@ -665,7 +665,7 @@ procedure main
 #[test]
 fn test_spawn_interpreter_sequential() {
     let source = r#"
-procedure main
+proc main
     print("before")
     spawn
         print("spawned")
@@ -682,7 +682,7 @@ procedure main
 #[test]
 fn test_parallel_llvm_refused() {
     let source = r#"
-procedure main
+proc main
     print("start")
     parallel
         print("A")
@@ -704,7 +704,7 @@ procedure main
 #[test]
 fn test_parallel_interpreter_sequential() {
     let source = r#"
-procedure main
+proc main
     print("start")
     parallel
         print("A")
@@ -722,7 +722,7 @@ procedure main
 #[test]
 fn test_differential_for_int_list() {
     let source = r#"
-procedure main
+proc main
     val nums := [10, 20, 30]
     var total := 0
     for n in nums do
@@ -742,7 +742,7 @@ procedure main
 #[test]
 fn test_differential_for_int_list_with_if() {
     let source = r#"
-procedure main
+proc main
     val nums := [10, 20, 30]
     var total := 0
     for n in nums do
@@ -763,7 +763,7 @@ procedure main
 #[test]
 fn test_differential_for_float_list_with_if() {
     let source = r#"
-procedure main
+proc main
     val nums := [10.0, 20.0, 30.0]
     var total := 0.0
     for n in nums do
@@ -784,7 +784,7 @@ procedure main
 #[test]
 fn test_differential_for_int_list_count() {
     let source = r#"
-procedure main
+proc main
     val nums := [10, 20, 30]
     var count := 0
     for n in nums do
@@ -805,7 +805,7 @@ procedure main
 #[test]
 fn test_differential_null_equality() {
     let source = r#"
-procedure main
+proc main
     val p := null
     if p == null then
         print("null")
@@ -825,7 +825,7 @@ procedure main
 #[test]
 fn test_differential_string_length_unicode() {
     let source = r#"
-procedure main
+proc main
     val s := "héllo"
     print(String.length(s))
 "#;

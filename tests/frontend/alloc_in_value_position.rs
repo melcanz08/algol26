@@ -10,7 +10,7 @@ use algol26::frontend::parser::Parser;
 #[test]
 fn alloc_parses_as_expression_value() {
     let source = "\
-procedure main
+proc main
     val p := alloc(8)
     free(p)
 ";

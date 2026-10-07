@@ -219,7 +219,7 @@ fn test_stress_10_level_nested_if_for_defer_break_return() {
     assert!(start.elapsed().as_secs_f64() < 2.0);
 }
 #[test]
-fn test_stress_10_level_closure_capture() {
+fn test_stress_10_level_call_chain() {
     let mut src = String::new();
     for i in 0..10 {
         src.push_str(&format!("function f{}(x{}: float) -> float\n", i, i));

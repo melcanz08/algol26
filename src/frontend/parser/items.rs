@@ -226,7 +226,7 @@ impl Parser {
 
         let is_function = matches!(self.peek(), Token::Function);
         if !is_function && !matches!(self.peek(), Token::Proc) {
-            return Err(self.error("Expected 'function' or 'Proc'"));
+            return Err(self.error("Expected 'function' or 'proc'"));
         }
         self.advance();
 

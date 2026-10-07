@@ -237,9 +237,13 @@ const env = {
 
     // ─── memory ───
     malloc: function (size) {
+        // wasm32 i64 ABI: `size` arrives as BigInt. Convert to Number
+        // for arithmetic; the module's heap is small enough that
+        // Number precision is not a concern.
+        const sz = typeof size === 'bigint' ? Number(size) : size;
         if (heapTop === 0) heapTop = HEAP_START;
         const ptr = heapTop;
-        heapTop += (size + 15) & ~15;
+        heapTop += (sz + 15) & ~15;
         const neededPages = Math.ceil(heapTop / 65536);
         const currentPages = linearMemory.buffer.byteLength / 65536;
         if (neededPages > currentPages) {
@@ -283,7 +287,8 @@ const env = {
         const mem = new Uint8Array(linearMemory.buffer);
         let end = ptr;
         while (end < mem.length && mem[end] !== 0) end++;
-        return end - ptr;
+        // wasm32 i64 return: must be BigInt.
+        return BigInt(end - ptr);
     },
     // `algol26_strlen_utf8` counts Unicode codepoints: every byte
     // whose top two bits are not `10` (i.e. not a UTF-8
@@ -297,7 +302,8 @@ const env = {
             if ((mem[i] & 0xc0) !== 0x80) count++;
             i++;
         }
-        return count;
+        // wasm32 i64 return: must be BigInt.
+        return BigInt(count);
     },
     strcmp: function (a, b) {
         const sa = readCString(a);

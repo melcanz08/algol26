@@ -1414,7 +1414,31 @@ impl SemanticAnalyzer {
                 // path; this arm handles everything else.
 
                 let receiver_type = self.analyze_expr(receiver)?;
-
+                // ADR 0029/0030/0031: extraction intrinsics.
+                // `x.to_base()` / `x.to_ordinal()` work on Var
+                // receivers via the FunctionCall dotted path; this
+                // mirrors them for complex receivers like
+                // `loan.book_id.to_base()` or `arr[0].to_base()`.
+                // Same surface syntax, same meaning, regardless of
+                // the receiver's shape.
+                match &receiver_type {
+                    Type::Distinct { base, .. } => {
+                        if method == "to_base" && args.is_empty() {
+                            return Ok((**base).clone());
+                        }
+                    }
+                    Type::Enum { .. } => {
+                        if method == "to_ordinal" && args.is_empty() {
+                            return Ok(Type::Int);
+                        }
+                    }
+                    Type::Subrange { base, .. } => {
+                        if method == "to_base" && args.is_empty() {
+                            return Ok((**base).clone());
+                        }
+                    }
+                    _ => {}
+                }
                 // ─── Inherent tier ───
                 let owner_name: Option<String> = match &receiver_type {
                     Type::Record(n, _) => Some(n.clone()),

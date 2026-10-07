@@ -45,12 +45,16 @@ fn type_mentions_reference(ty: &Type) -> bool {
 ///
 /// # Classification rules
 ///
-/// | Name pattern                | Feature             |
-/// |-----------------------------|---------------------|
-/// | `String.*` (see exclusions) | `StringFunctions`   |
-/// | `File.*`                    | `FileFunctions`     |
-/// | `List.sum` / `.max` / `.min`| `ListAggregates`    |
-/// | anything else               | (none — permitted)  |
+/// | Name pattern                              | Feature          |
+/// |-------------------------------------------|------------------|
+/// | `Int.to_string`                            | `IntToString`    |
+/// | `String.to_int`                            | `StringToInt`    |
+/// | `String.concat` / `.substring` / `.trim`   | `StringOps`      |
+/// | `String.to_upper` / `.to_lower`            | `StringOps`      |
+/// | `String.split`                             | `StringSplit`    |
+/// | `File.*`                                   | `FileFunctions`  |
+/// | `List.sum` / `.max` / `.min`               | `ListAggregates` |
+/// | anything else                              | (none — permitted) |
 ///
 /// Other `Feature` variants — `Result`, `Spawn`, `Fork`, `Channels`,
 /// `Ffi`, `ListPrint` — are classified by `scan_value`,
@@ -59,7 +63,7 @@ fn type_mentions_reference(ty: &Type) -> bool {
 /// # Exclusions
 ///
 /// `String.length` / `String.len` are deliberately **not** classified
-/// under `StringFunctions`. They have a real LLVM lowering
+/// under `StringOps` / `StringSplit`. They have a real LLVM lowering
 /// (`IRCodeGen::compile_builtin_value` emits a `strlen` call), so a
 /// program whose only string operation is `.length` should compile
 /// through LLVM rather than being sent to the interpreter. Classifying
@@ -107,7 +111,7 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
     // Only names that appear in the analyzer/verifier builtin table
     // are candidates. A user-defined function named `String.helper`
     // does not need LLVM's String lowering (it has its own body)
-    // and must not be classified as `StringFunctions`.
+    // and must not be classified as `StringOps` / `StringSplit`.
     if !crate::ir::verifier::builtins::is_builtin_name(name) {
         return;
     }
@@ -119,15 +123,29 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
         return;
     }
 
-    // Conversions take priority over the `String.` prefix below.
+    // The int/string conversions take priority over the `String.`
+    // prefix below.
     // The classification reflects backend capability, not namespace.
-    if name == "Int.to_string" || name == "String.to_int" {
-        used.insert(Feature::Conversions);
+    if name == "Int.to_string" {
+        used.insert(Feature::IntToString);
+        return;
+    }
+    if name == "String.to_int" {
+        used.insert(Feature::StringToInt);
+        return;
+    }
+
+    // String.split is a separate feature: it returns a dynamic list,
+    // which the LLVM backend does not yet model. The other String.*
+    // operations produce a String from a String and are lowerable
+    // anywhere malloc exists.
+    if name == "String.split" {
+        used.insert(Feature::StringSplit);
         return;
     }
 
     if name.starts_with("String.") {
-        used.insert(Feature::StringFunctions);
+        used.insert(Feature::StringOps);
     } else if name.starts_with("File.") {
         used.insert(Feature::FileFunctions);
     } else if name == "List.sum" || name == "List.max" || name == "List.min" {

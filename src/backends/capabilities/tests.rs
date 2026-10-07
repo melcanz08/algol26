@@ -777,7 +777,10 @@ fn interpreter_accepts_conversions() {
 }
 
 #[test]
-fn llvm_rejects_conversions() {
+fn llvm_accepts_int_to_string() {
+    // ADR 00XX: LLVM lowers Int.to_string via sprintf into a
+    // stack buffer. The other direction, String.to_int, still
+    // returns Option<Int> and stays refused.
     let program = program_with(
         Instruction::Print {
             value: TypedIRValue::Call {
@@ -788,12 +791,8 @@ fn llvm_rejects_conversions() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
-    assert!(
-        err.message.contains("Int.to_string"),
-        "expected conversion diagnostic, got: {}",
-        err.message
-    );
+    check_backend(&program, &BackendCapabilities::llvm())
+        .expect("LLVM should accept Int.to_string");
 }
 
 #[test]
@@ -886,5 +885,45 @@ fn wasm_rejects_list_append() {
         result.is_err(),
         "WASM should refuse List.append, got: {:?}",
         result.ok()
+    );
+}
+
+#[test]
+fn llvm_rejects_string_ops() {
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "String.to_upper".to_string(),
+                args: vec![TypedIRValue::String("hi".to_string())],
+                return_type: Type::String,
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
+    assert!(
+        err.message.contains("String operations"),
+        "expected String.* diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn wasm_rejects_string_ops() {
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "String.to_upper".to_string(),
+                args: vec![TypedIRValue::String("hi".to_string())],
+                return_type: Type::String,
+            },
+        },
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("String operations"),
+        "expected String.* diagnostic, got: {}",
+        err.message
     );
 }

@@ -16,6 +16,15 @@ impl<'ctx> IRCodeGen<'ctx> {
         let printf_fn = self.module.add_function("printf", printf_ty, None);
         self.functions.insert("printf".to_string(), printf_fn);
 
+        // `sprintf` writes a formatted string to a caller-supplied
+        // buffer. Used by `Int.to_string` and (eventually) other
+        // number→string builtins. Variadic, like printf.
+        let sprintf_ty = self
+            .context
+            .i32_type()
+            .fn_type(&[i8_ptr.into(), i8_ptr.into()], true);
+        self.module.add_function("sprintf", sprintf_ty, None);
+
         // exit(i32) -> void
         let exit_ty = self
             .context
@@ -297,6 +306,63 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ))
                     }
                 }
+            }
+            // ADR 00XX (Path A). `Int.to_string` allocates a stack
+            // buffer and formats the integer into it via `sprintf`.
+            // The buffer lives for the enclosing function's lifetime,
+            // which matches how the interpreter's string values behave
+            // (they're owned by the caller's frame until reassigned).
+            //
+            // 24 bytes is enough for i64::MIN ("-9223372036854775808",
+            // 20 chars) plus a NUL terminator, with room to spare.
+            "Int.to_string" => {
+                let arg = args.first().ok_or_else(|| {
+                    CompileError::simple(
+                        "Int.to_string requires 1 argument",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                })?;
+                let val = self.compile_value(arg)?;
+                if !val.is_int_value() {
+                    return Err(CompileError::simple(
+                        "Int.to_string expects an Int",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let n = val.into_int_value();
+
+                let i8_ty = self.context.i8_type();
+                let buf_ty = i8_ty.array_type(24);
+                let buf = self.builder.build_alloca(buf_ty, "int_str_buf").unwrap();
+
+                let i8_ptr = self.context.ptr_type(AddressSpace::default());
+                let i32_ty = self.context.i32_type();
+                let sprintf_ty = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], true);
+                let sprintf_fn = match self.module.get_function("sprintf") {
+                    Some(f) => f,
+                    None => self.module.add_function("sprintf", sprintf_ty, None),
+                };
+
+                let fmt = self
+                    .builder
+                    .build_global_string_ptr("%lld", "fmt_i64")
+                    .unwrap();
+
+                self.builder
+                    .build_call(
+                        sprintf_fn,
+                        &[buf.into(), fmt.as_pointer_value().into(), n.into()],
+                        "int_to_string",
+                    )
+                    .unwrap();
+
+                Ok((buf.into(), Type::String))
             }
             other => Err(CompileError::simple(
                 &format!(

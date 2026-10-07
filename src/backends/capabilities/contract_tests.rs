@@ -11,10 +11,10 @@ fn classified_builtins_are_exactly_the_unlowered_set() {
     // separate crate, so this test just pins the classification
     // itself — a change to scan_call_name has to notice this test.
     let cases: &[(&str, Option<Feature>)] = &[
-        ("String.concat", Some(Feature::StringFunctions)),
-        ("String.substring", Some(Feature::StringFunctions)),
-        ("String.to_upper", Some(Feature::StringFunctions)),
-        ("String.to_lower", Some(Feature::StringFunctions)),
+        ("String.concat", Some(Feature::StringOps)),
+        ("String.substring", Some(Feature::StringOps)),
+        ("String.to_upper", Some(Feature::StringOps)),
+        ("String.to_lower", Some(Feature::StringOps)),
         ("String.length", None),
         ("String.len", None),
         ("File.read", Some(Feature::FileFunctions)),

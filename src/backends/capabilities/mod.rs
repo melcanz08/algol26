@@ -41,10 +41,14 @@ pub enum Feature {
     Channels,
     /// Calls to `extern` functions.
     Ffi,
-    /// `String.*` builtins: concat, substring, to_upper, to_lower.
+    /// `String.*` operations that produce a String from a String:
+    /// concat, substring, to_upper, to_lower, trim.
     /// `String.length` is a special case handled separately in the
     /// LLVM codegen via strlen.
-    StringFunctions,
+    StringOps,
+    /// `String.split` — returns `List<String>`, blocked on the
+    /// dynamic-list model that LLVM does not yet have.
+    StringSplit,
     /// `File.*` builtins: read, write, append.
     FileFunctions,
     /// `List.*` aggregate builtins: sum, max, min.
@@ -53,42 +57,26 @@ pub enum Feature {
     /// lists as `[a, b, c]`; the LLVM backend has no lowering for it
     /// (it would need a per-element printf loop).
     ListPrint,
-    /// `Option<T>` values: `Some(x)` and `None`. The LLVM backend
-    /// has no tag+payload representation, so it silently unwrapped
-    /// `Some(x)` to `x` and `None` to null — producing wrong code
-    /// for any program that stored or tested an Option value. The
-    /// interpreter handles both correctly.
+    /// `Option<T>` values: `Some(x)` and `None`. LLVM has no
+    /// tag+payload representation, so it silently unwrapped
+    /// `Some(x)` to `x` and `None` to null — wrong code for any
+    /// program that stored or tested an Option.
     Option,
-    /// `alloc(n)` / `free(p)`. Neither backend has a heap model;
-    /// both were silently no-op'ing these instructions. Refuse
-    /// rather than pretend.
+    /// `alloc` and `free`.
     RawMemory,
-    /// Reference operations the interpreter does not implement:
-    /// `&x` (shared borrow), `&mut x` (mutable borrow), `*r` (read
-    /// through a reference), and the `AddrOf` intrinsic. Also fires
-    /// on `Borrow<T>` or `MutBorrow<T>` in a function parameter or
-    /// return type. Does not fire on `Pointer<T>` alone — raw
-    /// pointers via `alloc`/`free` are gated separately by
-    /// `RawMemory`.
+    /// Reference operations (`&`, `&mut`, `*`).
     References,
-    /// `args()` — command-line arguments as `List<String>`. The
-    /// interpreter reads the process's arguments. LLVM and WASM
-    /// have no mechanism to expose C `argc`/`argv` to the
-    /// language's `main`, so they refuse.
+    /// `args()` — command-line arguments as `List<String>`.
     CommandLineArgs,
-    /// `rec` record declarations, literals, field reads, and field assigns.
+    /// `rec` declarations, literals, field access and assignment.
     Records,
-    /// `Int.to_string` and `String.to_int`. Both convert between
-    /// an integer and its decimal text representation. LLVM and
-    /// WASM have no lowering.
-    Conversions,
-    /// `Map<K, V>` — key-value container. The interpreter models it
-    /// with a `HashMap`; LLVM and WASM have no runtime to lower it
-    /// against.
+    /// `Int.to_string` — formats an i64 into a heap string.
+    IntToString,
+    /// `String.to_int` — returns `Option<Int>`, blocked on Option.
+    StringToInt,
+    /// `Map<K, V>` literals and methods.
     Map,
-    /// `List.append(x)` — grow a list in place. The interpreter
-    /// pushes onto a `Vec<RuntimeValue>`; LLVM's list lowering
-    /// assumes a static length and cannot represent growth.
+    /// `List.append`.
     ListAppend,
 }
 
@@ -102,7 +90,8 @@ impl Feature {
             Feature::Fork,
             Feature::Channels,
             Feature::Ffi,
-            Feature::StringFunctions,
+            Feature::StringOps,
+            Feature::StringSplit,
             Feature::FileFunctions,
             Feature::ListAggregates,
             Feature::ListPrint,
@@ -111,7 +100,8 @@ impl Feature {
             Feature::References,
             Feature::CommandLineArgs,
             Feature::Records,
-            Feature::Conversions,
+            Feature::IntToString,
+            Feature::StringToInt,
             Feature::Map,
             Feature::ListAppend,
         ]
@@ -125,7 +115,8 @@ impl Feature {
             Feature::Fork => "fork",
             Feature::Channels => "channels",
             Feature::Ffi => "ffi",
-            Feature::StringFunctions => "string.*",
+            Feature::StringOps => "string.ops",
+            Feature::StringSplit => "string.split",
             Feature::FileFunctions => "file.*",
             Feature::ListAggregates => "list.agg",
             Feature::ListPrint => "print(list)",
@@ -134,32 +125,33 @@ impl Feature {
             Feature::References => "references",
             Feature::CommandLineArgs => "args",
             Feature::Records => "records",
-            Feature::Conversions => "conversions",
+            Feature::IntToString => "int.to_string",
+            Feature::StringToInt => "string.to_int",
             Feature::Map => "map",
             Feature::ListAppend => "list.append",
         }
     }
     pub fn description(&self) -> &'static str {
         match self {
-            Feature::Result => "Result<T, E> and try/catch",
+            Feature::Result => "Result / try-catch",
             Feature::Spawn => "spawn",
             Feature::Fork => "parallel",
             Feature::Channels => "channels",
-            Feature::Ffi => "foreign function calls (extern)",
-            Feature::StringFunctions => {
-                "String.* operations (concat, substring, to_upper, to_lower)"
-            }
-            Feature::FileFunctions => "File.* operations (read, write, append)",
-            Feature::ListAggregates => "List.* aggregates (sum, max, min)",
-            Feature::ListPrint => "printing a list value",
-            Feature::Option => "Option<T>: Some(x) and None",
-            Feature::RawMemory => "alloc / free (raw memory)",
+            Feature::Ffi => "foreign function interface (FFI / extern)",
+            Feature::StringOps => "String operations (concat, substring, to_upper, to_lower, trim)",
+            Feature::StringSplit => "String.split (returns List<String>)",
+            Feature::FileFunctions => "File.* operations",
+            Feature::ListAggregates => "List.sum / max / min",
+            Feature::ListPrint => "printing a list (print(list))",
+            Feature::Option => "Option values (Some / None)",
+            Feature::RawMemory => "alloc / free",
             Feature::References => "reference operations (&x, &mut x, *r)",
             Feature::CommandLineArgs => "command-line arguments (args())",
             Feature::Records => "records (rec declarations, literals, field access)",
-            Feature::Conversions => "Int.to_string / String.to_int",
-            Feature::Map => "Map<K, V> (insert, get, contains, keys, values, length)",
-            Feature::ListAppend => "List.append (dynamic list growth)",
+            Feature::IntToString => "Int.to_string",
+            Feature::StringToInt => "String.to_int (returns Option)",
+            Feature::Map => "Map<K, V>",
+            Feature::ListAppend => "List.append",
         }
     }
 }
@@ -178,16 +170,10 @@ impl BackendCapabilities {
     pub fn llvm() -> Self {
         let mut supported = HashSet::new();
         supported.insert(Feature::Ffi);
-        // Step 5: alloc/free lower to malloc/free; LLVM now
-        // accepts programs that use them.
         supported.insert(Feature::RawMemory);
-        // ADR 0019: `llvm_codegen` has real lowering for the
-        // four reference operations (`value.rs`) and for
-        // `Borrow`/`MutBorrow` in `types.rs`. Signature-position
-        // references (`fn f() -> &T`) still fail at codegen with
-        // a fail-closed E0002, not a silent miscompile.
         supported.insert(Feature::References);
         supported.insert(Feature::Records);
+        supported.insert(Feature::IntToString);
         BackendCapabilities {
             name: "LLVM",
             supported,
@@ -197,13 +183,9 @@ impl BackendCapabilities {
 
     pub fn wasm() -> Self {
         let mut supported = HashSet::new();
-        // ADR 0036/0037: WASM reuses the LLVM codegen
-        // (`wasm_backend.rs` emits LLVM IR and links with
-        // `wasm-ld`). Features that lower cleanly through LLVM's
-        // codegen are declared here. Start minimal and add as the
-        // smoke tests pass.
         supported.insert(Feature::Records);
         supported.insert(Feature::References);
+        supported.insert(Feature::IntToString);
         BackendCapabilities {
             name: "WASM",
             supported,
@@ -216,11 +198,8 @@ impl BackendCapabilities {
         supported.insert(Feature::Result);
         supported.insert(Feature::Spawn);
         supported.insert(Feature::Fork);
-        // ADR 0020. Channels were advertised as supported but the
-        // interpreter executed the three channel instructions as
-        // silent no-ops. Removing the claim makes the capability
-        // check the refusal point.
-        supported.insert(Feature::StringFunctions);
+        supported.insert(Feature::StringOps);
+        supported.insert(Feature::StringSplit);
         supported.insert(Feature::FileFunctions);
         supported.insert(Feature::ListAggregates);
         supported.insert(Feature::ListPrint);
@@ -228,15 +207,11 @@ impl BackendCapabilities {
         supported.insert(Feature::RawMemory);
         supported.insert(Feature::CommandLineArgs);
         supported.insert(Feature::Records);
-        supported.insert(Feature::Conversions);
+        supported.insert(Feature::IntToString);
+        supported.insert(Feature::StringToInt);
         supported.insert(Feature::Map);
         supported.insert(Feature::ListAppend);
-        // ADR 0033: the interpreter has no memory model. `&x` / `*r`
-        // evaluate to the inner value via the eval arm in
-        // `interpreter/eval.rs`; read-only references pass through.
         supported.insert(Feature::References);
-        // FFI is not supported by the interpreter (a tree-walker
-        // cannot call into C).
         BackendCapabilities {
             name: "interpreter",
             supported,

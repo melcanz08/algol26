@@ -1149,7 +1149,40 @@ impl SemanticIRBuilder {
                 // shared and by-value receivers reach here.
                 let receiver_value = self.translate_expr(program, func, current_block, receiver);
                 let receiver_type = receiver_value.type_of();
-
+                // ADR 0029/0030/0031: extraction intrinsics.
+                // Same surface syntax as the FunctionCall arm and the
+                // analyzer's MethodCall arm. A nominal, enum, or
+                // subrange receiver with `to_base` / `to_ordinal`
+                // lowers to a no-op Cast that carries the target type.
+                match &receiver_type {
+                    Type::Distinct { base, .. } => {
+                        if method == "to_base" && args.is_empty() {
+                            let base_ty = (**base).clone();
+                            return TypedIRValue::Cast {
+                                value: Box::new(receiver_value),
+                                target_type: base_ty,
+                            };
+                        }
+                    }
+                    Type::Enum { .. } => {
+                        if method == "to_ordinal" && args.is_empty() {
+                            return TypedIRValue::Cast {
+                                value: Box::new(receiver_value),
+                                target_type: Type::Int,
+                            };
+                        }
+                    }
+                    Type::Subrange { base, .. } => {
+                        if method == "to_base" && args.is_empty() {
+                            let base_ty = (**base).clone();
+                            return TypedIRValue::Cast {
+                                value: Box::new(receiver_value),
+                                target_type: base_ty,
+                            };
+                        }
+                    }
+                    _ => {}
+                }
                 if let Some(resolved_name) = self.resolve_method_call(&receiver_type, method) {
                     let wrapped = match self
                         .function_types

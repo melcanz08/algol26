@@ -327,11 +327,20 @@ impl Lexer {
             // participate in indentation tracking.
             let in_bracket_continuation = bracket_depth > 0;
 
-            if !in_bracket_continuation && indent > current_indent {
+            // A line whose first non-whitespace character is `.`
+            // continues the previous expression's method chain.
+            // Suppress both the Indent and Dedent machinery for this
+            // line so the parser sees `expr . method` as one logical
+            // statement.
+            let is_chain_continuation = line.trim_start().starts_with('.');
+
+            if !in_bracket_continuation && !is_chain_continuation && indent > current_indent {
                 indent_stack.push(indent);
                 tokens.push(Token::Indent);
-                token_positions.push((line_number, 1, 1)); // dummy
-            } else if !in_bracket_continuation && indent < current_indent {
+                token_positions.push((line_number, 1, 1));
+            } else if !in_bracket_continuation && !is_chain_continuation && indent < current_indent
+            {
+                // ... existing dedent logic unchanged
                 if !indent_stack.contains(&indent) {
                     return Err(CompileError::simple(
                         &format!(

@@ -278,7 +278,14 @@ impl Parser {
                         {
                             ReceiverMode::Exclusive
                         }
-                        _ => return Err(self.error("`self` must have type `T`, `&T`, or `&mut T`")),
+                        // Any other type — including a generic name like `Box<T>`
+                        // — is a by-value receiver. ADR 0034.
+                        Some(_) => ReceiverMode::Consume,
+                        _ => {
+                            return Err(
+                                self.error("`self` must have a type annotation (T, &T, or &mut T)")
+                            )
+                        }
                     });
                 }
 

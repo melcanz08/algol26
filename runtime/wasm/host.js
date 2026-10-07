@@ -44,6 +44,78 @@ function readCString(ptr) {
 }
 
 const env = {
+    // `sprintf` — like printf but writes to a memory buffer instead
+    // of stdout. Used by Int.to_string and other number→string
+    // builtins the compiler now emits. Same format-specifier support
+    // and wasm32 variadic ABI as `printf` above.
+    sprintf: function (dstPtr, fmtPtr) {
+        const ptrs = Array.prototype.slice.call(arguments, 2);
+        const view = new Uint8Array(linearMemory.buffer);
+        const dv = new DataView(linearMemory.buffer);
+
+        const readStrAt = (p) => {
+            let e = p;
+            while (e < view.length && view[e] !== 0) e++;
+            return Buffer.from(view.buffer, p, e - p).toString('utf8');
+        };
+
+        let e1 = fmtPtr;
+        while (e1 < view.length && view[e1] !== 0) e1++;
+        const fmt = Buffer.from(view.buffer, fmtPtr, e1 - fmtPtr).toString('utf8');
+
+        let out = '';
+        let argIdx = 0;
+        let i = 0;
+        while (i < fmt.length) {
+            const ch = fmt[i];
+            if (ch !== '%') { out += ch; i++; continue; }
+            if (fmt[i + 1] === '%') { out += '%'; i += 2; continue; }
+
+            let j = i + 1;
+            while (j < fmt.length && '+- #0123456789.*'.includes(fmt[j])) j++;
+            let lenMod = '';
+            while (j < fmt.length && (fmt[j] === 'l' || fmt[j] === 'h')) {
+                lenMod += fmt[j];
+                j++;
+            }
+            if (j >= fmt.length) { out += fmt.slice(i); break; }
+            const conv = fmt[j];
+            const slot = ptrs[argIdx++];
+
+            switch (conv) {
+                case 'd':
+                case 'i':
+                    if (lenMod === 'll' || lenMod === 'l') {
+                        out += dv.getBigInt64(slot, true).toString();
+                    } else {
+                        out += dv.getInt32(slot, true).toString();
+                    }
+                    break;
+                case 'u':
+                    if (lenMod === 'll' || lenMod === 'l') {
+                        out += dv.getBigUint64(slot, true).toString();
+                    } else {
+                        out += dv.getUint32(slot, true).toString();
+                    }
+                    break;
+                case 's':
+                    out += readStrAt(dv.getUint32(slot, true));
+                    break;
+                case 'f':
+                    out += dv.getFloat64(slot, true).toFixed(1);
+                    break;
+                default:
+                    out += '%' + conv;
+            }
+            i = j + 1;
+        }
+
+        for (let n = 0; n < out.length; n++) {
+            view[dstPtr + n] = out.charCodeAt(n);
+        }
+        view[dstPtr + out.length] = 0;
+        return out.length;
+    },
     // ─── stdio ───
     printf: function (fmtPtr) {
         // wasm32 C ABI: variadic args are passed BY REFERENCE — each

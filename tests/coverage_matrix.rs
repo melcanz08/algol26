@@ -386,16 +386,37 @@ pub const MATRIX: &[FeatureRow] = &[
                 interpreter and WASM refuse (both pinned).",
     },
     FeatureRow {
-        name: "conversions",
+        name: "int_to_string",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "ADR 00XX. `Int.to_string` lowers via sprintf into \
+                a stack buffer on LLVM and WASM.",
+    },
+    FeatureRow {
+        name: "string_to_int",
         conformance_dir: None,
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_conversions", "wasm_rejects_conversions"],
-        notes: "No conformance fixture yet. `Int.to_string` and \
-                `String.to_int` are interpreter-only (Track B). LLVM \
-                and WASM refuse at the capability check \
-                (`Feature::Conversions`).",
+        refusal_tests: &["wasm_rejects_conversions"],
+        notes: "`String.to_int` returns `Option<Int>`; blocked on \
+                Option lowering for LLVM/WASM.",
+    },
+    FeatureRow {
+        name: "string_ops",
+        conformance_dir: None,
+        interpreter: Support::Full,
+        llvm: Support::Refused,
+        wasm: Support::Refused,
+        refusal_tests: &["llvm_rejects_string_ops", "wasm_rejects_string_ops"],
+        notes: "Capability gate for String.concat / substring / trim / \
+                to_upper / to_lower. Individual op conformance is tracked \
+                by the string_concat / string_substring / \
+                string_case_conversion rows. Interpreter-only until the \
+                malloc-based LLVM codegen lands.",
     },
     FeatureRow {
         name: "records",

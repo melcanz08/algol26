@@ -439,6 +439,35 @@ impl Parser {
         })
     }
 
+    /// Parse an optional `where T: Trait, U: Trait2` clause list.
+    /// Returns an empty vector when the current token is not
+    /// `where`. Used by `parse_impl`; `parse_function` has an
+    /// equivalent inline block that will be replaced by a call to
+    /// this helper in a follow-up cleanup.
+    fn parse_where_clauses(&mut self) -> Result<Vec<WhereClause>> {
+        let mut where_clauses = Vec::new();
+        if matches!(self.peek(), Token::Where) {
+            self.advance();
+            loop {
+                let type_param = self.expect_identifier("type parameter")?;
+                if matches!(self.peek(), Token::Colon) {
+                    self.advance();
+                    let trait_name = self.expect_identifier("trait name")?;
+                    where_clauses.push(WhereClause {
+                        type_param,
+                        trait_name,
+                    });
+                }
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(where_clauses)
+    }
+
     pub(super) fn parse_impl(&mut self) -> Result<ImplBlock> {
         self.advance(); // consume `impl`
 
@@ -468,6 +497,9 @@ impl Parser {
             let args = self.parse_type_args()?;
             (None, first_ident, args)
         };
+
+        // Optional where clause: `impl<T> Trait for List<T> where T: Ord`.
+        let where_clauses = self.parse_where_clauses()?;
 
         let mut methods = Vec::new();
         let mut constants = Vec::new();
@@ -506,6 +538,7 @@ impl Parser {
             target_type_args,
             methods,
             constants,
+            where_clauses,
         })
     }
 

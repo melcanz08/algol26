@@ -519,6 +519,11 @@ pub struct ImplBlock {
     pub target_type_args: Vec<TypeSyntax>,
     pub methods: Vec<FunctionDecl>,
     pub constants: Vec<ImplConst>,
+    /// Bounds on the impl's type parameters, e.g.
+    /// `impl<T: Ord> Sortable for List<T>`. Empty for impls
+    /// without a where clause. See ADR 0025 (bound satisfaction)
+    /// and ADR 0034 (generic impls).
+    pub where_clauses: Vec<WhereClause>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

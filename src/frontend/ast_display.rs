@@ -826,6 +826,7 @@ mod tests {
             type_params: Vec::new(),
             target_type_args: Vec::new(),
             constants: Vec::new(),
+            where_clauses: Vec::new(),
         };
         let out = format_program(&[], &[tr], &[im]);
         assert!(out.contains("trait Display"), "got:\n{}", out);

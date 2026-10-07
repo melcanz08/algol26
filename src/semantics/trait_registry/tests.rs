@@ -54,6 +54,7 @@ fn test_type_implements_trait() {
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
+        where_clauses: Vec::new(),
     };
     registry.register_impl(impl_block);
 
@@ -96,6 +97,7 @@ fn test_validate_impl_signature_mismatch() {
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
+        where_clauses: Vec::new(),
     };
 
     assert!(registry.validate_impl(&impl_block).is_err());
@@ -134,6 +136,7 @@ fn test_generic_impl() {
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
+        where_clauses: Vec::new(),
     };
     registry.register_impl(impl_block);
 

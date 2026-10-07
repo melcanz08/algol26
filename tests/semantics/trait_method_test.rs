@@ -75,6 +75,7 @@ fn test_trait_registry_resolution() {
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
+        where_clauses: Vec::new(),
     };
     registry.register_impl(impl_block);
 

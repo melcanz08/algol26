@@ -90,6 +90,11 @@ pub struct TypedProgram {
     /// carry the `SubrangeTypeId` the analyzer assigned. Same
     /// single-source discipline. See ADR 0031.
     pub subrange_types: std::collections::HashMap<String, crate::common::types::Type>,
+    /// Associated constants: `"Foo::SIZE"` -> (declared type, value
+    /// expression). Populated by the analyzer and inlined by the IR
+    /// builder at each `Foo::SIZE` use site.
+    pub const_values:
+        std::collections::HashMap<String, (crate::common::types::Type, crate::frontend::ast::Expr)>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -250,6 +255,7 @@ pub fn type_check_program(
         nominal_types,
         enum_types,
         subrange_types,
+        const_values: analyzer.take_const_values(),
     })
 }
 
@@ -269,6 +275,10 @@ pub fn build_semantic_ir_program(
     nominal_types: std::collections::HashMap<String, crate::common::types::Type>,
     enum_types: std::collections::HashMap<String, crate::common::types::Type>,
     subrange_types: std::collections::HashMap<String, crate::common::types::Type>,
+    const_values: std::collections::HashMap<
+        String,
+        (crate::common::types::Type, crate::frontend::ast::Expr),
+    >,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
@@ -281,6 +291,7 @@ pub fn build_semantic_ir_program(
         nominal_types,
         enum_types,
         subrange_types,
+        const_values,
     );
     if !diagnostics.is_empty() {
         for diag in &diagnostics {

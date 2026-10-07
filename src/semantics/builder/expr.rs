@@ -649,6 +649,17 @@ impl SemanticIRBuilder {
             ExprKind::String(s, _) => TypedIRValue::String(s.clone()),
             ExprKind::Bool(b, _) => TypedIRValue::Bool(*b),
             ExprKind::Var(name, span) => {
+                // Associated constant: `Foo::SIZE`. The parser folds
+                // `::` into the identifier, so this is the only place
+                // a `::` name can reach the builder. Inline the
+                // stored value expression — the recursion handles
+                // constants defined in terms of other constants.
+                if name.contains("::") {
+                    if let Some((_, value_expr)) = self.const_values.get(name).cloned() {
+                        return self.translate_expr(program, func, current_block, &value_expr);
+                    }
+                }
+
                 // ─── UNIFY TYPES ─── prefer analyzer type, fall back to local scope.
                 let ty = self
                     .type_of_expr(expr)

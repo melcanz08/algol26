@@ -38,6 +38,7 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     )
 }
 

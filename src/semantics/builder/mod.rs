@@ -71,6 +71,10 @@ pub struct SemanticIRBuilder {
     /// Values carry a `Type::Subrange` whose `SubrangeTypeId`
     /// matches the one the analyzer assigned. See ADR 0031.
     pub(super) subrange_types: HashMap<String, Type>,
+    /// Associated constants from the analyzer, keyed by `"Type::NAME"`.
+    /// Read by the Var arm of `translate_expr` to inline the value at
+    /// each use site.
+    pub(super) const_values: HashMap<String, (Type, Expr)>,
 }
 
 #[allow(dead_code)]
@@ -89,6 +93,7 @@ impl SemanticIRBuilder {
         nominal_types: HashMap<String, Type>,
         enum_types: HashMap<String, Type>,
         subrange_types: HashMap<String, Type>,
+        const_values: HashMap<String, (Type, Expr)>,
     ) -> (SemanticProgram, Vec<String>) {
         let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
 
@@ -109,6 +114,7 @@ impl SemanticIRBuilder {
             nominal_types,
             enum_types,
             subrange_types,
+            const_values,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -293,6 +299,7 @@ mod substitution_tests {
             nominal_types: HashMap::new(),
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),
+            const_values: HashMap::new(),
         }
     }
 

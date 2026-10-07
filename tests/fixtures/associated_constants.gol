@@ -1,0 +1,12 @@
+// supported: interpreter llvm wasm
+// Trait declares a constant; impl supplies the value; the use
+// site is `Type::NAME`, resolved at compile time and inlined.
+trait Sizable
+    const SIZE: Int
+
+impl Sizable for Int
+    const SIZE: Int := 8
+
+proc main
+    print(Int.to_string(Int::SIZE))
+    print(Int.to_string(Int::SIZE + 4))

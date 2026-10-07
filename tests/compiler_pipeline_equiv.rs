@@ -195,6 +195,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
             typed.nominal_types.clone(),
             typed.enum_types.clone(),
             typed.subrange_types.clone(),
+            typed.const_values.clone(),
         ) {
             Ok(p) => p,
             Err(_) => continue,

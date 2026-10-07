@@ -42,6 +42,7 @@ fn build_and_run(source: &str) -> (SemanticProgram, Vec<String>, String) {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
 
     let mut interpreter = Interpreter::new(ir.clone());

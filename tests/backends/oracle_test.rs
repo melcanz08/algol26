@@ -34,6 +34,7 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
     ir
 }

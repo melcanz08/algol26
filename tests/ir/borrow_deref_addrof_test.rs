@@ -166,6 +166,7 @@ proc main
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
 
     // `var n := list.length()` produces a standalone
@@ -235,6 +236,7 @@ proc main
         type_table,
         algol26::ir::instantiation_plan::InstantiationPlan::default(),
         &[],
+        std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),

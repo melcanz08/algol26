@@ -35,6 +35,7 @@ fn run(source: &str) -> String {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
     Interpreter::new(ir).run().unwrap()
 }

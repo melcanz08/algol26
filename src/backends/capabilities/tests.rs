@@ -708,6 +708,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
     semantic_program
 }

@@ -36,6 +36,7 @@ fn run_source(source: &str) -> String {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
     );
     let mut interpreter = Interpreter::new(ir);
     interpreter.run().unwrap()

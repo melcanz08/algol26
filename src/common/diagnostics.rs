@@ -85,6 +85,13 @@ pub enum ErrorCode {
     E0007,
     E0008,
     E0009,
+    /// Ambiguous method: two or more traits provide a method with
+    /// the same name for the same target type, and no inherent impl
+    /// shadows them.
+    E0010,
+    /// Unknown method: the receiver's type has no method with that
+    /// name (and no field with that name, for the field-access form).
+    E0011,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +121,8 @@ impl ErrorCode {
             ErrorCode::E0007 => "E0007",
             ErrorCode::E0008 => "E0008",
             ErrorCode::E0009 => "E0009",
+            ErrorCode::E0010 => "E0010",
+            ErrorCode::E0011 => "E0011",
         }
     }
 }

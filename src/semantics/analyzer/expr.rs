@@ -1298,7 +1298,7 @@ impl SemanticAnalyzer {
                                     "Type {} does not have method '{}'",
                                     receiver_type, method_name
                                 ),
-                                ErrorCode::E0004,
+                                ErrorCode::E0011,
                             )
                             .with_suggestion(&suggestion));
                         }
@@ -1592,7 +1592,7 @@ impl SemanticAnalyzer {
                 let mut err = CompileError::at(
                     self.current_span,
                     &format!("Type {} has no method '{}'", receiver_type, method),
-                    ErrorCode::E0004,
+                    ErrorCode::E0011,
                 );
                 if let Some(hint) = self.method_candidates_hint(&receiver_type) {
                     err = err.with_suggestion(&hint);
@@ -1809,7 +1809,7 @@ impl SemanticAnalyzer {
                 Err(CompileError::at(
                     self.current_span,
                     &format!("Type {} has no field or method '{}'", obj_ty, field),
-                    ErrorCode::E0004,
+                    ErrorCode::E0011,
                 )
                 .with_suggestion(&suggestion))
             }

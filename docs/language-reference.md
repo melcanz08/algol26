@@ -83,13 +83,13 @@ Error       print       rec
 | `..`    | Exclusive range                |
 | `..=`   | Inclusive range                |
 | `.`     | Method / field access, qualified name |
+| `::`    | Trait-method qualification     |
+| `( )` `[ ]` `{ }` `,` `:` | Grouping, indexing, lists, record literals |
 
 **Note.** Equality is `=`. The C-family form `==` is not a valid
 operator symbol and produces a lex error (E0001). Assignment and
 binding use `:=`. This is the Pascal-family convention: `:=` sets,
 `=` tests.
-| `::`    | Trait-method qualification     |
-| `( )` `[ ]` `{ }` `,` `:` | Grouping, indexing, lists, record literals |
 
 ---
 

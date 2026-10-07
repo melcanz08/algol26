@@ -45,18 +45,27 @@ fn parse_directives(source: &str) -> Directives {
 }
 
 fn compiler_binary() -> PathBuf {
-    for path in [
-        "target/release/algol26",
+    // Prefer the newest available binary. A hardcoded release-first
+    // order silently used a stale release binary after a debug-only
+    // rebuild, producing test failures against code the developer
+    // had already fixed. mtime comparison avoids that class of bug.
+    let candidates: Vec<PathBuf> = [
         "target/debug/algol26",
-        "../target/release/algol26",
+        "target/release/algol26",
         "../target/debug/algol26",
-    ] {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return p;
-        }
-    }
-    panic!("No compiler binary found. Run `cargo build` before `cargo test`.");
+        "../target/release/algol26",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .filter(|p| p.exists())
+    .collect();
+
+    candidates
+        .into_iter()
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+        .unwrap_or_else(|| {
+            panic!("No compiler binary found. Run `cargo build` before `cargo test`.")
+        })
 }
 
 fn run_compiler(

@@ -63,7 +63,7 @@ fn llvm_rejects_result_values() {
 }
 
 #[test]
-fn llvm_rejects_option_values() {
+fn llvm_accepts_option_values() {
     let program = program_with(
         Instruction::Declare {
             name: "m".to_string(),
@@ -73,8 +73,8 @@ fn llvm_rejects_option_values() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
-    assert!(err.message.contains("Option"), "{}", err.message);
+    check_backend(&program, &BackendCapabilities::llvm())
+        .expect("LLVM should now accept Option after the Option lowering landed");
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn wasm_rejects_ffi() {
 }
 
 #[test]
-fn wasm_rejects_option_values() {
+fn wasm_accepts_option_values() {
     let program = program_with(
         Instruction::Declare {
             name: "m".to_string(),
@@ -390,12 +390,8 @@ fn wasm_rejects_option_values() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
-    assert!(
-        err.message.contains("Option"),
-        "expected Option diagnostic, got: {}",
-        err.message
-    );
+    check_backend(&program, &BackendCapabilities::wasm())
+        .expect("WASM should now accept Option after the Option lowering landed");
 }
 
 #[test]

@@ -241,9 +241,9 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "option",
         conformance_dir: Some("option"),
         interpreter: Support::Full,
-        llvm: Support::Refused,
-        wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_option_values", "wasm_rejects_option_values"],
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
         notes: "",
     },
     FeatureRow {

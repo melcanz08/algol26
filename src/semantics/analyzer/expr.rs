@@ -1265,12 +1265,27 @@ impl SemanticAnalyzer {
                                     let impl_type_params: Vec<String> = impl_type_params.clone();
                                     let method = (*method_ref).clone();
 
-                                    let expected_extra = method.params.len().saturating_sub(1);
+                                    // Two conventions coexist:
+                                    //  - `self: &Self` as params[0]:
+                                    //    receiver is implicit, args
+                                    //    maps to params[1..].
+                                    //  - named receiver as params[0]
+                                    //    (legacy, e.g. `function
+                                    //    double(n: Int)`): the caller
+                                    //    passes it explicitly, args
+                                    //    maps 1:1 to params.
+                                    let has_self_receiver =
+                                        method.params.first().is_some_and(|(n, _)| n == "self");
+                                    let expected_extra = if has_self_receiver {
+                                        method.params.len().saturating_sub(1)
+                                    } else {
+                                        method.params.len()
+                                    };
                                     if args.len() != expected_extra {
                                         return Err(CompileError::at(
                                             self.current_span,
                                             &format!(
-                                                "Method '{}' expects {} argument(s) after the receiver, got {}",
+                                                "Method '{}' expects {} argument(s), got {}",
                                                 method_name,
                                                 expected_extra,
                                                 args.len()
@@ -1278,8 +1293,9 @@ impl SemanticAnalyzer {
                                             ErrorCode::E0002,
                                         ));
                                     }
+                                    let skip = if has_self_receiver { 1 } else { 0 };
                                     for (arg, (param_name, param_type)) in
-                                        args.iter().zip(method.params.iter().skip(1))
+                                        args.iter().zip(method.params.iter().skip(skip))
                                     {
                                         let arg_type = self.analyze_expr(arg)?;
                                         self.register_call_arg_temporary(arg);

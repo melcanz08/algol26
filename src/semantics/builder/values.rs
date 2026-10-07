@@ -66,6 +66,21 @@ impl SemanticIRBuilder {
             return Some(underscore_form);
         }
 
+        // Trait impls on primitive types mangle as
+        // `{Trait}_{Base}_{method}` (e.g. `Constant_Int_value`).
+        // Search by suffix, same as the user-type path.
+        let suffix = format!("_{}_{}", base, method_name);
+        let mut matches: Vec<String> = self
+            .function_types
+            .keys()
+            .filter(|k| k.ends_with(&suffix))
+            .cloned()
+            .collect();
+        matches.sort();
+        if let Some(only) = matches.into_iter().next() {
+            return Some(only);
+        }
+
         None
     }
 

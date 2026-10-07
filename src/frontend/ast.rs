@@ -478,10 +478,20 @@ pub enum Pattern {
     Variant(String),
 }
 
+/// An associated constant declared in a trait body. The value is
+/// supplied by each impl. Syntax: `const NAME: Type` on its own
+/// line inside the trait. See associated-constants ADR.
+#[derive(Clone, Debug)]
+pub struct TraitConst {
+    pub name: String,
+    pub type_: TypeSyntax,
+}
+
 #[derive(Clone, Debug)]
 pub struct TraitDecl {
     pub name: String,
     pub methods: Vec<TraitMethod>,
+    pub constants: Vec<TraitConst>,
 }
 
 #[derive(Clone, Debug)]
@@ -491,6 +501,16 @@ pub struct TraitMethod {
     pub return_type: Option<TypeSyntax>,
 }
 
+/// An associated constant definition in an impl body. The trait
+/// declared it; the impl supplies the value. Syntax:
+/// `const NAME: Type = expr` inside the impl.
+#[derive(Clone, Debug)]
+pub struct ImplConst {
+    pub name: String,
+    pub type_: TypeSyntax,
+    pub value: Expr,
+}
+
 #[derive(Clone, Debug)]
 pub struct ImplBlock {
     pub trait_name: Option<String>,
@@ -498,6 +518,7 @@ pub struct ImplBlock {
     pub target_type: String,
     pub target_type_args: Vec<TypeSyntax>,
     pub methods: Vec<FunctionDecl>,
+    pub constants: Vec<ImplConst>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

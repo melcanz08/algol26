@@ -16,6 +16,7 @@ fn test_register_trait() {
             )],
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
+        constants: Vec::new(),
     };
     registry.register_trait(trait_decl);
     assert!(registry.trait_exists("Comparable"));
@@ -32,6 +33,7 @@ fn test_type_implements_trait() {
             params: vec![],
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
+        constants: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -51,6 +53,7 @@ fn test_type_implements_trait() {
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
+        constants: Vec::new(),
     };
     registry.register_impl(impl_block);
 
@@ -72,6 +75,7 @@ fn test_validate_impl_signature_mismatch() {
             )],
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
+        constants: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -91,6 +95,7 @@ fn test_validate_impl_signature_mismatch() {
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
+        constants: Vec::new(),
     };
 
     assert!(registry.validate_impl(&impl_block).is_err());
@@ -107,6 +112,7 @@ fn test_generic_impl() {
             params: vec![],
             return_type: Some(TypeSyntax::Named("String".to_string())),
         }],
+        constants: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -127,6 +133,7 @@ fn test_generic_impl() {
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
+        constants: Vec::new(),
     };
     registry.register_impl(impl_block);
 

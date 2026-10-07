@@ -50,6 +50,7 @@ fn test_trait_registry_resolution() {
             )],
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
+        constants: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -73,6 +74,7 @@ fn test_trait_registry_resolution() {
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
+        constants: Vec::new(),
     };
     registry.register_impl(impl_block);
 

@@ -123,7 +123,8 @@ pub enum Token {
     Impl,
     Rec,
     SelfType,
-    Case, // case keyword for match arms
+    Case,  // case keyword for match arms
+    Const, // `const` keyword for associated constants
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum CTypeName {
@@ -209,6 +210,7 @@ lazy_static::lazy_static! {
         m.insert("rec", Token::Rec);
         m.insert("Self", Token::SelfType);
         m.insert("case", Token::Case);
+        m.insert("const", Token::Const);
         m.insert("null", Token::NullPtr);
         m.insert("mut", Token::Mut);
         m

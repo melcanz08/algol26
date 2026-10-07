@@ -418,7 +418,11 @@ impl Parser {
                 self.advance();
             }
         }
-        Ok(TraitDecl { name, methods })
+        Ok(TraitDecl {
+            name,
+            methods,
+            constants: Vec::new(),
+        })
     }
 
     pub(super) fn parse_impl(&mut self) -> Result<ImplBlock> {
@@ -468,6 +472,7 @@ impl Parser {
             target_type,
             target_type_args,
             methods,
+            constants: Vec::new(),
         })
     }
 

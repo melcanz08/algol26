@@ -817,6 +817,7 @@ mod tests {
                 params: vec![],
                 return_type: Some(TypeSyntax::Named("String".into())),
             }],
+            constants: Vec::new(),
         };
         let im = ImplBlock {
             trait_name: Some("Display".into()),
@@ -824,6 +825,7 @@ mod tests {
             methods: vec![],
             type_params: Vec::new(),
             target_type_args: Vec::new(),
+            constants: Vec::new(),
         };
         let out = format_program(&[], &[tr], &[im]);
         assert!(out.contains("trait Display"), "got:\n{}", out);

@@ -1,4 +1,4 @@
-// ERROR_CODE: E0002
+// ERROR_CODE: E0010
 rec User
     name: String
 

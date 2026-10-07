@@ -242,18 +242,21 @@ Currently emitted codes for methods:
 
 | Code | Trigger |
 |---|---|
-| E0002 | Method arity mismatch, argument type mismatch, method on forbidden type, ambiguity. |
-| E0004 | `Type X does not have method 'Y'` (via the general function-call error path). |
+| E0002 | Method arity mismatch, argument type mismatch, method on forbidden type. |
 | E0007 | `&mut self` on a `val` binding, or use-after-consume of a `self: T` receiver. |
+| E0010 | Ambiguous method: two or more traits provide a method with the same name for the same target type, and no inherent impl shadows them. The message names the traits. |
+| E0011 | No such method: the receiver's type has no method with that name. The message lists the methods the type does have, capped at six with an `(and N more)` suffix. |
 
-**Diagnostics-quality gap.** A call to an unknown method produces
-`Type X does not have method 'Y'`, which is helpful, but there is no
-distinct diagnostic naming the receiver type's *available* methods. A
-dedicated "no such method on type T; did you mean ..." is a Tier 2 item.
+E0010 fires before `register_user_functions`, using the
+`(target_type, method_name, trait_name)` triple from the AST. This
+replaces the previous behavior, where two traits with the same method
+name surfaced as `Duplicate function name 'User_save'` — the mangled
+symbol, not the source-level collision.
 
-The ambiguity error is `Duplicate function name 'Type_method'` — correct
-code (E0002) but imprecise wording. A dedicated "ambiguous method call"
-diagnostic is a follow-up.
+E0011 covers the FunctionCall `x.method()`, MethodCall (complex
+receiver), and FieldAccess `x.method` (zero-arg) forms. The candidate
+list is derived from the `{Type}_{method}` mangling convention, so
+inherent and trait methods both appear.
 
 ## Safety
 

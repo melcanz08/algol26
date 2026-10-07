@@ -160,15 +160,15 @@ impl TraitRegistry {
         &self,
         type_: &Type,
         method_name: &str,
-    ) -> Vec<(String, &FunctionDecl, Vec<String>)> {
+    ) -> Vec<(String, &FunctionDecl, Vec<String>, Vec<WhereClause>)> {
         let type_name = type_.to_string();
-        let mut result: Vec<(String, &FunctionDecl, Vec<String>)> = Vec::new();
+        let mut result: Vec<(String, &FunctionDecl, Vec<String>, Vec<WhereClause>)> = Vec::new();
 
         for ((trait_name, target_type), impl_block) in &self.impls {
             if target_type == &type_name {
                 for method in &impl_block.methods {
                     if method.name == method_name {
-                        result.push((trait_name.clone(), method, Vec::new()));
+                        result.push((trait_name.clone(), method, Vec::new(), Vec::new()));
                     }
                 }
             }
@@ -182,6 +182,7 @@ impl TraitRegistry {
                             generic_impl.trait_name.clone(),
                             method,
                             generic_impl.type_params.clone(),
+                            generic_impl.where_clauses.clone(),
                         ));
                     }
                 }
@@ -191,7 +192,7 @@ impl TraitRegistry {
         for (trait_name, methods) in &self.default_methods {
             if self.type_implements_trait(type_, trait_name) {
                 if let Some(method) = methods.get(method_name) {
-                    result.push((trait_name.clone(), method, Vec::new()));
+                    result.push((trait_name.clone(), method, Vec::new(), Vec::new()));
                 }
             }
         }

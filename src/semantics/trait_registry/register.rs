@@ -44,6 +44,7 @@ impl TraitRegistry {
                 type_pattern: pattern,
                 methods: impl_block.methods.clone(),
                 type_params: impl_block.type_params.clone(),
+                where_clauses: impl_block.where_clauses.clone(),
             });
         } else {
             self.impls.insert(key, impl_block);

@@ -21,7 +21,7 @@
 //     type variable is instantiated consistently across a program.
 
 use crate::common::types::Type;
-use crate::frontend::ast::{FunctionDecl, ImplBlock, TraitDecl, TraitMethod};
+use crate::frontend::ast::{FunctionDecl, ImplBlock, TraitDecl, TraitMethod, WhereClause};
 use std::collections::HashMap;
 
 mod register;
@@ -49,6 +49,11 @@ pub(super) struct GenericImpl {
     /// these to unify the declared self against a concrete receiver
     /// and record a monomorphization instantiation.
     type_params: Vec<String>,
+    /// `where` clauses on the impl block
+    /// (`impl<T> Trait for List<T> where T: Ord`). Checked at
+    /// method resolution against the receiver's concrete type
+    /// arguments. See ADR 0025 bound enforcement.
+    where_clauses: Vec<WhereClause>,
 }
 #[derive(Debug, Clone)]
 pub(super) enum TypePattern {

@@ -1270,10 +1270,16 @@ impl SemanticAnalyzer {
                             match trait_candidates.len() {
                                 0 => {}
                                 1 => {
-                                    let (trait_name, method_ref, impl_type_params) =
-                                        &trait_candidates[0];
+                                    let (
+                                        trait_name,
+                                        method_ref,
+                                        impl_type_params,
+                                        impl_where_clauses,
+                                    ) = &trait_candidates[0];
                                     let trait_name = trait_name.clone();
                                     let impl_type_params: Vec<String> = impl_type_params.clone();
+                                    let impl_where_clauses: Vec<crate::frontend::ast::WhereClause> =
+                                        impl_where_clauses.clone();
                                     let method = (*method_ref).clone();
 
                                     // Two conventions coexist:
@@ -1328,15 +1334,18 @@ impl SemanticAnalyzer {
                                         }
                                     }
 
-                                    // ADR 0034: monomorphization.
-                                    // If this impl carries type params,
-                                    // unify the declared self against
-                                    // the concrete receiver and record
-                                    // an instantiation under the same
-                                    // mangled name the IR builder will
-                                    // emit.
+                                    // ADR 0034 monomorphization + ADR 0025
+                                    // bound satisfaction. Unify the
+                                    // declared self against the receiver
+                                    // to produce concrete bindings for the
+                                    // impl's type params, check each
+                                    // `where T: Trait` clause against them,
+                                    // then record a monomorphization
+                                    // Instantiation.
                                     let mut type_bindings: HashMap<String, Type> = HashMap::new();
-                                    if !impl_type_params.is_empty() {
+                                    let need_unify = !impl_type_params.is_empty()
+                                        || !impl_where_clauses.is_empty();
+                                    if need_unify {
                                         let declared_self = match method.params.first() {
                                             Some((_, Some(syntax))) => {
                                                 self.resolve_type_syntax(syntax)?
@@ -1352,11 +1361,47 @@ impl SemanticAnalyzer {
                                             &receiver_type,
                                             &mut type_bindings,
                                         )?;
+                                    }
 
+                                    for clause in &impl_where_clauses {
+                                        let Some(concrete) = type_bindings.get(&clause.type_param)
+                                        else {
+                                            continue;
+                                        };
+                                        if concrete.contains_unresolved() {
+                                            continue;
+                                        }
+                                        if !self
+                                            .trait_registry
+                                            .type_implements_trait(concrete, &clause.trait_name)
+                                        {
+                                            return Err(CompileError::at(
+                                                self.current_span,
+                                                &format!(
+                                                    "Type {} does not implement trait '{}' \
+                                                     required by the impl where clause for \
+                                                     method '{}'",
+                                                    concrete, clause.trait_name, method_name
+                                                ),
+                                                ErrorCode::E0002,
+                                            )
+                                            .with_suggestion(&format!(
+                                                "Add `impl {} for {}`, or remove the bound",
+                                                clause.trait_name, concrete
+                                            )));
+                                        }
+                                    }
+
+                                    if !impl_type_params.is_empty() {
                                         let owner = match &receiver_type {
                                             Type::Record(n, _) => n.clone(),
+                                            Type::List(_) => "List".to_string(),
+                                            Type::Map(_, _) => "Map".to_string(),
+                                            Type::Option(_) => "Option".to_string(),
+                                            Type::Result { .. } => "Result".to_string(),
                                             Type::Distinct { name, .. } => name.clone(),
                                             Type::Enum { name, .. } => name.clone(),
+                                            Type::Subrange { name, .. } => name.clone(),
                                             other => other.to_string(),
                                         };
                                         let mangled =
@@ -1390,7 +1435,7 @@ impl SemanticAnalyzer {
                                 _ => {
                                     let mut traits: Vec<&str> = trait_candidates
                                         .iter()
-                                        .map(|(t, _, _)| t.as_str())
+                                        .map(|(t, _, _, _)| t.as_str())
                                         .collect();
                                     // Deterministic order — HashMap
                                     // iteration is not stable, and the

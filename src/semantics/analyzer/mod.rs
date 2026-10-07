@@ -129,6 +129,10 @@ struct FunctionInfo {
     /// for non-generic functions. Used by `ExprKind::FunctionCall`
     /// to record instantiation facts. See ADR 0013.
     type_params: Vec<String>,
+    /// Where-clauses on this function. Read by `FunctionCall` to
+    /// check bound satisfaction once concrete type arguments are
+    /// known. See ADR 0025 (enforce path).
+    where_clauses: Vec<WhereClause>,
 }
 
 #[derive(Debug, Clone)]

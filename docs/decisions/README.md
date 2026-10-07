@@ -35,6 +35,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0037](0037-wasm-records-references.md) | WASM Records and References | Superseded by 0036 |
 | [0038](0038-dynamic-dispatch.md) | Dynamic Dispatch (`dyn Trait`) | Proposed |
 | [0039](0039-visibility.md) | Visibility Modifiers | Proposed |
+| [0040](0040-function-value-surface.md) | Function-Value Surface: Defaults, Function Types, Closures | Proposed |
 
 ## Current state
 

@@ -1524,6 +1524,36 @@ impl SemanticAnalyzer {
                     }
                 }
 
+                // ADR 0025 (enforce path). Once concrete type args
+                // are known, check each `where T: Trait` clause.
+                // Symbolic bindings (this call is inside another
+                // generic's body) are deferred to the outer call.
+                for clause in &func_info.where_clauses {
+                    let Some(concrete) = type_bindings.get(&clause.type_param) else {
+                        continue;
+                    };
+                    if concrete.contains_unresolved() {
+                        continue;
+                    }
+                    if !self
+                        .trait_registry
+                        .type_implements_trait(concrete, &clause.trait_name)
+                    {
+                        return Err(CompileError::at(
+                            self.current_span,
+                            &format!(
+                                "Type {} does not implement trait '{}' required by the where clause on '{}'",
+                                concrete, clause.trait_name, clean_name
+                            ),
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(&format!(
+                            "Add `impl {} for {}` before calling '{}', or remove the where clause",
+                            clause.trait_name, concrete, clean_name
+                        )));
+                    }
+                }
+
                 if !func_info.type_params.is_empty() {
                     let type_params = func_info.type_params.clone();
                     let type_args: Vec<Type> = type_params

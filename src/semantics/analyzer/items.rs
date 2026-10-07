@@ -32,6 +32,7 @@ impl SemanticAnalyzer {
                         .collect(),
                     return_type,
                     type_params: Vec::new(),
+                    where_clauses: Vec::new(),
                 },
             );
         }
@@ -75,6 +76,7 @@ impl SemanticAnalyzer {
                         .collect(),
                     return_type,
                     type_params: Vec::new(),
+                    where_clauses: Vec::new(),
                 },
             );
         }
@@ -101,6 +103,7 @@ impl SemanticAnalyzer {
                         .collect(),
                     return_type,
                     type_params: Vec::new(),
+                    where_clauses: Vec::new(),
                 },
             );
         }
@@ -136,6 +139,7 @@ impl SemanticAnalyzer {
                         .collect(),
                     return_type,
                     type_params: Vec::new(),
+                    where_clauses: Vec::new(),
                 },
             );
         }
@@ -145,6 +149,7 @@ impl SemanticAnalyzer {
                 params: vec![("size".to_string(), Type::Int)],
                 return_type: Type::pointer(Type::Unknown),
                 type_params: Vec::new(),
+                where_clauses: Vec::new(),
             },
         );
         self.functions.insert(
@@ -153,6 +158,7 @@ impl SemanticAnalyzer {
                 params: vec![("ptr".to_string(), Type::pointer(Type::Unknown))],
                 return_type: Type::Void,
                 type_params: Vec::new(),
+                where_clauses: Vec::new(),
             },
         );
         self.functions.insert(
@@ -164,6 +170,7 @@ impl SemanticAnalyzer {
                 ],
                 return_type: Type::Void,
                 type_params: Vec::new(),
+                where_clauses: Vec::new(),
             },
         );
         self.functions.insert(
@@ -172,6 +179,7 @@ impl SemanticAnalyzer {
                 params: vec![],
                 return_type: Type::list(Type::String),
                 type_params: Vec::new(),
+                where_clauses: Vec::new(),
             },
         );
         self.functions.insert(
@@ -180,6 +188,7 @@ impl SemanticAnalyzer {
                 params: vec![("n".to_string(), Type::Int)],
                 return_type: Type::String,
                 type_params: Vec::new(),
+                where_clauses: Vec::new(),
             },
         );
         self.functions.insert(
@@ -188,6 +197,7 @@ impl SemanticAnalyzer {
                 params: vec![("s".to_string(), Type::String)],
                 return_type: Type::option(Type::Int),
                 type_params: Vec::new(),
+                where_clauses: Vec::new(),
             },
         );
     }
@@ -435,6 +445,7 @@ impl SemanticAnalyzer {
                     params,
                     return_type,
                     type_params: func.type_params.clone(),
+                    where_clauses: func.where_clauses.clone(),
                 },
             );
         }

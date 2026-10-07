@@ -1,0 +1,9 @@
+trait Sizable
+    const SIZE: Int
+
+impl Sizable for Int
+    const SIZE: Int := 8
+
+proc main
+    print(Int.to_string(Int::SIZE))
+    print(Int.to_string(Int::SIZE + 4))

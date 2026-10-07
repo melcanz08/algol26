@@ -1,0 +1,10 @@
+// ERROR_CODE: E0002
+trait Sizable
+    const SIZE: Int
+
+impl Sizable for Int
+    function describe(self: &Int) -> String
+        return "int"
+
+proc main
+    print(Int.to_string(Int::SIZE))

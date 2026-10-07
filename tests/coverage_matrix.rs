@@ -537,6 +537,15 @@ pub const MATRIX: &[FeatureRow] = &[
                 See ADR 0032.",
     },
     FeatureRow {
+        name: "associated_constants",
+        conformance_dir: Some("associated_constants"),
+        interpreter: Support::Full,
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "",
+    },
+    FeatureRow {
         name: "nominal_types",
         conformance_dir: Some("nominal_types"),
         interpreter: Support::Full,

@@ -42,6 +42,10 @@ impl Backend for LlvmBackend {
             codegen.record_decls.insert(rec.name.clone(), rec.clone());
         }
 
+        codegen.nominal_types = ir.program().nominal_types.clone();
+        codegen.enum_types = ir.program().enum_types.clone();
+        codegen.subrange_types = ir.program().subrange_types.clone();
+
         codegen.compile(ir.program()).map_err(|e| {
             let error_msg = format!("Codegen failed: {}", e);
             e.display();

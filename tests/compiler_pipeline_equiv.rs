@@ -153,8 +153,8 @@ fn optimize_pass_produces_identical_ir_to_direct_call() {
             _ => panic!("optimize pipeline did not produce verified IR"),
         };
         assert_eq!(
-            format!("{:?}", ir_a),
-            format!("{:?}", ir_b),
+            canonical_semantic(&ir_a),
+            canonical_semantic(&ir_b),
             "optimizer output diverges on {}",
             filename
         );
@@ -221,8 +221,8 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
         };
 
         assert_eq!(
-            format!("{:?}", direct),
-            format!("{:?}", via_pass),
+            canonical_semantic(&direct),
+            canonical_semantic(&via_pass),
             "IR diverges on {}",
             filename
         );
@@ -248,6 +248,58 @@ fn canonical_typed(typed: &algol26::compiler::TypedProgram) -> String {
     format!(
         "functions={:?}\ntype_info={:?}\ntype_table={:?}",
         typed.functions, typed.type_info, entries
+    )
+}
+
+/// Canonical string form of a `SemanticProgram` for comparison.
+///
+/// `SemanticProgram` carries `HashMap`s (`ffi_symbols`,
+/// `nominal_types`, `enum_types`, `subrange_types`) and a `HashSet`
+/// (`variadic_functions`). Their `Debug` output depends on internal
+/// iteration order, so two programs with the same contents produce
+/// different strings. Sort each before formatting.
+fn canonical_semantic(p: &SemanticProgram) -> String {
+    let mut ffi: Vec<(&String, &String)> = p.ffi_symbols.iter().collect();
+    ffi.sort_by(|a, b| a.0.cmp(b.0));
+
+    let mut nom: Vec<(&String, String)> = p
+        .nominal_types
+        .iter()
+        .map(|(k, v)| (k, format!("{:?}", v)))
+        .collect();
+    nom.sort_by(|a, b| a.0.cmp(b.0));
+
+    let mut enu: Vec<(&String, String)> = p
+        .enum_types
+        .iter()
+        .map(|(k, v)| (k, format!("{:?}", v)))
+        .collect();
+    enu.sort_by(|a, b| a.0.cmp(b.0));
+
+    let mut sub: Vec<(&String, String)> = p
+        .subrange_types
+        .iter()
+        .map(|(k, v)| (k, format!("{:?}", v)))
+        .collect();
+    sub.sort_by(|a, b| a.0.cmp(b.0));
+
+    let mut variadic: Vec<&String> = p.variadic_functions.iter().collect();
+    variadic.sort();
+
+    let mut libs = p.ffi_libraries.clone();
+    libs.sort();
+
+    format!(
+        "functions={:?}\nblock_counter={}\nffi_symbols={:?}\nffi_libraries={:?}\nvariadic={:?}\nrecords={:?}\nnominal={:?}\nenum={:?}\nsubrange={:?}",
+        p.functions,
+        p.block_counter,
+        ffi,
+        libs,
+        variadic,
+        p.records,
+        nom,
+        enu,
+        sub,
     )
 }
 

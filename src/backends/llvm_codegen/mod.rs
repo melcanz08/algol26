@@ -72,6 +72,12 @@ pub struct IRCodeGen<'ctx> {
     /// Record declarations, keyed by name. Populated once at
     /// compile time from `SemanticProgram.records`. ADR 0036 L1.
     pub(super) record_decls: HashMap<String, crate::frontend::ast::RecordDecl>,
+    /// Nominal / enum / subrange declarations, keyed by name.
+    /// Consulted by `resolve_field_type` when lowering a record's
+    /// fields. ADR 0036 L1 amendment.
+    pub(super) nominal_types: HashMap<String, Type>,
+    pub(super) enum_types: HashMap<String, Type>,
+    pub(super) subrange_types: HashMap<String, Type>,
     /// Cache of LLVM named struct types built from `record_decls`.
     /// `RefCell` because `map_type` takes `&self` but the cache is
     /// lazily populated on first use.
@@ -142,6 +148,9 @@ impl<'ctx> IRCodeGen<'ctx> {
             region_frames: Vec::new(),
             iter_counter: 0,
             record_decls: HashMap::new(),
+            nominal_types: HashMap::new(),
+            enum_types: HashMap::new(),
+            subrange_types: HashMap::new(),
             record_struct_types: std::cell::RefCell::new(HashMap::new()),
         }
     }
@@ -166,6 +175,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         if self.functions.contains_key(&clean_name) {
             return Ok(());
         }
+
         // If the extern declared `as "sym"`, the LLVM symbol is
         // the C name; the ALGOL26 name is preserved as the
         // lookup key in `self.functions` so call sites continue
@@ -193,7 +203,18 @@ impl<'ctx> IRCodeGen<'ctx> {
             Type::Int => self.context.i64_type().fn_type(&param_types, is_variadic),
             Type::Float => self.context.f64_type().fn_type(&param_types, is_variadic),
             Type::Bool => self.context.bool_type().fn_type(&param_types, is_variadic),
-            Type::String | Type::Ptr | Type::Pointer(_) => self
+            // Pointer-represented types. Records are always passed
+            // and returned by pointer (see `TypedIRValue::Record`
+            // lowering); references are pointers by definition; raw
+            // pointers and channels are already `ptr` in LLVM's
+            // opaque-pointer mode. ADR 0036.
+            Type::String
+            | Type::Ptr
+            | Type::Pointer(_)
+            | Type::Borrow(_)
+            | Type::MutBorrow(_)
+            | Type::Record(..)
+            | Type::Channel(_) => self
                 .context
                 .ptr_type(AddressSpace::default())
                 .fn_type(&param_types, is_variadic),

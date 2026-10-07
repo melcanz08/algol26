@@ -316,6 +316,9 @@ impl SemanticIRBuilder {
             }
         }
         program.records = self.records.clone();
+        program.nominal_types = self.nominal_types.clone();
+        program.enum_types = self.enum_types.clone();
+        program.subrange_types = self.subrange_types.clone();
         program
     }
 

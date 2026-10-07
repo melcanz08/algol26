@@ -71,6 +71,16 @@ pub struct SemanticProgram {
     /// by LLVM codegen's `map_type` to build named struct types.
     /// ADR 0036 L1.
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    /// Nominal type declarations (`type X distinct Y`), keyed by name.
+    /// Values carry the assigned `NominalTypeId`. Consumed by LLVM
+    /// codegen's `resolve_field_type` so a record field of nominal
+    /// type resolves to the concrete `Type::Distinct` rather than
+    /// `Type::Unknown`. ADR 0036 L1 amendment.
+    pub nominal_types: HashMap<String, Type>,
+    /// Enum type declarations, keyed by name. Same rationale.
+    pub enum_types: HashMap<String, Type>,
+    /// Subrange type declarations, keyed by name. Same rationale.
+    pub subrange_types: HashMap<String, Type>,
 }
 
 impl Default for SemanticProgram {
@@ -88,6 +98,9 @@ impl SemanticProgram {
             ffi_libraries: Vec::new(),
             variadic_functions: std::collections::HashSet::new(),
             records: Vec::new(),
+            nominal_types: HashMap::new(),
+            enum_types: HashMap::new(),
+            subrange_types: HashMap::new(),
         }
     }
     pub fn new_block_id(&mut self) -> usize {

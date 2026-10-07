@@ -1422,20 +1422,14 @@ impl SemanticAnalyzer {
                 // Same surface syntax, same meaning, regardless of
                 // the receiver's shape.
                 match &receiver_type {
-                    Type::Distinct { base, .. } => {
-                        if method == "to_base" && args.is_empty() {
-                            return Ok((**base).clone());
-                        }
+                    Type::Distinct { base, .. } if method == "to_base" && args.is_empty() => {
+                        return Ok((**base).clone());
                     }
-                    Type::Enum { .. } => {
-                        if method == "to_ordinal" && args.is_empty() {
-                            return Ok(Type::Int);
-                        }
+                    Type::Enum { .. } if method == "to_ordinal" && args.is_empty() => {
+                        return Ok(Type::Int);
                     }
-                    Type::Subrange { base, .. } => {
-                        if method == "to_base" && args.is_empty() {
-                            return Ok((**base).clone());
-                        }
+                    Type::Subrange { base, .. } if method == "to_base" && args.is_empty() => {
+                        return Ok((**base).clone());
                     }
                     _ => {}
                 }

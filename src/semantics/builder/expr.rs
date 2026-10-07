@@ -1155,31 +1155,25 @@ impl SemanticIRBuilder {
                 // subrange receiver with `to_base` / `to_ordinal`
                 // lowers to a no-op Cast that carries the target type.
                 match &receiver_type {
-                    Type::Distinct { base, .. } => {
-                        if method == "to_base" && args.is_empty() {
-                            let base_ty = (**base).clone();
-                            return TypedIRValue::Cast {
-                                value: Box::new(receiver_value),
-                                target_type: base_ty,
-                            };
-                        }
+                    Type::Distinct { base, .. } if method == "to_base" && args.is_empty() => {
+                        let base_ty = (**base).clone();
+                        return TypedIRValue::Cast {
+                            value: Box::new(receiver_value),
+                            target_type: base_ty,
+                        };
                     }
-                    Type::Enum { .. } => {
-                        if method == "to_ordinal" && args.is_empty() {
-                            return TypedIRValue::Cast {
-                                value: Box::new(receiver_value),
-                                target_type: Type::Int,
-                            };
-                        }
+                    Type::Enum { .. } if method == "to_ordinal" && args.is_empty() => {
+                        return TypedIRValue::Cast {
+                            value: Box::new(receiver_value),
+                            target_type: Type::Int,
+                        };
                     }
-                    Type::Subrange { base, .. } => {
-                        if method == "to_base" && args.is_empty() {
-                            let base_ty = (**base).clone();
-                            return TypedIRValue::Cast {
-                                value: Box::new(receiver_value),
-                                target_type: base_ty,
-                            };
-                        }
+                    Type::Subrange { base, .. } if method == "to_base" && args.is_empty() => {
+                        let base_ty = (**base).clone();
+                        return TypedIRValue::Cast {
+                            value: Box::new(receiver_value),
+                            target_type: base_ty,
+                        };
                     }
                     _ => {}
                 }

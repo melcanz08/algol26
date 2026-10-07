@@ -16,6 +16,15 @@ impl<'ctx> IRCodeGen<'ctx> {
         use crate::frontend::ast::TypeSyntax;
         match ts {
             TypeSyntax::Named(name) => {
+                if let Some(nom) = self.nominal_types.get(name) {
+                    return nom.clone();
+                }
+                if let Some(en) = self.enum_types.get(name) {
+                    return en.clone();
+                }
+                if let Some(sub) = self.subrange_types.get(name) {
+                    return sub.clone();
+                }
                 if self.record_decls.contains_key(name) {
                     return Type::record(name, Vec::new());
                 }

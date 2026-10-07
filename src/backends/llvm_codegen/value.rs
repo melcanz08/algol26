@@ -270,6 +270,21 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .build_call(callee, &call_args, "calltmp")
                         .unwrap();
                     match call_site.try_as_basic_value() {
+                        // A record-returning call yields a struct
+                        // value. Store it in a fresh alloca and use
+                        // the alloca pointer as the value, matching
+                        // how `TypedIRValue::Record{...}` is
+                        // represented.
+                        inkwell::values::ValueKind::Basic(v)
+                            if matches!(return_type, Type::Record(..)) && v.is_struct_value() =>
+                        {
+                            let alloca = self
+                                .builder
+                                .build_alloca(v.get_type(), "call_rec_tmp")
+                                .unwrap();
+                            self.builder.build_store(alloca, v).unwrap();
+                            alloca.into()
+                        }
                         inkwell::values::ValueKind::Basic(v) => v,
                         // A call that returns void cannot be used as a
                         // value. The IR should have used

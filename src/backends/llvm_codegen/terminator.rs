@@ -37,7 +37,25 @@ impl<'ctx> IRCodeGen<'ctx> {
                 }
                 if let Some(v) = value {
                     let compiled = self.compile_value(v)?;
-                    self.builder.build_return(Some(&compiled)).unwrap();
+                    // Records are represented as pointers to allocas
+                    // throughout codegen (record literals allocate,
+                    // field access GEPs). But the ABI returns them by
+                    // value: load the struct out of its alloca first.
+                    // `compile_value(Variable)` for a record variable
+                    // already produces the struct, so handle both.
+                    if matches!(ret_type, Type::Record(..)) {
+                        let to_return = if compiled.is_pointer_value() {
+                            let struct_ty = self.map_type(ret_type);
+                            self.builder
+                                .build_load(struct_ty, compiled.into_pointer_value(), "ret_record")
+                                .unwrap()
+                        } else {
+                            compiled
+                        };
+                        self.builder.build_return(Some(&to_return)).unwrap();
+                    } else {
+                        self.builder.build_return(Some(&compiled)).unwrap();
+                    }
                 } else {
                     if *ret_type == Type::Void {
                         self.builder.build_return(None).unwrap();

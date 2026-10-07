@@ -195,6 +195,11 @@ impl BackendCapabilities {
         supported.insert(Feature::IntToString);
         supported.insert(Feature::StringOps);
         supported.insert(Feature::Option);
+        // By-value record parameters and returns use the LLVM
+        // struct ABI: parameters arrive as struct values, returns
+        // are struct values stored into the caller's alloca. See
+        // ADR 0036 follow-up.
+        supported.insert(Feature::RecordByValue);
         BackendCapabilities {
             name: "LLVM",
             supported,

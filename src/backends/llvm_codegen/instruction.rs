@@ -345,7 +345,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                                 if let Some(ptr) = self.variables.get(res_name).cloned() {
                                     self.builder.build_store(ptr, ret).unwrap();
                                 } else {
-                                    let alloca = self.create_entry_alloca(res_name, &Type::Float);
+                                    // Struct-returning calls (records,
+                                    // Option, Result) need an alloca of
+                                    // the actual struct type — a `f64`
+                                    // scratch slot is only 8 bytes and
+                                    // overflows on multi-field records.
+                                    // The subsequent `Declare` copies
+                                    // through a properly-typed alloca;
+                                    // this one just has to be big enough.
+                                    let alloca = if ret.is_struct_value() {
+                                        self.create_entry_alloca_llvm(res_name, ret.get_type())
+                                    } else {
+                                        self.create_entry_alloca(res_name, &Type::Float)
+                                    };
                                     self.builder.build_store(alloca, ret).unwrap();
                                     self.variables.insert(res_name.clone(), alloca);
                                     self.var_types.insert(res_name.clone(), Type::Float);

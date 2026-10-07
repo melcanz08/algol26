@@ -234,11 +234,28 @@ impl<'ctx> IRCodeGen<'ctx> {
             | Type::Pointer(_)
             | Type::Borrow(_)
             | Type::MutBorrow(_)
-            | Type::Record(..)
             | Type::Channel(_) => self
                 .context
                 .ptr_type(AddressSpace::default())
                 .fn_type(&param_types, is_variadic),
+            // Records are returned by value as their LLVM struct
+            // type. Returning `ptr` to a function-local alloca (the
+            // previous behavior) produced a pointer to a dead stack
+            // slot. The body loads the struct out of its local
+            // alloca before returning; the caller stores the
+            // returned struct into its own alloca.
+            Type::Record(..) => match self.map_type(&func.return_type) {
+                BasicTypeEnum::StructType(st) => st.fn_type(&param_types, is_variadic),
+                _ => {
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "record return type did not map to a struct for `{}`",
+                            func.name
+                        ),
+                        "llvm",
+                    ));
+                }
+            },
             ref other => {
                 return Err(CompileError::unsupported_operation(
                     &format!(
@@ -449,6 +466,24 @@ impl<'ctx> IRCodeGen<'ctx> {
             None => builder.position_at_end(entry),
         }
         let llvm_ty = self.map_type(ty);
+        builder.build_alloca(llvm_ty, name).unwrap()
+    }
+
+    /// Same as `create_entry_alloca`, but takes an LLVM type directly.
+    /// Used when the ALGOL26 `Type` isn't available — e.g. storing a
+    /// struct-returning call's result into a caller alloca.
+    pub(super) fn create_entry_alloca_llvm(
+        &self,
+        name: &str,
+        llvm_ty: BasicTypeEnum<'ctx>,
+    ) -> PointerValue<'ctx> {
+        let func = self.current_function.unwrap();
+        let entry = func.get_first_basic_block().unwrap();
+        let builder = self.context.create_builder();
+        match entry.get_first_instruction() {
+            Some(instr) => builder.position_before(&instr),
+            None => builder.position_at_end(entry),
+        }
         builder.build_alloca(llvm_ty, name).unwrap()
     }
 }

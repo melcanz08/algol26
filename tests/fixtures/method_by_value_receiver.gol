@@ -1,4 +1,4 @@
-// supported: interpreter
+// supported: interpreter llvm
 // By-value receiver on a record: `self: Book` consumes the receiver
 // and returns a new record. LLVM codegen refuses this today (function
 // signature and return-value ABI disagree for record types). Change

@@ -1,0 +1,7 @@
+// supported: interpreter llvm wasm
+// Defer LIFO ordering. Basic defer emission, no captures.
+proc main
+    defer print("third")
+    defer print("second")
+    defer print("first")
+    print("body")

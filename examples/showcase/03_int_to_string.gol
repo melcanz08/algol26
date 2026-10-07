@@ -1,0 +1,5 @@
+// supported: interpreter llvm wasm
+// Int.to_string, straightforward lowering on all backends.
+proc main
+    print(Int.to_string(42))
+    print(Int.to_string(-7))

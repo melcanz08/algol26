@@ -1,0 +1,21 @@
+// supported: interpreter llvm wasm
+// Records by reference (shared and mutable), field access, field
+// assignment. Non-generic records with reference receivers.
+// By-value record receivers and returns are a separate fixture
+// (method_by_value_receiver.gol).
+rec Point
+    x: Int
+    y: Int
+
+impl Point
+    function sum(self: &Point) -> Int
+        return self.x + self.y
+
+    function translate(self: &mut Point, dx: Int)
+        self.x := self.x + dx
+
+proc main
+    var p := Point { x: 3, y: 4 }
+    print(Int.to_string(p.sum()))
+    p.translate(10)
+    print(Int.to_string(p.x))

@@ -1,0 +1,21 @@
+// supported: interpreter llvm wasm
+// Exercises match on enum variants. Lowered to an integer switch
+// on the variant ordinal (ADR 0030).
+enum Color
+    Red
+    Green
+    Blue
+
+function name(c: Color) -> String
+    return match c
+        case Red
+            "red"
+        case Green
+            "green"
+        case Blue
+            "blue"
+
+proc main
+    print(name(Color.Red))
+    print(name(Color.Green))
+    print(name(Color.Blue))

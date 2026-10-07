@@ -1,0 +1,8 @@
+// supported: interpreter llvm wasm
+// Option<T> values. LLVM has no tag+payload representation for
+// Option. Change the header above when the compiled backends
+// lower it.
+proc main
+    val x := Some(42)
+    val y := None
+    print("ok")

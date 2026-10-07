@@ -727,6 +727,17 @@ impl SemanticAnalyzer {
                 Ok(result_type)
             }
             ExprKind::Var(name, span) => {
+                // Associated constant reference: `Foo::SIZE`. The
+                // parser folds `::` into the name string, so we
+                // intercept before the ordinary variable lookup.
+                // Constants are never moved or borrowed — they are
+                // pure compile-time values.
+                if name.contains("::") {
+                    if let Some((ty, _)) = self.const_values.get(name) {
+                        return Ok(ty.clone());
+                    }
+                }
+
                 if self.is_moved(name) {
                     let mut err = CompileError::at(
                         *span,

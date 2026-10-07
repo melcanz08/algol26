@@ -74,6 +74,11 @@ pub struct SemanticAnalyzer {
     subrange_types: HashMap<String, Type>,
     /// Monotonic counter for `SubrangeTypeId`.
     next_subrange_id: u32,
+    /// Associated constants: `"Foo::SIZE"` -> (declared type, value expr).
+    /// The analyzer registers these from impl bodies and resolves
+    /// `Foo::SIZE` at use sites. The IR builder reads the same map
+    /// via `take_const_values` to inline the value.
+    const_values: HashMap<String, (Type, Expr)>,
     /// Function names declared variadic via `extern "C" ...(...)`.
     /// Used to relax the arity check from "exactly N" to "at
     /// least N" for those functions.
@@ -202,6 +207,7 @@ impl SemanticAnalyzer {
             next_enum_id: 0,
             subrange_types: HashMap::new(),
             next_subrange_id: 0,
+            const_values: HashMap::new(),
         }
     }
 
@@ -261,6 +267,12 @@ impl SemanticAnalyzer {
     /// See ADR 0031.
     pub fn take_subrange_types(&mut self) -> HashMap<String, Type> {
         std::mem::take(&mut self.subrange_types)
+    }
+
+    /// Take the associated-constant map so it can be handed to the
+    /// IR builder. Keyed by `"Type::NAME"`.
+    pub fn take_const_values(&mut self) -> HashMap<String, (Type, Expr)> {
+        std::mem::take(&mut self.const_values)
     }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
@@ -463,6 +475,105 @@ impl SemanticAnalyzer {
                         &format!(
                             "Method '{}' on '{}' collides with a field of the same name",
                             method.name, impl_block.target_type
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+            }
+        }
+
+        // ─── Associated constants ───
+        // Two passes because trait impls must verify their
+        // constants against the trait's declarations, while
+        // inherent impls are self-declaring.
+        for impl_block in impls {
+            let Some(trait_name) = impl_block.trait_name.as_ref() else {
+                // Inherent impl: register each constant directly.
+                for imp_const in &impl_block.constants {
+                    let declared_ty = self.resolve_type_syntax(&imp_const.type_)?;
+                    let actual_ty = self.analyze_expr(&imp_const.value)?;
+                    if !actual_ty.can_coerce_to(&declared_ty)
+                        && declared_ty != Type::Unknown
+                        && actual_ty != Type::Unknown
+                    {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "Constant '{}::{}': expected {}, found {}",
+                                impl_block.target_type, imp_const.name, declared_ty, actual_ty
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    let key = format!("{}::{}", impl_block.target_type, imp_const.name);
+                    self.const_values
+                        .insert(key, (declared_ty, imp_const.value.clone()));
+                }
+                continue;
+            };
+
+            // Trait impl: match each definition against the trait's
+            // declaration, and require every declaration to have a
+            // definition.
+            let trait_decl = traits.iter().find(|t| &t.name == trait_name).cloned();
+            let Some(trait_decl) = trait_decl else {
+                continue;
+            };
+
+            for imp_const in &impl_block.constants {
+                let Some(trait_const) = trait_decl
+                    .constants
+                    .iter()
+                    .find(|c| c.name == imp_const.name)
+                else {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Constant '{}' on '{}' is not declared in trait '{}'",
+                            imp_const.name, impl_block.target_type, trait_name
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                };
+                let declared_ty = self.resolve_type_syntax(&trait_const.type_)?;
+                let actual_ty = self.analyze_expr(&imp_const.value)?;
+                if !actual_ty.can_coerce_to(&declared_ty)
+                    && declared_ty != Type::Unknown
+                    && actual_ty != Type::Unknown
+                {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Constant '{}::{}': expected {}, found {}",
+                            impl_block.target_type, imp_const.name, declared_ty, actual_ty
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let key = format!("{}::{}", impl_block.target_type, imp_const.name);
+                self.const_values
+                    .insert(key, (declared_ty, imp_const.value.clone()));
+            }
+
+            for trait_const in &trait_decl.constants {
+                if !impl_block
+                    .constants
+                    .iter()
+                    .any(|c| c.name == trait_const.name)
+                {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Impl of trait '{}' for '{}' does not define constant '{}'",
+                            trait_name, impl_block.target_type, trait_const.name
                         ),
                         0,
                         0,

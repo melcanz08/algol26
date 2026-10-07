@@ -409,14 +409,14 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "string_ops",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
-        wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_string_ops", "wasm_rejects_string_ops"],
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
         notes: "Capability gate for String.concat / substring / trim / \
                 to_upper / to_lower. Individual op conformance is tracked \
                 by the string_concat / string_substring / \
-                string_case_conversion rows. Interpreter-only until the \
-                malloc-based LLVM codegen lands.",
+                string_case_conversion rows. LLVM/WASM lower via \
+                algol26_string_* helpers in register_stdlib.",
     },
     FeatureRow {
         name: "records",

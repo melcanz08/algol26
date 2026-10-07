@@ -304,6 +304,31 @@ const env = {
         const sb = readCString(b);
         return sa < sb ? -1 : sa > sb ? 1 : 0;
     },
+    toupper: function (c) {
+        // ASCII-only. Matches the LLVM codegen's dependency on libc
+        // toupper, which the wasm32 build will resolve to this shim.
+        return (c >= 97 && c <= 122) ? c - 32 : c;
+    },
+    tolower: function (c) {
+        return (c >= 65 && c <= 90) ? c + 32 : c;
+    },
+    memcpy: function (dst, src, n) {
+        const mem = new Uint8Array(linearMemory.buffer);
+        for (let i = 0; i < n; i++) {
+            mem[dst + i] = mem[src + i];
+        }
+        return dst;
+    },
+    strcpy: function (dst, src) {
+        const mem = new Uint8Array(linearMemory.buffer);
+        let i = 0;
+        while (mem[src + i] !== 0) {
+            mem[dst + i] = mem[src + i];
+            i++;
+        }
+        mem[dst + i] = 0;
+        return dst;
+    },
     strcat: function (dst, src) {
         const s = readCString(src);
         const mem = new Uint8Array(linearMemory.buffer);

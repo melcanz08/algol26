@@ -84,6 +84,368 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_strlen_utf8".to_string(), utf8_len_fn);
 
+        // ── algol26_string_concat ──
+        // Allocates strlen(a)+strlen(b)+1 bytes, copies both strings
+        // into the buffer, NUL-terminates. Used by `String.concat`.
+        // ADR 00XX (string builtins on LLVM/WASM).
+        let concat_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+        let concat_fn = self
+            .module
+            .add_function("algol26_string_concat", concat_ty, None);
+        self.functions
+            .insert("algol26_string_concat".to_string(), concat_fn);
+        {
+            let saved = self.builder.get_insert_block();
+            let entry = self.context.append_basic_block(concat_fn, "entry");
+            self.builder.position_at_end(entry);
+
+            let a = concat_fn.get_nth_param(0).unwrap().into_pointer_value();
+            let b = concat_fn.get_nth_param(1).unwrap().into_pointer_value();
+            let i64_loc = self.context.i64_type();
+
+            let strlen_ty = i64_loc.fn_type(&[i8_ptr.into()], false);
+            let strlen_fn = self
+                .module
+                .get_function("strlen")
+                .unwrap_or_else(|| self.module.add_function("strlen", strlen_ty, None));
+            let la_call = self
+                .builder
+                .build_call(strlen_fn, &[a.into()], "la")
+                .unwrap();
+            let la = match la_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                inkwell::values::ValueKind::Instruction(_) => {
+                    unreachable!("algol26_string_concat: strlen(a) returned no value")
+                }
+            };
+            let lb_call = self
+                .builder
+                .build_call(strlen_fn, &[b.into()], "lb")
+                .unwrap();
+            let lb = match lb_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                inkwell::values::ValueKind::Instruction(_) => {
+                    unreachable!("algol26_string_concat: strlen(b) returned no value")
+                }
+            };
+            let total = self.builder.build_int_add(la, lb, "total").unwrap();
+            let size = self
+                .builder
+                .build_int_add(total, i64_loc.const_int(1, false), "size")
+                .unwrap();
+
+            let malloc_ty = i8_ptr.fn_type(&[i64_loc.into()], false);
+            let malloc_fn = self
+                .module
+                .get_function("malloc")
+                .unwrap_or_else(|| self.module.add_function("malloc", malloc_ty, None));
+            let buf_call = self
+                .builder
+                .build_call(malloc_fn, &[size.into()], "buf")
+                .unwrap();
+            let buf = match buf_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                inkwell::values::ValueKind::Instruction(_) => {
+                    unreachable!("algol26_string_concat: malloc returned no value")
+                }
+            };
+
+            let strcpy_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+            let strcpy_fn = self
+                .module
+                .get_function("strcpy")
+                .unwrap_or_else(|| self.module.add_function("strcpy", strcpy_ty, None));
+            let strcat_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+            let strcat_fn = self
+                .module
+                .get_function("strcat")
+                .unwrap_or_else(|| self.module.add_function("strcat", strcat_ty, None));
+
+            self.builder
+                .build_call(strcpy_fn, &[buf.into(), a.into()], "")
+                .unwrap();
+            self.builder
+                .build_call(strcat_fn, &[buf.into(), b.into()], "")
+                .unwrap();
+            self.builder.build_return(Some(&buf)).unwrap();
+
+            if let Some(bb) = saved {
+                self.builder.position_at_end(bb);
+            }
+        }
+
+        // ── algol26_string_to_upper / _to_lower ──
+        // Allocate strlen(s)+1 bytes, walk bytes, apply the C
+        // ctype function, NUL-terminate.
+        for (fn_name, c_name) in [
+            ("algol26_string_to_upper", "toupper"),
+            ("algol26_string_to_lower", "tolower"),
+        ] {
+            let f_ty = i8_ptr.fn_type(&[i8_ptr.into()], false);
+            let f = self.module.add_function(fn_name, f_ty, None);
+            self.functions.insert(fn_name.to_string(), f);
+
+            let i32_ty_loc = self.context.i32_type();
+            let c_ty = i32_ty_loc.fn_type(&[i32_ty_loc.into()], false);
+            let c_fn = self
+                .module
+                .get_function(c_name)
+                .unwrap_or_else(|| self.module.add_function(c_name, c_ty, None));
+
+            let saved = self.builder.get_insert_block();
+            let entry = self.context.append_basic_block(f, "entry");
+            let loop_bb = self.context.append_basic_block(f, "loop");
+            let body_bb = self.context.append_basic_block(f, "body");
+            let done_bb = self.context.append_basic_block(f, "done");
+            self.builder.position_at_end(entry);
+
+            let src = f.get_nth_param(0).unwrap().into_pointer_value();
+            let i64_loc = self.context.i64_type();
+            let i8_loc = self.context.i8_type();
+
+            let strlen_ty = i64_loc.fn_type(&[i8_ptr.into()], false);
+            let strlen_fn = self
+                .module
+                .get_function("strlen")
+                .unwrap_or_else(|| self.module.add_function("strlen", strlen_ty, None));
+            let len_call = self
+                .builder
+                .build_call(strlen_fn, &[src.into()], "len")
+                .unwrap();
+            let len = match len_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                inkwell::values::ValueKind::Instruction(_) => unreachable!(),
+            };
+
+            let size = self
+                .builder
+                .build_int_add(len, i64_loc.const_int(1, false), "size")
+                .unwrap();
+            let malloc_ty = i8_ptr.fn_type(&[i64_loc.into()], false);
+            let malloc_fn = self
+                .module
+                .get_function("malloc")
+                .unwrap_or_else(|| self.module.add_function("malloc", malloc_ty, None));
+            let buf_call = self
+                .builder
+                .build_call(malloc_fn, &[size.into()], "buf")
+                .unwrap();
+            let buf = match buf_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                inkwell::values::ValueKind::Instruction(_) => unreachable!(),
+            };
+
+            let idx_ptr = self.builder.build_alloca(i64_loc, "idx").unwrap();
+            self.builder
+                .build_store(idx_ptr, i64_loc.const_zero())
+                .unwrap();
+            self.builder.build_unconditional_branch(loop_bb).unwrap();
+
+            // loop: load byte; if NUL, goto done; else goto body
+            self.builder.position_at_end(loop_bb);
+            let i = self
+                .builder
+                .build_load(i64_loc, idx_ptr, "i")
+                .unwrap()
+                .into_int_value();
+            let src_p = unsafe { self.builder.build_gep(i8_loc, src, &[i], "src_p").unwrap() };
+            let byte = self
+                .builder
+                .build_load(i8_loc, src_p, "byte")
+                .unwrap()
+                .into_int_value();
+            let is_end = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    byte,
+                    i8_loc.const_zero(),
+                    "is_end",
+                )
+                .unwrap();
+            self.builder
+                .build_conditional_branch(is_end, done_bb, body_bb)
+                .unwrap();
+
+            // body: buf[i] = c_fn(byte); idx++; goto loop
+            self.builder.position_at_end(body_bb);
+            let byte_wide = self
+                .builder
+                .build_int_z_extend(byte, i32_ty_loc, "byte32")
+                .unwrap();
+            let trans_call = self
+                .builder
+                .build_call(c_fn, &[byte_wide.into()], "trans")
+                .unwrap();
+            let trans = match trans_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                inkwell::values::ValueKind::Instruction(_) => unreachable!(),
+            };
+            let trans_byte = self
+                .builder
+                .build_int_truncate(trans, i8_loc, "trans8")
+                .unwrap();
+            let dst_p = unsafe { self.builder.build_gep(i8_loc, buf, &[i], "dst_p").unwrap() };
+            self.builder.build_store(dst_p, trans_byte).unwrap();
+            let i_next = self
+                .builder
+                .build_int_add(i, i64_loc.const_int(1, false), "i_next")
+                .unwrap();
+            self.builder.build_store(idx_ptr, i_next).unwrap();
+            self.builder.build_unconditional_branch(loop_bb).unwrap();
+
+            // done: buf[len] = 0; return buf
+            self.builder.position_at_end(done_bb);
+            let end_p = unsafe {
+                self.builder
+                    .build_gep(i8_loc, buf, &[len], "end_p")
+                    .unwrap()
+            };
+            self.builder
+                .build_store(end_p, i8_loc.const_zero())
+                .unwrap();
+            self.builder.build_return(Some(&buf)).unwrap();
+
+            if let Some(bb) = saved {
+                self.builder.position_at_end(bb);
+            }
+        }
+
+        // ── algol26_string_substring(s, start, length) -> i8* ──
+        // Clamps start and length to the string's bounds, mallocs,
+        // memcpy's the slice, NUL-terminates. Straight-line: no
+        // loop, no basic blocks beyond entry.
+        {
+            let i64_loc = self.context.i64_type();
+            let i8_loc = self.context.i8_type();
+
+            let sub_ty = i8_ptr.fn_type(&[i8_ptr.into(), i64_loc.into(), i64_loc.into()], false);
+            let sub_fn = self
+                .module
+                .add_function("algol26_string_substring", sub_ty, None);
+            self.functions
+                .insert("algol26_string_substring".to_string(), sub_fn);
+
+            let saved = self.builder.get_insert_block();
+            let entry = self.context.append_basic_block(sub_fn, "entry");
+            self.builder.position_at_end(entry);
+
+            let s = sub_fn.get_nth_param(0).unwrap().into_pointer_value();
+            let start = sub_fn.get_nth_param(1).unwrap().into_int_value();
+            let len = sub_fn.get_nth_param(2).unwrap().into_int_value();
+            let zero = i64_loc.const_zero();
+            let one = i64_loc.const_int(1, false);
+
+            // n = strlen(s)
+            let strlen_ty = i64_loc.fn_type(&[i8_ptr.into()], false);
+            let strlen_fn = self
+                .module
+                .get_function("strlen")
+                .unwrap_or_else(|| self.module.add_function("strlen", strlen_ty, None));
+            let n_call = self
+                .builder
+                .build_call(strlen_fn, &[s.into()], "n")
+                .unwrap();
+            let n = match n_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                _ => unreachable!(),
+            };
+
+            // Clamp start to [0, n]: start_b = clamp(start, 0, n)
+            let start_neg = self
+                .builder
+                .build_int_compare(inkwell::IntPredicate::SLT, start, zero, "start_neg")
+                .unwrap();
+            let zero_bv: inkwell::values::BasicValueEnum = zero.into();
+            let start_bv: inkwell::values::BasicValueEnum = start.into();
+            let start_a = self
+                .builder
+                .build_select(start_neg, zero_bv, start_bv, "start_a")
+                .unwrap()
+                .into_int_value();
+            let start_over = self
+                .builder
+                .build_int_compare(inkwell::IntPredicate::SGT, start_a, n, "start_over")
+                .unwrap();
+            let n_bv: inkwell::values::BasicValueEnum = n.into();
+            let start_a_bv: inkwell::values::BasicValueEnum = start_a.into();
+            let start_b = self
+                .builder
+                .build_select(start_over, n_bv, start_a_bv, "start_b")
+                .unwrap()
+                .into_int_value();
+
+            // Clamp length to [0, n - start_b]
+            let len_neg = self
+                .builder
+                .build_int_compare(inkwell::IntPredicate::SLT, len, zero, "len_neg")
+                .unwrap();
+            let len_bv: inkwell::values::BasicValueEnum = len.into();
+            let len_a = self
+                .builder
+                .build_select(len_neg, zero_bv, len_bv, "len_a")
+                .unwrap()
+                .into_int_value();
+            let available = self.builder.build_int_sub(n, start_b, "avail").unwrap();
+            let len_over = self
+                .builder
+                .build_int_compare(inkwell::IntPredicate::SGT, len_a, available, "len_over")
+                .unwrap();
+            let available_bv: inkwell::values::BasicValueEnum = available.into();
+            let len_a_bv: inkwell::values::BasicValueEnum = len_a.into();
+            let len_b = self
+                .builder
+                .build_select(len_over, available_bv, len_a_bv, "len_b")
+                .unwrap()
+                .into_int_value();
+
+            // buf = malloc(len_b + 1)
+            let size = self.builder.build_int_add(len_b, one, "size").unwrap();
+            let malloc_ty = i8_ptr.fn_type(&[i64_loc.into()], false);
+            let malloc_fn = self
+                .module
+                .get_function("malloc")
+                .unwrap_or_else(|| self.module.add_function("malloc", malloc_ty, None));
+            let buf_call = self
+                .builder
+                .build_call(malloc_fn, &[size.into()], "buf")
+                .unwrap();
+            let buf = match buf_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                _ => unreachable!(),
+            };
+
+            // memcpy(buf, s + start_b, len_b)
+            let memcpy_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into(), i64_loc.into()], false);
+            let memcpy_fn = self
+                .module
+                .get_function("memcpy")
+                .unwrap_or_else(|| self.module.add_function("memcpy", memcpy_ty, None));
+            let src_p = unsafe {
+                self.builder
+                    .build_gep(i8_loc, s, &[start_b], "src_p")
+                    .unwrap()
+            };
+            self.builder
+                .build_call(memcpy_fn, &[buf.into(), src_p.into(), len_b.into()], "")
+                .unwrap();
+
+            // buf[len_b] = 0
+            let end_p = unsafe {
+                self.builder
+                    .build_gep(i8_loc, buf, &[len_b], "end_p")
+                    .unwrap()
+            };
+            self.builder
+                .build_store(end_p, i8_loc.const_zero())
+                .unwrap();
+            self.builder.build_return(Some(&buf)).unwrap();
+
+            if let Some(bb) = saved {
+                self.builder.position_at_end(bb);
+            }
+        }
+
         let i64_ty = self.context.i64_type();
         let i8_ty = self.context.i8_type();
 
@@ -315,6 +677,155 @@ impl<'ctx> IRCodeGen<'ctx> {
             //
             // 24 bytes is enough for i64::MIN ("-9223372036854775808",
             // 20 chars) plus a NUL terminator, with room to spare.
+            "String.to_upper" => {
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        "String.to_upper requires 1 argument",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s = self.compile_value(&args[0])?;
+                let f = self
+                    .module
+                    .get_function("algol26_string_to_upper")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "internal: algol26_string_to_upper not registered",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self.builder.build_call(f, &[s.into()], "upper").unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
+                    inkwell::values::ValueKind::Instruction(_) => Err(CompileError::simple(
+                        "internal: to_upper returned no value",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )),
+                }
+            }
+            "String.to_lower" => {
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        "String.to_lower requires 1 argument",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s = self.compile_value(&args[0])?;
+                let f = self
+                    .module
+                    .get_function("algol26_string_to_lower")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "internal: algol26_string_to_lower not registered",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self.builder.build_call(f, &[s.into()], "lower").unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
+                    inkwell::values::ValueKind::Instruction(_) => Err(CompileError::simple(
+                        "internal: to_lower returned no value",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )),
+                }
+            }
+            "String.substring" => {
+                if args.len() != 3 {
+                    return Err(CompileError::simple(
+                        "String.substring requires 3 arguments (s, start, length)",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s = self.compile_value(&args[0])?;
+                let start = self.compile_value(&args[1])?;
+                let length = self.compile_value(&args[2])?;
+                let f = self
+                    .module
+                    .get_function("algol26_string_substring")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "internal: algol26_string_substring not registered",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self
+                    .builder
+                    .build_call(f, &[s.into(), start.into(), length.into()], "substr")
+                    .unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
+                    inkwell::values::ValueKind::Instruction(_) => Err(CompileError::simple(
+                        "internal: substring returned no value",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )),
+                }
+            }
+            "String.concat" => {
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        "String.concat requires 2 arguments",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let a = self.compile_value(&args[0])?;
+                let b = self.compile_value(&args[1])?;
+                let f = self
+                    .module
+                    .get_function("algol26_string_concat")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "internal: algol26_string_concat not registered",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self
+                    .builder
+                    .build_call(f, &[a.into(), b.into()], "concat")
+                    .unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
+                    inkwell::values::ValueKind::Instruction(_) => Err(CompileError::simple(
+                        "internal: concat returned no value",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )),
+                }
+            }
             "Int.to_string" => {
                 let arg = args.first().ok_or_else(|| {
                     CompileError::simple(

@@ -1,6 +1,6 @@
 # Algol26 Generated Showcase
 
-9 programs, each runs identically on interpreter, LLVM, and WASM.
+10 programs, each runs identically on interpreter, LLVM, and WASM.
 
 ## Programs
 
@@ -10,14 +10,14 @@
 4. `list_of_records.gol`
 5. `match_enum_variant.gol`
 6. `match_with_bindings.gol`
-7. `option_some.gol`
-8. `records_basic.gol`
-9. `string_ops_basic.gol`
+7. `method_by_value_receiver.gol`
+8. `option_some.gol`
+9. `records_basic.gol`
+10. `string_ops_basic.gol`
 
 ## Not in the showcase
 
 Interpreter-only fixtures. Each has a `// supported:` header.
 
 - `generic_record.gol`
-- `method_by_value_receiver.gol`
 - `string_split.gol`

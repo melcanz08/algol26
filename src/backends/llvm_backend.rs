@@ -34,6 +34,12 @@ impl Backend for LlvmBackend {
 
         let context = Context::create();
         let mut codegen = IRCodeGen::new(&context, "algol26_module");
+        // LLVM produces a native executable that the C runtime
+        // invokes with the standard `int main(int, char**)`
+        // signature. Request the C-ABI wrapper path: rename the
+        // user's `main` to `algol26_user_main`, then emit a
+        // proper `i32 @main()` shim.
+        codegen.c_abi_main = true;
 
         // ADR 0036 L1c: populate the record table before any
         // function is compiled. `map_type(Type::Record(..))` reads
@@ -51,6 +57,12 @@ impl Backend for LlvmBackend {
             e.display();
             CompileError::simple(&error_msg, 0, 0, "", ErrorCode::E0002)
         })?;
+
+        // Emit the C-ABI `i32 @main()` wrapper. See
+        // `emit_main_wrapper` — without this, the compiled binary
+        // returns garbage to the C runtime and exits with a
+        // nondeterministic status code.
+        codegen.emit_main_wrapper()?;
 
         // Verify BEFORE writing. If verification fails, the `.ll`
         // file never lands on disk and a user's `clang bad.ll`
@@ -78,7 +90,7 @@ impl Backend for LlvmBackend {
             )
         })?;
 
-        println!("[Generated LLVM IR: {}]", ir_path.display());
+        eprintln!("[Generated LLVM IR: {}]", ir_path.display());
 
         Ok(BackendOutput::LlvmIr { path: ir_path })
     }

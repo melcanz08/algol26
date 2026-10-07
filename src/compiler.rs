@@ -1060,7 +1060,7 @@ impl Compiler {
         // forwarded to clang as -l flags.
         let libraries = &verified.program().ffi_libraries;
         let output_path = crate::toolchain::link_llvm_ir(&ir_path, output_name, libraries)?;
-        println!("[Successfully compiled to {}]", output_path.display());
+        eprintln!("[Successfully compiled to {}]", output_path.display());
 
         if run_after_compile {
             crate::toolchain::run_binary(&output_path)?;

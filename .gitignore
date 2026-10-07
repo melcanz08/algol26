@@ -107,4 +107,4 @@ tests/corpus/**/*
 !tests/corpus/**/
 !tests/corpus/**/*.gol
 !tests/corpus/**/*.sh
-!tests/corpus/**/*.md
+!tests/corpus/**/*.mdtests/fixtures/*/

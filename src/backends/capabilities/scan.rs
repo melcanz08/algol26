@@ -33,6 +33,21 @@ fn type_mentions_reference(ty: &Type) -> bool {
     }
 }
 
+/// True if `ty` is a record type used *by value* — i.e. a top-level
+/// `Type::Record`. This is the signature-position check: a record
+/// parameter or return value requires the backend to agree on an
+/// ABI for record-sized values.
+///
+/// Deliberately does **not** recurse into `Borrow` / `MutBorrow`:
+/// `&Book` is a reference and is gated by `Feature::References`.
+/// It also does not recurse into `List<Book>` / `Option<Book>` —
+/// those are gated by their own container features (`ListAppend`,
+/// `Option`), and if a backend supports those containers it must
+/// already handle records inside them.
+fn is_record_by_value(ty: &Type) -> bool {
+    matches!(ty, Type::Record(_, _))
+}
+
 /// Classify a function name into a `Feature`, if it maps to one.
 ///
 /// This function is the **dispatch half** of the capability contract.
@@ -377,9 +392,15 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
             if type_mentions_reference(ty) {
                 used.insert(Feature::References);
             }
+            if is_record_by_value(ty) {
+                used.insert(Feature::RecordByValue);
+            }
         }
         if type_mentions_reference(&func.return_type) {
             used.insert(Feature::References);
+        }
+        if is_record_by_value(&func.return_type) {
+            used.insert(Feature::RecordByValue);
         }
 
         for block in &func.blocks {

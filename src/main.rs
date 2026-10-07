@@ -151,20 +151,20 @@ fn main() {
     };
 
     match command {
-        "check" => println!("[Checking {}]", filename),
+        "check" => eprintln!("[Checking {}]", filename),
         "build" => {
-            println!("[Compiling {}]", filename);
-            println!("[Output: {}]", output_name);
+            eprintln!("[Compiling {}]", filename);
+            eprintln!("[Output: {}]", output_name);
         }
         "run" => {
-            println!("[Compiling and running {}]", filename);
-            println!("[Output: {}]", output_name);
+            eprintln!("[Compiling and running {}]", filename);
+            eprintln!("[Output: {}]", output_name);
         }
         _ => {}
     }
 
     if command == "wasm" {
-        println!("[Compiling to WASM: {}]", filename);
+        eprintln!("[Compiling to WASM: {}]", filename);
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.compile_to_wasm(&source, &filename, &output_name) {
             let e = e.with_file(&filename);
@@ -172,7 +172,7 @@ fn main() {
             std::process::exit(1);
         }
     } else if use_interpreter {
-        println!("[Interpreting {}]", filename);
+        eprintln!("[Interpreting {}]", filename);
         let mut compiler = Compiler::new();
         if let Err(e) = compiler.run_interpreter_with_args(&source, &filename, program_args) {
             let e = e.with_file(&filename);

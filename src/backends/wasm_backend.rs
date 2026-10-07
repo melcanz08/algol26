@@ -176,7 +176,7 @@ impl Backend for WasmBackend {
 
         let _ = std::fs::remove_file(&obj_path);
 
-        println!("[Generated WASM: {}]", wasm_path);
+        eprintln!("[Generated WASM: {}]", wasm_path);
 
         Ok(BackendOutput::WasmModule {
             path: std::path::PathBuf::from(wasm_path),

@@ -1,0 +1,18 @@
+// supported: interpreter
+// By-value receiver on a record: `self: Book` consumes the receiver
+// and returns a new record. LLVM codegen refuses this today (function
+// signature and return-value ABI disagree for record types). Change
+// the header above to `interpreter llvm wasm` when the LLVM backend
+// lowers by-value records.
+rec Book
+    title: String
+    copies: Int
+
+impl Book
+    function retitled(self: Book, new_title: String) -> Book
+        return Book { title: new_title, copies: self.copies }
+
+proc main
+    val b := Book { title: "Dune", copies: 3 }
+    val renamed := b.retitled("Dune (Deluxe)")
+    print(renamed.title)

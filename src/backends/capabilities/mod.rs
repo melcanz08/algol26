@@ -70,6 +70,14 @@ pub enum Feature {
     CommandLineArgs,
     /// `rec` declarations, literals, field access and assignment.
     Records,
+    /// A record type appearing directly as a function parameter or
+    /// return type — i.e. passed or returned *by value* across a
+    /// function boundary. LLVM and WASM lower record literals and
+    /// field access (`Feature::Records`) but do not yet agree on an
+    /// ABI for record-typed signatures: the function declaration
+    /// uses pointers, the body emits a by-value return, and LLVM
+    /// rejects the mismatch. See ADR 0036.
+    RecordByValue,
     /// `Int.to_string` — formats an i64 into a heap string.
     IntToString,
     /// `String.to_int` — returns `Option<Int>`, blocked on Option.
@@ -100,6 +108,7 @@ impl Feature {
             Feature::References,
             Feature::CommandLineArgs,
             Feature::Records,
+            Feature::RecordByValue,
             Feature::IntToString,
             Feature::StringToInt,
             Feature::Map,
@@ -125,6 +134,7 @@ impl Feature {
             Feature::References => "references",
             Feature::CommandLineArgs => "args",
             Feature::Records => "records",
+            Feature::RecordByValue => "records.by-value",
             Feature::IntToString => "int.to_string",
             Feature::StringToInt => "string.to_int",
             Feature::Map => "map",
@@ -148,6 +158,7 @@ impl Feature {
             Feature::References => "reference operations (&x, &mut x, *r)",
             Feature::CommandLineArgs => "command-line arguments (args())",
             Feature::Records => "records (rec declarations, literals, field access)",
+            Feature::RecordByValue => "records passed or returned by value in function signatures",
             Feature::IntToString => "Int.to_string",
             Feature::StringToInt => "String.to_int (returns Option)",
             Feature::Map => "Map<K, V>",
@@ -213,6 +224,7 @@ impl BackendCapabilities {
         supported.insert(Feature::StringToInt);
         supported.insert(Feature::Map);
         supported.insert(Feature::ListAppend);
+        supported.insert(Feature::RecordByValue);
         supported.insert(Feature::References);
         BackendCapabilities {
             name: "interpreter",

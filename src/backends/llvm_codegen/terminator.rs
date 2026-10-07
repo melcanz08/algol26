@@ -132,18 +132,27 @@ impl<'ctx> IRCodeGen<'ctx> {
                 default_block,
             } => {
                 let val = self.compile_value(value)?;
-                // Only Literal patterns are supported by the LLVM backend today.
-                // Some/None/Ok/Error/Wildcard and pattern bindings require runtime
-                // tag decoding and payload extraction that the LLVM codegen doesn't
-                // implement yet. The interpreter handles them all — refuse cleanly
-                // rather than emitting a switch that silently matches the wrong case.
-                let has_non_literal = cases
-                    .iter()
-                    .any(|(pat, _)| !matches!(pat, SemanticPattern::Literal(_)));
+                // Literal and Variant patterns lower to integer comparisons.
+                // Enum variants carry their ordinal in the IR (see ADR 0030),
+                // so they're switch cases like literals. The rest -
+                // Some/None/Ok/Error/Wildcard/Record - need runtime tag
+                // decoding and payload extraction that this codegen doesn't
+                // implement yet. Refuse cleanly instead of miscompiling.
+                let has_undecodable = cases.iter().any(|(pat, _)| {
+                    matches!(
+                        pat,
+                        SemanticPattern::Some { .. }
+                            | SemanticPattern::None
+                            | SemanticPattern::Ok { .. }
+                            | SemanticPattern::Error { .. }
+                            | SemanticPattern::Wildcard
+                            | SemanticPattern::Record { .. }
+                    )
+                });
 
-                if has_non_literal {
+                if has_undecodable {
                     return Err(CompileError::simple(
-                        "The LLVM backend does not support match with pattern bindings. \
+                        "This backend does not support match with pattern bindings. \
                          Run through the interpreter instead: \
                          `algol26 run --interpreter <file.gol>`",
                         0,
@@ -210,8 +219,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     ));
                                 }
                             },
-                            // has_non_literal was already checked above,
-                            // so this arm is unreachable.
+                            // Enum variant: compare against its ordinal.
+                            // See ADR 0030 - the ordinal is assigned at
+                            // IR-build time and the matched value carries
+                            // the same discriminant.
+                            SemanticPattern::Variant { ordinal, .. } => {
+                                self.context.i64_type().const_int(*ordinal as u64, true)
+                            }
+                            // has_undecodable was checked above; this arm
+                            // is a defensive fail-closed for anything the
+                            // guard didn't anticipate.
                             _ => {
                                 return Err(CompileError::unsupported_operation(
                                     "non-literal switch pattern (internal invariant violated)",

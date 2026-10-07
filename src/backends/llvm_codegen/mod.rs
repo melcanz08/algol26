@@ -83,6 +83,12 @@ pub struct IRCodeGen<'ctx> {
     /// lazily populated on first use.
     pub(super) record_struct_types:
         std::cell::RefCell<HashMap<String, inkwell::types::StructType<'ctx>>>,
+    /// When true, `main` is renamed to `algol26_user_main` and a
+    /// C-ABI `i32 @main()` wrapper is expected (via
+    /// `emit_main_wrapper`). The LLVM backend sets this; the WASM
+    /// backend does not, because its host expects `main` under its
+    /// own name with WASM's own signature.
+    pub c_abi_main: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +158,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),
             record_struct_types: std::cell::RefCell::new(HashMap::new()),
+            c_abi_main: false,
         }
     }
 
@@ -176,15 +183,29 @@ impl<'ctx> IRCodeGen<'ctx> {
             return Ok(());
         }
 
+        // C runtime expects `int main(int, char**)`. ALGOL26's
+        // `proc main` lowers to `void @main()`, which reads as
+        // arbitrary garbage in `rax` from the C runtime's point
+        // of view — the process then exits with a nondeterministic
+        // status. Rename the user's `main` to `algol26_user_main`
+        // and emit a proper `i32 @main()` wrapper (see
+        // `emit_main_wrapper`) that calls it and returns 0.
+        //
+        // The lookup key in `self.functions` stays `"main"` so
+        // call sites resolve normally.
+        //
         // If the extern declared `as "sym"`, the LLVM symbol is
         // the C name; the ALGOL26 name is preserved as the
         // lookup key in `self.functions` so call sites continue
         // to reference the ALGOL26 name. (Step 4b wiring.)
-        let llvm_name = self
-            .ffi_symbols
-            .get(&clean_name)
-            .cloned()
-            .unwrap_or_else(|| clean_name.clone());
+        let llvm_name = if clean_name == "main" && self.c_abi_main {
+            "algol26_user_main".to_string()
+        } else {
+            self.ffi_symbols
+                .get(&clean_name)
+                .cloned()
+                .unwrap_or_else(|| clean_name.clone())
+        };
         // Variadic externs must be declared with LLVM's variadic
         // bit set, otherwise LLVM rejects the extra call args.
         let is_variadic = self.variadic_functions.contains(&clean_name);
@@ -339,6 +360,34 @@ impl<'ctx> IRCodeGen<'ctx> {
         // the IR verifier guarantees every block has a terminator,
         // so any code path that relied on that fallback was reached
         // via malformed IR. Removed.
+        Ok(())
+    }
+
+    /// Emit the C-ABI `i32 @main()` wrapper if the program
+    /// declared a `proc main`. The user's `main` is emitted under
+    /// the internal name `algol26_user_main` (see
+    /// `declare_function`); this function calls it and returns 0.
+    ///
+    /// No-op if the program has no `main` (e.g. a library module).
+    pub fn emit_main_wrapper(&mut self) -> Result<()> {
+        if !self.c_abi_main {
+            return Ok(());
+        }
+        let user_main = match self.functions.get("main").copied() {
+            Some(f) => f,
+            None => return Ok(()),
+        };
+        let i32_ty = self.context.i32_type();
+        let wrapper_ty = i32_ty.fn_type(&[], false);
+        let wrapper = self.module.add_function("main", wrapper_ty, None);
+        let entry = self.context.append_basic_block(wrapper, "entry");
+        self.builder.position_at_end(entry);
+        // User `main` has signature `void ()` — no args, no return
+        // value. Ignore the CallSiteValue.
+        self.builder.build_call(user_main, &[], "").unwrap();
+        self.builder
+            .build_return(Some(&i32_ty.const_zero()))
+            .unwrap();
         Ok(())
     }
 

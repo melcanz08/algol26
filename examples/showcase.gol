@@ -44,16 +44,10 @@ rec Loan
     member_id: MemberId
     days: LoanDays
 
-// ─── Generic record + generic impl ────────────────────────────
-rec Box<T>
-    value: T
-
-impl<T> Box<T>
-    function unwrap(self: Box<T>) -> T
-        return self.value
-
-    function peek(self: &Box<T>) -> T
-        return self.value
+// ─── Generic records: deferred ────────────────────────────────
+// `rec Box<T>` runs on the interpreter, but LLVM/WASM codegen for
+// generic records is a follow-up (ADR 0036 scope covers non-generic
+// records). The showcase omits it so all three backends agree.
 
 // ─── Inherent impl: three receiver modes ──────────────────────
 impl Book
@@ -176,23 +170,21 @@ proc main
     val renamed := moved.retitled("Dune (Deluxe Edition)")
     print(renamed.describe())
 
-    // === Generic record + generic impl ===
-    print("")
-    print("=== Generic Box<T> ===")
-    val boxed_int := Box<Int> { value: 42 }
-    val boxed_str := Box<String> { value: "hello, algol26" }
-    print(Int.to_string(boxed_int.peek()))
-    print(boxed_int.unwrap())
-    print(boxed_str.unwrap())
+    // === Generic records ===
+    // Deferred — see note near the top of the file.
 
     // === List traversal + accumulation ===
+    // Iterating a List<Book> on LLVM/WASM is a follow-up: the iterator
+    // codegen refuses non-scalar element types (see §Known limitations
+    // in docs/features/methods.md). The equivalent count is expressed
+    // directly for the portable run.
     print("")
     print("=== List traversal ===")
-    val shelf: List<Book> := [b1, b3]
     var available := 0
-    for item in shelf
-        if item.is_available()
-            available := available + 1
+    if b1.is_available()
+        available := available + 1
+    if b3.is_available()
+        available := available + 1
     print("Available titles: ".concat(Int.to_string(available)))
 
     // === String operations ===

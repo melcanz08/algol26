@@ -66,6 +66,36 @@ impl TraitRegistry {
                                 && self.type_matches_pattern(ok, &args[0])
                                 && self.type_matches_pattern(error, &args[1]))
                     }
+                    // User-defined records: `Pair<Int>` matches the
+                    // pattern `Pair<T>` when the outer names agree
+                    // and each concrete type argument matches its
+                    // pattern. This was missing before the UFCS
+                    // mangling change; the previous mangling hid the
+                    // gap because trait impls on generic records
+                    // masqueraded as inherent methods under the
+                    // name `Pair_method`.
+                    Type::Record(rec_name, rec_args) => {
+                        name == rec_name
+                            && (args.is_empty()
+                                || (args.len() == rec_args.len()
+                                    && args
+                                        .iter()
+                                        .zip(rec_args.iter())
+                                        .all(|(p, c)| self.type_matches_pattern(c, p))))
+                    }
+                    // Generic instantiation: same rule as records.
+                    Type::Generic {
+                        name: g_name,
+                        args: g_args,
+                    } => {
+                        name == g_name
+                            && (args.is_empty()
+                                || (args.len() == g_args.len()
+                                    && args
+                                        .iter()
+                                        .zip(g_args.iter())
+                                        .all(|(p, c)| self.type_matches_pattern(c, p))))
+                    }
                     _ => false,
                 }
             }
@@ -126,15 +156,19 @@ impl TraitRegistry {
     /// analyzer to detect cross-trait ambiguity at a call site:
     /// two or more entries mean the bare `x.method()` form must be
     /// rejected in favor of UFCS.
-    pub fn methods_for(&self, type_: &Type, method_name: &str) -> Vec<(String, &FunctionDecl)> {
+    pub fn methods_for(
+        &self,
+        type_: &Type,
+        method_name: &str,
+    ) -> Vec<(String, &FunctionDecl, Vec<String>)> {
         let type_name = type_.to_string();
-        let mut result: Vec<(String, &FunctionDecl)> = Vec::new();
+        let mut result: Vec<(String, &FunctionDecl, Vec<String>)> = Vec::new();
 
         for ((trait_name, target_type), impl_block) in &self.impls {
             if target_type == &type_name {
                 for method in &impl_block.methods {
                     if method.name == method_name {
-                        result.push((trait_name.clone(), method));
+                        result.push((trait_name.clone(), method, Vec::new()));
                     }
                 }
             }
@@ -144,7 +178,11 @@ impl TraitRegistry {
             if self.type_matches_pattern(type_, &generic_impl.type_pattern) {
                 for method in &generic_impl.methods {
                     if method.name == method_name {
-                        result.push((generic_impl.trait_name.clone(), method));
+                        result.push((
+                            generic_impl.trait_name.clone(),
+                            method,
+                            generic_impl.type_params.clone(),
+                        ));
                     }
                 }
             }
@@ -153,7 +191,7 @@ impl TraitRegistry {
         for (trait_name, methods) in &self.default_methods {
             if self.type_implements_trait(type_, trait_name) {
                 if let Some(method) = methods.get(method_name) {
-                    result.push((trait_name.clone(), method));
+                    result.push((trait_name.clone(), method, Vec::new()));
                 }
             }
         }

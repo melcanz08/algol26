@@ -25,9 +25,28 @@ impl SemanticIRBuilder {
             _ => None,
         };
         if let Some(name) = user_type_name {
-            let mangled = format!("{}_{}", name, method_name);
-            if self.function_types.contains_key(&mangled) {
-                return Some(mangled);
+            // Inherent impls mangle as `{Type}_{method}` and take
+            // precedence (ADR 0033).
+            let inherent = format!("{}_{}", name, method_name);
+            if self.function_types.contains_key(&inherent) {
+                return Some(inherent);
+            }
+
+            // Trait impls mangle as `{Trait}_{Type}_{method}`.
+            // Find a key matching that suffix. If more than one
+            // exists, the call site is ambiguous — but the analyzer
+            // rejects that case before reaching the builder
+            // (E0010). If exactly one, use it.
+            let suffix = format!("_{}_{}", name, method_name);
+            let mut matches: Vec<String> = self
+                .function_types
+                .keys()
+                .filter(|k| k.ends_with(&suffix))
+                .cloned()
+                .collect();
+            matches.sort();
+            if let Some(only) = matches.into_iter().next() {
+                return Some(only);
             }
             return None;
         }

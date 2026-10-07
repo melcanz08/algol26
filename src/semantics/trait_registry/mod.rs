@@ -44,6 +44,11 @@ pub(super) struct GenericImpl {
     trait_name: String,
     type_pattern: TypePattern,
     methods: Vec<FunctionDecl>,
+    /// Declared type parameters on the impl block
+    /// (`impl<T> ... for Pair<T>` → `["T"]`). The analyzer uses
+    /// these to unify the declared self against a concrete receiver
+    /// and record a monomorphization instantiation.
+    type_params: Vec<String>,
 }
 #[derive(Debug, Clone)]
 pub(super) enum TypePattern {

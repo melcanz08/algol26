@@ -1259,22 +1259,27 @@ impl SemanticAnalyzer {
                             match trait_candidates.len() {
                                 0 => {}
                                 1 => {
-                                    let (_, method) = &trait_candidates[0];
-                                    let method = (*method).clone();
-                                    if args.len() != method.params.len() {
+                                    let (trait_name, method_ref, impl_type_params) =
+                                        &trait_candidates[0];
+                                    let trait_name = trait_name.clone();
+                                    let impl_type_params: Vec<String> = impl_type_params.clone();
+                                    let method = (*method_ref).clone();
+
+                                    let expected_extra = method.params.len().saturating_sub(1);
+                                    if args.len() != expected_extra {
                                         return Err(CompileError::at(
                                             self.current_span,
                                             &format!(
-                                                "Method '{}' expects {} arguments, got {}",
+                                                "Method '{}' expects {} argument(s) after the receiver, got {}",
                                                 method_name,
-                                                method.params.len(),
+                                                expected_extra,
                                                 args.len()
                                             ),
                                             ErrorCode::E0002,
                                         ));
                                     }
                                     for (arg, (param_name, param_type)) in
-                                        args.iter().zip(&method.params)
+                                        args.iter().zip(method.params.iter().skip(1))
                                     {
                                         let arg_type = self.analyze_expr(arg)?;
                                         self.register_call_arg_temporary(arg);
@@ -1295,15 +1300,71 @@ impl SemanticAnalyzer {
                                             ));
                                         }
                                     }
-                                    return Ok(method
+
+                                    // ADR 0034: monomorphization.
+                                    // If this impl carries type params,
+                                    // unify the declared self against
+                                    // the concrete receiver and record
+                                    // an instantiation under the same
+                                    // mangled name the IR builder will
+                                    // emit.
+                                    let mut type_bindings: HashMap<String, Type> = HashMap::new();
+                                    if !impl_type_params.is_empty() {
+                                        let declared_self = match method.params.first() {
+                                            Some((_, Some(syntax))) => {
+                                                self.resolve_type_syntax(syntax)?
+                                            }
+                                            Some((_, None)) | None => Type::Unknown,
+                                        };
+                                        let declared_self = match declared_self {
+                                            Type::Borrow(inner) | Type::MutBorrow(inner) => *inner,
+                                            other => other,
+                                        };
+                                        self.unify_types(
+                                            &declared_self,
+                                            &receiver_type,
+                                            &mut type_bindings,
+                                        )?;
+
+                                        let owner = match &receiver_type {
+                                            Type::Record(n, _) => n.clone(),
+                                            Type::Distinct { name, .. } => name.clone(),
+                                            Type::Enum { name, .. } => name.clone(),
+                                            other => other.to_string(),
+                                        };
+                                        let mangled =
+                                            format!("{}_{}_{}", trait_name, owner, method_name);
+                                        let type_args: Vec<Type> = impl_type_params
+                                            .iter()
+                                            .map(|p| {
+                                                type_bindings
+                                                    .get(p)
+                                                    .cloned()
+                                                    .unwrap_or(Type::Unknown)
+                                            })
+                                            .collect();
+                                        self.instantiations.push(Instantiation {
+                                            call_site: expr.id,
+                                            function: mangled,
+                                            type_params: impl_type_params.clone(),
+                                            type_args,
+                                        });
+                                    }
+
+                                    let raw_return = method
                                         .return_type
                                         .as_ref()
                                         .map(|t| t.to_type())
-                                        .unwrap_or(Type::Void));
+                                        .unwrap_or(Type::Void);
+                                    return Ok(
+                                        self.substitute_type_vars(&raw_return, &type_bindings)
+                                    );
                                 }
                                 _ => {
-                                    let mut traits: Vec<&str> =
-                                        trait_candidates.iter().map(|(t, _)| t.as_str()).collect();
+                                    let mut traits: Vec<&str> = trait_candidates
+                                        .iter()
+                                        .map(|(t, _, _)| t.as_str())
+                                        .collect();
                                     // Deterministic order — HashMap
                                     // iteration is not stable, and the
                                     // same source should produce the

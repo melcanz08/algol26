@@ -358,55 +358,6 @@ impl SemanticAnalyzer {
             self.register_record(rec)?;
         }
 
-        // ─── ADR 0034: cross-trait method-name collision ───
-        // Two traits providing the same method name for the same
-        // target type produce colliding mangled symbols
-        // (`User_save` twice) once `expand_impl_methods` has
-        // flattened the impls. Catch it here with a diagnostic that
-        // names the traits, before `register_user_functions` fires
-        // the generic "duplicate function name" error.
-        //
-        // An inherent method on the same (type, method) key shadows
-        // both trait methods (see ADR 0033's precedence rule), so a
-        // collision is only reported when no inherent impl covers
-        // the same name.
-        {
-            let mut trait_methods: HashMap<(String, String), Vec<String>> = HashMap::new();
-            let mut inherent_methods: HashMap<(String, String), ()> = HashMap::new();
-            for impl_block in impls {
-                for method in &impl_block.methods {
-                    let key = (impl_block.target_type.clone(), method.name.clone());
-                    match &impl_block.trait_name {
-                        Some(t) => trait_methods.entry(key).or_default().push(t.clone()),
-                        None => {
-                            inherent_methods.insert(key, ());
-                        }
-                    }
-                }
-            }
-            let mut collisions: Vec<((String, String), Vec<String>)> = trait_methods
-                .into_iter()
-                .filter(|(key, traits)| traits.len() > 1 && !inherent_methods.contains_key(key))
-                .collect();
-            if !collisions.is_empty() {
-                collisions.sort_by(|a, b| a.0.cmp(&b.0));
-                let ((target, method), traits) = &collisions[0];
-                let traits_str = traits.join("' and '");
-                return Err(CompileError::simple(
-                    &format!(
-                        "Method '{}' on '{}' is provided by multiple traits: '{}'. \
-                         Rename the method in one of the traits, or add an \
-                         inherent impl on '{}' to shadow both.",
-                        method, target, traits_str, target
-                    ),
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0010,
-                ));
-            }
-        }
-
         self.register_user_functions(functions)?;
         // ─── ADR 0033: `self` is only legal inside an impl block ───
         // `expand_impl_methods` has already renamed impl methods to
@@ -418,9 +369,13 @@ impl SemanticAnalyzer {
                 continue;
             }
             let is_impl_method = impls.iter().any(|b| {
-                b.methods
-                    .iter()
-                    .any(|m| format!("{}_{}", b.target_type, m.name) == func.name)
+                b.methods.iter().any(|m| {
+                    let mangled = match &b.trait_name {
+                        Some(t) => format!("{}_{}_{}", t, b.target_type, m.name),
+                        None => format!("{}_{}", b.target_type, m.name),
+                    };
+                    mangled == func.name
+                })
             });
             if !is_impl_method {
                 return Err(CompileError::simple(

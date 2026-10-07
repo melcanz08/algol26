@@ -952,6 +952,18 @@ impl SemanticAnalyzer {
             ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
 
+                // UFCS: `Trait::method(receiver, extra...)`. Split
+                // before any other dispatch so the compound name
+                // never falls through to `Undefined function`.
+                if let Some((trait_name, method_name)) = clean_name.split_once("::") {
+                    return self.analyze_ufcs_call(
+                        trait_name,
+                        method_name,
+                        args,
+                        self.current_span,
+                    );
+                }
+
                 // ADR 0031: Subrange constructor. `Percentage(75)`.
                 if let Some(ty) = self.try_subrange_construct(clean_name, args)? {
                     return Ok(ty);
@@ -1238,48 +1250,82 @@ impl SemanticAnalyzer {
                             }
 
                             // ─── Trait-based method resolution ───
-                            if let Some(method) =
-                                self.resolve_trait_method(&receiver_type, method_name)
-                            {
-                                if args.len() != method.params.len() {
-                                    return Err(CompileError::at(
-                                        self.current_span,
-                                        &format!(
-                                            "Method '{}' expects {} arguments, got {}",
-                                            method_name,
-                                            method.params.len(),
-                                            args.len()
-                                        ),
-                                        ErrorCode::E0002,
-                                    ));
-                                }
-                                for (arg, (param_name, param_type)) in
-                                    args.iter().zip(&method.params)
-                                {
-                                    let arg_type = self.analyze_expr(arg)?;
-                                    self.register_call_arg_temporary(arg);
-                                    let expected_type = match param_type {
-                                        Some(s) => self.resolve_type_syntax(s)?,
-                                        None => Type::Unknown,
-                                    };
-                                    if !arg_type.can_coerce_to(&expected_type)
-                                        && expected_type != Type::Unknown
-                                    {
+                            // Use `methods_for` rather than the
+                            // first-match `resolve_trait_method` so a
+                            // cross-trait collision is reported here
+                            // rather than silently picking one.
+                            let trait_candidates =
+                                self.trait_registry.methods_for(&receiver_type, method_name);
+                            match trait_candidates.len() {
+                                0 => {}
+                                1 => {
+                                    let (_, method) = &trait_candidates[0];
+                                    let method = (*method).clone();
+                                    if args.len() != method.params.len() {
                                         return Err(CompileError::at(
                                             self.current_span,
                                             &format!(
-                                            "Argument '{}' type mismatch: expected {}, found {}",
-                                            param_name, expected_type, arg_type
-                                        ),
+                                                "Method '{}' expects {} arguments, got {}",
+                                                method_name,
+                                                method.params.len(),
+                                                args.len()
+                                            ),
                                             ErrorCode::E0002,
                                         ));
                                     }
+                                    for (arg, (param_name, param_type)) in
+                                        args.iter().zip(&method.params)
+                                    {
+                                        let arg_type = self.analyze_expr(arg)?;
+                                        self.register_call_arg_temporary(arg);
+                                        let expected_type = match param_type {
+                                            Some(s) => self.resolve_type_syntax(s)?,
+                                            None => Type::Unknown,
+                                        };
+                                        if !arg_type.can_coerce_to(&expected_type)
+                                            && expected_type != Type::Unknown
+                                        {
+                                            return Err(CompileError::at(
+                                                self.current_span,
+                                                &format!(
+                                                    "Argument '{}' type mismatch: expected {}, found {}",
+                                                    param_name, expected_type, arg_type
+                                                ),
+                                                ErrorCode::E0002,
+                                            ));
+                                        }
+                                    }
+                                    return Ok(method
+                                        .return_type
+                                        .as_ref()
+                                        .map(|t| t.to_type())
+                                        .unwrap_or(Type::Void));
                                 }
-                                return Ok(method
-                                    .return_type
-                                    .as_ref()
-                                    .map(|t| t.to_type())
-                                    .unwrap_or(Type::Void));
+                                _ => {
+                                    let mut traits: Vec<&str> =
+                                        trait_candidates.iter().map(|(t, _)| t.as_str()).collect();
+                                    // Deterministic order — HashMap
+                                    // iteration is not stable, and the
+                                    // same source should produce the
+                                    // same message every run.
+                                    traits.sort();
+                                    return Err(CompileError::at(
+                                        self.current_span,
+                                        &format!(
+                                            "Method '{}' on '{}' is provided by multiple traits: '{}'. \
+                                             Use `Trait::{}` to disambiguate.",
+                                            method_name,
+                                            receiver_type,
+                                            traits.join("' and '"),
+                                            method_name
+                                        ),
+                                        ErrorCode::E0010,
+                                    )
+                                    .with_suggestion(&format!(
+                                        "Call `{}::{}(receiver, ...)` instead of `receiver.{}()`",
+                                        traits[0], method_name, method_name
+                                    )));
+                                }
                             }
 
                             // ─── Neither inherent, built-in, nor trait method ───
@@ -2667,6 +2713,119 @@ impl SemanticAnalyzer {
             _ => {}
         }
         Ok(())
+    }
+
+    /// UFCS: `Trait::method(receiver, extra_args...)`.
+    ///
+    /// Resolves `method_name` from `trait_name`'s impl for the
+    /// receiver's type. The receiver is `args[0]`; the remaining
+    /// arguments map to the method's parameters after `self`.
+    ///
+    /// This is the escape hatch for the E0010 ambiguity case: when
+    /// two traits both provide `save` for `User`, `Trait::save(u)`
+    /// says which one is meant. `resolve_trait_method_for_trait`
+    /// filters the lookup to the named trait, so no cross-trait
+    /// fallback occurs.
+    fn analyze_ufcs_call(
+        &mut self,
+        trait_name: &str,
+        method_name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Type> {
+        if !self.trait_registry.trait_exists(trait_name) {
+            return Err(CompileError::at(
+                span,
+                &format!("No trait named '{}'", trait_name),
+                ErrorCode::E0004,
+            )
+            .with_suggestion(
+                "Declare it with `trait Name ...` before using `Trait::method` syntax",
+            ));
+        }
+
+        if args.is_empty() {
+            return Err(CompileError::at(
+                span,
+                &format!(
+                    "`{}::{}` requires a receiver as the first argument",
+                    trait_name, method_name
+                ),
+                ErrorCode::E0002,
+            )
+            .with_suggestion(&format!(
+                "Write `{}::{}(receiver, ...)`",
+                trait_name, method_name
+            )));
+        }
+
+        // The receiver is args[0]; its type selects which impl to use.
+        let receiver_type = self.analyze_expr(&args[0])?;
+        // Auto-deref to match the resolved-self convention the
+        // registry uses for method lookup.
+        let lookup_type = match &receiver_type {
+            Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+            other => other.clone(),
+        };
+
+        let method = self
+            .trait_registry
+            .resolve_trait_method_for_trait(trait_name, &lookup_type, method_name)
+            .cloned()
+            .ok_or_else(|| {
+                let mut err = CompileError::at(
+                    span,
+                    &format!(
+                        "Trait '{}' has no method '{}' for type {}",
+                        trait_name, method_name, receiver_type
+                    ),
+                    ErrorCode::E0011,
+                );
+                if let Some(hint) = self.method_candidates_hint(&lookup_type) {
+                    err = err.with_suggestion(&hint);
+                }
+                err
+            })?;
+
+        // params[0] is `self`; the receiver at args[0] already
+        // corresponds to it, so the user-visible extra args are
+        // args[1..] against params[1..].
+        let expected_extra = method.params.len().saturating_sub(1);
+        let actual_extra = args.len() - 1;
+        if actual_extra != expected_extra {
+            return Err(CompileError::at(
+                span,
+                &format!(
+                    "`{}::{}` expects {} argument(s) after the receiver, got {}",
+                    trait_name, method_name, expected_extra, actual_extra
+                ),
+                ErrorCode::E0002,
+            ));
+        }
+
+        for (arg, (pname, pty)) in args.iter().skip(1).zip(method.params.iter().skip(1)) {
+            let expected = match pty {
+                Some(s) => self.resolve_type_syntax(s)?,
+                None => Type::Unknown,
+            };
+            let arg_ty = self.analyze_expr_with_context(arg, Some(&expected))?;
+            if !arg_ty.can_coerce_to(&expected) && expected != Type::Unknown {
+                return Err(CompileError::at(
+                    span,
+                    &format!(
+                        "Argument '{}' type mismatch: expected {}, found {}",
+                        pname, expected, arg_ty
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+        }
+
+        Ok(method
+            .return_type
+            .as_ref()
+            .map(|t| t.to_type())
+            .unwrap_or(Type::Void))
     }
 
     /// Enumerate the inherent and trait method names registered for

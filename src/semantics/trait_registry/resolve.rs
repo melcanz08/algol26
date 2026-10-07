@@ -71,6 +71,96 @@ impl TraitRegistry {
             }
         }
     }
+    /// Trait-scoped method lookup. Unlike `resolve_method`, which
+    /// finds a method on the type across *all* traits, this only
+    /// considers the named trait. Used by UFCS (`Trait::method(u, x)`)
+    /// to disambiguate when two traits provide the same method name
+    /// for the same type.
+    pub fn resolve_trait_method_for_trait(
+        &self,
+        trait_name: &str,
+        type_: &Type,
+        method_name: &str,
+    ) -> Option<&FunctionDecl> {
+        let type_name = type_.to_string();
+
+        // Concrete impls: keyed by (trait_name, type_name).
+        let key = (trait_name.to_string(), type_name.clone());
+        if let Some(impl_block) = self.impls.get(&key) {
+            for method in &impl_block.methods {
+                if method.name == method_name {
+                    return Some(method);
+                }
+            }
+        }
+
+        // Generic impls: filter by trait name first, then pattern.
+        for generic_impl in &self.generic_impls {
+            if generic_impl.trait_name != trait_name {
+                continue;
+            }
+            if self.type_matches_pattern(type_, &generic_impl.type_pattern) {
+                for method in &generic_impl.methods {
+                    if method.name == method_name {
+                        return Some(method);
+                    }
+                }
+            }
+        }
+
+        // Default methods: trait name is the outer key, so no
+        // cross-trait leakage is possible.
+        if self.type_implements_trait(type_, trait_name) {
+            if let Some(methods) = self.default_methods.get(trait_name) {
+                if let Some(method) = methods.get(method_name) {
+                    return Some(method);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// All trait impls that provide `method_name` for `type_`,
+    /// each paired with the trait that owns it. Used by the
+    /// analyzer to detect cross-trait ambiguity at a call site:
+    /// two or more entries mean the bare `x.method()` form must be
+    /// rejected in favor of UFCS.
+    pub fn methods_for(&self, type_: &Type, method_name: &str) -> Vec<(String, &FunctionDecl)> {
+        let type_name = type_.to_string();
+        let mut result: Vec<(String, &FunctionDecl)> = Vec::new();
+
+        for ((trait_name, target_type), impl_block) in &self.impls {
+            if target_type == &type_name {
+                for method in &impl_block.methods {
+                    if method.name == method_name {
+                        result.push((trait_name.clone(), method));
+                    }
+                }
+            }
+        }
+
+        for generic_impl in &self.generic_impls {
+            if self.type_matches_pattern(type_, &generic_impl.type_pattern) {
+                for method in &generic_impl.methods {
+                    if method.name == method_name {
+                        result.push((generic_impl.trait_name.clone(), method));
+                    }
+                }
+            }
+        }
+
+        for (trait_name, methods) in &self.default_methods {
+            if self.type_implements_trait(type_, trait_name) {
+                if let Some(method) = methods.get(method_name) {
+                    result.push((trait_name.clone(), method));
+                }
+            }
+        }
+
+        result
+    }
+
     pub fn resolve_method(&self, type_: &Type, method_name: &str) -> Option<&FunctionDecl> {
         let type_name = type_.to_string();
 

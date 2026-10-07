@@ -851,6 +851,63 @@ impl SemanticIRBuilder {
             ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
 
+                // UFCS: `Trait::method(receiver, extra...)`. The
+                // flattened function is registered under
+                // `{trait}_{type}_{method}` (see `make_impl_method`).
+                // Translate the source name here, and wrap the
+                // receiver in the borrow the method's self mode
+                // expects.
+                if let Some((trait_name, method_name)) = clean_name.split_once("::") {
+                    let mut typed_args: Vec<TypedIRValue> = args
+                        .iter()
+                        .map(|a| self.translate_expr(program, func, current_block, a))
+                        .collect();
+                    if typed_args.is_empty() {
+                        return TypedIRValue::Void;
+                    }
+                    let receiver_type = typed_args[0].type_of();
+                    let owner = match &receiver_type {
+                        Type::Record(n, _) => n.clone(),
+                        Type::Distinct { name, .. } => name.clone(),
+                        Type::Enum { name, .. } => name.clone(),
+                        other => other.to_string(),
+                    };
+                    let mangled = format!("{}_{}_{}", trait_name, owner, method_name);
+                    if let Some(sig) = self.function_types.get(&mangled) {
+                        match sig.params.first().map(|(_, t)| t) {
+                            Some(Type::Borrow(_)) => {
+                                if !matches!(typed_args[0], TypedIRValue::BorrowShared { .. }) {
+                                    let inner = typed_args.remove(0);
+                                    typed_args.insert(
+                                        0,
+                                        TypedIRValue::BorrowShared {
+                                            expr: Box::new(inner),
+                                            target_type: Type::borrow(receiver_type.clone()),
+                                        },
+                                    );
+                                }
+                            }
+                            Some(Type::MutBorrow(_)) => {
+                                let inner = typed_args.remove(0);
+                                typed_args.insert(
+                                    0,
+                                    TypedIRValue::BorrowMutable {
+                                        expr: Box::new(inner),
+                                        target_type: Type::mut_borrow(receiver_type.clone()),
+                                    },
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                    let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                    return TypedIRValue::Call {
+                        function: mangled,
+                        args: typed_args,
+                        return_type,
+                    };
+                }
+
                 // ADR 0031: subrange construction. `Percentage(75)`.
                 // The callee is a bare identifier, not a dotted name.
                 // Emit a Cast that carries the subrange type; the

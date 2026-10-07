@@ -763,19 +763,20 @@ impl Compiler {
             }
         }
 
-        // Pass 2: trait impls. Skip any name already claimed by an
-        // inherent method. Do NOT dedup between trait impls — two traits
-        // providing the same method name is an error, and the duplicate
-        // detection in `register_user_functions` is what surfaces it.
+        // Pass 2: trait impls. Trait methods mangle as
+        // `{trait}_{type}_{method}`. Skip a trait method if an
+        // inherent impl claims the same `{type}_{method}` name —
+        // the inherent impl shadows it, per ADR 0033.
         for impl_block in &parsed.impls {
-            if impl_block.trait_name.is_none() {
+            let Some(trait_name) = &impl_block.trait_name else {
                 continue;
-            }
+            };
             for method in &impl_block.methods {
-                let mangled = format!("{}_{}", impl_block.target_type, method.name);
-                if inherent_names.contains(&mangled) {
+                let shadowed_by_inherent = format!("{}_{}", impl_block.target_type, method.name);
+                if inherent_names.contains(&shadowed_by_inherent) {
                     continue;
                 }
+                let _ = trait_name;
                 all_functions.push(self.make_impl_method(impl_block, method));
             }
         }
@@ -797,7 +798,14 @@ impl Compiler {
     /// parameter if the parser didn't already.
     fn make_impl_method(&self, impl_block: &ImplBlock, method: &FunctionDecl) -> FunctionDecl {
         let mut renamed = method.clone();
-        renamed.name = format!("{}_{}", impl_block.target_type, method.name);
+        // Trait impls get a trait-qualified mangle so two traits
+        // providing the same method name on the same type produce
+        // distinct symbols. Inherent impls keep the plain form; the
+        // analyzer's method dispatch knows the difference.
+        renamed.name = match &impl_block.trait_name {
+            Some(t) => format!("{}_{}_{}", t, impl_block.target_type, method.name),
+            None => format!("{}_{}", impl_block.target_type, method.name),
+        };
         // ADR 0034: propagate the impl's type parameters onto the
         // flattened method so `register_user_functions` records it
         // as a generic function and the analyzer can bind them at

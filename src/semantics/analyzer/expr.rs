@@ -1283,6 +1283,15 @@ impl SemanticAnalyzer {
                             }
 
                             // ─── Neither inherent, built-in, nor trait method ───
+                            let mut suggestion = format!(
+                                "Implement a trait for {} that provides method '{}', \
+                                 or check if '{}' is a built-in",
+                                receiver_type, method_name, method_name
+                            );
+                            if let Some(hint) = self.method_candidates_hint(&receiver_type) {
+                                suggestion.push_str("\n\n");
+                                suggestion.push_str(&hint);
+                            }
                             return Err(CompileError::at(
                                 self.current_span,
                                 &format!(
@@ -1291,11 +1300,7 @@ impl SemanticAnalyzer {
                                 ),
                                 ErrorCode::E0004,
                             )
-                            .with_suggestion(&format!(
-                                "Implement a trait for {} that provides method '{}', \
-                                 or check if '{}' is a built-in",
-                                receiver_type, method_name, method_name
-                            )));
+                            .with_suggestion(&suggestion));
                         }
                     }
                 }
@@ -1584,11 +1589,15 @@ impl SemanticAnalyzer {
                         .unwrap_or(Type::Void));
                 }
 
-                Err(CompileError::at(
+                let mut err = CompileError::at(
                     self.current_span,
                     &format!("Type {} has no method '{}'", receiver_type, method),
                     ErrorCode::E0004,
-                ))
+                );
+                if let Some(hint) = self.method_candidates_hint(&receiver_type) {
+                    err = err.with_suggestion(&hint);
+                }
+                Err(err)
             }
             ExprKind::Unary { op, expr, .. } => {
                 let operand_type = self.analyze_expr_with_context(expr, expected_type)?;
@@ -1789,15 +1798,20 @@ impl SemanticAnalyzer {
                         .unwrap_or(Type::Void));
                 }
 
+                let mut suggestion = String::from(
+                    "Field access requires a record value; zero-argument method calls \
+                     accept `x.method` or `x.method()`",
+                );
+                if let Some(hint) = self.method_candidates_hint(&obj_ty) {
+                    suggestion.push_str("\n\n");
+                    suggestion.push_str(&hint);
+                }
                 Err(CompileError::at(
                     self.current_span,
                     &format!("Type {} has no field or method '{}'", obj_ty, field),
                     ErrorCode::E0004,
                 )
-                .with_suggestion(
-                    "Field access requires a record value; zero-argument method calls \
-                     accept `x.method` or `x.method()`",
-                ))
+                .with_suggestion(&suggestion))
             }
             ExprKind::MapLiteral {
                 key_type: key_syntax,
@@ -2653,5 +2667,38 @@ impl SemanticAnalyzer {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Enumerate the inherent and trait method names registered for
+    /// a nominal, enum, or record type. Used to enrich the "no such
+    /// method" diagnostic with a "did you mean" list. Returns `None`
+    /// when the receiver type is not one the mangling scheme covers,
+    /// or when no methods are registered for it.
+    fn method_candidates_hint(&self, receiver_type: &Type) -> Option<String> {
+        let owner: &str = match receiver_type {
+            Type::Record(n, _) => n,
+            Type::Distinct { name, .. } => name,
+            Type::Enum { name, .. } => name,
+            _ => return None,
+        };
+        let prefix = format!("{}_", owner);
+        let mut names: Vec<String> = self
+            .functions
+            .keys()
+            .filter_map(|k| k.strip_prefix(&prefix).map(str::to_string))
+            .filter(|s| !s.is_empty())
+            .collect();
+        names.sort();
+        names.dedup();
+        if names.is_empty() {
+            return None;
+        }
+        let shown: Vec<&str> = names.iter().take(6).map(String::as_str).collect();
+        let more = names.len().saturating_sub(shown.len());
+        let mut msg = format!("Available methods on '{}': {}", owner, shown.join(", "));
+        if more > 0 {
+            msg.push_str(&format!(" (and {} more)", more));
+        }
+        Some(msg)
     }
 }

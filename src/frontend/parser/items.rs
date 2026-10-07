@@ -1,7 +1,7 @@
 // src/frontend/parser/items.rs
 
 use super::*;
-use crate::frontend::ast::ReceiverMode;
+use crate::frontend::ast::{ImplConst, ReceiverMode, TraitConst};
 
 impl Parser {
     pub fn parse_program(&mut self) -> Result<Program> {
@@ -376,12 +376,26 @@ impl Parser {
         self.advance();
         let name = self.expect_identifier("trait name")?;
         let mut methods = Vec::new();
+        let mut constants = Vec::new();
         if let Token::Indent = self.peek() {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                // Associated constant declaration: `const NAME: Type`.
+                // Value is supplied by each impl (step 1c).
+                if matches!(self.peek(), Token::Const) {
+                    self.advance();
+                    let cname = self.expect_identifier("constant name")?;
+                    self.expect_token(Token::Colon, "':'")?;
+                    let ctype = self.parse_type_syntax()?;
+                    constants.push(TraitConst {
+                        name: cname,
+                        type_: ctype,
+                    });
+                    continue;
+                }
                 let is_function = matches!(self.peek(), Token::Function);
                 if !is_function && !matches!(self.peek(), Token::Proc) {
-                    return Err(self.error("Expected 'function' in trait method"));
+                    return Err(self.error("Expected 'function' or 'const' in trait body"));
                 }
                 self.advance();
                 let method_name = self.expect_identifier("method name")?;
@@ -421,7 +435,7 @@ impl Parser {
         Ok(TraitDecl {
             name,
             methods,
-            constants: Vec::new(),
+            constants,
         })
     }
 
@@ -456,9 +470,28 @@ impl Parser {
         };
 
         let mut methods = Vec::new();
+        let mut constants = Vec::new();
         if let Token::Indent = self.peek() {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                // Associated constant definition:
+                // `const NAME: Type := expr`. `:=` matches the
+                // language's val/var binding style; a bare `=`
+                // would need its own lexer token.
+                if matches!(self.peek(), Token::Const) {
+                    self.advance();
+                    let cname = self.expect_identifier("constant name")?;
+                    self.expect_token(Token::Colon, "':'")?;
+                    let ctype = self.parse_type_syntax()?;
+                    self.expect_token(Token::Assign, "':='")?;
+                    let value = self.parse_expr()?;
+                    constants.push(ImplConst {
+                        name: cname,
+                        type_: ctype,
+                        value,
+                    });
+                    continue;
+                }
                 methods.push(self.parse_function()?);
             }
             if let Token::Dedent = self.peek() {
@@ -472,7 +505,7 @@ impl Parser {
             target_type,
             target_type_args,
             methods,
-            constants: Vec::new(),
+            constants,
         })
     }
 

@@ -1,0 +1,11 @@
+// supported: interpreter
+// match with pattern bindings (Some(x), Ok(v), record destructure).
+// LLVM would need runtime tag decoding and payload extraction.
+// Change the header above when the compiled backends lower it.
+proc main
+    val x := Some(42)
+    match x
+        case Some(v)
+            print(Int.to_string(v))
+        case None
+            print("none")

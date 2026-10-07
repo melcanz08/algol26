@@ -1,0 +1,9 @@
+// supported: interpreter llvm wasm
+// String.concat, to_upper, to_lower, length. These should lower
+// on all three backends (LLVM/WASM lower via libc strlen/strcat).
+proc main
+    val a := "hello"
+    val b := a.concat(" world")
+    print(b.to_upper())
+    print(b.to_lower())
+    print(Int.to_string(b.length()))

@@ -48,6 +48,35 @@ fn is_record_by_value(ty: &Type) -> bool {
     matches!(ty, Type::Record(_, _))
 }
 
+/// True if `ty` contains a generic record usage — `Type::Record`
+/// with a non-empty type-argument list. Recurses into composite
+/// types so `List<Box<Int>>` and `Option<Box<T>>` are caught.
+fn mentions_generic_record(ty: &Type) -> bool {
+    match ty {
+        Type::Record(_, args) if !args.is_empty() => true,
+        Type::Record(_, _) => false,
+        Type::List(inner)
+        | Type::Option(inner)
+        | Type::Pointer(inner)
+        | Type::Array(inner, _)
+        | Type::Channel(inner)
+        | Type::Borrow(inner)
+        | Type::MutBorrow(inner)
+        | Type::Set(inner) => mentions_generic_record(inner),
+        Type::Result { ok, error } => mentions_generic_record(ok) || mentions_generic_record(error),
+        Type::Tuple(elems) => elems.iter().any(mentions_generic_record),
+        Type::Function {
+            params,
+            return_type,
+        } => params.iter().any(mentions_generic_record) || mentions_generic_record(return_type),
+        Type::Generic { args, .. } => args.iter().any(mentions_generic_record),
+        Type::Map(k, v) => mentions_generic_record(k) || mentions_generic_record(v),
+        Type::Distinct { base, .. } => mentions_generic_record(base),
+        Type::Subrange { base, .. } => mentions_generic_record(base),
+        _ => false,
+    }
+}
+
 /// Classify a function name into a `Feature`, if it maps to one.
 ///
 /// This function is the **dispatch half** of the capability contract.
@@ -261,6 +290,12 @@ pub(super) fn scan_value(
     extern_fns: &HashSet<&str>,
     used: &mut HashSet<Feature>,
 ) {
+    // Any value whose claimed type contains a generic record usage
+    // is gated. The verifier should reject these before codegen, but
+    // it doesn't yet; the capability check is the backstop.
+    if mentions_generic_record(&value.type_of()) {
+        used.insert(Feature::GenericRecords);
+    }
     match value {
         TypedIRValue::Ok { value, .. } | TypedIRValue::Error { value, .. } => {
             used.insert(Feature::Result);
@@ -380,6 +415,17 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
         .collect();
 
     let mut used = HashSet::new();
+
+    // Generic records: any RecordDecl with non-empty type_params.
+    // This is the earliest reliable signal — it fires before the
+    // IR builder assigns a Type::Record with non-empty args, and
+    // it catches the case where the record is only declared (not
+    // used) but its field types still contain TypeVars.
+    for rec in &program.records {
+        if !rec.type_params.is_empty() {
+            used.insert(Feature::GenericRecords);
+        }
+    }
     for func in &program.functions {
         // ADR 0019. Parameters and return type are on the
         // SemanticFunction, not on any instruction, so the
@@ -395,12 +441,18 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
             if is_record_by_value(ty) {
                 used.insert(Feature::RecordByValue);
             }
+            if mentions_generic_record(ty) {
+                used.insert(Feature::GenericRecords);
+            }
         }
         if type_mentions_reference(&func.return_type) {
             used.insert(Feature::References);
         }
         if is_record_by_value(&func.return_type) {
             used.insert(Feature::RecordByValue);
+        }
+        if mentions_generic_record(&func.return_type) {
+            used.insert(Feature::GenericRecords);
         }
 
         for block in &func.blocks {

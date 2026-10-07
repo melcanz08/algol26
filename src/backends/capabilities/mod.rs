@@ -78,6 +78,11 @@ pub enum Feature {
     /// uses pointers, the body emits a by-value return, and LLVM
     /// rejects the mismatch. See ADR 0036.
     RecordByValue,
+    /// Generic records (`rec Box<T>`). LLVM and WASM codegen for
+    /// records with type parameters is a follow-up (ADR 0036 covers
+    /// non-generic records). Without this gate, codegen panics with
+    /// `map_type called on unresolved type TypeVar("T")`.
+    GenericRecords,
     /// `Int.to_string` — formats an i64 into a heap string.
     IntToString,
     /// `String.to_int` — returns `Option<Int>`, blocked on Option.
@@ -109,6 +114,7 @@ impl Feature {
             Feature::CommandLineArgs,
             Feature::Records,
             Feature::RecordByValue,
+            Feature::GenericRecords,
             Feature::IntToString,
             Feature::StringToInt,
             Feature::Map,
@@ -135,6 +141,7 @@ impl Feature {
             Feature::CommandLineArgs => "args",
             Feature::Records => "records",
             Feature::RecordByValue => "records.by-value",
+            Feature::GenericRecords => "records.generic",
             Feature::IntToString => "int.to_string",
             Feature::StringToInt => "string.to_int",
             Feature::Map => "map",
@@ -159,6 +166,7 @@ impl Feature {
             Feature::CommandLineArgs => "command-line arguments (args())",
             Feature::Records => "records (rec declarations, literals, field access)",
             Feature::RecordByValue => "records passed or returned by value in function signatures",
+            Feature::GenericRecords => "generic records (rec Box<T>)",
             Feature::IntToString => "Int.to_string",
             Feature::StringToInt => "String.to_int (returns Option)",
             Feature::Map => "Map<K, V>",
@@ -225,6 +233,7 @@ impl BackendCapabilities {
         supported.insert(Feature::Map);
         supported.insert(Feature::ListAppend);
         supported.insert(Feature::RecordByValue);
+        supported.insert(Feature::GenericRecords);
         supported.insert(Feature::References);
         BackendCapabilities {
             name: "interpreter",

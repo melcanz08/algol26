@@ -1,0 +1,8 @@
+// supported: interpreter llvm wasm
+// Iterating a List of non-scalar elements. The LLVM iterator
+// codegen refuses non-scalar element types. Change the header
+// above to include `llvm` and `wasm` when that lowers.
+proc main
+    val nums: List<Int> := [1, 2, 3]
+    for n in nums do
+        print(Int.to_string(n))

@@ -1,0 +1,7 @@
+// supported: interpreter
+// String.split returns List<String>, which needs the dynamic-list
+// model LLVM does not yet have. Change the header above to include
+// `llvm` and `wasm` when the compiled backends lower it.
+proc main
+    val parts := "a,b,c".split(",")
+    print(Int.to_string(parts.length()))

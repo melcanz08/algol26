@@ -121,19 +121,20 @@ fn parse_supported_header(path: &Path) -> Option<HashSet<Backend>> {
     None
 }
 
-fn run_interpreter(fixture: &Path) -> String {
+fn run_interpreter(fixture: &Path) -> Result<String, String> {
     let out = Command::new(algol26_bin())
         .args(["run", "--interpreter", fixture.to_str().unwrap()])
         .output()
         .expect("spawn algol26 interpreter");
-    assert!(
-        out.status.success(),
-        "interpreter failed on {}:\n--- stdout ---\n{}\n--- stderr ---\n{}",
-        fixture.display(),
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr),
-    );
-    String::from_utf8_lossy(&out.stdout).into_owned()
+    if !out.status.success() {
+        return Err(format!(
+            "interpreter failed on {}:\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            fixture.display(),
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 fn run_llvm(fixture: &Path, scratch: &Path) -> Result<String, String> {
@@ -290,7 +291,13 @@ fn fixtures_match_declared_backend_support() {
         );
 
         let scratch = TempFixture::new(fixture);
-        let expected = run_interpreter(&scratch.path);
+        let expected = match run_interpreter(&scratch.path) {
+            Ok(out) => out,
+            Err(e) => {
+                failures.push(e);
+                continue;
+            }
+        };
 
         if let Some(f) = check_backend(
             fixture,

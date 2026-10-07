@@ -1,0 +1,10 @@
+// supported: interpreter
+// `rec Box<T>` — generic records. LLVM/WASM codegen for generic
+// records is a follow-up (ADR 0036 covers non-generic records).
+// Change the header above when the compiled backends lower it.
+rec Box<T>
+    value: T
+
+proc main
+    val b := Box { value: 42 }
+    print(Int.to_string(b.value))

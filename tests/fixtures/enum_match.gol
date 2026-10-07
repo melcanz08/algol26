@@ -1,0 +1,20 @@
+// supported: interpreter llvm wasm
+// Enum variant match lowering to integer switch.
+enum Color
+    Red
+    Green
+    Blue
+
+function name(c: Color) -> String
+    return match c
+        case Red
+            "red"
+        case Green
+            "green"
+        case Blue
+            "blue"
+
+proc main
+    print(name(Color.Red))
+    print(name(Color.Green))
+    print(name(Color.Blue))

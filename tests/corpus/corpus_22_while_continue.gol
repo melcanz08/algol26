@@ -5,10 +5,10 @@ proc main
     var i := 0
     while i < 6 do
         i := i + 1
-        if i == 2 then
+        if i = 2 then
             continue
-        if i == 4 then
+        if i = 4 then
             continue
-        if i == 6 then
+        if i = 6 then
             continue
         print(i)

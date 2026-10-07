@@ -3,4 +3,4 @@ type UserId distinct Int
 proc main
     val a := UserId.from_base(1)
     val b := UserId.from_base(2)
-    print a == b
+    print a = b

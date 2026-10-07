@@ -166,8 +166,8 @@ fn test_differential_bool_print() {
 proc main
     print(true)
     print(false)
-    print(1.0 == 1.0)
-    print(1.0 == 2.0)
+    print(1.0 = 1.0)
+    print(1.0 = 2.0)
 ";
     let interp_out = run_interpreter(source);
     let llvm_out = run_llvm(source);

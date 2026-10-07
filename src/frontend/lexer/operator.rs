@@ -62,18 +62,15 @@ impl Lexer {
             }
             '=' => {
                 if let Some(&'=') = chars.peek() {
-                    chars.next();
-                    *position += 1;
-                    tokens.push(Token::Equal);
-                } else {
                     return Err(CompileError::simple(
-                        "Unexpected '='; use ':=' for assignment or '==' for equality",
+                        "`==` is not a valid operator symbol; use `=` for equality",
                         line_number,
                         *position,
                         line,
                         ErrorCode::E0001,
                     ));
                 }
+                tokens.push(Token::Equal);
             }
             '!' => {
                 if let Some(&'=') = chars.peek() {

@@ -470,10 +470,10 @@ fn test_differential_int_float_equality() {
     // true. This test pins the coerced semantics.
     let source = r#"
 proc main
-    print(1 == 1.0)
-    print(1.0 == 1)
-    print(2 == 2.5)
-    print(2.5 == 2)
+    print(1 = 1.0)
+    print(1.0 = 1)
+    print(2 = 2.5)
+    print(2.5 = 2)
     print(2.0 != 3)
     print(2.0 != 2)
 "#;
@@ -807,7 +807,7 @@ fn test_differential_null_equality() {
     let source = r#"
 proc main
     val p := null
-    if p == null then
+    if p = null then
         print("null")
     else
         print("not null")

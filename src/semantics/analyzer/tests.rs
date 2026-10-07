@@ -77,7 +77,7 @@ fn test_null_as_value_accepted() {
     let source = "\
 proc main
     val p := null
-    if p == null then
+    if p = null then
         print(\"ok\")
 ";
     assert!(analyze(source).is_ok());
@@ -1518,7 +1518,7 @@ enum Day
 proc main
     val a: Set<Day> := Set<Day> {}
     val b: Set<Day> := Set<Day> {}
-    val s: Bool := a == b
+    val s: Bool := a = b
 end
 "#;
     analyze(source).expect("Set == Set should typecheck to Bool");

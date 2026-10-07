@@ -2,7 +2,7 @@
 proc main
     var x := 5
     var y := 0
-    if y == 0
+    if y = 0
         free x
     else
         y := 10

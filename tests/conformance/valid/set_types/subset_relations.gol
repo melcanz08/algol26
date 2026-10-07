@@ -16,7 +16,7 @@ proc main
         print(3)
     if big > small
         print(4)
-    if small == small
+    if small = small
         print(5)
     if small != big
         print(6)

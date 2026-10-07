@@ -74,7 +74,7 @@ Error       print       rec
 |---------|--------------------------------|
 | `:=`    | Assignment                     |
 | `+` `-` `*` `/` | Arithmetic           |
-| `>` `<` `>=` `<=` `==` `!=` | Comparison  |
+| `>` `<` `>=` `<=` `=` `!=` | Comparison  |
 | `and` `or` `not` | Logical (short-circuit for `and`/`or`) |
 | `&`     | Immutable borrow               |
 | `&mut`  | Mutable borrow                 |
@@ -83,6 +83,11 @@ Error       print       rec
 | `..`    | Exclusive range                |
 | `..=`   | Inclusive range                |
 | `.`     | Method / field access, qualified name |
+
+**Note.** Equality is `=`. The C-family form `==` is not a valid
+operator symbol and produces a lex error (E0001). Assignment and
+binding use `:=`. This is the Pascal-family convention: `:=` sets,
+`=` tests.
 | `::`    | Trait-method qualification     |
 | `( )` `[ ]` `{ }` `,` `:` | Grouping, indexing, lists, record literals |
 
@@ -448,7 +453,7 @@ function identity<T>(x: T) -> T
     return x
 
 function first<T>(xs: List<T>) -> Option<T>
-    if List.length(xs) == 0
+    if List.length(xs) = 0
         return None
     return Some(xs[0])
 ```
@@ -508,7 +513,7 @@ match some_val
 
 ```
 function safe_divide(a: Float, b: Float) -> Result<Float, String>
-    if b == 0.0 then
+    if b = 0.0 then
         return Error("division by zero")
     return Ok(a / b)
 ```
@@ -552,7 +557,7 @@ it with a clear message directing the user to
 
 ```
 val p := null
-if p == null then
+if p = null then
     print("no pointer")
 ```
 

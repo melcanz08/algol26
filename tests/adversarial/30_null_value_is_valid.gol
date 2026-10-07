@@ -2,7 +2,7 @@
 // EXPECT: ACCEPT
 proc main
     val p := null
-    if p == null then
+    if p = null then
         print("no pointer")
     else
         print("has pointer")

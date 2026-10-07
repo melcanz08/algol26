@@ -137,7 +137,7 @@ d in s          // membership; d has element type, s has Set<T>
 s1 + s2         // union
 s1 - s2         // difference
 s1 * s2         // intersection
-s1 == s2        // set equality (bit-for-bit)
+s1 = s2        // set equality (bit-for-bit)
 s1 != s2
 s1 <= s2        // subset: every element of s1 is in s2
 s1 <  s2        // strict subset
@@ -308,7 +308,7 @@ s1 * s2   -> and   s1, s2
 s1 - s2   -> andnot s1, s2
 d in s    -> icmp ne 0, (and s, shl(1, d.to_ordinal() - low))
 s1 <= s2  -> icmp eq 0, (and s1, not s2)
-s1 == s2  -> icmp eq s1, s2
+s1 = s2  -> icmp eq s1, s2
 ```
 
 Cast handlers get `Type::Set(_)` as a no-op arm, same as

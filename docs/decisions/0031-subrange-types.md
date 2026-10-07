@@ -166,7 +166,7 @@ Cross-subrange comparison is a type error:
 ```algol26
 val p: Percentage := Percentage(50)
 val m: Month := Month(6)
-p == m   // error: Percentage and Month have different ids
+p = m   // error: Percentage and Month have different ids
 ```
 
 **6. Operators.**

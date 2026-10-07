@@ -54,7 +54,7 @@ inference" below):
 
 ```gol
 function first<T>(xs: List<T>) -> Option<T>
-    if List.length(xs) == 0
+    if List.length(xs) = 0
         return None
     return Some(xs[0])
 ```

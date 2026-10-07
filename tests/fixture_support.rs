@@ -263,7 +263,7 @@ fn fixtures_match_declared_backend_support() {
         .unwrap_or_else(|e| panic!("read {}: {}", dir.display(), e))
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().map_or(false, |x| x == "gol"))
+        .filter(|p| p.extension().is_some_and(|x| x == "gol"))
         .collect();
     fixtures.sort();
 

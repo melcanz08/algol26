@@ -132,6 +132,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                 default_block,
             } => {
                 let val = self.compile_value(value)?;
+
+                // Fast path: Option match. All patterns are Some/None
+                // and the scrutinee has type `Type::Option(_)`.
+                // Dispatch on the struct's tag; extract the payload
+                // for the Some case into the binding's slot.
+                if matches!(value.type_of(), Type::Option(_))
+                    && !cases.is_empty()
+                    && cases.iter().all(|(p, _)| {
+                        matches!(p, SemanticPattern::Some { .. } | SemanticPattern::None)
+                    })
+                {
+                    return self.compile_option_switch(val, value, cases, default_block);
+                }
+
                 // Literal and Variant patterns lower to integer comparisons.
                 // Enum variants carry their ordinal in the IR (see ADR 0030),
                 // so they're switch cases like literals. The rest -
@@ -141,9 +155,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let has_undecodable = cases.iter().any(|(pat, _)| {
                     matches!(
                         pat,
-                        SemanticPattern::Some { .. }
-                            | SemanticPattern::None
-                            | SemanticPattern::Ok { .. }
+                        SemanticPattern::Ok { .. }
                             | SemanticPattern::Error { .. }
                             | SemanticPattern::Wildcard
                             | SemanticPattern::Record { .. }
@@ -473,5 +485,117 @@ impl<'ctx> IRCodeGen<'ctx> {
                 "llvm",
             )),
         }
+    }
+
+    /// Lower a match whose scrutinee is `Option<T>` and whose
+    /// patterns are only `Some(binding)` and `None`.
+    fn compile_option_switch(
+        &mut self,
+        val: inkwell::values::BasicValueEnum<'ctx>,
+        value: &TypedIRValue,
+        cases: &[(SemanticPattern, usize)],
+        default_block: &Option<usize>,
+    ) -> Result<()> {
+        let inner_ty = match value.type_of() {
+            Type::Option(inner) => (*inner).clone(),
+            _ => {
+                return Err(CompileError::unsupported_operation(
+                    "compile_option_switch: scrutinee is not Option-typed",
+                    "llvm",
+                ));
+            }
+        };
+
+        if !val.is_struct_value() {
+            return Err(CompileError::unsupported_operation(
+                "Option value did not lower to an LLVM struct",
+                "llvm",
+            ));
+        }
+        let sv = val.into_struct_value();
+
+        let tag = self
+            .builder
+            .build_extract_value(sv, 0, "opt_tag")
+            .unwrap()
+            .into_int_value();
+
+        let default_bb = if let Some(id) = default_block {
+            self.blocks.get(id).cloned().ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!("switch default block {} not found", id),
+                    "llvm",
+                )
+            })?
+        } else {
+            let saved = self.builder.get_insert_block().unwrap();
+            let un = self
+                .context
+                .append_basic_block(self.current_function.unwrap(), "opt_unmatched");
+            self.builder.position_at_end(un);
+            self.builder.build_unreachable().unwrap();
+            self.builder.position_at_end(saved);
+            un
+        };
+
+        let bool_ty = self.context.bool_type();
+        let mut case_pairs: Vec<(
+            inkwell::values::IntValue<'ctx>,
+            inkwell::basic_block::BasicBlock<'ctx>,
+        )> = Vec::new();
+
+        for (pat, body_id) in cases {
+            let body_bb = self.blocks.get(body_id).cloned().ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!("switch case block {} not found", body_id),
+                    "llvm",
+                )
+            })?;
+
+            match pat {
+                SemanticPattern::None => {
+                    case_pairs.push((bool_ty.const_zero(), body_bb));
+                }
+                SemanticPattern::Some { binding } => {
+                    let proxy = self.context.append_basic_block(
+                        self.current_function.unwrap(),
+                        &format!("some_bind_{}", binding),
+                    );
+                    case_pairs.push((bool_ty.const_int(1, false), proxy));
+
+                    let saved = self.builder.get_insert_block().unwrap();
+                    self.builder.position_at_end(proxy);
+
+                    let payload = self
+                        .builder
+                        .build_extract_value(sv, 1, "some_payload")
+                        .unwrap();
+
+                    let binding_ptr = if let Some(p) = self.variables.get(binding).copied() {
+                        p
+                    } else {
+                        let alloca = self.create_entry_alloca(binding, &inner_ty);
+                        self.variables.insert(binding.clone(), alloca);
+                        self.var_types.insert(binding.clone(), inner_ty.clone());
+                        alloca
+                    };
+                    self.builder.build_store(binding_ptr, payload).unwrap();
+                    self.builder.build_unconditional_branch(body_bb).unwrap();
+
+                    self.builder.position_at_end(saved);
+                }
+                other => {
+                    return Err(CompileError::unsupported_operation(
+                        &format!("unexpected pattern in Option switch: {:?}", other),
+                        "llvm",
+                    ));
+                }
+            }
+        }
+
+        self.builder
+            .build_switch(tag, default_bb, &case_pairs)
+            .unwrap();
+        Ok(())
     }
 }

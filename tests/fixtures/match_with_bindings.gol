@@ -1,4 +1,4 @@
-// supported: interpreter
+// supported: interpreter llvm wasm
 // match with pattern bindings (Some(x), Ok(v), record destructure).
 // LLVM would need runtime tag decoding and payload extraction.
 // Change the header above when the compiled backends lower it.

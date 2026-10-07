@@ -568,17 +568,54 @@ impl<'ctx> IRCodeGen<'ctx> {
             // Error out defensively instead of silently unwrapping
             // (which is what the code did before PR-13c and was the
             // source of a real wrong-code bug).
-            TypedIRValue::Some(_) => {
-                return Err(CompileError::unsupported_operation(
-                    "Some(...) (Option<T> has no LLVM lowering)",
-                    "llvm",
-                ));
+            // Option<T> lowers to `{ bool is_some, T payload }`. The
+            // aggregate is built with `insertvalue` on `undef` and
+            // returned as a value; the surrounding Declare stores it
+            // into the variable's alloca (whose type is the same
+            // struct via `map_type(Type::Option(_))`).
+            TypedIRValue::Some(inner) => {
+                let inner_val = self.compile_value(inner)?;
+                let inner_ty = inner.type_of();
+                let opt_ty = Type::option(inner_ty);
+                let struct_ty = match self.map_type(&opt_ty) {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "Option<T> did not map to an LLVM struct type",
+                            "llvm",
+                        ));
+                    }
+                };
+                let tag = self.context.bool_type().const_int(1, false);
+                let with_tag = self
+                    .builder
+                    .build_insert_value(struct_ty.get_undef(), tag, 0, "some_tag")
+                    .unwrap()
+                    .into_struct_value();
+                let with_payload = self
+                    .builder
+                    .build_insert_value(with_tag, inner_val, 1, "some_payload")
+                    .unwrap()
+                    .into_struct_value();
+                with_payload.into()
             }
-            TypedIRValue::None { .. } => {
-                return Err(CompileError::unsupported_operation(
-                    "None (Option<T> has no LLVM lowering)",
-                    "llvm",
-                ));
+            TypedIRValue::None { option_type } => {
+                let struct_ty = match self.map_type(option_type) {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "None did not map to an LLVM struct type",
+                            "llvm",
+                        ));
+                    }
+                };
+                let tag = self.context.bool_type().const_zero();
+                let with_tag = self
+                    .builder
+                    .build_insert_value(struct_ty.get_undef(), tag, 0, "none_tag")
+                    .unwrap()
+                    .into_struct_value();
+                with_tag.into()
             }
             TypedIRValue::Ok { .. } => {
                 return Err(CompileError::unsupported_operation(

@@ -194,6 +194,7 @@ impl BackendCapabilities {
         supported.insert(Feature::Records);
         supported.insert(Feature::IntToString);
         supported.insert(Feature::StringOps);
+        supported.insert(Feature::Option);
         BackendCapabilities {
             name: "LLVM",
             supported,
@@ -207,6 +208,7 @@ impl BackendCapabilities {
         supported.insert(Feature::References);
         supported.insert(Feature::IntToString);
         supported.insert(Feature::StringOps);
+        supported.insert(Feature::Option);
         BackendCapabilities {
             name: "WASM",
             supported,

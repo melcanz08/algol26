@@ -416,7 +416,25 @@ impl Parser {
         }
     }
 
-    pub(super) fn parse_identifier_expr(&mut self, name: String, ident_span: Span) -> Result<Expr> {
+    pub(super) fn parse_identifier_expr(
+        &mut self,
+        mut name: String,
+        ident_span: Span,
+    ) -> Result<Expr> {
+        // UFCS: fold `::segment` suffixes into the identifier string.
+        // `Trait::method(args)` becomes `FunctionCall { name:
+        // "Trait::method", args }`, and every downstream branch (the
+        // function-call form, `.member`, bare `Var`) works on the
+        // compound name unchanged. The analyzer splits on `::` to
+        // resolve the trait and receiver. Chains like `A::B::C` fold
+        // repeatedly; only the first two segments are meaningful today,
+        // but the loop costs nothing.
+        while matches!(self.peek(), Token::DoubleColon) {
+            self.advance();
+            let segment = self.expect_identifier("identifier after '::'")?;
+            name = format!("{}::{}", name, segment);
+        }
+
         if matches!(self.peek(), Token::LParen) {
             // Unchanged: function call `name(args)`.
             self.advance();

@@ -21,6 +21,10 @@ impl Lexer {
                     chars.next();
                     *position += 1;
                     tokens.push(Token::Assign);
+                } else if let Some(&':') = chars.peek() {
+                    chars.next();
+                    *position += 1;
+                    tokens.push(Token::DoubleColon);
                 } else {
                     tokens.push(Token::Colon);
                 }

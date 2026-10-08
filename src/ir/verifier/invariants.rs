@@ -1,9 +1,26 @@
 // src/ir/verifier/invariants.rs
 //
 // ADR 0014. Machine-checked invariant of executable IR: no
-// `Type::TypeVar` or an unnormalized `Type::Associated` appears in a
-// function's parameters, return type,
-// or any value carried by an instruction or terminator.
+// `Type::TypeVar`, `Type::Generic`, or unnormalized `Type::Associated`
+// appears in a function's parameters, return type, or any value
+// carried by an instruction or terminator.
+//
+// `Type::Unknown` is deliberately *not* rejected. The analyzer uses
+// it as "no opinion" inside composites — `Result<Int, Unknown>`
+// means the error half is unconstrained, `List<Unknown>` means the
+// element type was never narrowed. Those are valid programs;
+// rejecting them here would make the verifier stricter than the
+// analyzer, which is not its job. The LLVM backend's own `map_type`
+// panics on `Unknown` (that is the fail-closed contract from A1),
+// but only after the capability check has had a chance to refuse
+// the program for unrelated reasons — e.g. `Result` is refused
+// outright, so `Result<Int, Unknown>` never reaches codegen.
+//
+// The three variants we do reject are the ones the analyzer's
+// monomorphization and ADR 0041 normalization passes are supposed
+// to eliminate: if any of them survives into executable IR, the
+// producing pass has a bug, and it is this verifier's job to catch
+// that. `Unknown` surviving is expected.
 //
 // Call-target resolution is NOT checked here. `SemanticProgram::verify`
 // already emits "Call to undefined function 'X'" and knows about
@@ -61,14 +78,14 @@ pub fn check_invariants(
 
 fn check_function(func: &SemanticFunction, errors: &mut Vec<InvariantError>) {
     for (name, ty) in &func.params {
-        if contains_type_var(ty) {
+        if is_unresolved(ty) {
             errors.push(InvariantError::TypeVarInExecutableIr {
                 function: func.name.clone(),
                 location: format!("parameter `{}` has type `{}`", name, ty),
             });
         }
     }
-    if contains_type_var(&func.return_type) {
+    if is_unresolved(&func.return_type) {
         errors.push(InvariantError::TypeVarInExecutableIr {
             function: func.name.clone(),
             location: format!("return type `{}`", func.return_type),
@@ -101,7 +118,7 @@ fn check_instruction(
             }
         }
         SemanticInstruction::Declare { type_, value, .. } => {
-            if contains_type_var(type_) {
+            if is_unresolved(type_) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: location(&format!("Declare type `{}`", type_)),
@@ -128,7 +145,7 @@ fn check_instruction(
             check_value(value, function, &location("SendChannel"), errors);
         }
         SemanticInstruction::Allocate { size, type_, .. } => {
-            if contains_type_var(type_) {
+            if is_unresolved(type_) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: location(&format!("Allocate type `{}`", type_)),
@@ -156,7 +173,7 @@ fn check_terminator(
             value: Some(v),
             type_,
         } => {
-            if contains_type_var(type_) {
+            if is_unresolved(type_) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: location(&format!("Return type `{}`", type_)),
@@ -191,7 +208,7 @@ fn check_value(
         TypedIRValue::Call {
             args, return_type, ..
         } => {
-            if contains_type_var(return_type) {
+            if is_unresolved(return_type) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: Call return type `{}`", location, return_type),
@@ -207,7 +224,7 @@ fn check_value(
             result_type,
             ..
         } => {
-            if contains_type_var(result_type) {
+            if is_unresolved(result_type) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: BinaryOp result type `{}`", location, result_type),
@@ -217,7 +234,7 @@ fn check_value(
             check_value(right, function, location, errors);
         }
         TypedIRValue::Cast { value, target_type } => {
-            if contains_type_var(target_type) {
+            if is_unresolved(target_type) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: Cast target type `{}`", location, target_type),
@@ -226,7 +243,7 @@ fn check_value(
             check_value(value, function, location, errors);
         }
         TypedIRValue::Variable(_, ty) => {
-            if contains_type_var(ty) {
+            if is_unresolved(ty) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: variable of type `{}`", location, ty),
@@ -234,7 +251,7 @@ fn check_value(
             }
         }
         TypedIRValue::List(items, elem) => {
-            if contains_type_var(elem) {
+            if is_unresolved(elem) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: List element type `{}`", location, elem),
@@ -248,7 +265,7 @@ fn check_value(
         | TypedIRValue::BorrowMutable { expr, target_type }
         | TypedIRValue::ReadReference { expr, target_type }
         | TypedIRValue::AddrOf { expr, target_type } => {
-            if contains_type_var(target_type) {
+            if is_unresolved(target_type) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: reference type `{}`", location, target_type),
@@ -260,7 +277,7 @@ fn check_value(
             check_value(inner, function, location, errors);
         }
         TypedIRValue::None { option_type } => {
-            if contains_type_var(option_type) {
+            if is_unresolved(option_type) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: None of type `{}`", location, option_type),
@@ -268,7 +285,7 @@ fn check_value(
             }
         }
         TypedIRValue::Ok { value, result_type } | TypedIRValue::Error { value, result_type } => {
-            if contains_type_var(result_type) {
+            if is_unresolved(result_type) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: Result type `{}`", location, result_type),
@@ -281,7 +298,7 @@ fn check_value(
             index,
             element_type,
         } => {
-            if contains_type_var(element_type) {
+            if is_unresolved(element_type) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
                     location: format!("{}: array element type `{}`", location, element_type),
@@ -294,32 +311,39 @@ fn check_value(
     }
 }
 
-/// Structural `TypeVar` detection. Duplicated from any similar helper
-/// on `Type` by design — the verifier must not depend on the same
-/// code the builder uses.
-/// ADR 0041. A `Type::Associated` that reaches the verifier was not
-/// normalized by the analyzer's projection-reduction pass. Reject
-/// it under the same rule as `TypeVar`: executable IR must contain
-/// neither. Recurse into the base so a nested projection inside a
-/// composite is caught.
-fn contains_type_var(ty: &Type) -> bool {
+/// Structural unresolved-type detection. Duplicated from any similar
+/// helper on `Type` by design — the verifier must not depend on the
+/// same code the builder uses.
+///
+/// The three variants this rejects are the ones the analyzer is
+/// supposed to eliminate before IR reaches the verifier: `TypeVar`
+/// (monomorphization should have bound it), `Generic` (resolution
+/// should have replaced it), and `Associated` (ADR 0041's
+/// normalization pass should have rewritten it). None has a runtime
+/// representation, so any of them surviving into executable IR is a
+/// compiler bug — the job of this walker is to make that bug surface
+/// where the diagnostic can name the function, rather than at
+/// codegen, where the only available signal is a panic.
+///
+/// `Type::Unknown` is not in this set. See the module-level comment
+/// for why.
+fn is_unresolved(ty: &Type) -> bool {
     match ty {
-        Type::TypeVar(_) => true,
-        Type::Associated { base, .. } => contains_type_var(base),
+        Type::TypeVar(_) | Type::Generic { .. } => true,
+        Type::Associated { base, .. } => is_unresolved(base),
         Type::List(inner)
         | Type::Option(inner)
         | Type::Pointer(inner)
         | Type::Borrow(inner)
         | Type::MutBorrow(inner)
-        | Type::Channel(inner) => contains_type_var(inner),
-        Type::Array(inner, _) => contains_type_var(inner),
-        Type::Tuple(elems) => elems.iter().any(contains_type_var),
-        Type::Result { ok, error } => contains_type_var(ok) || contains_type_var(error),
+        | Type::Channel(inner) => is_unresolved(inner),
+        Type::Array(inner, _) => is_unresolved(inner),
+        Type::Tuple(elems) => elems.iter().any(is_unresolved),
+        Type::Result { ok, error } => is_unresolved(ok) || is_unresolved(error),
         Type::Function {
             params,
             return_type,
-        } => params.iter().any(contains_type_var) || contains_type_var(return_type),
-        Type::Generic { args, .. } => args.iter().any(contains_type_var),
+        } => params.iter().any(is_unresolved) || is_unresolved(return_type),
         _ => false,
     }
 }

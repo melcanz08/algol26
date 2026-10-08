@@ -140,17 +140,39 @@ impl SemanticAnalyzer {
     ) -> Result<Type> {
         match &expr.kind {
             ExprKind::Borrow { expr, .. } => {
-                if let ExprKind::Var(name, _) = &expr.as_ref().kind {
+                let inner_type = if let ExprKind::Var(name, _) = &expr.as_ref().kind {
                     self.check_borrow_rules(name, false)?;
                     self.mark_borrowed(name);
-                    let inner_type = self.analyze_expr(expr)?;
-                    return Ok(Type::borrow(inner_type));
+                    self.analyze_expr(expr)?
+                } else {
+                    self.analyze_expr(expr)?
+                };
+                // ADR 0038. When the surrounding context expects
+                // `&dyn Trait` and the concrete type implements that
+                // trait, the borrow *expression* takes the trait-object
+                // type, not the concrete-borrow type. The IR builder
+                // reads this expression's recorded type and emits
+                // `TypedIRValue::DynTrait` accordingly (see D3c). The
+                // VarDecl-side check in `stmt.rs` remains the primary
+                // gate; this arm records the analyzer's decision so the
+                // builder can act on it.
+                if let Some(Type::Borrow(expected_inner)) = expected_type {
+                    if let Type::DynTrait { trait_name, .. } = expected_inner.as_ref() {
+                        if self
+                            .trait_registry
+                            .type_implements_trait(&inner_type, trait_name)
+                        {
+                            if let Some(trait_id) = self.trait_registry.resolve_trait_id(trait_name)
+                            {
+                                return Ok(Type::borrow(Type::dyn_trait(trait_id, trait_name)));
+                            }
+                        }
+                    }
                 }
-                let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::borrow(inner_type))
             }
             ExprKind::MutBorrow { expr, .. } => {
-                if let ExprKind::Var(name, _) = &expr.as_ref().kind {
+                let inner_type = if let ExprKind::Var(name, _) = &expr.as_ref().kind {
                     // Do NOT release existing borrows here — that would undo
                     // the very borrow we just registered. `check_borrow_rules`
                     // will correctly reject a second mut-borrow of the same source.
@@ -159,10 +181,26 @@ impl SemanticAnalyzer {
                     // type lands in the ExprId-keyed table. Returning a looked-up
                     // type directly skips the table write and leaves `x` untyped
                     // in `&mut x`, which the completeness check now rejects.
-                    let inner_type = self.analyze_expr(expr)?;
-                    return Ok(Type::mut_borrow(inner_type));
+                    self.analyze_expr(expr)?
+                } else {
+                    self.analyze_expr(expr)?
+                };
+                // ADR 0038. Symmetric to the `Borrow` arm above:
+                // `&mut T` -> `&mut dyn Trait` when the expected type
+                // is `&mut dyn Trait` and `T: Trait`.
+                if let Some(Type::MutBorrow(expected_inner)) = expected_type {
+                    if let Type::DynTrait { trait_name, .. } = expected_inner.as_ref() {
+                        if self
+                            .trait_registry
+                            .type_implements_trait(&inner_type, trait_name)
+                        {
+                            if let Some(trait_id) = self.trait_registry.resolve_trait_id(trait_name)
+                            {
+                                return Ok(Type::mut_borrow(Type::dyn_trait(trait_id, trait_name)));
+                            }
+                        }
+                    }
                 }
-                let inner_type = self.analyze_expr(expr)?;
                 Ok(Type::mut_borrow(inner_type))
             }
             ExprKind::Deref { expr, .. } => {
@@ -997,6 +1035,23 @@ impl SemanticAnalyzer {
                         let method_name = parts[1];
 
                         if let Some((receiver_type, mutable)) = self.lookup_variable(receiver) {
+                            // ADR 0038 D4b. A method call on a `&dyn Trait`
+                            // receiver dispatches through the trait's
+                            // declaration, not through any impl. The
+                            // analyzer records the resolved slot for the IR
+                            // builder; the return type is the trait method's
+                            // declared return type.
+                            if let Type::Borrow(inner) | Type::MutBorrow(inner) = &receiver_type {
+                                if let Type::DynTrait { trait_name, .. } = inner.as_ref() {
+                                    return self.analyze_dyn_trait_method_call(
+                                        trait_name,
+                                        method_name,
+                                        args,
+                                        expr.id,
+                                        self.current_span,
+                                    );
+                                }
+                            }
                             // ADR 0030: Enum ordinal extraction. `d.to_ordinal()`.
                             if let Type::Enum { .. } = &receiver_type {
                                 if method_name == "to_ordinal" {
@@ -1181,7 +1236,9 @@ impl SemanticAnalyzer {
                                     {
                                         let arg_ty =
                                             self.analyze_expr_with_context(arg, Some(pty))?;
-                                        if !arg_ty.can_coerce_to(pty) && *pty != Type::Unknown {
+                                        if !self.can_coerce_with_traits(&arg_ty, pty)
+                                            && *pty != Type::Unknown
+                                        {
                                             return Err(CompileError::at(
                                                 self.current_span,
                                                 &format!(
@@ -1320,7 +1377,7 @@ impl SemanticAnalyzer {
                                             Some(s) => self.resolve_type_syntax(s)?,
                                             None => Type::Unknown,
                                         };
-                                        if !arg_type.can_coerce_to(&expected_type)
+                                        if !self.can_coerce_with_traits(&arg_type, &expected_type)
                                             && expected_type != Type::Unknown
                                         {
                                             return Err(CompileError::at(
@@ -1552,7 +1609,7 @@ impl SemanticAnalyzer {
                     if !resolved_param_type.contains_type_var()
                         && !resolved_param_type.contains_unknown()
                         && !arg_type.contains_unknown()
-                        && !arg_type.can_coerce_to(&resolved_param_type)
+                        && !self.can_coerce_with_traits(&arg_type, &resolved_param_type)
                     {
                         return Err(CompileError::at(
                             self.current_span,
@@ -3022,5 +3079,104 @@ impl SemanticAnalyzer {
             msg.push_str(&format!(" (and {} more)", more));
         }
         Some(msg)
+    }
+
+    /// ADR 0038 D4b. Resolve a method call on a `&dyn Trait` receiver
+    /// through the trait's declaration. Records a `VirtualCallInfo`
+    /// so the IR builder emits `Instruction::VirtualCall` at this
+    /// site. Returns the method's declared return type.
+    fn analyze_dyn_trait_method_call(
+        &mut self,
+        trait_name: &str,
+        method_name: &str,
+        args: &[Expr],
+        call_site: ExprId,
+        span: Span,
+    ) -> Result<Type> {
+        let Some(method) = self
+            .trait_registry
+            .trait_method(trait_name, method_name)
+            .cloned()
+        else {
+            return Err(CompileError::at(
+                span,
+                &format!("trait `{}` has no method `{}`", trait_name, method_name),
+                ErrorCode::E0011,
+            )
+            .with_suggestion(&format!(
+                "Add `function {}` to the `trait {}` declaration, or use UFCS \
+                 to call the method on a concrete type",
+                method_name, trait_name
+            )));
+        };
+        let Some(slot) = self
+            .trait_registry
+            .trait_method_slot(trait_name, method_name)
+        else {
+            // `trait_method` returned a method but `trait_method_slot`
+            // did not — internal inconsistency.
+            return Err(CompileError::at(
+                span,
+                &format!(
+                    "internal: trait `{}` has method `{}` but no slot \
+                     (registry invariant violated)",
+                    trait_name, method_name
+                ),
+                ErrorCode::E0009,
+            ));
+        };
+
+        // params[0] is `self: &Self` / `&mut Self`; the user args
+        // map to params[1..].
+        let expected_extra = method.params.len().saturating_sub(1);
+        if args.len() != expected_extra {
+            return Err(CompileError::at(
+                span,
+                &format!(
+                    "`{}::{}` expects {} argument(s) after the receiver, got {}",
+                    trait_name,
+                    method_name,
+                    expected_extra,
+                    args.len()
+                ),
+                ErrorCode::E0002,
+            ));
+        }
+
+        for (arg, (pname, pty)) in args.iter().zip(method.params.iter().skip(1)) {
+            let arg_ty = self.analyze_expr(arg)?;
+            self.register_call_arg_temporary(arg);
+            let expected = match pty {
+                Some(s) => self.resolve_type_syntax(s)?,
+                None => Type::Unknown,
+            };
+            if !self.can_coerce_with_traits(&arg_ty, &expected) && expected != Type::Unknown {
+                return Err(CompileError::at(
+                    span,
+                    &format!(
+                        "argument `{}` type mismatch: expected {}, found {}",
+                        pname, expected, arg_ty
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+        }
+
+        let return_type = match &method.return_type {
+            Some(s) => self.resolve_type_syntax(s)?,
+            None => Type::Void,
+        };
+
+        self.virtual_calls.insert(
+            call_site,
+            VirtualCallInfo {
+                trait_name: trait_name.to_string(),
+                method_name: method_name.to_string(),
+                slot,
+                return_type: return_type.clone(),
+            },
+        );
+
+        Ok(return_type)
     }
 }

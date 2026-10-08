@@ -33,7 +33,9 @@ mod patterns;
 mod terminators;
 mod values;
 
-pub use self::core::{SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram};
+pub use self::core::{
+    SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram, VtableEntry,
+};
 pub use self::display::{format_program, format_program_with, FormatMode, FormatOptions};
 pub use self::instructions::Instruction;
 pub use self::patterns::SemanticPattern;

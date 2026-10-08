@@ -8,6 +8,7 @@ use crate::common::types::Type;
 use crate::ir::semantic_ir::{Instruction, TypedIRValue};
 use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::BasicValueEnum;
+use inkwell::AddressSpace;
 
 impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
@@ -386,6 +387,128 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 } else {
                     self.compile_builtin_call(&callee_name, args, result)?;
+                }
+                Ok(())
+            }
+            Instruction::VirtualCall {
+                receiver,
+                method_name,
+                slot,
+                args,
+                result,
+                return_type,
+            } => {
+                // ADR 0038 D4b. Load the fat pointer's two halves,
+                // GEP to slot `slot` of the vtable, load the method
+                // pointer, then build an indirect call with `data`
+                // as the receiver argument.
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let fat_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), ptr_ty.into()], false);
+
+                // Load the receiver's slot: `s` holds a `ptr` to
+                // the fat pointer struct (because `compile_value`
+                // for `DynTrait` returns the alloca address of that
+                // struct). Loading yields that pointer; the GEPs
+                // below index into the struct it points to.
+                //
+                // Previously this used `compile_reference`, which
+                // returned `&s` — the address of the 8-byte slot.
+                // GEP at slot 1 then read 8 bytes past the slot,
+                // and the indirect call crashed (exit 96).
+                let fat_val = self.compile_value(receiver)?;
+                let fat_ptr = fat_val.into_pointer_value();
+                let data_slot = self
+                    .builder
+                    .build_struct_gep(fat_ty, fat_ptr, 0, "dyn_data_slot")
+                    .unwrap();
+                let vtable_slot = self
+                    .builder
+                    .build_struct_gep(fat_ty, fat_ptr, 1, "dyn_vtable_slot")
+                    .unwrap();
+                let data_ptr = self
+                    .builder
+                    .build_load(ptr_ty, data_slot, "dyn_data")
+                    .unwrap()
+                    .into_pointer_value();
+                let vtable_ptr = self
+                    .builder
+                    .build_load(ptr_ty, vtable_slot, "dyn_vtable")
+                    .unwrap()
+                    .into_pointer_value();
+
+                let slot_const = self.context.i32_type().const_int(*slot as u64, false);
+                let method_slot_ptr = unsafe {
+                    self.builder
+                        .build_gep(ptr_ty, vtable_ptr, &[slot_const], "method_slot")
+                        .unwrap()
+                };
+                let method_fn = self
+                    .builder
+                    .build_load(ptr_ty, method_slot_ptr, "method_fn")
+                    .unwrap()
+                    .into_pointer_value();
+
+                // Build the indirect-call's function type: `(ptr,
+                // arg_ts...) -> ret`. `ret` comes from
+                // `return_type`; a `Void` return means no value.
+                let ret_ty = match return_type {
+                    Type::Void => None,
+                    other => Some(self.map_type(other)),
+                };
+                let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum> =
+                    vec![ptr_ty.into()];
+                let mut arg_vals: Vec<BasicValueEnum> = Vec::with_capacity(args.len() + 1);
+                arg_vals.push(data_ptr.into());
+                for a in args {
+                    let v = self.compile_value(a)?;
+                    param_types.push(v.get_type().into());
+                    arg_vals.push(v);
+                }
+                let fn_ty = match ret_ty {
+                    Some(rt) => rt.fn_type(&param_types, false),
+                    None => self.context.void_type().fn_type(&param_types, false),
+                };
+
+                let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
+                    arg_vals.iter().map(|v| (*v).into()).collect();
+                let call_site = self
+                    .builder
+                    .build_indirect_call(fn_ty, method_fn, &call_args, "vcall")
+                    .unwrap();
+
+                if let Some(res_name) = result {
+                    match call_site.try_as_basic_value() {
+                        inkwell::values::ValueKind::Basic(ret) => {
+                            if let Some(ptr) = self.variables.get(res_name).cloned() {
+                                self.builder.build_store(ptr, ret).unwrap();
+                            } else {
+                                let alloca = if ret.is_struct_value() {
+                                    self.create_entry_alloca_llvm(res_name, ret.get_type())
+                                } else {
+                                    self.create_entry_alloca(res_name, &Type::Float)
+                                };
+                                self.builder.build_store(alloca, ret).unwrap();
+                                self.variables.insert(res_name.clone(), alloca);
+                                self.var_types.insert(res_name.clone(), return_type.clone());
+                            }
+                        }
+                        inkwell::values::ValueKind::Instruction(_) => {
+                            // IR says there's a result but the method
+                            // returns void. The analyzer's return
+                            // type disagrees with the impl; that is a
+                            // compiler-internal inconsistency.
+                            return Err(CompileError::unsupported_operation(
+                                &format!(
+                                    "vcall `{}` bound to result `{}` but \
+                                     method returns void",
+                                    method_name, res_name
+                                ),
+                                "llvm",
+                            ));
+                        }
+                    }
                 }
                 Ok(())
             }

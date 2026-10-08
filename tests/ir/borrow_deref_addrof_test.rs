@@ -167,6 +167,8 @@ proc main
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        std::collections::HashMap::new(), // trait_ids (ADR 0038)
     );
 
     // `var n := list.length()` produces a standalone
@@ -240,6 +242,8 @@ proc main
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        std::collections::HashMap::new(), // trait_ids (ADR 0038)
     );
 
     // The print must be present somewhere in the IR, not dropped.

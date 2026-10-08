@@ -91,6 +91,19 @@ pub enum TypedIRValue {
         args: Vec<TypedIRValue>,
         return_type: Type,
     },
+    /// ADR 0038 D4b. A method call through a `&dyn Trait` receiver.
+    /// Produced by `translate_expr` at the source call site, then
+    /// consumed by the two instruction-emission sites
+    /// (`Stmt::VarDecl` and `Stmt::Expression`) which convert it to
+    /// `Instruction::VirtualCall`. `receiver` is the fat pointer;
+    /// `args` are the user args, without the receiver.
+    VirtualCall {
+        receiver: Box<TypedIRValue>,
+        method_name: String,
+        slot: usize,
+        args: Vec<TypedIRValue>,
+        return_type: Type,
+    },
     ArrayAccess {
         array: Box<TypedIRValue>,
         index: Box<TypedIRValue>,
@@ -102,6 +115,23 @@ pub enum TypedIRValue {
     },
     BorrowMutable {
         expr: Box<TypedIRValue>,
+        target_type: Type,
+    },
+    /// ADR 0038. A `&dyn Trait` / `&mut dyn Trait` fat pointer: the
+    /// concrete value plus a vtable key. `data` is the concrete
+    /// value (typically a variable referring to the underlying
+    /// object); `vtable_id` identifies the `(trait, concrete)`
+    /// pair the backend must use for dispatch. `target_type` is
+    /// the full `Borrow(DynTrait)` or `MutBorrow(DynTrait)` the
+    /// value wears, matching the sibling reference forms.
+    ///
+    /// The builder produces this at a coercion site — where the
+    /// analyzer's type table says `&dyn Trait` but the source
+    /// expression is `&concrete`. Ordinary `&T` / `&mut T` uses
+    /// continue to use `BorrowShared` / `BorrowMutable`.
+    DynTrait {
+        data: Box<TypedIRValue>,
+        vtable_id: String,
         target_type: Type,
     },
     ReadReference {
@@ -173,9 +203,11 @@ impl TypedIRValue {
             TypedIRValue::Cast { target_type, .. } => target_type.clone(),
             TypedIRValue::BinaryOp { result_type, .. } => result_type.clone(),
             TypedIRValue::Call { return_type, .. } => return_type.clone(),
+            TypedIRValue::VirtualCall { return_type, .. } => return_type.clone(),
             TypedIRValue::ArrayAccess { element_type, .. } => element_type.clone(),
             TypedIRValue::BorrowShared { target_type, .. } => target_type.clone(),
             TypedIRValue::BorrowMutable { target_type, .. } => target_type.clone(),
+            TypedIRValue::DynTrait { target_type, .. } => target_type.clone(),
             TypedIRValue::ReadReference { target_type, .. } => target_type.clone(),
             TypedIRValue::AddrOf { target_type, .. } => target_type.clone(),
             TypedIRValue::FieldAccess { field_type, .. } => field_type.clone(),

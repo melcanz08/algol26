@@ -421,6 +421,14 @@ pub fn mangled_type_name(ty: &Type) -> String {
         // `type Percentage Int in 0..100` declarations in different
         // modules are different types. See ADR 0031.
         Type::Subrange { id, .. } => format!("Subrange_{}", id.0),
+        // Trait objects: mangle by identity, same reasoning as
+        // Distinct / Enum / Subrange. Two `dyn Shape` declarations
+        // in different modules are different types and must not
+        // collide. `trait_name` is presentation only and
+        // deliberately does not appear here — see ADR 0038. The
+        // `DynTrait_` prefix keeps this disjoint from `Distinct_`,
+        // `Enum_`, and `Subrange_`.
+        Type::DynTrait { trait_id, .. } => format!("DynTrait_{}", trait_id.0),
         Type::Set(inner) => format!("Set_{}", mangled_type_name(inner)),
     }
 }

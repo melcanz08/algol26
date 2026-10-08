@@ -23,6 +23,31 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
 
 ## Recent changes (through 2026-10-01)
 
+### Dynamic dispatch (ADR 0038)
+
+- **`&dyn Trait` / `&mut dyn Trait`.** Implicit coercion from
+  `&T` / `&mut T` when `T: Trait`. Method calls on a `dyn Trait`
+  receiver dispatch through a fat-pointer vtable at runtime.
+  See [`docs/features/dyn_trait.md`](features/dyn_trait.md).
+- **Fat-pointer representation.** `{ data: ptr, vtable: ptr }`.
+  Vtables are emitted per `(trait, concrete)` pair as
+  internal-linkage `[N x ptr]` constants with the mangled name
+  `__algol26_vtable_{trait_id}_{concrete_mangled}`.
+- **Object safety.** A trait is usable as `dyn Trait` iff every
+  method has a `&Self` or `&mut Self` receiver. Traits with
+  by-value receivers are rejected at the coercion site with
+  `E0002` naming the offending method.
+- **Dedicated coercion diagnostic.** A `&T → &dyn Trait` coercion
+  whose `T` does not implement the trait produces `E0012`, which
+  names the concrete type and the trait in the message.
+- **All three backends.** Interpreter dispatches by reconstructing
+  the mangled impl name at runtime; LLVM and WASM share an
+  indirect-call lowering through the vtable slot.
+- **Not yet supported:** owned dynamic dispatch (`Box<dyn Trait>`
+  or equivalent), trait-object upcasting, generic trait objects,
+  runtime type identity (`Any` / `TypeId` / downcasting), dynamic
+  library loading. See ADR 0038 §Scope boundary for the full list.
+
 ### Records (ADR 0024) and structural Copy (ADR 0026)
 
 - **`rec` structured data types.** Declaration, construction
@@ -269,6 +294,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | `try` / `catch` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | Traits + impls | ✅ | ✅ | ✅ | ✅ | 28, 29, 37 |
+| `&dyn Trait` / `&mut dyn Trait` | ✅ | ✅ | ✅ | ✅ | — |
 | Generics | ✅ | ✅ | ✅ | ✅ | — |
 | `rec` records | ✅ | ✅ | ✅ | ⛔ | — |
 | Structural `Copy` | ✅ | ✅ | ✅ | ⛔ | — |

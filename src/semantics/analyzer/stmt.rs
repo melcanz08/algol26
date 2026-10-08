@@ -65,31 +65,55 @@ impl SemanticAnalyzer {
                     self.register_mutable_borrow(name, source)?;
                 }
 
-                if let Some(annotated) = type_annotation {
+                let binding_type = if let Some(annotated) = type_annotation {
                     let expected = self.resolve_type_syntax(annotated)?;
                     let is_borrow = matches!(
                         &value.kind,
                         ExprKind::Borrow { .. } | ExprKind::MutBorrow { .. }
                     );
-                    if !is_borrow
-                        && expected != Type::Unknown
-                        && !value_type.can_coerce_to(&expected)
-                    {
-                        return Err(CompileError::at(
+                    if Self::is_dyn_trait_ref(&expected) {
+                        // ADR 0038: `&T` coerces to `&dyn Trait` when
+                        // `T` implements the trait. Two effects here,
+                        // distinct from the plain-reference case:
+                        //  (a) the check runs even when the value is
+                        //      written as `&c` (the `is_borrow` bypass
+                        //      below only covers the shared/mut ref
+                        //      coercion, not the trait-object one);
+                        //  (b) the binding's stored type is the trait
+                        //      object, not the concrete type of the
+                        //      initializer, so subsequent method calls
+                        //      resolve through the trait.
+                        self.check_dyn_trait_target(
+                            &value_type,
+                            &expected,
                             self.current_span,
-                            &format!(
-                                "Type mismatch: variable '{}' declared as {} but assigned {}",
-                                name, expected, value_type
-                            ),
-                            ErrorCode::E0002,
-                        )
-                        .with_suggestion(&format!(
-                            "Change the type annotation to {} or change the value to {}",
-                            value_type, expected
-                        )));
+                            &format!("Variable '{}'", name),
+                        )?;
+                        expected
+                    } else {
+                        if !is_borrow
+                            && expected != Type::Unknown
+                            && !value_type.can_coerce_to(&expected)
+                        {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Type mismatch: variable '{}' declared as {} but assigned {}",
+                                    name, expected, value_type
+                                ),
+                                ErrorCode::E0002,
+                            )
+                            .with_suggestion(&format!(
+                                "Change the type annotation to {} or change the value to {}",
+                                value_type, expected
+                            )));
+                        }
+                        value_type.clone()
                     }
-                }
-                self.declare_variable(name, value_type.clone(), *mutable)?;
+                } else {
+                    value_type.clone()
+                };
+                self.declare_variable(name, binding_type, *mutable)?;
                 // A `val` bound to `null` is statically known to hold
                 // null forever. Record it so a later deref can be
                 // rejected at compile time.
@@ -148,7 +172,7 @@ impl SemanticAnalyzer {
                 let value_type = self.analyze_expr_with_context(value, Some(&target_type))?;
                 if target_type != value_type
                     && target_type != Type::Unknown
-                    && !value_type.can_coerce_to(&target_type)
+                    && !self.can_coerce_with_traits(&value_type, &target_type)
                 {
                     return Err(CompileError::at(
                         self.current_span,
@@ -240,7 +264,11 @@ impl SemanticAnalyzer {
                     (None, Type::Void) => {}
                     (Some(expr), expected) => {
                         let actual_type = self.analyze_expr_with_context(expr, Some(expected))?;
-                        let can_return = actual_type.can_coerce_to(expected)
+                        // ADR 0038: `&T` can be returned where `&dyn Trait`
+                        // is expected when `T` implements the trait. The
+                        // existing `Borrow(..) -> T` / `MutBorrow(..) -> T`
+                        // auto-deref arms below are preserved as-is.
+                        let can_return = self.can_coerce_with_traits(&actual_type, expected)
                             || matches!(
                                 &actual_type,
                                 Type::Borrow(inner) if (**inner).can_coerce_to(expected)

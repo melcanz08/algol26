@@ -271,6 +271,25 @@ fn format_instruction(out: &mut String, instr: &Instruction) {
         Instruction::RegionExit { name } => {
             write!(out, "}} // end region {}", name).unwrap();
         }
+        Instruction::VirtualCall {
+            receiver,
+            method_name,
+            slot,
+            args,
+            result,
+            ..
+        } => {
+            if let Some(name) = result {
+                write!(out, "{} := ", name).unwrap();
+            }
+            write!(out, "vcall[{}](", method_name).unwrap();
+            format_value(out, receiver);
+            for a in args {
+                out.push_str(", ");
+                format_value(out, a);
+            }
+            write!(out, ") ; slot {}", slot).unwrap();
+        }
         Instruction::BoundsCheck {
             value, low, high, ..
         } => {
@@ -291,6 +310,18 @@ fn format_value(out: &mut String, value: &TypedIRValue) {
         TypedIRValue::NullPtr => out.push_str("null"),
         TypedIRValue::PtrLiteral(p) => write!(out, "0x{:x}", p).unwrap(),
         TypedIRValue::Variable(name, _) => out.push_str(name),
+        // ADR 0038. Diagnostic form: `dyn` marker, vtable id, and the
+        // wrapped data expression. `vtable_id` is opaque to the
+        // display layer; D4/D5 consume it.
+        TypedIRValue::DynTrait {
+            data, vtable_id, ..
+        } => {
+            out.push_str("dyn(");
+            out.push_str(vtable_id);
+            out.push_str("; ");
+            format_value(out, data);
+            out.push(')');
+        }
         TypedIRValue::Cast { value, target_type } => {
             out.push('(');
             format_value(out, value);
@@ -311,6 +342,21 @@ fn format_value(out: &mut String, value: &TypedIRValue) {
                 if i > 0 {
                     out.push_str(", ");
                 }
+                format_value(out, a);
+            }
+            out.push(')');
+        }
+        TypedIRValue::VirtualCall {
+            receiver,
+            method_name,
+            slot,
+            args,
+            ..
+        } => {
+            write!(out, "{}[{}](", method_name, slot).unwrap();
+            format_value(out, receiver);
+            for a in args {
+                out.push_str(", ");
                 format_value(out, a);
             }
             out.push(')');

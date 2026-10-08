@@ -216,6 +216,39 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             }
             expected
         }
+        TypedIRValue::DynTrait {
+            data,
+            vtable_id,
+            target_type,
+        } => {
+            // `data` must verify as sound IR.
+            let _data_ty = verify_value(data, env)?;
+
+            // `vtable_id` is opaque here; empty is a builder bug.
+            if vtable_id.is_empty() {
+                return Err("DynTrait value has empty vtable_id — the builder                             must assign one at the coercion site (ADR 0038)"
+                    .to_string());
+            }
+
+            // ADR 0038: `dyn Trait` only exists inside a borrow. A
+            // bare `DynTrait` in the value universe would have no
+            // pointer semantics at codegen and no dispatch path at
+            // the interpreter. The analyzer already rejects this at
+            // the source level; the verifier is the second gate.
+            match target_type {
+                Type::Borrow(inner) | Type::MutBorrow(inner)
+                    if matches!(inner.as_ref(), Type::DynTrait { .. }) => {}
+                Type::Unknown => {}
+                other => {
+                    return Err(format!(
+                        "DynTrait value claims non-trait-object type {:?};                          expected `Borrow(DynTrait)` or `MutBorrow(DynTrait)`",
+                        other
+                    ));
+                }
+            }
+
+            target_type.clone()
+        }
         TypedIRValue::ReadReference { expr, target_type } => {
             let inner = verify_value(expr, env)?;
             let expected = match inner {
@@ -359,6 +392,35 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
             } else {
                 sig.return_type.clone()
             }
+        }
+        TypedIRValue::VirtualCall {
+            receiver,
+            method_name,
+            args,
+            return_type,
+            ..
+        } => {
+            // The receiver must verify and be a fat pointer.
+            let recv_ty = verify_value(receiver, env)?;
+            match &recv_ty {
+                Type::Borrow(inner) | Type::MutBorrow(inner)
+                    if matches!(inner.as_ref(), Type::DynTrait { .. }) => {}
+                Type::Unknown => {}
+                other => {
+                    return Err(format!(
+                        "VirtualCall value receiver has type {:?}; expected a \
+                         borrow of `DynTrait`",
+                        other
+                    ));
+                }
+            }
+            if method_name.is_empty() {
+                return Err("VirtualCall value has empty method_name".to_string());
+            }
+            for a in args {
+                verify_value(a, env)?;
+            }
+            return_type.clone()
         }
         TypedIRValue::Array(elements, elem_type, len) => {
             if elements.len() != *len {

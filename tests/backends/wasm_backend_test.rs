@@ -24,6 +24,8 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>, Vec<FunctionDecl>) {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        std::collections::HashMap::new(), // trait_ids (ADR 0038)
     );
     (ir, diagnostics, functions)
 }

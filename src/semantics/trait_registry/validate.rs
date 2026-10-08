@@ -110,3 +110,126 @@ impl TraitRegistry {
         Ok(())
     }
 }
+
+// ─── ADR 0038: object safety ────────────────────────────────────────
+
+use crate::common::diagnostics::{CompileError, ErrorCode};
+use crate::common::span::Span;
+use crate::frontend::ast::{TraitMethod, TypeSyntax};
+
+impl TraitRegistry {
+    /// ADR 0038. A trait is usable as `&dyn Trait` iff every method
+    /// has a `&Self` or `&mut Self` receiver. There are no generic
+    /// methods and no associated types in v1, so those clauses of
+    /// Rust's object-safety rule are structurally vacuous here and
+    /// are not checked.
+    ///
+    /// The gate fires as soon as `dyn Trait` is resolved, not later
+    /// at the coercion site. The ADR calls for the coercion site;
+    /// resolving earlier produces the same diagnostic at an earlier
+    /// position, which is strictly better UX and does not require
+    /// threading span information into the coercion path.
+    pub fn ensure_object_safe(
+        &self,
+        trait_name: &str,
+        span: Span,
+    ) -> std::result::Result<(), CompileError> {
+        let Some(trait_decl) = self.traits.get(trait_name) else {
+            return Err(CompileError::at(
+                span,
+                &format!("unknown trait `{}`", trait_name),
+                ErrorCode::E0003,
+            )
+            .with_suggestion("check the trait name and ensure it is in scope"));
+        };
+
+        for method in &trait_decl.methods {
+            ensure_method_is_object_safe(trait_name, method, span)?;
+        }
+        Ok(())
+    }
+}
+
+/// One method's contribution to its trait's object safety.
+///
+/// The receiver convention is `self: &Self` or `self: &mut Self`,
+/// written as the first parameter in the trait declaration (see the
+/// `Shape` example in ADR 0038 and ADR 0033). Anything else — no
+/// receiver, a differently-named first parameter, a bare `Self`, or
+/// an unrelated type — makes the method undispatchable through a
+/// fat pointer, and hence the trait non-object-safe.
+fn ensure_method_is_object_safe(
+    trait_name: &str,
+    method: &TraitMethod,
+    span: Span,
+) -> std::result::Result<(), CompileError> {
+    let Some((first_name, first_ty)) = method.params.first() else {
+        return Err(non_object_safe(
+            trait_name,
+            &method.name,
+            "has no receiver parameter",
+            span,
+        ));
+    };
+    if first_name != "self" {
+        return Err(non_object_safe(
+            trait_name,
+            &method.name,
+            &format!("first parameter is named `{}`, expected `self`", first_name),
+            span,
+        ));
+    }
+    let Some(first_ty) = first_ty else {
+        return Err(non_object_safe(
+            trait_name,
+            &method.name,
+            "receiver `self` has no type annotation; write `self: &Self` \
+             or `self: &mut Self`",
+            span,
+        ));
+    };
+    if !is_borrowed_self(first_ty) {
+        return Err(non_object_safe(
+            trait_name,
+            &method.name,
+            "receiver must be `&Self` or `&mut Self` — a `dyn Trait` \
+             cannot be dispatched through a by-value or consuming receiver",
+            span,
+        ));
+    }
+    Ok(())
+}
+
+/// True for `&Self` or `&mut Self` as parsed by `parse_type_syntax`:
+/// `Generic { name: "Borrow" | "MutBorrow", args: [Named("Self")] }`.
+/// Case-insensitive on the constructor name to match `to_type`'s
+/// tolerance elsewhere in the analyzer.
+fn is_borrowed_self(ty: &TypeSyntax) -> bool {
+    let TypeSyntax::Generic { name, args } = ty else {
+        return false;
+    };
+    if args.len() != 1 {
+        return false;
+    }
+    let lower = name.to_lowercase();
+    let is_borrow = lower == "borrow" || lower == "mutborrow" || lower == "mut_borrow";
+    if !is_borrow {
+        return false;
+    }
+    matches!(&args[0], TypeSyntax::Named(n) if n == "Self")
+}
+
+fn non_object_safe(trait_name: &str, method_name: &str, reason: &str, span: Span) -> CompileError {
+    CompileError::at(
+        span,
+        &format!(
+            "trait `{}` is not object-safe: method `{}` {}",
+            trait_name, method_name, reason
+        ),
+        ErrorCode::E0002,
+    )
+    .with_suggestion(
+        "traits used as `&dyn Trait` may only declare methods with \
+         `&Self` or `&mut Self` receivers",
+    )
+}

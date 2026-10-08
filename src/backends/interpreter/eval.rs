@@ -6,6 +6,22 @@ use crate::common::types::Type;
 use crate::ir::semantic_ir::{SemanticBinOp, TypedIRValue};
 use std::collections::HashMap;
 
+/// Derive the concrete-type name from a runtime value for use as the
+/// second half of a `(trait_name, concrete_type)` dispatch key.
+/// Records and nominal values carry a name; scalars fall back to a
+/// builtin name so the mangling stays consistent with the impl
+/// mangling (`{Trait}_{Concrete}_{method}`).
+fn runtime_concrete_name(v: &RuntimeValue) -> String {
+    match v {
+        RuntimeValue::Record { name, .. } => name.clone(),
+        RuntimeValue::Int(_) => "Int".to_string(),
+        RuntimeValue::Float(_) => "Float".to_string(),
+        RuntimeValue::String(_) => "String".to_string(),
+        RuntimeValue::Bool(_) => "Bool".to_string(),
+        _ => "Unknown".to_string(),
+    }
+}
+
 /// Extract a numeric `f64` from a runtime value, or fail closed.
 ///
 /// The analyzer only permits `List.sum`/`List.max`/`List.min` on
@@ -160,6 +176,77 @@ impl Interpreter {
             | TypedIRValue::BorrowMutable { expr, .. }
             | TypedIRValue::ReadReference { expr, .. }
             | TypedIRValue::AddrOf { expr, .. } => self.eval_value(expr)?,
+
+            // ADR 0038 D4b. The interpreter preserves the fat
+            // pointer as a `RuntimeValue::DynTrait` so that method
+            // dispatch can select the impl by `(trait, concrete)`.
+            // The concrete type comes from the analyzer's type
+            // table via the `data` expression's ExprId — the IR
+            // value itself does not carry it.
+            TypedIRValue::DynTrait {
+                data, target_type, ..
+            } => {
+                let data_val = self.eval_value(data)?;
+                let (trait_name, concrete_type) = match target_type {
+                    Type::Borrow(inner) | Type::MutBorrow(inner) => match inner.as_ref() {
+                        Type::DynTrait { trait_name, .. } => {
+                            (trait_name.clone(), runtime_concrete_name(&data_val))
+                        }
+                        _ => {
+                            return Err(EvalError::Unsupported {
+                                construct: "DynTrait value with non-DynTrait target",
+                                hint: "the analyzer should have rejected this shape",
+                            });
+                        }
+                    },
+                    _ => {
+                        return Err(EvalError::Unsupported {
+                            construct: "DynTrait value with non-borrow target",
+                            hint: "the analyzer should have rejected this shape",
+                        });
+                    }
+                };
+                RuntimeValue::DynTrait {
+                    data: Box::new(data_val),
+                    trait_name,
+                    concrete_type,
+                }
+            }
+            // ADR 0038 D4b. Virtual calls can appear nested inside
+            // other instructions — `print(s.area())` carries the
+            // VirtualCall as the Print's operand; `f(s.area())`
+            // carries it as an argument. Dispatch through the
+            // mangled impl name, same as the instruction-level
+            // `Instruction::VirtualCall` arm in `mod.rs`.
+            TypedIRValue::VirtualCall {
+                receiver,
+                method_name,
+                args,
+                ..
+            } => {
+                let recv = self.eval_value(receiver)?;
+                let RuntimeValue::DynTrait {
+                    data,
+                    trait_name,
+                    concrete_type,
+                } = recv
+                else {
+                    return Err(EvalError::TypeMismatch {
+                        op: "VirtualCall.receiver",
+                        left: runtime_kind(&recv),
+                        right: "DynTrait",
+                    });
+                };
+
+                let mut arg_vals: Vec<RuntimeValue> = Vec::with_capacity(args.len() + 1);
+                arg_vals.push(*data);
+                for a in args {
+                    arg_vals.push(self.eval_value(a)?);
+                }
+
+                let callee_name = format!("{}_{}_{}", trait_name, concrete_type, method_name);
+                self.call_function_with_values(&callee_name, arg_vals)?
+            }
 
             TypedIRValue::Range(..) => {
                 return Err(EvalError::Unsupported {
@@ -1133,5 +1220,63 @@ impl Interpreter {
         } else {
             self.eval_builtin_call(function, args)
         }
+    }
+
+    /// ADR 0038 D4b. Invoke a named function with already-evaluated
+    /// argument values. Parallel to `eval_call`, which evaluates
+    /// `TypedIRValue` arguments first; the virtual-dispatch path has
+    /// the receiver's runtime value in hand and must not re-evaluate
+    /// it (that would re-run any side effects in the receiver).
+    ///
+    /// Write-back for `&mut self` receivers is not implemented on
+    /// this path in v1. Trait methods invoked through `&dyn Trait`
+    /// use `&Self` receivers, which do not mutate the caller's
+    /// binding, so the omission is not observable today. `&mut Self`
+    /// through a `&mut dyn Trait` would need the same structural-
+    /// receiver machinery `eval_call` uses.
+    pub(super) fn call_function_with_values(
+        &mut self,
+        callee_name: &str,
+        arg_vals: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, EvalError> {
+        let Some(callee) = self
+            .program
+            .functions
+            .iter()
+            .find(|f| f.name == callee_name)
+            .cloned()
+        else {
+            return Err(EvalError::Runtime(format!(
+                "virtual dispatch: no function `{}` — the impl may not have                  been registered, or the mangled name scheme has drifted",
+                callee_name
+            )));
+        };
+
+        let saved_vars = std::mem::take(&mut self.variables);
+        let saved_ret = self.return_value.take();
+        let saved_regions = std::mem::take(&mut self.region_stack);
+
+        for ((param_name, _), val) in callee.params.iter().zip(arg_vals) {
+            self.variables.insert(param_name.clone(), val);
+        }
+
+        let result = self.execute_function(&callee);
+        let ret = match self.return_value.take() {
+            Some(v) => v,
+            None if callee.return_type == Type::Void => RuntimeValue::Void,
+            None => {
+                return Err(EvalError::Runtime(format!(
+                    "function `{}` returned no value but its return type is `{}`",
+                    callee.name, callee.return_type
+                )));
+            }
+        };
+
+        self.variables = saved_vars;
+        self.return_value = saved_ret;
+        self.region_stack = saved_regions;
+
+        result.map_err(|e| EvalError::Runtime(format!("in {}: {}", callee.name, e)))?;
+        Ok(ret)
     }
 }

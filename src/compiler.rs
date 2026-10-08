@@ -95,6 +95,22 @@ pub struct TypedProgram {
     /// builder at each `Foo::SIZE` use site.
     pub const_values:
         std::collections::HashMap<String, (crate::common::types::Type, crate::frontend::ast::Expr)>,
+    /// ADR 0038 D4b. Method calls the analyzer resolved through a
+    /// `&dyn Trait` receiver, keyed by the call's `ExprId`. Threaded
+    /// to `SemanticIRBuilder` so `translate_expr` can emit
+    /// `TypedIRValue::VirtualCall` at those sites.
+    pub virtual_calls: std::collections::HashMap<
+        crate::frontend::ast::ExprId,
+        crate::semantics::analyzer::VirtualCallInfo,
+    >,
+    /// ADR 0038 D6. Trait-name -> `TraitId` assignments, forwarded
+    /// from the analyzer so the IR builder can reconstruct
+    /// `Type::DynTrait` from a bare annotation without a registry.
+    pub trait_ids: std::collections::HashMap<String, crate::common::types::TraitId>,
+    /// ADR 0038 D6-2. Trait declarations, forwarded so the vtable
+    /// gather pass can read each trait's method names in declaration
+    /// order.
+    pub traits: Vec<crate::frontend::ast::TraitDecl>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -256,6 +272,9 @@ pub fn type_check_program(
         enum_types,
         subrange_types,
         const_values: analyzer.take_const_values(),
+        virtual_calls: analyzer.take_virtual_calls(),
+        trait_ids: analyzer.trait_ids(),
+        traits: analyzer.trait_decls(),
     })
 }
 
@@ -279,6 +298,12 @@ pub fn build_semantic_ir_program(
         String,
         (crate::common::types::Type, crate::frontend::ast::Expr),
     >,
+    virtual_calls: std::collections::HashMap<
+        crate::frontend::ast::ExprId,
+        crate::semantics::analyzer::VirtualCallInfo,
+    >,
+    trait_ids: std::collections::HashMap<String, crate::common::types::TraitId>,
+    traits: &[crate::frontend::ast::TraitDecl],
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
@@ -292,6 +317,8 @@ pub fn build_semantic_ir_program(
         enum_types,
         subrange_types,
         const_values,
+        virtual_calls,
+        trait_ids,
     );
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
@@ -305,6 +332,14 @@ pub fn build_semantic_ir_program(
             ErrorCode::E0002,
         ));
     }
+
+    // ADR 0038 D6-2. Record the trait declarations on the program
+    // and run the vtable gather. Both are no-ops when the program
+    // has no `dyn Trait` values.
+    let mut program = program;
+    program.trait_decls = traits.to_vec();
+    crate::ir::vtable_gather::gather_vtables(&mut program);
+
     Ok(program)
 }
 

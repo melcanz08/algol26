@@ -48,6 +48,20 @@ pub struct SemanticFunction {
     pub is_extern: bool,
 }
 
+/// ADR 0038. One virtual-dispatch table for a `(trait, concrete)`
+/// pair. Keyed in `SemanticProgram::vtables` by the `vtable_id`
+/// string carried on `TypedIRValue::DynTrait` values.
+#[derive(Debug, Clone)]
+pub struct VtableEntry {
+    pub trait_id: crate::common::types::TraitId,
+    pub trait_name: String,
+    pub concrete_type: Type,
+    /// Method names in trait declaration order. Slot `i` in the
+    /// emitted vtable corresponds to `method_names[i]`. Both
+    /// backends use this ordering; see ADR 0038 §Vtable layout.
+    pub method_names: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SemanticProgram {
     pub functions: Vec<SemanticFunction>,
@@ -81,6 +95,17 @@ pub struct SemanticProgram {
     pub enum_types: HashMap<String, Type>,
     /// Subrange type declarations, keyed by name. Same rationale.
     pub subrange_types: HashMap<String, Type>,
+    /// Trait declarations. Carried on the program so the vtable
+    /// gather pass (ADR 0038 D3b) can read method names in
+    /// declaration order without re-consulting the analyzer's
+    /// registry, and so downstream consumers (D4/D5) can resolve
+    /// a vtable id to its method list.
+    pub trait_decls: Vec<crate::frontend::ast::TraitDecl>,
+    /// Populated by `crate::ir::vtable_gather::gather_vtables` after
+    /// the program is built and before it is consumed by a backend.
+    /// Keyed by the `vtable_id` string on `TypedIRValue::DynTrait`.
+    /// Empty when no `&dyn Trait` value appears.
+    pub vtables: HashMap<String, VtableEntry>,
 }
 
 impl Default for SemanticProgram {
@@ -101,6 +126,8 @@ impl SemanticProgram {
             nominal_types: HashMap::new(),
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),
+            trait_decls: Vec::new(),
+            vtables: HashMap::new(),
         }
     }
     pub fn new_block_id(&mut self) -> usize {

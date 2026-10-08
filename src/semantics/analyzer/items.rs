@@ -676,6 +676,23 @@ impl SemanticAnalyzer {
     /// (`d7b9e4d`) took an hour to find because of this.
     pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Result<Type> {
         match syntax {
+            // ADR 0038. Resolve the trait through the registry,
+            // then gate on object safety. The position rule
+            // (`dyn Trait` only inside a borrow) is enforced
+            // separately by the caller that consumes this type; at
+            // this point we only know the name.
+            TypeSyntax::DynTrait { name } => {
+                let Some(trait_id) = self.trait_registry.resolve_trait_id(name) else {
+                    return Err(unknown_type_error(name));
+                };
+                // `Span::default()` is what `unknown_type_error`
+                // uses today — `TypeSyntax` carries no spans, so
+                // there is no better position to point at yet.
+                // Threading spans through the parser is a follow-up.
+                self.trait_registry
+                    .ensure_object_safe(name, crate::common::span::Span::default())?;
+                Ok(Type::dyn_trait(trait_id, name))
+            }
             TypeSyntax::Named(name) => {
                 if let Some(enum_ty) = self.enum_types.get(name.as_str()).cloned() {
                     return Ok(enum_ty);
@@ -838,6 +855,15 @@ impl SemanticAnalyzer {
         subranges: &HashMap<String, Type>,
     ) -> Result<Type> {
         match syntax {
+            // ADR 0038. This associated function has no `&self`,
+            // so it cannot consult the trait registry. It is only
+            // called during early analysis setup, before any
+            // `dyn Trait` can appear in a signature that matters
+            // — the setup path only walks user function
+            // declarations. If a `dyn Trait` does reach here, the
+            // subsequent `resolve_type_syntax` call (which has
+            // the registry) will produce the right diagnostic.
+            TypeSyntax::DynTrait { name } => Err(unknown_type_error(name)),
             TypeSyntax::Named(name) => {
                 if let Some(enum_ty) = enums.get(name.as_str()) {
                     return Ok(enum_ty.clone());

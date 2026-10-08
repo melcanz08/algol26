@@ -1,0 +1,5 @@
+trait Consuming
+    function take(self: Self) -> Int
+
+proc main
+    var x: &dyn Consuming := 0

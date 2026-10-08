@@ -104,6 +104,15 @@ pub enum RuntimeValue {
         name: String,
         fields: Vec<(String, RuntimeValue)>,
     },
+    /// ADR 0038. A `&dyn Trait` value. `data` is the borrowed
+    /// concrete value; `trait_name` and `concrete_type` select the
+    /// impl method at dispatch time. The interpreter has no pointer
+    /// model, so `data` is the value itself, not a pointer to it.
+    DynTrait {
+        data: Box<RuntimeValue>,
+        trait_name: String,
+        concrete_type: String,
+    },
     Void,
 }
 
@@ -121,6 +130,9 @@ impl RuntimeValue {
             RuntimeValue::Result { is_ok, .. } => *is_ok,
             RuntimeValue::Void => false,
             RuntimeValue::Map(m) => !m.is_empty(),
+            // A fat pointer is truthy: the language has no null
+            // trait objects in v1.
+            RuntimeValue::DynTrait { .. } => true,
         }
     }
 
@@ -158,6 +170,11 @@ impl RuntimeValue {
                 value,
             } => format!("Error({})", value.display()),
             RuntimeValue::Void => String::new(),
+            RuntimeValue::DynTrait {
+                data,
+                trait_name,
+                concrete_type,
+            } => format!("dyn {} ({}: {})", trait_name, concrete_type, data.display()),
         }
     }
 
@@ -220,6 +237,18 @@ impl RuntimeValue {
                 },
             ) => k1 == k2 && v1.runtime_eq(v2),
             (Void, Void) => true,
+            (
+                DynTrait {
+                    data: a,
+                    trait_name: t1,
+                    concrete_type: c1,
+                },
+                DynTrait {
+                    data: b,
+                    trait_name: t2,
+                    concrete_type: c2,
+                },
+            ) => t1 == t2 && c1 == c2 && a.runtime_eq(b),
             _ => false,
         }
     }
@@ -239,5 +268,6 @@ pub(super) fn runtime_kind(v: &RuntimeValue) -> &'static str {
         RuntimeValue::Result { .. } => "Result",
         RuntimeValue::Void => "Void",
         RuntimeValue::Map(_) => "Map",
+        RuntimeValue::DynTrait { .. } => "DynTrait",
     }
 }

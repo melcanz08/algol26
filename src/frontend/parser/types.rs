@@ -27,6 +27,17 @@ impl Parser {
             self.advance();
             return Ok(TypeSyntax::Named("Self".to_string()));
         }
+        // `dyn` is a soft keyword: it is special only at the head of a
+        // type, and remains a valid identifier elsewhere. ADR 0038.
+        // `&dyn Trait` reaches here through the `&` branch above,
+        // which recurses into this function.
+        if let Token::Identifier(name) = self.peek() {
+            if name.as_str() == "dyn" {
+                self.advance(); // consume `dyn`
+                let trait_name = self.expect_identifier("trait name after `dyn`")?;
+                return Ok(TypeSyntax::DynTrait { name: trait_name });
+            }
+        }
         let base = self.expect_identifier("type name")?;
         if matches!(self.peek(), Token::LBracket | Token::Lt) {
             let is_bracket = matches!(self.peek(), Token::LBracket);

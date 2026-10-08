@@ -37,6 +37,8 @@ fn run_source(source: &str) -> String {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        std::collections::HashMap::new(), // trait_ids (ADR 0038)
     );
     let mut interpreter = Interpreter::new(ir);
     interpreter.run().unwrap()

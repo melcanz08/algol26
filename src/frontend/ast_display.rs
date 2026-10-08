@@ -167,6 +167,10 @@ fn format_type(out: &mut String, ty: &TypeSyntax) {
             }
             out.push('>');
         }
+        TypeSyntax::DynTrait { name } => {
+            out.push_str("dyn ");
+            out.push_str(name);
+        }
         TypeSyntax::Unknown => out.push('_'),
     }
 }

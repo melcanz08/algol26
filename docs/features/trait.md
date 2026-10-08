@@ -333,6 +333,8 @@ The checklist is much shorter than for features that reach the IR.
 
 ## See also
 
+- `docs/features/dyn_trait.md` — borrowed dynamic dispatch (`&dyn Trait` / `&mut dyn Trait`)
+- `docs/decisions/0038-dynamic-dispatch.md` — the ADR for dynamic dispatch
 - `docs/architecture-direction.md` — the feature contract pattern itself
 - `docs/features/generic.md` — trait bounds are the bridge between
   traits and generics

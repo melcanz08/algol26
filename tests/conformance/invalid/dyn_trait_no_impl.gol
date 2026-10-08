@@ -1,0 +1,9 @@
+trait Shape
+    function area(self: &Self) -> Float
+
+rec Circle
+    r: Float
+
+proc main
+    val c := Circle { r: 1.0 }
+    val s: &dyn Shape := &c

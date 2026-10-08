@@ -135,6 +135,30 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
                             instrs.push(CfgInstruction::Use { name: v });
                         }
                     }
+                    // ADR 0038 D4b. The receiver and every argument
+                    // are uses; the result binding (if any) is
+                    // defined. The vtable pointer is not a variable —
+                    // it lives in the fat pointer value, not in the
+                    // CFG's variable universe — so only the operands
+                    // contribute `Use` edges.
+                    I::VirtualCall {
+                        receiver,
+                        args,
+                        result,
+                        ..
+                    } => {
+                        let mut vars = Vec::new();
+                        collect_all_vars(receiver, &mut vars);
+                        for a in args {
+                            collect_all_vars(a, &mut vars);
+                        }
+                        for v in vars {
+                            instrs.push(CfgInstruction::Use { name: v });
+                        }
+                        if let Some(name) = result {
+                            instrs.push(CfgInstruction::Assign { name: name.clone() });
+                        }
+                    }
                     I::ArrayAssign { array, value, .. } => {
                         let mut vars = Vec::new();
                         collect_all_vars(array, &mut vars);

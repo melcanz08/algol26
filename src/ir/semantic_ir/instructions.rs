@@ -89,6 +89,20 @@ pub enum Instruction {
     RegionExit {
         name: String,
     },
+    /// ADR 0038 D4b. A method call through a `&dyn Trait` receiver.
+    /// `receiver` is the fat-pointer `TypedIRValue::DynTrait`; the
+    /// backend loads its vtable half and dispatches through slot
+    /// `slot`. `method_name` is carried so the interpreter can look
+    /// up the impl without reconstructing it from the vtable layout.
+    VirtualCall {
+        receiver: TypedIRValue,
+        method_name: String,
+        slot: usize,
+        args: Vec<TypedIRValue>,
+        result: Option<String>,
+        return_type: Type,
+    },
+
     /// ADR 0031: subrange bounds check. `value` is evaluated; if it
     /// falls outside `low..high` (inclusive), `message` is printed
     /// and the enclosing function returns (or, in the interpreter,

@@ -83,6 +83,11 @@ pub struct IRCodeGen<'ctx> {
     /// lazily populated on first use.
     pub(super) record_struct_types:
         std::cell::RefCell<HashMap<String, inkwell::types::StructType<'ctx>>>,
+    /// ADR 0038. Emitted vtable globals, keyed by the `vtable_id`
+    /// string from `SemanticProgram::vtables`. Populated by
+    /// `emit_vtables` before function bodies are compiled. The
+    /// `DynTrait` lowering reads this to build the fat pointer.
+    pub(super) vtables: HashMap<String, inkwell::values::GlobalValue<'ctx>>,
     /// When true, `main` is renamed to `algol26_user_main` and a
     /// C-ABI `i32 @main()` wrapper is expected (via
     /// `emit_main_wrapper`). The LLVM backend sets this; the WASM
@@ -158,6 +163,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),
             record_struct_types: std::cell::RefCell::new(HashMap::new()),
+            vtables: HashMap::new(),
             c_abi_main: false,
         }
     }
@@ -171,9 +177,77 @@ impl<'ctx> IRCodeGen<'ctx> {
         for func in &program.functions {
             self.declare_function(func)?;
         }
+        // ADR 0038 D4a. Emit every vtable after all functions are
+        // declared (so `self.functions` has an entry for each impl
+        // method) and before any function body is compiled (so
+        // `DynTrait` lowering can find the global). Empty map is
+        // the common case; no cost when no `dyn Trait` appears.
+        self.emit_vtables(program)?;
         for func in &program.functions {
             self.compile_function(func)?;
         }
+        Ok(())
+    }
+
+    /// ADR 0038 D4a. For each entry in `program.vtables`, emit an
+    /// internal-linkage constant array `[N x ptr]` where slot `i`
+    /// holds the address of the impl method for
+    /// `entry.method_names[i]`. The global is cached in
+    /// `self.vtables` under the same `vtable_id` key so
+    /// `compile_value` can find it while lowering
+    /// `TypedIRValue::DynTrait`.
+    fn emit_vtables(&mut self, program: &SemanticProgram) -> Result<()> {
+        use inkwell::module::Linkage;
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+
+        for (vtable_id, entry) in &program.vtables {
+            let concrete_name = entry.concrete_type.to_string();
+            let mut slot_ptrs: Vec<inkwell::values::PointerValue<'ctx>> =
+                Vec::with_capacity(entry.method_names.len());
+
+            for method_name in &entry.method_names {
+                // Candidate mangled forms, in the order
+                // `SemanticIRBuilder::resolve_method_call` tries them
+                // for user types. First hit wins.
+                let trait_scoped =
+                    format!("{}_{}_{}", entry.trait_name, concrete_name, method_name);
+                let inherent = format!("{}_{}", concrete_name, method_name);
+
+                let func_val = self
+                    .functions
+                    .get(&trait_scoped)
+                    .or_else(|| self.functions.get(&inherent))
+                    .copied()
+                    .ok_or_else(|| {
+                        CompileError::unsupported_operation(
+                            &format!(
+                                "vtable `{}`: no impl method for `{}::{}`                                  (tried `{}` and `{}`)",
+                                vtable_id,
+                                entry.trait_name,
+                                method_name,
+                                trait_scoped,
+                                inherent,
+                            ),
+                            "llvm",
+                        )
+                    })?;
+
+                slot_ptrs.push(func_val.as_global_value().as_pointer_value());
+            }
+
+            let arr_ty = ptr_ty.array_type(slot_ptrs.len() as u32);
+            let const_arr = ptr_ty.const_array(&slot_ptrs);
+            let sym = format!("__algol26_vtable_{}", vtable_id);
+            let global = self
+                .module
+                .add_global(arr_ty, Some(AddressSpace::default()), &sym);
+            global.set_initializer(&const_arr);
+            global.set_constant(true);
+            global.set_linkage(Linkage::Internal);
+
+            self.vtables.insert(vtable_id.clone(), global);
+        }
+
         Ok(())
     }
 

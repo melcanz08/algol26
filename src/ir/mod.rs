@@ -8,3 +8,4 @@ pub mod optimizer;
 pub mod semantic_ir;
 pub mod verified_ir;
 pub mod verifier;
+pub mod vtable_gather;

@@ -1543,3 +1543,71 @@ end
         err.message
     );
 }
+
+// src/semantics/analyzer/tests.rs — append
+
+// ─── ADR 0038: dynamic dispatch coercion ────────────────────────────
+
+#[test]
+fn dyn_trait_coercion_accepts_implementing_type() {
+    let source = "\
+trait Shape
+    function area(self: &Self) -> Float
+
+rec Circle
+    r: Float
+
+impl Shape for Circle
+    function area(self: &Circle) -> Float
+        return self.r
+
+proc main
+    val c := Circle { r: 2.0 }
+    val s: &dyn Shape := &c
+";
+    analyze(source).expect("`&Circle` should coerce to `&dyn Shape` when Circle: Shape");
+}
+
+#[test]
+fn dyn_trait_coercion_rejects_missing_impl() {
+    let source = "\
+trait Shape
+    function area(self: &Self) -> Float
+
+rec Square
+    side: Float
+
+proc main
+    val sq := Square { side: 2.0 }
+    val s: &dyn Shape := &sq
+";
+    let err =
+        analyze(source).expect_err("`&Square` should not coerce without `impl Shape for Square`");
+    assert!(
+        err.message.contains("Square") && err.message.contains("Shape"),
+        "diagnostic should name both the concrete type and the trait: {}",
+        err.message
+    );
+}
+
+#[test]
+fn dyn_trait_requires_object_safe_trait() {
+    // A trait method whose receiver is by value is not dispatchable
+    // through a fat pointer. The object-safety check fires when the
+    // `&dyn Consuming` annotation is resolved — before any coercion
+    // needs a concrete value. No `impl` is present; object safety is
+    // a property of the trait declaration alone.
+    let source = "\
+trait Consuming
+    function take(self: Self) -> Int
+
+proc main
+    var x: &dyn Consuming := 0
+";
+    let err = analyze(source).expect_err("by-value receiver should disqualify a trait from `dyn`");
+    assert!(
+        err.message.contains("object-safe"),
+        "diagnostic should explain the object-safety violation: {}",
+        err.message
+    );
+}

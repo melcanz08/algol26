@@ -44,6 +44,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                     _ => Type::Unknown,
                 }
             }
+            // ADR 0038. A `dyn Trait` field on a record requires the
+            // capability matrix to have allowed dynamic dispatch, which
+            // it does not. If codegen reaches here, the matrix is out
+            // of sync with the IR.
+            TypeSyntax::DynTrait { .. } => Type::Unknown,
             TypeSyntax::Unknown => Type::Unknown,
         }
     }
@@ -216,6 +221,16 @@ impl<'ctx> IRCodeGen<'ctx> {
             | Type::Channel(_)
             | Type::Tuple(_)
             | Type::Function { .. } => self.context.ptr_type(AddressSpace::default()).into(),
+
+            // ADR 0038 D4 placeholder. The capability matrix refuses
+            // `&dyn Trait` / `&mut dyn Trait` on all three backends;
+            // reaching this arm means the matrix is out of sync with
+            // the IR. Real lowering (fat pointer `{ptr, ptr}`, vtable
+            // emission, indirect calls) lands in D4.
+            Type::DynTrait { .. } => unreachable!(
+                "LLVM codegen reached Type::DynTrait — dynamic dispatch \
+                 should have been refused by check_backend (ADR 0038)"
+            ),
 
             // Should not appear in verified IR:
             // - `Unknown` is a type-inference placeholder.

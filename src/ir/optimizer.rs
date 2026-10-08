@@ -463,6 +463,17 @@ impl Optimizer {
                             collect_variables_from_value(arg, &mut used_variables);
                         }
                     }
+                    // ADR 0038 D4b. `VirtualCall`'s receiver is the
+                    // variable holding the fat pointer; without this
+                    // arm, DCE sees the receiver as unused and drops
+                    // the enclosing `Declare`, so verification then
+                    // fails with "use of undefined variable".
+                    Instruction::VirtualCall { receiver, args, .. } => {
+                        collect_variables_from_value(receiver, &mut used_variables);
+                        for arg in args {
+                            collect_variables_from_value(arg, &mut used_variables);
+                        }
+                    }
                     Instruction::ArrayAssign {
                         array,
                         index,
@@ -607,6 +618,25 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
             for arg in args {
                 collect_variables_from_value(arg, vars);
             }
+        }
+        // ADR 0038 D4b. A virtual call value can appear nested inside
+        // another instruction (e.g. `print(s.area())` — the Print
+        // carries a VirtualCall as its operand). The receiver and
+        // every argument are uses.
+        TypedIRValue::VirtualCall { receiver, args, .. } => {
+            collect_variables_from_value(receiver, vars);
+            for arg in args {
+                collect_variables_from_value(arg, vars);
+            }
+        }
+        // ADR 0038 D4b. A `DynTrait` value's `data` half is a use of
+        // whatever variable holds the concrete value — `&c` compiles
+        // to a fat pointer whose `data` slot points at `c`'s alloca.
+        // Without this arm, DCE sees `c` as unused and drops the
+        // `Declare`, and the verifier then rejects the `DynTrait` as
+        // a use of an undefined variable.
+        TypedIRValue::DynTrait { data, .. } => {
+            collect_variables_from_value(data, vars);
         }
         TypedIRValue::Cast { value, .. } => {
             collect_variables_from_value(value, vars);

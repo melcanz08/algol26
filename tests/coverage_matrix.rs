@@ -366,6 +366,15 @@ pub const MATRIX: &[FeatureRow] = &[
         notes: "Desugared to a function call before IR construction.",
     },
     FeatureRow {
+        name: "dyn_trait",
+        conformance_dir: Some("dyn_trait"),
+        interpreter: Support::Full,
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "",
+    },
+    FeatureRow {
         name: "defer",
         conformance_dir: Some("defer"),
         interpreter: Support::Full,

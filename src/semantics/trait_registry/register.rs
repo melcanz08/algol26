@@ -4,7 +4,21 @@ use super::*;
 
 impl TraitRegistry {
     pub fn register_trait(&mut self, trait_decl: TraitDecl) {
-        self.traits.insert(trait_decl.name.clone(), trait_decl);
+        // ADR 0038. Assign a stable `TraitId` on first registration.
+        // Re-registration (a duplicate declaration in the same unit)
+        // keeps the first id; this matches the "first declaration
+        // wins for identity" convention of the nominal / enum /
+        // subrange id maps.
+        let name = trait_decl.name.clone();
+        if !self.trait_ids.contains_key(&name) {
+            let id = TraitId(self.next_trait_id);
+            self.next_trait_id = self
+                .next_trait_id
+                .checked_add(1)
+                .expect("TraitId overflow: > u32::MAX traits in one unit");
+            self.trait_ids.insert(name.clone(), id);
+        }
+        self.traits.insert(name, trait_decl);
     }
     pub fn register_impl(&mut self, impl_block: ImplBlock) {
         // Inherent impls (`impl User`) have no trait; the trait registry
@@ -89,6 +103,23 @@ impl TraitRegistry {
                     .map(|a| self.parse_type_pattern_syntax(a))
                     .collect();
                 TypePattern::Generic(name.clone(), args)
+            }
+            // ADR 0038 D1 placeholder. An impl target containing
+            // `dyn Trait` (`impl T for List<dyn Shape>`) is not a
+            // v1 construct: `dyn Trait` is only valid inside a
+            // borrow, and a borrow is never an impl target. The
+            // fallback is an unmatchable pattern, so any such impl
+            // refuses to match rather than silently matching
+            // something else.
+            TypeSyntax::DynTrait { name } => {
+                debug_assert!(
+                    false,
+                    "trait-registry: `dyn {}` in an impl target — \
+                     dynamic dispatch is not a valid impl target \
+                     (ADR 0038)",
+                    name,
+                );
+                TypePattern::Concrete(format!("dyn {}", name))
             }
             TypeSyntax::Unknown => TypePattern::Any,
         }

@@ -92,6 +92,11 @@ pub enum ErrorCode {
     /// Unknown method: the receiver's type has no method with that
     /// name (and no field with that name, for the field-access form).
     E0011,
+    /// ADR 0038: a `&dyn Trait` coercion failed — the value's
+    /// concrete type does not implement the trait, or the value
+    /// is not a borrow at all. Distinct from `E0002` so a caller
+    /// can point at the missing impl specifically.
+    E0012,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +128,7 @@ impl ErrorCode {
             ErrorCode::E0009 => "E0009",
             ErrorCode::E0010 => "E0010",
             ErrorCode::E0011 => "E0011",
+            ErrorCode::E0012 => "E0012",
         }
     }
 }

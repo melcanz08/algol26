@@ -529,7 +529,16 @@ pub struct ImplBlock {
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeSyntax {
     Named(String),
-    Generic { name: String, args: Vec<TypeSyntax> },
+    Generic {
+        name: String,
+        args: Vec<TypeSyntax>,
+    },
+    /// `dyn Trait`. Only valid as the inner type of a borrow; the
+    /// analyzer enforces the position (ADR 0038). Bare `dyn Trait`
+    /// outside a borrow is rejected during type lowering.
+    DynTrait {
+        name: String,
+    },
     Unknown,
 }
 
@@ -569,6 +578,21 @@ impl TypeSyntax {
                 "set" if args.len() == 1 => Type::set(args[0].to_type()),
                 _ => Type::Unknown,
             },
+            TypeSyntax::DynTrait { name } => {
+                // ADR 0038. `to_type()` has no trait registry, so it
+                // cannot assign a `TraitId`. The analyzer resolves
+                // `dyn Trait` through the registry before this path is
+                // reached; reaching it here is a bug. Debug builds
+                // panic so a test catches the gap.
+                debug_assert!(
+                    false,
+                    "TypeSyntax::DynTrait reached to_type() — the analyzer \
+                     should have resolved `dyn {}` through the trait \
+                     registry (ADR 0038)",
+                    name,
+                );
+                Type::Unknown
+            }
             TypeSyntax::Unknown => Type::Unknown,
         }
     }
@@ -580,6 +604,7 @@ impl TypeSyntax {
                 let args_str: Vec<String> = args.iter().map(|a| a.to_string_rep()).collect();
                 format!("{}<{}>", name, args_str.join(", "))
             }
+            TypeSyntax::DynTrait { name } => format!("dyn {}", name),
             TypeSyntax::Unknown => String::new(),
         }
     }
@@ -588,6 +613,7 @@ impl TypeSyntax {
         match self {
             TypeSyntax::Named(name) => name,
             TypeSyntax::Generic { name, .. } => name,
+            TypeSyntax::DynTrait { name } => name,
             TypeSyntax::Unknown => "",
         }
     }

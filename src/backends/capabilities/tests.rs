@@ -1,7 +1,7 @@
 // src/backends/capabilities/tests.rs
 
 use super::*;
-use crate::common::types::Type;
+use crate::common::types::{TraitId, Type};
 use crate::ir::semantic_ir::{
     Instruction, SemanticBlock, SemanticFunction, Terminator, TypedIRValue,
 };
@@ -700,6 +700,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
     let mut plan = InstantiationPlan::from_instantiations(&instantiations);
     plan.close(&functions);
 
+    let virtual_calls = analyzer.take_virtual_calls();
     let (semantic_program, _diags) = SemanticIRBuilder::build(
         &functions,
         type_table,
@@ -708,6 +709,8 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
+        virtual_calls,
         std::collections::HashMap::new(),
     );
     semantic_program
@@ -883,4 +886,47 @@ fn wasm_rejects_list_append() {
         "WASM should refuse List.append, got: {:?}",
         result.ok()
     );
+}
+
+// ─── ADR 0038: dynamic dispatch refusal ─────────────────────────────
+//
+// The capability matrix refuses `&dyn Trait` on all three backends
+// until each lowers vtables and indirect calls. These tests pin that
+// contract; flipping any backend to Supported requires changing the
+// corresponding test to a positive assertion.
+
+fn dyn_trait_program() -> crate::ir::semantic_ir::SemanticProgram {
+    program_with(
+        Instruction::Declare {
+            name: "s".to_string(),
+            mutable: false,
+            type_: Type::borrow(Type::dyn_trait(TraitId(0), "Shape")),
+            value: TypedIRValue::Void,
+        },
+        simple_return(),
+    )
+}
+
+#[test]
+fn llvm_accepts_dynamic_dispatch() {
+    // ADR 0038 D6-2. LLVM emits vtables + indirect calls; the
+    // capability matrix now includes the feature.
+    check_backend(&dyn_trait_program(), &BackendCapabilities::llvm())
+        .expect("LLVM should accept `&dyn Trait` after ADR 0038 D6-2");
+}
+
+#[test]
+fn wasm_accepts_dynamic_dispatch() {
+    // ADR 0038 D6-3. WASM shares LLVM's codegen; the capability
+    // matrix now includes the feature.
+    check_backend(&dyn_trait_program(), &BackendCapabilities::wasm())
+        .expect("WASM should accept `&dyn Trait` after ADR 0038 D6-3");
+}
+
+#[test]
+fn interpreter_accepts_dynamic_dispatch() {
+    // ADR 0038 D6-1. The interpreter dispatches through the mangled
+    // impl name; the capability matrix now includes the feature.
+    check_backend(&dyn_trait_program(), &BackendCapabilities::interpreter())
+        .expect("interpreter should accept `&dyn Trait` after ADR 0038 D6-1");
 }

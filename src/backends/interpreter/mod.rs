@@ -320,6 +320,44 @@ impl Interpreter {
                     self.variables.insert(res_name.clone(), val);
                 }
             }
+            // ADR 0038 D4b. Dispatch through the fat pointer. The
+            // receiver evaluates to `RuntimeValue::DynTrait`; the
+            // impl method is selected by the mangled name
+            // `{Trait}_{Concrete}_{method}`, matching the LLVM
+            // vtable's slot assignment.
+            Instruction::VirtualCall {
+                receiver,
+                method_name,
+                args,
+                result,
+                ..
+            } => {
+                let recv = self.eval_value(receiver)?;
+                let RuntimeValue::DynTrait {
+                    data,
+                    trait_name,
+                    concrete_type,
+                } = recv
+                else {
+                    return Err(EvalError::TypeMismatch {
+                        op: "VirtualCall.receiver",
+                        left: crate::backends::interpreter::runtime::runtime_kind(&recv),
+                        right: "DynTrait",
+                    });
+                };
+
+                let mut arg_vals: Vec<RuntimeValue> = Vec::with_capacity(args.len() + 1);
+                arg_vals.push(*data);
+                for a in args {
+                    arg_vals.push(self.eval_value(a)?);
+                }
+
+                let callee_name = format!("{}_{}_{}", trait_name, concrete_type, method_name);
+                let val = self.call_function_with_values(&callee_name, arg_vals)?;
+                if let Some(res_name) = result {
+                    self.variables.insert(res_name.clone(), val);
+                }
+            }
             Instruction::ArrayAssign {
                 array,
                 index,

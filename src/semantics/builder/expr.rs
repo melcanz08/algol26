@@ -1,6 +1,7 @@
 // src/semantics/builder/expr.rs
 
 use super::*;
+use crate::ir::instantiation_plan::mangled_type_name;
 
 impl SemanticIRBuilder {
     pub(super) fn translate_simple_stmt(
@@ -206,6 +207,27 @@ impl SemanticIRBuilder {
                                 func: function,
                                 args: call_args,
                                 result: Some(name.clone()),
+                            },
+                        );
+                        TypedIRValue::Variable(name.clone(), type_.clone())
+                    }
+                    TypedIRValue::VirtualCall {
+                        receiver,
+                        method_name,
+                        slot,
+                        args: call_args,
+                        return_type,
+                    } => {
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            Instruction::VirtualCall {
+                                receiver: *receiver,
+                                method_name,
+                                slot,
+                                args: call_args,
+                                result: Some(name.clone()),
+                                return_type,
                             },
                         );
                         TypedIRValue::Variable(name.clone(), type_.clone())
@@ -508,21 +530,43 @@ impl SemanticIRBuilder {
                 // invariants and the interpreter's builtin dispatch.
                 if matches!(&expr.kind, ExprKind::FunctionCall { .. }) {
                     let typed_value = self.translate_expr(program, func, current_block, expr);
-                    if let TypedIRValue::Call {
-                        function,
-                        args: call_args,
-                        ..
-                    } = typed_value
-                    {
-                        self.safe_push_instruction(
-                            func,
-                            current_block,
-                            Instruction::Call {
-                                func: function,
-                                args: call_args,
-                                result: None,
-                            },
-                        );
+                    match typed_value {
+                        TypedIRValue::Call {
+                            function,
+                            args: call_args,
+                            ..
+                        } => {
+                            self.safe_push_instruction(
+                                func,
+                                current_block,
+                                Instruction::Call {
+                                    func: function,
+                                    args: call_args,
+                                    result: None,
+                                },
+                            );
+                        }
+                        TypedIRValue::VirtualCall {
+                            receiver,
+                            method_name,
+                            slot,
+                            args: call_args,
+                            return_type,
+                        } => {
+                            self.safe_push_instruction(
+                                func,
+                                current_block,
+                                Instruction::VirtualCall {
+                                    receiver: *receiver,
+                                    method_name,
+                                    slot,
+                                    args: call_args,
+                                    result: None,
+                                    return_type,
+                                },
+                            );
+                        }
+                        _ => {}
                     }
                 } else {
                     let _typed_value = self.translate_expr(program, func, current_block, expr);
@@ -586,20 +630,64 @@ impl SemanticIRBuilder {
                     },
                 }
             }
-            ExprKind::Borrow { expr, .. } => {
-                let inner = self.translate_expr(program, func, current_block, expr);
+            ExprKind::Borrow {
+                expr: inner_expr, ..
+            } => {
+                let inner = self.translate_expr(program, func, current_block, inner_expr);
                 let inner_type = inner.type_of();
+                // ADR 0038. The analyzer records `Borrow(DynTrait)` on
+                // this expression's `ExprId` when it performed the
+                // `&T -> &dyn Trait` coercion. Read that decision back
+                // from the type table; if present, emit a fat-pointer
+                // value rather than the plain borrow.
+                let target_type = self
+                    .type_table_id
+                    .get(&expr.id)
+                    .cloned()
+                    .filter(|t| !matches!(t, Type::Unknown))
+                    .unwrap_or_else(|| Type::borrow(inner_type.clone()));
+                if let Type::Borrow(dyn_inner) = &target_type {
+                    if let Type::DynTrait { trait_id, .. } = dyn_inner.as_ref() {
+                        let vtable_id =
+                            format!("{}_{}", trait_id.0, mangled_type_name(&inner_type));
+                        return TypedIRValue::DynTrait {
+                            data: Box::new(inner),
+                            vtable_id,
+                            target_type,
+                        };
+                    }
+                }
                 TypedIRValue::BorrowShared {
                     expr: Box::new(inner),
-                    target_type: Type::borrow(inner_type),
+                    target_type,
                 }
             }
-            ExprKind::MutBorrow { expr, .. } => {
-                let inner = self.translate_expr(program, func, current_block, expr);
+            ExprKind::MutBorrow {
+                expr: inner_expr, ..
+            } => {
+                let inner = self.translate_expr(program, func, current_block, inner_expr);
                 let inner_type = inner.type_of();
+                // ADR 0038. Symmetric to the `Borrow` arm above.
+                let target_type = self
+                    .type_table_id
+                    .get(&expr.id)
+                    .cloned()
+                    .filter(|t| !matches!(t, Type::Unknown))
+                    .unwrap_or_else(|| Type::mut_borrow(inner_type.clone()));
+                if let Type::MutBorrow(dyn_inner) = &target_type {
+                    if let Type::DynTrait { trait_id, .. } = dyn_inner.as_ref() {
+                        let vtable_id =
+                            format!("{}_{}", trait_id.0, mangled_type_name(&inner_type));
+                        return TypedIRValue::DynTrait {
+                            data: Box::new(inner),
+                            vtable_id,
+                            target_type,
+                        };
+                    }
+                }
                 TypedIRValue::BorrowMutable {
                     expr: Box::new(inner),
-                    target_type: Type::mut_borrow(inner_type),
+                    target_type,
                 }
             }
             ExprKind::Deref { expr, .. } => {
@@ -970,6 +1058,32 @@ impl SemanticIRBuilder {
                 // to a no-op Cast that carries the target type.
                 if let Some(dot) = clean_name.find('.') {
                     let (receiver, method) = (&clean_name[..dot], &clean_name[dot + 1..]);
+
+                    // ADR 0038 D4b. If the analyzer recorded a virtual
+                    // call at this ExprId, emit `TypedIRValue::VirtualCall`
+                    // and stop. The receiver is the plain identifier
+                    // text before the dot; its declared type lives in
+                    // the enclosing scope, and the verifier reads it
+                    // back via `env.variables`. `Type::Unknown` as the
+                    // claimed type is fine here — every consumer
+                    // (verifier, codegen, interpreter) resolves the
+                    // variable by name.
+                    if let Some(vc) = self.virtual_calls.get(&expr.id).cloned() {
+                        let typed_args: Vec<TypedIRValue> = args
+                            .iter()
+                            .map(|a| self.translate_expr(program, func, current_block, a))
+                            .collect();
+                        return TypedIRValue::VirtualCall {
+                            receiver: Box::new(TypedIRValue::Variable(
+                                receiver.to_string(),
+                                Type::Unknown,
+                            )),
+                            method_name: vc.method_name,
+                            slot: vc.slot,
+                            args: typed_args,
+                            return_type: vc.return_type,
+                        };
+                    }
 
                     // T.from_base(x): x already has the base
                     // representation; wrap it with the nominal type.

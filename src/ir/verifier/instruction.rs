@@ -369,6 +369,54 @@ pub(super) fn verify_instruction(
         // (both erase to i64 at runtime). Out-of-range at runtime is
         // the whole point of the check; the verifier only confirms
         // the operand is the right shape.
+        Instruction::VirtualCall {
+            receiver,
+            method_name,
+            args,
+            result,
+            return_type,
+            ..
+        } => {
+            // The receiver must verify and be a borrow of a trait
+            // object — the DynTrait verifier arm enforces the
+            // "only inside a borrow" rule, but a defensive check
+            // here names the offending instruction if a future pass
+            // ever slips a bare DynTrait in as a receiver.
+            let recv_ty = verify_value(receiver, env)?;
+            match &recv_ty {
+                Type::Borrow(inner) | Type::MutBorrow(inner)
+                    if matches!(inner.as_ref(), Type::DynTrait { .. }) => {}
+                Type::Unknown => {}
+                other => {
+                    return Err(format!(
+                        "Function '{}': VirtualCall receiver has type {:?}; \
+                         expected `Borrow(DynTrait)` or `MutBorrow(DynTrait)`",
+                        func.name, other
+                    ));
+                }
+            }
+
+            if method_name.is_empty() {
+                return Err(format!(
+                    "Function '{}': VirtualCall has empty method_name",
+                    func.name
+                ));
+            }
+
+            // Every user argument must verify.
+            for a in args {
+                verify_value(a, env)?;
+            }
+
+            // Bind the result if present. Return type is the
+            // analyzer's claim; the verifier trusts it — the same
+            // discipline the Call arm uses for generic calls.
+            if let Some(name) = result {
+                env.variables.insert(name.clone(), return_type.clone());
+                env.mutability.insert(name.clone(), false);
+            }
+            Ok(())
+        }
         Instruction::BoundsCheck {
             value, low, high, ..
         } => {

@@ -1,0 +1,14 @@
+trait Shape
+    function area(self: &Self) -> Float
+
+rec Circle
+    r: Float
+
+impl Shape for Circle
+    function area(self: &Circle) -> Float
+        return self.r
+
+proc main
+    val c := Circle { r: 3.0 }
+    val s: &dyn Shape := &c
+    print(s.area())

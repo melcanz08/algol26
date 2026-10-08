@@ -29,6 +29,36 @@ fn type_mentions_reference(ty: &Type) -> bool {
         } => params.iter().any(type_mentions_reference) || type_mentions_reference(return_type),
         Type::Generic { args, .. } => args.iter().any(type_mentions_reference),
         Type::Map(k, v) => type_mentions_reference(k) || type_mentions_reference(v),
+        Type::Record(_, args) => args.iter().any(type_mentions_reference),
+        _ => false,
+    }
+}
+
+/// True if `ty` mentions `DynTrait` anywhere in its structure —
+/// including as the inner type of a `Borrow` / `MutBorrow`, and
+/// inside any composite. See ADR 0038.
+fn type_mentions_dyn_trait(ty: &Type) -> bool {
+    match ty {
+        Type::DynTrait { .. } => true,
+        Type::Borrow(inner)
+        | Type::MutBorrow(inner)
+        | Type::List(inner)
+        | Type::Option(inner)
+        | Type::Pointer(inner)
+        | Type::Array(inner, _)
+        | Type::Channel(inner)
+        | Type::Set(inner) => type_mentions_dyn_trait(inner),
+        Type::Result { ok, error } => type_mentions_dyn_trait(ok) || type_mentions_dyn_trait(error),
+        Type::Tuple(elems) => elems.iter().any(type_mentions_dyn_trait),
+        Type::Function {
+            params,
+            return_type,
+        } => params.iter().any(type_mentions_dyn_trait) || type_mentions_dyn_trait(return_type),
+        Type::Generic { args, .. } | Type::Record(_, args) => {
+            args.iter().any(type_mentions_dyn_trait)
+        }
+        Type::Map(k, v) => type_mentions_dyn_trait(k) || type_mentions_dyn_trait(v),
+        Type::Distinct { base, .. } | Type::Subrange { base, .. } => type_mentions_dyn_trait(base),
         _ => false,
     }
 }
@@ -212,6 +242,9 @@ pub(super) fn scan_instruction(
             if type_mentions_reference(type_) {
                 used.insert(Feature::References);
             }
+            if type_mentions_dyn_trait(type_) {
+                used.insert(Feature::DynamicDispatch);
+            }
             scan_value(value, extern_fns, used);
         }
         Instruction::Assign { value, .. } => scan_value(value, extern_fns, used),
@@ -276,6 +309,18 @@ pub(super) fn scan_instruction(
         // `Feature::RawMemory` on their own — regions themselves
         // do not need a feature gate.
         Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => {}
+        Instruction::VirtualCall { receiver, args, .. } => {
+            // ADR 0038. The receiver is by construction a
+            // `DynTrait` value, so `scan_value` will set
+            // `Feature::DynamicDispatch` when it inspects it.
+            // Explicit arm so a future change to `scan_value`
+            // cannot silently drop the gate.
+            used.insert(Feature::DynamicDispatch);
+            scan_value(receiver, extern_fns, used);
+            for a in args {
+                scan_value(a, extern_fns, used);
+            }
+        }
         // ADR 0031: BoundsCheck is transparent to the capability
         // matrix. The value's own features (if any — subrange
         // construction only accepts Int or enum arguments) are
@@ -295,6 +340,9 @@ pub(super) fn scan_value(
     // it doesn't yet; the capability check is the backstop.
     if mentions_generic_record(&value.type_of()) {
         used.insert(Feature::GenericRecords);
+    }
+    if type_mentions_dyn_trait(&value.type_of()) {
+        used.insert(Feature::DynamicDispatch);
     }
     match value {
         TypedIRValue::Ok { value, .. } | TypedIRValue::Error { value, .. } => {
@@ -323,6 +371,17 @@ pub(super) fn scan_value(
                 used.insert(Feature::Ffi);
             }
             scan_call_name(function, used);
+            for a in args {
+                scan_value(a, extern_fns, used);
+            }
+        }
+        TypedIRValue::VirtualCall { receiver, args, .. } => {
+            // ADR 0038. The receiver is a DynTrait value, so
+            // scan_value sets Feature::DynamicDispatch when it
+            // inspects it; insert explicitly too so a future change
+            // to the DynTrait arm cannot silently drop the gate.
+            used.insert(Feature::DynamicDispatch);
+            scan_value(receiver, extern_fns, used);
             for a in args {
                 scan_value(a, extern_fns, used);
             }
@@ -438,6 +497,9 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
             if type_mentions_reference(ty) {
                 used.insert(Feature::References);
             }
+            if type_mentions_dyn_trait(ty) {
+                used.insert(Feature::DynamicDispatch);
+            }
             if is_record_by_value(ty) {
                 used.insert(Feature::RecordByValue);
             }
@@ -447,6 +509,9 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
         }
         if type_mentions_reference(&func.return_type) {
             used.insert(Feature::References);
+        }
+        if type_mentions_dyn_trait(&func.return_type) {
+            used.insert(Feature::DynamicDispatch);
         }
         if is_record_by_value(&func.return_type) {
             used.insert(Feature::RecordByValue);

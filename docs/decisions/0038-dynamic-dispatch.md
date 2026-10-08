@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. Requires investigation before implementation.
+Accepted. Implemented on all three backends (interpreter, LLVM, WASM).
 
 > **Status note (2026-10-06).** Methods and traits work statically
 > on all three backends. A `T: Trait` bound is resolved at compile

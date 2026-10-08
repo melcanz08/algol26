@@ -35,6 +35,8 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
         std::collections::HashMap::new(),
+        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        std::collections::HashMap::new(), // trait_ids (ADR 0038)
     );
     ir
 }

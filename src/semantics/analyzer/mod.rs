@@ -119,6 +119,23 @@ pub struct SemanticAnalyzer {
     /// A depth counter rather than a bool because unsafe blocks
     /// nest.
     unsafe_depth: usize,
+    /// ADR 0038 D4b. Method calls through a `&dyn Trait` receiver,
+    /// keyed by the call expression's `ExprId`. The IR builder reads
+    /// this map at the same call site to emit `Instruction::VirtualCall`
+    /// instead of `Instruction::Call`.
+    virtual_calls: HashMap<ExprId, VirtualCallInfo>,
+}
+
+/// ADR 0038 D4b. What the analyzer resolved at a `dyn Trait` method
+/// call site. `slot` is the method's position in the trait's
+/// declaration order; `return_type` is the method's declared return
+/// type after `resolve_type_syntax`.
+#[derive(Debug, Clone)]
+pub struct VirtualCallInfo {
+    pub trait_name: String,
+    pub method_name: String,
+    pub slot: usize,
+    pub return_type: Type,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +222,7 @@ impl SemanticAnalyzer {
             loop_stack: Vec::new(),
             unsafe_depth: 0,
             records: HashMap::new(),
+            virtual_calls: HashMap::new(),
             nominal_types: HashMap::new(),
             next_nominal_id: 0,
             enum_types: HashMap::new(),
@@ -277,6 +295,27 @@ impl SemanticAnalyzer {
     /// IR builder. Keyed by `"Type::NAME"`.
     pub fn take_const_values(&mut self) -> HashMap<String, (Type, Expr)> {
         std::mem::take(&mut self.const_values)
+    }
+
+    /// ADR 0038 D4b. Take the virtual-call map so the IR builder can
+    /// emit `Instruction::VirtualCall` at the right call sites.
+    pub fn take_virtual_calls(&mut self) -> HashMap<ExprId, VirtualCallInfo> {
+        std::mem::take(&mut self.virtual_calls)
+    }
+
+    /// ADR 0038 D6. Forward the trait registry's `TraitId` map to the
+    /// IR builder so a `TypeSyntax::DynTrait` annotation can be
+    /// resolved without re-registering the trait. Cloned, not taken;
+    /// the analyzer keeps using the registry after this call.
+    pub fn trait_ids(&self) -> HashMap<String, crate::common::types::TraitId> {
+        self.trait_registry.trait_ids()
+    }
+
+    /// ADR 0038 D6-2. Forward trait declarations to the IR builder
+    /// so the vtable gather pass can record each trait's method
+    /// names in declaration order.
+    pub fn trait_decls(&self) -> Vec<crate::frontend::ast::TraitDecl> {
+        self.trait_registry.trait_decls()
     }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
@@ -643,6 +682,97 @@ impl SemanticAnalyzer {
             }
         }
         Ok(())
+    }
+
+    // ─── ADR 0038: dynamic dispatch coercion ───────────────────────────
+
+    /// True when `ty` is `&dyn Trait` or `&mut dyn Trait`. This is
+    /// the syntactic position `dyn Trait` is legal in; the analyzer
+    /// rejects any other occurrence at lowering time.
+    pub(super) fn is_dyn_trait_ref(ty: &Type) -> bool {
+        match ty {
+            Type::Borrow(inner) | Type::MutBorrow(inner) => {
+                matches!(inner.as_ref(), Type::DynTrait { .. })
+            }
+            _ => false,
+        }
+    }
+
+    /// Extended type compatibility: `Type::can_coerce_to` plus the
+    /// `&T -> &dyn Trait` / `&mut T -> &mut dyn Trait` rule from
+    /// ADR 0038. The type-level `can_coerce_to` cannot express this
+    /// rule because it has no access to the trait registry.
+    pub(super) fn can_coerce_with_traits(&self, from: &Type, to: &Type) -> bool {
+        if from.can_coerce_to(to) {
+            return true;
+        }
+        match (from, to) {
+            (Type::Borrow(inner), Type::Borrow(expected_inner))
+            | (Type::MutBorrow(inner), Type::MutBorrow(expected_inner)) => {
+                if let Type::DynTrait { trait_name, .. } = expected_inner.as_ref() {
+                    return self.trait_registry.type_implements_trait(inner, trait_name);
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// ADR 0038. Check that `actual` coerces to a `&dyn Trait` /
+    /// `&mut dyn Trait` target `expected`. No-op when `expected` is
+    /// anything else, so callers can invoke it unconditionally.
+    ///
+    /// Produces `E0012` rather than the generic `E0002` so the
+    /// diagnostic can name the trait and the concrete type that
+    /// failed to implement it. `what` is a short noun phrase for the
+    /// binding site, e.g. `"Variable 's'"` or `"Argument 'x'"`.
+    pub(super) fn check_dyn_trait_target(
+        &self,
+        actual: &Type,
+        expected: &Type,
+        span: Span,
+        what: &str,
+    ) -> Result<()> {
+        if !Self::is_dyn_trait_ref(expected) {
+            return Ok(());
+        }
+        if self.can_coerce_with_traits(actual, expected) {
+            return Ok(());
+        }
+
+        let expected_inner = match expected {
+            Type::Borrow(inner) | Type::MutBorrow(inner) => inner.as_ref(),
+            _ => unreachable!("is_dyn_trait_ref gate above"),
+        };
+        let Type::DynTrait { trait_name, .. } = expected_inner else {
+            unreachable!("is_dyn_trait_ref gate above")
+        };
+
+        // If the value is itself a borrow, name the concrete type
+        // in the message; otherwise the mismatch is "not a borrow".
+        let (concrete_desc, suffix) = match actual {
+            Type::Borrow(inner) | Type::MutBorrow(inner) => (
+                inner.to_string(),
+                format!("`{}` does not implement trait `{}`", inner, trait_name),
+            ),
+            other => (
+                other.to_string(),
+                format!("expected a borrow, found `{}`", other),
+            ),
+        };
+
+        let mut err = CompileError::at(
+            span,
+            &format!("{} expects `{}`, but {}", what, expected, suffix),
+            ErrorCode::E0012,
+        );
+        if matches!(actual, Type::Borrow(_) | Type::MutBorrow(_)) {
+            err = err.with_suggestion(&format!(
+                "Add `impl {} for {}`, or pass a value whose type implements `{}`",
+                trait_name, concrete_desc, trait_name
+            ));
+        }
+        Err(err)
     }
 
     fn resolve_trait_method(&self, type_: &Type, method_name: &str) -> Option<FunctionDecl> {

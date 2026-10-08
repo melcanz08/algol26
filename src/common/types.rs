@@ -34,6 +34,16 @@ pub struct EnumTypeId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SubrangeTypeId(pub u32);
 
+/// Trait identity. Two declarations with the same `name` in
+/// different modules produce different `TraitId` values, and
+/// therefore different trait objects. Identity is `id`;
+/// `name` is presentation only. See ADR 0038.
+///
+/// Assigned by the analyzer during trait declaration
+/// registration. Unique within a compilation unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TraitId(pub u32);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     // Primitive types
@@ -129,6 +139,14 @@ pub enum Type {
     /// Sets are structural — no `SetTypeId`. Two `Set<Day>` are the
     /// same type iff their `Day` is the same enum. See ADR 0032.
     Set(Box<Type>),
+    /// A trait object. Only valid as the inner type of `Type::Borrow`
+    /// or `Type::MutBorrow`; the analyzer rejects it in any other
+    /// position. Identity is `trait_id`; `trait_name` is presentation.
+    /// See ADR 0038.
+    DynTrait {
+        trait_id: TraitId,
+        trait_name: String,
+    },
 }
 
 impl Type {
@@ -208,6 +226,15 @@ impl Type {
     /// constructor does not check.
     pub fn set(element: Type) -> Self {
         Type::Set(Box::new(element))
+    }
+
+    /// Construct a trait-object type. Only valid inside a borrow;
+    /// the caller is responsible for wrapping. See ADR 0038.
+    pub fn dyn_trait(trait_id: TraitId, trait_name: &str) -> Self {
+        Type::DynTrait {
+            trait_id,
+            trait_name: trait_name.to_string(),
+        }
     }
 
     pub fn list(element_type: Type) -> Self {
@@ -516,6 +543,9 @@ impl Type {
                 matches!(base.as_ref(), Type::Int | Type::Enum { .. })
             }
 
+            // A trait object has no C ABI representation.
+            Type::DynTrait { .. } => false,
+
             // Everything else has no C ABI representation.
             _ => false,
         }
@@ -661,6 +691,10 @@ impl Type {
                 source.can_cast_to(base)
             }
 
+            // Trait objects cast only to the same trait identity.
+            // There is no upcast in v1. See ADR 0038.
+            (Type::DynTrait { trait_id: a, .. }, Type::DynTrait { trait_id: b, .. }) => a == b,
+
             // Default: no cast
             _ => false,
         }
@@ -728,6 +762,11 @@ impl Type {
             }
             // Set covariance: same element type required. See ADR 0032.
             (Type::Set(a), Type::Set(b)) => a.can_coerce_to(b),
+            // Trait objects coerce only to the same trait identity.
+            // Cross-kind coercion (`&Concrete` -> `&dyn Trait`) is
+            // not a type-level rule; it requires a registry lookup
+            // and is inserted by the analyzer. See ADR 0038.
+            (Type::DynTrait { trait_id: a, .. }, Type::DynTrait { trait_id: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -1017,6 +1056,7 @@ impl fmt::Display for Type {
             // Subranges print as their declared name. See ADR 0031.
             Type::Subrange { name, .. } => name.clone(),
             Type::Set(inner) => format!("Set<{}>", inner),
+            Type::DynTrait { trait_name, .. } => format!("dyn {}", trait_name),
             Type::Pointer(t) => format!("*{}", t),
             Type::Borrow(t) => format!("Borrow<{}>", t),
             Type::MutBorrow(t) => format!("MutBorrow<{}>", t),

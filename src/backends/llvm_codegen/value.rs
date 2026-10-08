@@ -5,7 +5,7 @@ use super::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::TypedIRValue;
-use inkwell::types::BasicTypeEnum;
+use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 
@@ -138,6 +138,140 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_int_to_ptr(int_val, ptr_ty, "ptr_literal")
                     .unwrap()
                     .into()
+            }
+            // ADR 0038 D4a. A `&dyn Trait` value is a fat pointer
+            // `{ data: ptr, vtable: ptr }`. `data` compiles through
+            // `compile_reference` — the borrow's inner expression is
+            // addressable, so this yields a pointer to the concrete
+            // storage. The vtable half comes from the global emitted
+            // by `IRCodeGen::emit_vtables`. The value is an alloca of
+            // the fat-pointer struct; callers load it by value when
+            // passing to a callee (D4b).
+            TypedIRValue::DynTrait {
+                data,
+                vtable_id,
+                target_type: _,
+            } => {
+                let data_val = self.compile_reference(data)?;
+                let vtable_global = self.vtables.get(vtable_id).copied().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!(
+                            "no vtable emitted for `{}` — check_backend should                              have refused this program (ADR 0038)",
+                            vtable_id,
+                        ),
+                        "llvm",
+                    )
+                })?;
+                let vtable_ptr = vtable_global.as_pointer_value();
+
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let fat_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), ptr_ty.into()], false);
+                let alloca = self.builder.build_alloca(fat_ty, "dyn_trait_fat").unwrap();
+                let data_slot = self
+                    .builder
+                    .build_struct_gep(fat_ty, alloca, 0, "data_slot")
+                    .unwrap();
+                let vtable_slot = self
+                    .builder
+                    .build_struct_gep(fat_ty, alloca, 1, "vtable_slot")
+                    .unwrap();
+                self.builder.build_store(data_slot, data_val).unwrap();
+                self.builder.build_store(vtable_slot, vtable_ptr).unwrap();
+                alloca.into()
+            }
+            // ADR 0038 D4b. A virtual call can appear nested as
+            // another value's operand — `print(s.area())` carries the
+            // VirtualCall as Print's operand; `f(s.area())` carries
+            // it as a call argument. Lower it inline: load the fat
+            // pointer halves, GEP to the vtable slot, load the method
+            // pointer, indirect-call it with `data` as the receiver.
+            TypedIRValue::VirtualCall {
+                receiver,
+                method_name: _,
+                slot,
+                args,
+                return_type,
+            } => {
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let fat_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), ptr_ty.into()], false);
+
+                // Load the receiver's slot (a `ptr` to the fat
+                // pointer struct). See the sibling arm in
+                // `instruction.rs` for why this is `compile_value`,
+                // not `compile_reference`.
+                let fat_val = self.compile_value(receiver)?;
+                let fat_ptr = fat_val.into_pointer_value();
+
+                let data_slot = self
+                    .builder
+                    .build_struct_gep(fat_ty, fat_ptr, 0, "dyn_data_slot")
+                    .unwrap();
+                let vtable_slot = self
+                    .builder
+                    .build_struct_gep(fat_ty, fat_ptr, 1, "dyn_vtable_slot")
+                    .unwrap();
+                let data_ptr = self
+                    .builder
+                    .build_load(ptr_ty, data_slot, "dyn_data")
+                    .unwrap()
+                    .into_pointer_value();
+                let vtable_ptr = self
+                    .builder
+                    .build_load(ptr_ty, vtable_slot, "dyn_vtable")
+                    .unwrap()
+                    .into_pointer_value();
+
+                let slot_const = self.context.i32_type().const_int(*slot as u64, false);
+                let method_slot_ptr = unsafe {
+                    self.builder
+                        .build_gep(ptr_ty, vtable_ptr, &[slot_const], "method_slot")
+                        .unwrap()
+                };
+                let method_fn = self
+                    .builder
+                    .build_load(ptr_ty, method_slot_ptr, "method_fn")
+                    .unwrap()
+                    .into_pointer_value();
+
+                let ret_ty = match return_type {
+                    Type::Void => None,
+                    other => Some(self.map_type(other)),
+                };
+                let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum> =
+                    vec![ptr_ty.into()];
+                let mut arg_vals: Vec<BasicValueEnum> = Vec::with_capacity(args.len() + 1);
+                arg_vals.push(data_ptr.into());
+                for a in args {
+                    let v = self.compile_value(a)?;
+                    param_types.push(v.get_type().into());
+                    arg_vals.push(v);
+                }
+                let fn_ty = match ret_ty {
+                    Some(rt) => rt.fn_type(&param_types, false),
+                    None => self.context.void_type().fn_type(&param_types, false),
+                };
+
+                let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
+                    arg_vals.iter().map(|v| (*v).into()).collect();
+                let call_site = self
+                    .builder
+                    .build_indirect_call(fn_ty, method_fn, &call_args, "vcall")
+                    .unwrap();
+
+                match call_site.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v,
+                    inkwell::values::ValueKind::Instruction(_) => {
+                        // Void-returning virtual call used in value
+                        // position. The analyzer should have rejected
+                        // this at the source; produce a dummy so we
+                        // don't panic.
+                        self.context.f64_type().const_float(0.0).into()
+                    }
+                }
             }
             // List literals have no LLVM lowering in the current
             // backend. Before this fix, the arm returned `null` — a

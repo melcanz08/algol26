@@ -47,6 +47,9 @@ impl Pass<Program> for BuildSemanticIRPass {
             typed.enum_types.clone(),
             typed.subrange_types.clone(),
             typed.const_values.clone(),
+            typed.virtual_calls.clone(),
+            typed.trait_ids.clone(),
+            &typed.traits,
         ) {
             Ok(sem) => {
                 program.ir = IrState::Built(sem);

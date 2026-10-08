@@ -16,6 +16,7 @@ use crate::ir::semantic_ir::{
     Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
     SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
 };
+use crate::semantics::analyzer::VirtualCallInfo;
 use crate::semantics::flow_result::{DeferContext, FlowResult, LoopContext};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -75,6 +76,16 @@ pub struct SemanticIRBuilder {
     /// Read by the Var arm of `translate_expr` to inline the value at
     /// each use site.
     pub(super) const_values: HashMap<String, (Type, Expr)>,
+    /// ADR 0038 D4b. Call sites the analyzer resolved through a
+    /// `&dyn Trait` receiver, keyed by the call expression's
+    /// `ExprId`. Consulted by the FunctionCall arm of `translate_expr`
+    /// to produce `TypedIRValue::VirtualCall` instead of the concrete
+    /// `TypedIRValue::Call`.
+    pub(super) virtual_calls: HashMap<ExprId, VirtualCallInfo>,
+    /// ADR 0038 D6. Trait-name -> `TraitId` assignments, forwarded
+    /// from the analyzer. Consulted by `resolve_type_syntax` to
+    /// reconstruct `Type::DynTrait` from a bare annotation.
+    pub(super) trait_ids: HashMap<String, crate::common::types::TraitId>,
 }
 
 #[allow(dead_code)]
@@ -94,6 +105,8 @@ impl SemanticIRBuilder {
         enum_types: HashMap<String, Type>,
         subrange_types: HashMap<String, Type>,
         const_values: HashMap<String, (Type, Expr)>,
+        virtual_calls: HashMap<ExprId, VirtualCallInfo>,
+        trait_ids: HashMap<String, crate::common::types::TraitId>,
     ) -> (SemanticProgram, Vec<String>) {
         let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
 
@@ -115,6 +128,8 @@ impl SemanticIRBuilder {
             enum_types,
             subrange_types,
             const_values,
+            virtual_calls,
+            trait_ids,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -166,6 +181,22 @@ impl SemanticIRBuilder {
     /// resolved type.
     pub(super) fn resolve_type_syntax(&self, syntax: &TypeSyntax) -> Type {
         match syntax {
+            // ADR 0038 D6. Reconstruct `Type::DynTrait` from the
+            // forwarded `TraitId` map. The analyzer has already
+            // validated that the trait exists and is object-safe;
+            // the builder only needs the id.
+            TypeSyntax::DynTrait { name } => {
+                if let Some(id) = self.trait_ids.get(name).copied() {
+                    Type::dyn_trait(id, name)
+                } else {
+                    // Trait not in the map means the analyzer's
+                    // registry didn't see it — a pipeline bug, not
+                    // user error. Fall back to `Unknown` so the
+                    // pipeline still produces diagnostic-bearing IR
+                    // instead of panicking.
+                    Type::Unknown
+                }
+            }
             TypeSyntax::Named(name) => {
                 if let Some(enum_ty) = self.enum_types.get(name.as_str()) {
                     return enum_ty.clone();
@@ -300,6 +331,8 @@ mod substitution_tests {
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),
             const_values: HashMap::new(),
+            virtual_calls: HashMap::new(),
+            trait_ids: HashMap::new(),
         }
     }
 

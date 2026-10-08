@@ -91,6 +91,11 @@ pub enum Feature {
     Map,
     /// `List.append`.
     ListAppend,
+    /// Dynamic dispatch through `&dyn Trait` / `&mut dyn Trait`.
+    /// Requires vtables and indirect calls; the interpreter needs a
+    /// vtable registry. Refused on all three backends until each is
+    /// verified. See ADR 0038.
+    DynamicDispatch,
 }
 
 impl Feature {
@@ -119,6 +124,7 @@ impl Feature {
             Feature::StringToInt,
             Feature::Map,
             Feature::ListAppend,
+            Feature::DynamicDispatch,
         ]
     }
 
@@ -146,6 +152,7 @@ impl Feature {
             Feature::StringToInt => "string.to_int",
             Feature::Map => "map",
             Feature::ListAppend => "list.append",
+            Feature::DynamicDispatch => "dyn-trait",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -171,6 +178,7 @@ impl Feature {
             Feature::StringToInt => "String.to_int (returns Option)",
             Feature::Map => "Map<K, V>",
             Feature::ListAppend => "List.append",
+            Feature::DynamicDispatch => "dynamic dispatch (&dyn Trait / &mut dyn Trait)",
         }
     }
 }
@@ -200,6 +208,11 @@ impl BackendCapabilities {
         // are struct values stored into the caller's alloca. See
         // ADR 0036 follow-up.
         supported.insert(Feature::RecordByValue);
+        // ADR 0038 D6-2. Vtables are emitted as internal-linkage
+        // `[N x ptr]` constants by `IRCodeGen::emit_vtables`;
+        // `Instruction::VirtualCall` lowers to a load of the
+        // vtable slot followed by an indirect call.
+        supported.insert(Feature::DynamicDispatch);
         BackendCapabilities {
             name: "LLVM",
             supported,
@@ -217,6 +230,9 @@ impl BackendCapabilities {
         // WASM shares IRCodeGen with LLVM; the by-value record ABI
         // applies to both.
         supported.insert(Feature::RecordByValue);
+        // ADR 0038 D6-3. Same IR codegen path as LLVM; vtables and
+        // indirect calls lower identically.
+        supported.insert(Feature::DynamicDispatch);
         BackendCapabilities {
             name: "WASM",
             supported,
@@ -245,6 +261,11 @@ impl BackendCapabilities {
         supported.insert(Feature::RecordByValue);
         supported.insert(Feature::GenericRecords);
         supported.insert(Feature::References);
+        // ADR 0038 D6-1. The interpreter dispatches virtual calls
+        // through the mangled impl name
+        // (`{Trait}_{Concrete}_{method}`), matching the LLVM
+        // backend's vtable slot assignment.
+        supported.insert(Feature::DynamicDispatch);
         BackendCapabilities {
             name: "interpreter",
             supported,

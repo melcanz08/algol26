@@ -436,16 +436,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // iterators created before the elem-type map was
                 // introduced (defensive only; both init sites now
                 // populate the map).
-                let elem_ir_ty = self
-                    .iterator_elem_types
-                    .get(iterator)
-                    .cloned()
-                    .unwrap_or_else(|| match elem_llvm_ty {
-                        BasicTypeEnum::IntType(_) => Type::Int,
-                        BasicTypeEnum::FloatType(_) => Type::Float,
-                        BasicTypeEnum::PointerType(_) => Type::Ptr,
-                        _ => Type::Unknown,
-                    });
+                let elem_ir_ty =
+                    self.iterator_elem_types
+                        .get(iterator)
+                        .cloned()
+                        .unwrap_or(match elem_llvm_ty {
+                            BasicTypeEnum::IntType(_) => Type::Int,
+                            BasicTypeEnum::FloatType(_) => Type::Float,
+                            BasicTypeEnum::PointerType(_) => Type::Ptr,
+                            _ => Type::Unknown,
+                        });
 
                 let idx_i32 = self
                     .builder

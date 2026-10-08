@@ -400,7 +400,16 @@ impl<'ctx> IRCodeGen<'ctx> {
             // LLVM's opaque pointers, subsequent GEPs would compile
             // without error but write into the wrong location.
             // Register the incoming pointer directly.
-            if matches!(param_type, Type::Borrow(_) | Type::MutBorrow(_)) {
+            // A list parameter's incoming value is already the
+            // array pointer the caller stored in `variables[name]`.
+            // Wrapping it in an alloca would make `variables[name]`
+            // a `ptr*` while the list's own invariants expect a bare
+            // pointer — the same reason references are inserted
+            // directly, just below.
+            if matches!(
+                param_type,
+                Type::Borrow(_) | Type::MutBorrow(_) | Type::List(_)
+            ) {
                 if !param.is_pointer_value() {
                     return Err(CompileError::simple(
                         &format!(

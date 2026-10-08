@@ -67,11 +67,12 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// Map an ALGOL26 type to an LLVM type.
     ///
     /// Fail-closed for the three variants that should not appear in
-    /// verified IR: `Unknown`, `TypeVar(_)`, and `Generic { .. }`. In
-    /// debug builds, reaching one of those arms panics so a test
-    /// catches the verifier gap; in release, the function falls back
-    /// to `f64` so the compiler does not crash on malformed input.
-    /// Making this method return `Result` is a Tier 2 follow-up.
+    /// verified IR: `Unknown`, `TypeVar(_)`, and `Generic { .. }`.
+    /// Reaching one of those arms panics in both debug and release
+    /// builds. Silently emitting wrong code (the previous behaviour)
+    /// violates the compiler's "fail closed" contract; a crash with
+    /// a clear message is the correct failure mode for a verifier
+    /// gap. Making this method return `Result` is a Tier 2 follow-up.
     pub(super) fn map_type(&self, ty: &Type) -> BasicTypeEnum<'ctx> {
         match ty {
             Type::Int => self.context.i64_type().into(),
@@ -118,20 +119,22 @@ impl<'ctx> IRCodeGen<'ctx> {
             // See ADR 0032.
             Type::Set(_) => self.context.i64_type().into(),
 
-            Type::List(inner) => {
-                // NOTE (Tier 2 follow-up): the current runtime
-                // representation of a list in `instruction.rs` is a
-                // fixed-size LLVM array `[N x elem]`, but this mapping
-                // returns `{elem, i64}`. The two disagree. Callers that
-                // actually allocate list storage use the array form
-                // directly, so this mapping is not load-bearing for
-                // correct programs; reconciling the two
-                // representations is a separate fix.
-                let elem_ty = self.map_type(inner);
-                let len_ty = self.context.i64_type();
-                self.context
-                    .struct_type(&[elem_ty, len_ty.into()], false)
-                    .into()
+            Type::List(_) => {
+                // A list's runtime value is a pointer to its backing
+                // storage `[N x elem]`, allocated at the point of
+                // declaration or initialization (see `Declare`,
+                // `Assign`, and `IteratorInit` in `instruction.rs`).
+                //
+                // Historically this arm returned `{elem, i64}`, which
+                // never matched the actual storage shape and forced
+                // callers to reach into `list_arrays` /
+                // `list_array_types` directly — an implicit contract
+                // that was easy to violate (see the `List<Record>`
+                // slot-store bugs). Returning `ptr` makes `map_type`
+                // agree with the runtime and lets a list value flow
+                // through the same `compile_value` path as any other
+                // variable.
+                self.context.ptr_type(AddressSpace::default()).into()
             }
             Type::Record(name, args) => {
                 // ADR 0036 L1. Named LLVM struct type, cached so
@@ -258,13 +261,16 @@ impl<'ctx> IRCodeGen<'ctx> {
             //   before codegen.
             // If one reaches here, the IR verifier missed a case.
             Type::Unknown | Type::TypeVar(_) | Type::Generic { .. } => {
-                debug_assert!(
-                    false,
-                    "map_type called on unresolved type `{:?}` — \
-                     the IR verifier should have rejected this",
+                // Fail closed. A verifier hole must be a compiler
+                // crash, not silently-wrong codegen. Unlike
+                // `debug_assert!`, `unreachable!` fires in release
+                // builds too. See docs/design-principles.md.
+                unreachable!(
+                    "LLVM codegen reached unresolved type `{:?}`: \
+                     the IR verifier missed this. This is a compiler bug, \
+                     not a user error.",
                     ty
                 );
-                self.context.f64_type().into()
             }
         }
     }

@@ -36,9 +36,9 @@ impl<'ctx> IRCodeGen<'ctx> {
             // Reference-to-element: GEP to the element's address,
             // no load. The array's alloca lives in `list_arrays`
             // under the source variable's name; its LLVM type is in
-            // `list_array_types`. Using `map_type(Type::List(_))`
-            // would be wrong — that mapping returns a `{elem, i64}`
-            // stub that disagrees with the runtime `[N x elem]` shape.
+            // `list_array_types`. Those two maps are the authoritative
+            // source for a list's backing storage — `map_type(List)`
+            // is only an opaque `ptr`, so it cannot be used here.
             TypedIRValue::ArrayAccess { array, index, .. } => {
                 let array_name = match &**array {
                     TypedIRValue::Variable(n, _) => n.clone(),
@@ -359,6 +359,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                 })?;
 
                 let ty = self.var_types.get(name).cloned().unwrap_or(Type::Float);
+                // A list variable's slot already holds the array
+                // pointer: `variables[name]` is set to the array
+                // alloca by `Declare`'s list arm, and to the caller's
+                // pointer by the list-parameter arm of
+                // `compile_function`. Returning that pointer is the
+                // list's runtime value; a `build_load` would read
+                // element 0 as if it were the whole list.
+                if matches!(ty, Type::List(_)) {
+                    return Ok((*ptr).into());
+                }
                 let llvm_ty = self.map_type(&ty);
                 self.builder.build_load(llvm_ty, *ptr, name).unwrap()
             }

@@ -32,6 +32,22 @@ impl<'ctx> IRCodeGen<'ctx> {
 
                     for (i, elem) in elems.iter().enumerate() {
                         let ev = self.compile_value(elem)?;
+                        // A `Record` literal compiles to a pointer to
+                        // its alloca, but a `List<Record>` slot holds
+                        // the struct value. Load through the pointer
+                        // when the slot's element type is a non-pointer
+                        // type. Without this, the store writes the
+                        // address of the temp alloca into the struct
+                        // slot, and any later read of the element
+                        // dereferences garbage.
+                        let ev = match (ev, &elem_llvm_ty) {
+                            (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => {
+                                self.builder
+                                    .build_load(*st, p, &format!("{}_elem_load_{}", name, i))
+                                    .unwrap()
+                            }
+                            (v, _) => v,
+                        };
                         let idx = self.context.i32_type().const_int(i as u64, false);
                         let ptr = unsafe {
                             self.builder

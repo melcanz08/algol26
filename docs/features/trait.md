@@ -333,6 +333,8 @@ The checklist is much shorter than for features that reach the IR.
 
 ## See also
 
+- `docs/features/associated_types.md` — trait-declared associated types
+- `docs/decisions/0041-associated-types.md` — the ADR for associated types
 - `docs/features/visibility.md` — item-level visibility (`pub`)
 - `docs/decisions/0039-visibility.md` — the ADR for visibility
 - `docs/features/dyn_trait.md` — borrowed dynamic dispatch (`&dyn Trait` / `&mut dyn Trait`)

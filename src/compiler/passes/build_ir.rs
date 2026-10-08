@@ -50,6 +50,7 @@ impl Pass<Program> for BuildSemanticIRPass {
             typed.virtual_calls.clone(),
             typed.trait_ids.clone(),
             &typed.traits,
+            typed.assoc_bindings.clone(),
         ) {
             Ok(sem) => {
                 program.ir = IrState::Built(sem);

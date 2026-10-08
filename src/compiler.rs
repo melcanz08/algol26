@@ -111,6 +111,14 @@ pub struct TypedProgram {
     /// gather pass can read each trait's method names in declaration
     /// order.
     pub traits: Vec<crate::frontend::ast::TraitDecl>,
+    /// ADR 0041. Associated-type bindings, keyed by
+    /// `(trait_name, target_type)` then by associated name. Threaded
+    /// through to the IR builder so `type_of_expr` can normalize a
+    /// projection after substituting its base type variable.
+    pub assoc_bindings: std::collections::HashMap<
+        (String, String),
+        std::collections::HashMap<String, crate::common::types::Type>,
+    >,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -275,6 +283,7 @@ pub fn type_check_program(
         virtual_calls: analyzer.take_virtual_calls(),
         trait_ids: analyzer.trait_ids(),
         traits: analyzer.trait_decls(),
+        assoc_bindings: analyzer.assoc_bindings(),
     })
 }
 
@@ -304,6 +313,10 @@ pub fn build_semantic_ir_program(
     >,
     trait_ids: std::collections::HashMap<String, crate::common::types::TraitId>,
     traits: &[crate::frontend::ast::TraitDecl],
+    assoc_bindings: std::collections::HashMap<
+        (String, String),
+        std::collections::HashMap<String, crate::common::types::Type>,
+    >,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
@@ -319,6 +332,7 @@ pub fn build_semantic_ir_program(
         const_values,
         virtual_calls,
         trait_ids,
+        assoc_bindings,
     );
     if !diagnostics.is_empty() {
         for diag in &diagnostics {

@@ -418,6 +418,7 @@ impl Parser {
         let name = self.expect_identifier("trait name")?;
         let mut methods = Vec::new();
         let mut constants = Vec::new();
+        let mut associated_types: Vec<String> = Vec::new();
         if let Token::Indent = self.peek() {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
@@ -429,6 +430,14 @@ impl Parser {
                         "`pub` is not allowed on trait methods; a trait \
                          method is public by definition",
                     ));
+                }
+                // ADR 0041. Associated type declaration: `type Name`.
+                // The concrete type is supplied by each impl.
+                if matches!(self.peek(), Token::Identifier(s) if s == "type") {
+                    self.advance();
+                    let assoc_name = self.expect_identifier("associated type name")?;
+                    associated_types.push(assoc_name);
+                    continue;
                 }
                 // Associated constant declaration: `const NAME: Type`.
                 // Value is supplied by each impl (step 1c).
@@ -488,6 +497,7 @@ impl Parser {
             constants,
             visibility,
             module: None,
+            associated_types,
         })
     }
 
@@ -555,9 +565,24 @@ impl Parser {
 
         let mut methods = Vec::new();
         let mut constants = Vec::new();
+        let mut associated_types: Vec<(String, TypeSyntax)> = Vec::new();
         if let Token::Indent = self.peek() {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                // ADR 0041. Associated type definition:
+                // `type Name := ConcreteType`. The ADR's syntax
+                // summary writes `=`, but a bare `=` is not a
+                // token in this language (see ADR 0040's rationale
+                // for rejecting it). `:=` matches the impl body's
+                // existing `const NAME: Type := expr` form.
+                if matches!(self.peek(), Token::Identifier(s) if s == "type") {
+                    self.advance();
+                    let assoc_name = self.expect_identifier("associated type name")?;
+                    self.expect_token(Token::Assign, "':='")?;
+                    let concrete = self.parse_type_syntax()?;
+                    associated_types.push((assoc_name, concrete));
+                    continue;
+                }
                 // Associated constant definition:
                 // `const NAME: Type := expr`. `:=` matches the
                 // language's val/var binding style; a bare `=`
@@ -603,6 +628,7 @@ impl Parser {
             constants,
             where_clauses,
             module: None,
+            associated_types,
         })
     }
 

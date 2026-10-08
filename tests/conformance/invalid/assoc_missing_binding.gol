@@ -1,0 +1,11 @@
+trait Container
+    type Item
+    function first(self: &Self) -> Self::Item
+
+impl Container for List<Int>
+    function first(self: &List<Int>) -> Int
+        val inner := *self
+        return inner[0]
+
+proc main
+    print(0)

@@ -36,7 +36,7 @@ impl TraitRegistry {
 
         for required in required_methods {
             if let Some(provided) = provided_methods.get(&required.name) {
-                self.validate_method_signature(required, provided, &target_str)?;
+                self.validate_method_signature(required, provided, &target_str, impl_block)?;
             } else {
                 let has_default = self
                     .default_methods
@@ -59,6 +59,7 @@ impl TraitRegistry {
         required: &TraitMethod,
         provided: &FunctionDecl,
         target_type: &str,
+        impl_block: &ImplBlock,
     ) -> Result<(), String> {
         // Check parameter count
         if required.params.len() != provided.params.len() {
@@ -70,12 +71,22 @@ impl TraitRegistry {
             ));
         }
 
-        // ADR 0033: substitute `Self` with the impl's target type before
-        // comparing. The trait's declared signature may contain `Self` at
-        // any depth (`Self`, `Borrow<Self>`, `MutBorrow<Self>`, ...); a
-        // bare `Self` check was the previous behavior and only handled
-        // the outer case.
-        let substitute = |s: String| s.replace("Self", target_type);
+        // ADR 0033: substitute `Self` with the impl's target type
+        // before comparing. The trait's declared signature may
+        // contain `Self` at any depth (`Self`, `Borrow<Self>`,
+        // `MutBorrow<Self>`, ...); a bare `Self` check was the
+        // previous behavior and only handled the outer case.
+        //
+        // ADR 0041: after `Self` substitution, walk each associated
+        // type binding the impl declares and replace
+        // `<target>::<AssocName>` with the impl's concrete type.
+        // The comparison is textual because the surrounding function
+        // compares display strings; the AST-level equivalent is a
+        // later refactor.
+        let substitute = |s: String| {
+            let s = s.replace("Self", target_type);
+            substitute_associated(&s, target_type, impl_block)
+        };
 
         // Check parameter types
         for (i, ((_req_name, req_type), (_prov_name, prov_type))) in
@@ -217,6 +228,27 @@ fn is_borrowed_self(ty: &TypeSyntax) -> bool {
         return false;
     }
     matches!(&args[0], TypeSyntax::Named(n) if n == "Self")
+}
+
+/// ADR 0041. Replace every `<target>::<AssocName>` occurrence in `s`
+/// with the impl's concrete binding for that associated type. Runs
+/// after the ADR 0033 `Self` substitution, so `target_type` is the
+/// already-substituted form (`List<Int>`, not `Self`).
+///
+/// The replacement is textual because `validate_method_signature`
+/// compares display strings, not AST nodes. The textual approach
+/// depends on `to_string_rep` producing the same string for the
+/// impl's `TypeSyntax` that it produces for the projection in the
+/// trait signature. That invariant holds because both sides call the
+/// same `to_string_rep`.
+fn substitute_associated(s: &str, target_type: &str, impl_block: &ImplBlock) -> String {
+    let mut result = s.to_string();
+    for (assoc_name, assoc_syntax) in &impl_block.associated_types {
+        let needle = format!("{}::{}", target_type, assoc_name);
+        let replacement = assoc_syntax.to_string_rep();
+        result = result.replace(&needle, &replacement);
+    }
+    result
 }
 
 fn non_object_safe(trait_name: &str, method_name: &str, reason: &str, span: Span) -> CompileError {

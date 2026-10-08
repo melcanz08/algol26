@@ -344,12 +344,14 @@ impl SemanticIRBuilder {
                     (n.clone(), raw.substitute(&subst))
                 })
                 .collect();
-            let return_type = func
-                .return_type
-                .as_ref()
-                .map(|t| self.resolve_type_syntax(t))
-                .unwrap_or(Type::Void)
-                .substitute(&subst);
+            let return_type = self.normalize_assoc(
+                &func
+                    .return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type_syntax(t))
+                    .unwrap_or(Type::Void)
+                    .substitute(&subst),
+            );
             self.function_types.insert(
                 spec.mangled_name.clone(),
                 FunctionSignature {
@@ -405,12 +407,14 @@ impl SemanticIRBuilder {
                 (n.clone(), raw.substitute(&self.current_subst))
             })
             .collect();
-        let emitted_return = func
-            .return_type
-            .as_ref()
-            .map(|t| self.resolve_type_syntax(t))
-            .unwrap_or(Type::Void)
-            .substitute(&self.current_subst);
+        let emitted_return = self.normalize_assoc(
+            &func
+                .return_type
+                .as_ref()
+                .map(|t| self.resolve_type_syntax(t))
+                .unwrap_or(Type::Void)
+                .substitute(&self.current_subst),
+        );
 
         let mut semantic_func = SemanticFunction {
             name: emitted_name.clone(),

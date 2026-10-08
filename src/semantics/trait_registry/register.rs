@@ -59,6 +59,10 @@ impl TraitRegistry {
                 methods: impl_block.methods.clone(),
                 type_params: impl_block.type_params.clone(),
                 where_clauses: impl_block.where_clauses.clone(),
+                // ADR 0041. Carry the impl's associated type defs
+                // through so `validate_impl` can check them against
+                // the trait's declaration.
+                associated_types: impl_block.associated_types.clone(),
             });
         } else {
             self.impls.insert(key, impl_block);
@@ -120,6 +124,18 @@ impl TraitRegistry {
                     name,
                 );
                 TypePattern::Concrete(format!("dyn {}", name))
+            }
+            TypeSyntax::Projection { base, name } => {
+                // ADR 0041. A projection as an impl target is
+                // nonsensical; the pattern becomes unmatchable.
+                debug_assert!(
+                    false,
+                    "trait-registry: `::{}` in an impl target \
+                     (ADR 0041)",
+                    name,
+                );
+                let _ = base;
+                TypePattern::Any
             }
             TypeSyntax::Unknown => TypePattern::Any,
         }

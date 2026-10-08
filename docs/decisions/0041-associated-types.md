@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed. Design decisions for a trait-projection mechanism.
-No implementation in this ADR.
+Accepted. Implemented on all three backends (interpreter, LLVM,
+WASM). The projection is resolved to a concrete type before IR
+construction; the runtime representation is the concrete type's.
 
 ## Context
 

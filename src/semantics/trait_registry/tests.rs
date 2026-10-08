@@ -19,6 +19,7 @@ fn test_register_trait() {
         constants: Vec::new(),
         visibility: Visibility::Private,
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_trait(trait_decl);
     assert!(registry.trait_exists("Comparable"));
@@ -38,6 +39,7 @@ fn test_type_implements_trait() {
         constants: Vec::new(),
         visibility: Visibility::Private,
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -62,6 +64,7 @@ fn test_type_implements_trait() {
         constants: Vec::new(),
         where_clauses: Vec::new(),
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_impl(impl_block);
 
@@ -86,6 +89,7 @@ fn test_validate_impl_signature_mismatch() {
         constants: Vec::new(),
         visibility: Visibility::Private,
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -110,6 +114,7 @@ fn test_validate_impl_signature_mismatch() {
         constants: Vec::new(),
         where_clauses: Vec::new(),
         module: None,
+        associated_types: Vec::new(),
     };
 
     assert!(registry.validate_impl(&impl_block).is_err());
@@ -129,6 +134,7 @@ fn test_generic_impl() {
         constants: Vec::new(),
         visibility: Visibility::Private,
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -154,6 +160,7 @@ fn test_generic_impl() {
         constants: Vec::new(),
         where_clauses: Vec::new(),
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_impl(impl_block);
 

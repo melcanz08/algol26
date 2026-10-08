@@ -1,6 +1,7 @@
 // src/semantics/analyzer/expr.rs
 
 use super::*;
+use crate::frontend::ast::TypeSyntax;
 
 impl SemanticAnalyzer {
     pub(super) fn analyze_expr(&mut self, expr: &Expr) -> Result<Type> {
@@ -1077,6 +1078,22 @@ impl SemanticAnalyzer {
                                         expr.id,
                                         self.current_span,
                                     );
+                                }
+                            }
+                            // ADR 0041. Receiver is a bare type variable
+                            // with a where-clause bound (e.g. `C: Container`).
+                            // Resolve the method through the bound trait's
+                            // declaration. Checked before the concrete-type
+                            // tiers so `c.first()` doesn't fall through.
+                            if let Type::TypeVar(param_name) = &receiver_type {
+                                if let Some(ty) = self.try_bound_var_method_call(
+                                    param_name,
+                                    method_name,
+                                    args,
+                                    expr.id,
+                                    self.current_span,
+                                )? {
+                                    return Ok(ty);
                                 }
                             }
                             // ADR 0030: Enum ordinal extraction. `d.to_ordinal()`.
@@ -2462,6 +2479,24 @@ impl SemanticAnalyzer {
     ) -> Type {
         match type_ {
             Type::TypeVar(name) => bindings.get(name).cloned().unwrap_or_else(|| type_.clone()),
+            Type::Associated {
+                base,
+                trait_name,
+                assoc_name,
+            } => {
+                // ADR 0041. Substitute type variables in the base,
+                // then attempt normalization against the registry.
+                // If the base is now concrete and a binding exists,
+                // the result is the concrete type; otherwise the
+                // projection stays symbolic.
+                let base_sub = self.substitute_type_vars(base, bindings);
+                let assoc = Type::Associated {
+                    base: Box::new(base_sub),
+                    trait_name: trait_name.clone(),
+                    assoc_name: assoc_name.clone(),
+                };
+                self.normalize_assoc(&assoc)
+            }
             Type::List(inner) => Type::list(self.substitute_type_vars(inner, bindings)),
             Type::Array(inner, size) => {
                 Type::array(self.substitute_type_vars(inner, bindings), *size)
@@ -3143,6 +3178,104 @@ impl SemanticAnalyzer {
             msg.push_str(&format!(" (and {} more)", more));
         }
         Some(msg)
+    }
+
+    /// ADR 0041. Resolve a method call on a bare type variable
+    /// whose where-clause bound declares `method_name`. Returns
+    /// `Ok(None)` if no bound applies, so the caller falls through
+    /// to the concrete-type tiers.
+    ///
+    /// The return type is the trait method's declared return type
+    /// with `Self` substituted to the receiver's type variable.
+    /// A `Self::Item` return thus becomes
+    /// `Associated { base: TypeVar(param), trait_name, assoc_name }`,
+    /// which the outer call-site unification resolves to the impl's
+    /// concrete binding.
+    fn try_bound_var_method_call(
+        &mut self,
+        param_name: &str,
+        method_name: &str,
+        args: &[Expr],
+        _call_site: ExprId,
+        span: Span,
+    ) -> Result<Option<Type>> {
+        // Find a bound trait on `param_name` that declares
+        // `method_name`.
+        let mut matched: Option<(String, crate::frontend::ast::TraitMethod)> = None;
+        'outer: for scope in self.type_constraints.iter().rev() {
+            if let Some(bounds) = scope.get(param_name) {
+                for bound in bounds {
+                    if let Some(m) = self.trait_registry.trait_method(bound, method_name) {
+                        matched = Some((bound.clone(), m.clone()));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        let Some((trait_name, method)) = matched else {
+            return Ok(None);
+        };
+
+        // Arity: `self` is the implicit receiver if the trait
+        // method declares one.
+        let has_self_receiver = method.params.first().is_some_and(|(n, _)| n == "self");
+        let expected_extra = if has_self_receiver {
+            method.params.len().saturating_sub(1)
+        } else {
+            method.params.len()
+        };
+        if args.len() != expected_extra {
+            return Err(CompileError::at(
+                span,
+                &format!(
+                    "`{}::{}` expects {} argument(s) after the receiver, got {}",
+                    trait_name,
+                    method_name,
+                    expected_extra,
+                    args.len()
+                ),
+                ErrorCode::E0002,
+            ));
+        }
+
+        // Arg type-check, mirroring the trait-method tier.
+        let skip = if has_self_receiver { 1 } else { 0 };
+        for (arg, (pname, pty)) in args.iter().zip(method.params.iter().skip(skip)) {
+            let expected = match pty {
+                Some(s) => self.resolve_type_syntax(s)?,
+                None => Type::Unknown,
+            };
+            let actual = self.analyze_expr_with_context(arg, Some(&expected))?;
+            self.register_call_arg_temporary(arg);
+            if !self.can_coerce_with_traits(&actual, &expected) && expected != Type::Unknown {
+                return Err(CompileError::at(
+                    span,
+                    &format!(
+                        "argument `{}` type mismatch: expected {}, found {}",
+                        pname, expected, actual
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+        }
+
+        // Return type. A `Self::X` in the trait's declaration refers
+        // to the *matched trait*, so we construct the projection
+        // directly rather than routing it through
+        // `resolve_type_syntax` (which would look for a `Self` bound
+        // in `type_constraints` and fail — `Self` inside a trait is
+        // bound to the trait itself, not to a where-clause).
+        let raw_ret: Type = match &method.return_type {
+            Some(TypeSyntax::Projection { base, name }) if matches!(base.as_ref(), TypeSyntax::Named(n) if n == "Self") => {
+                Type::associated(Type::TypeVar("Self".to_string()), &trait_name, name)
+            }
+            Some(other) => self.resolve_type_syntax(other)?,
+            None => Type::Void,
+        };
+        let mut self_subst: HashMap<String, Type> = HashMap::new();
+        self_subst.insert("Self".to_string(), Type::TypeVar(param_name.to_string()));
+        let ret = self.substitute_type_vars(&raw_ret, &self_subst);
+        Ok(Some(ret))
     }
 
     /// ADR 0038 D4b. Resolve a method call on a `&dyn Trait` receiver

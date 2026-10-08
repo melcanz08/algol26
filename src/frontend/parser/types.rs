@@ -4,6 +4,43 @@ use super::*;
 
 impl Parser {
     pub(super) fn parse_type_syntax(&mut self) -> Result<TypeSyntax> {
+        // ADR 0041. Postfix `::Name` projects through the base type's
+        // associated type. Handled here (not in `parse_type_syntax_atom`)
+        // so the recursion for `&T` correctly parses `&C::Item` as
+        // `Borrow<Projection>`.
+        let base = self.parse_type_syntax_atom()?;
+        // The lexer emits two adjacent `Colon` tokens for `::`; the
+        // `DoubleColon` variant exists but is not currently produced
+        // by `Lexer::handle_operator`. Accept either form so a future
+        // lexer change is compatible.
+        let is_double_colon = matches!(self.peek(), Token::DoubleColon)
+            || matches!(
+                (self.tokens.get(self.pos), self.tokens.get(self.pos + 1)),
+                (Some(a), Some(b))
+                    if matches!(a.token, Token::Colon) && matches!(b.token, Token::Colon)
+            );
+        if is_double_colon {
+            // Consume both colons (or the single DoubleColon token).
+            if matches!(self.peek(), Token::DoubleColon) {
+                self.advance();
+            } else {
+                self.advance(); // first `:`
+                self.advance(); // second `:`
+            }
+            let assoc_name = self.expect_identifier("associated type name after `::`")?;
+            return Ok(TypeSyntax::Projection {
+                base: Box::new(base),
+                name: assoc_name,
+            });
+        }
+        Ok(base)
+    }
+
+    /// The pre-ADR-0041 body of `parse_type_syntax`, renamed to a
+    /// private helper. The postfix `::` handling lives in the public
+    /// method so it applies uniformly to `Named`, `Generic`, `Self`,
+    /// and `dyn Trait` bases.
+    fn parse_type_syntax_atom(&mut self) -> Result<TypeSyntax> {
         if matches!(self.peek(), Token::Ampersand) {
             self.advance(); // consume &
 

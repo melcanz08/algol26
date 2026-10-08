@@ -536,6 +536,11 @@ pub struct TraitDecl {
     pub visibility: Visibility,
     /// ADR 0039. Defining module. See `FunctionDecl::module`.
     pub module: Option<String>,
+    /// ADR 0041. Associated type declarations, in declaration order.
+    /// Each entry is the associated type's name as it appears in
+    /// the trait body (`type Item`). Bounds (`type Item: Display`)
+    /// are out of scope for v1.
+    pub associated_types: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -570,6 +575,12 @@ pub struct ImplBlock {
     pub where_clauses: Vec<WhereClause>,
     /// ADR 0039. Defining module. See `FunctionDecl::module`.
     pub module: Option<String>,
+    /// ADR 0041. Associated type definitions, in declaration order.
+    /// Each entry pairs the associated type's name with the
+    /// concrete type the impl supplies. Empty for inherent impls
+    /// and for trait impls whose trait declares no associated
+    /// types.
+    pub associated_types: Vec<(String, TypeSyntax)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -583,6 +594,16 @@ pub enum TypeSyntax {
     /// analyzer enforces the position (ADR 0038). Bare `dyn Trait`
     /// outside a borrow is rejected during type lowering.
     DynTrait {
+        name: String,
+    },
+    /// `Base::Name`. A projection through a trait's associated
+    /// type. `base` is a type syntax (usually `Named` for a bare
+    /// type variable, but may itself be a `Generic` or another
+    /// `Projection`); `name` is the associated type's declared
+    /// name. Resolved by the analyzer, not by `to_type`, which has
+    /// no trait registry. See ADR 0041.
+    Projection {
+        base: Box<TypeSyntax>,
         name: String,
     },
     Unknown,
@@ -639,6 +660,21 @@ impl TypeSyntax {
                 );
                 Type::Unknown
             }
+            TypeSyntax::Projection { name, .. } => {
+                // ADR 0041. `to_type()` has no trait registry, so it
+                // cannot resolve a projection. The analyzer normalizes
+                // projections before this path is reached; reaching it
+                // here is a bug. Debug builds panic so a test catches
+                // the gap.
+                debug_assert!(
+                    false,
+                    "TypeSyntax::Projection reached to_type() — the analyzer \
+                     should have resolved `::{}` against the trait's \
+                     associated bindings (ADR 0041)",
+                    name,
+                );
+                Type::Unknown
+            }
             TypeSyntax::Unknown => Type::Unknown,
         }
     }
@@ -651,6 +687,9 @@ impl TypeSyntax {
                 format!("{}<{}>", name, args_str.join(", "))
             }
             TypeSyntax::DynTrait { name } => format!("dyn {}", name),
+            TypeSyntax::Projection { base, name } => {
+                format!("{}::{}", base.to_string_rep(), name)
+            }
             TypeSyntax::Unknown => String::new(),
         }
     }
@@ -660,6 +699,7 @@ impl TypeSyntax {
             TypeSyntax::Named(name) => name,
             TypeSyntax::Generic { name, .. } => name,
             TypeSyntax::DynTrait { name } => name,
+            TypeSyntax::Projection { name, .. } => name,
             TypeSyntax::Unknown => "",
         }
     }

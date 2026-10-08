@@ -199,6 +199,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
             std::collections::HashMap::new(), // virtual_calls (ADR 0038),
             std::collections::HashMap::new(), // trait_ids (ADR 0038),
             &typed.traits,                    // trait_decls (ADR 0038)
+            typed.assoc_bindings.clone(),     // assoc_bindings (ADR 0041)
         ) {
             Ok(p) => p,
             Err(_) => continue,

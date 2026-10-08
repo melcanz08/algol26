@@ -425,6 +425,9 @@ impl SemanticAnalyzer {
         let nominals_snapshot = self.nominal_types.clone();
         let enums_snapshot = self.enum_types.clone();
         let subranges_snapshot = self.subrange_types.clone();
+        // ADR 0041. Snapshot the trait registry so signature
+        // resolution can look up associated type declarations.
+        let trait_registry_snapshot = self.trait_registry.clone();
         for func in functions {
             let params: Vec<(String, Type)> = func
                 .params
@@ -437,6 +440,8 @@ impl SemanticAnalyzer {
                             &nominals_snapshot,
                             &enums_snapshot,
                             &subranges_snapshot,
+                            &func.where_clauses,
+                            &trait_registry_snapshot,
                         )?,
                         None => Type::Unknown,
                     };
@@ -451,6 +456,8 @@ impl SemanticAnalyzer {
                     &nominals_snapshot,
                     &enums_snapshot,
                     &subranges_snapshot,
+                    &func.where_clauses,
+                    &trait_registry_snapshot,
                 )?,
                 None => Type::Void,
             };
@@ -729,6 +736,28 @@ impl SemanticAnalyzer {
                     .ensure_object_safe(name, crate::common::span::Span::default())?;
                 Ok(Type::dyn_trait(trait_id, name))
             }
+            TypeSyntax::Projection { base, name } => {
+                // ADR 0041. Resolve the base type, then find which
+                // trait bound on it declares `name`. For a type
+                // variable with a where-clause bound (`C: Container`),
+                // the trait is one of the bound's traits. A concrete
+                // base would require impl-table lookup, deferred to
+                // a future step.
+                let base_ty = self.resolve_type_syntax(base)?;
+                let Some(trait_name) = self.find_assoc_trait_for_base(&base_ty, name) else {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "no trait bound on `{}` declares associated type `{}`",
+                            base_ty, name
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                };
+                Ok(Type::associated(base_ty, &trait_name, name))
+            }
             TypeSyntax::Named(name) => {
                 if let Some(enum_ty) = self.enum_types.get(name.as_str()).cloned() {
                     return Ok(enum_ty);
@@ -883,12 +912,18 @@ impl SemanticAnalyzer {
     /// table as an argument. Used by `register_user_functions`,
     /// which runs during analysis setup and cannot hold `&self`
     /// while it mutates `self.functions`.
-    fn resolve_syntax_with_records(
+    pub(super) fn resolve_syntax_with_records(
         syntax: &TypeSyntax,
         records: &HashMap<String, RecordInfo>,
         nominals: &HashMap<String, Type>,
         enums: &HashMap<String, Type>,
         subranges: &HashMap<String, Type>,
+        // ADR 0041. Where-clauses on the function whose signature is
+        // being resolved, plus a snapshot of the trait registry so
+        // the Projection arm can check that a bound trait declares
+        // the associated type.
+        where_clauses: &[WhereClause],
+        trait_registry: &TraitRegistry,
     ) -> Result<Type> {
         match syntax {
             // ADR 0038. This associated function has no `&self`,
@@ -900,6 +935,34 @@ impl SemanticAnalyzer {
             // subsequent `resolve_type_syntax` call (which has
             // the registry) will produce the right diagnostic.
             TypeSyntax::DynTrait { name } => Err(unknown_type_error(name)),
+            TypeSyntax::Projection { base, name } => {
+                // ADR 0041. Registration-time resolution: find the
+                // bound trait on the base's type variable that
+                // declares `name`.
+                let base_ty = Self::resolve_syntax_with_records(
+                    base,
+                    records,
+                    nominals,
+                    enums,
+                    subranges,
+                    where_clauses,
+                    trait_registry,
+                )?;
+                let Type::TypeVar(param_name) = &base_ty else {
+                    return Ok(Type::Unknown);
+                };
+                for clause in where_clauses {
+                    if &clause.type_param != param_name {
+                        continue;
+                    }
+                    if let Some(td) = trait_registry.traits.get(&clause.trait_name) {
+                        if td.associated_types.iter().any(|n| n == name) {
+                            return Ok(Type::associated(base_ty.clone(), &clause.trait_name, name));
+                        }
+                    }
+                }
+                Ok(Type::Unknown)
+            }
             TypeSyntax::Named(name) => {
                 if let Some(enum_ty) = enums.get(name.as_str()) {
                     return Ok(enum_ty.clone());
@@ -929,7 +992,13 @@ impl SemanticAnalyzer {
                         .iter()
                         .map(|a| {
                             Self::resolve_syntax_with_records(
-                                a, records, nominals, enums, subranges,
+                                a,
+                                records,
+                                nominals,
+                                enums,
+                                subranges,
+                                where_clauses,
+                                trait_registry,
                             )
                         })
                         .collect::<Result<Vec<_>>>()?;
@@ -938,7 +1007,15 @@ impl SemanticAnalyzer {
                 let resolved_args: Vec<Type> = args
                     .iter()
                     .map(|a| {
-                        Self::resolve_syntax_with_records(a, records, nominals, enums, subranges)
+                        Self::resolve_syntax_with_records(
+                            a,
+                            records,
+                            nominals,
+                            enums,
+                            subranges,
+                            where_clauses,
+                            trait_registry,
+                        )
                     })
                     .collect::<Result<Vec<_>>>()?;
                 let ty = match (name.to_lowercase().as_str(), resolved_args.as_slice()) {

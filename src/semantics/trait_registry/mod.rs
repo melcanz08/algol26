@@ -21,7 +21,9 @@
 //     type variable is instantiated consistently across a program.
 
 use crate::common::types::{TraitId, Type};
-use crate::frontend::ast::{FunctionDecl, ImplBlock, TraitDecl, TraitMethod, WhereClause};
+use crate::frontend::ast::{
+    FunctionDecl, ImplBlock, TraitDecl, TraitMethod, TypeSyntax, WhereClause,
+};
 use std::collections::HashMap;
 
 mod register;
@@ -51,6 +53,13 @@ pub struct TraitRegistry {
     /// unit) preserves the first-assigned id rather than
     /// renumbering.
     pub(super) next_trait_id: u32,
+    /// ADR 0041. Concrete bindings for associated types, keyed by
+    /// `(trait_name, target_type_string)` then by `assoc_name`.
+    /// Populated from each impl's `associated_types` field after
+    /// impl registration. For a generic impl the bound type may
+    /// contain `TypeVar`; the analyzer substitutes the type
+    /// parameters when a call site instantiates the impl.
+    pub(super) assoc_bindings: HashMap<(String, String), HashMap<String, Type>>,
 }
 #[derive(Debug, Clone)]
 pub(super) struct GenericImpl {
@@ -67,6 +76,11 @@ pub(super) struct GenericImpl {
     /// method resolution against the receiver's concrete type
     /// arguments. See ADR 0025 bound enforcement.
     where_clauses: Vec<WhereClause>,
+    /// ADR 0041. The impl's associated type definitions, in
+    /// declaration order. Kept here so `validate_impl` can check
+    /// them against the trait's declaration without re-walking the
+    /// AST.
+    associated_types: Vec<(String, TypeSyntax)>,
 }
 #[derive(Debug, Clone)]
 pub(super) enum TypePattern {
@@ -83,8 +97,40 @@ impl TraitRegistry {
             generic_impls: Vec::new(),
             trait_ids: HashMap::new(),
             next_trait_id: 0,
+            assoc_bindings: HashMap::new(),
         }
     }
+    /// ADR 0041. Record the concrete type bound to an impl's
+    /// associated type. `target_type` is the impl's target type as
+    /// written (`"Pair"`, `"List"`). Called by the analyzer after
+    /// `register_impl`.
+    pub fn register_assoc_binding(
+        &mut self,
+        trait_name: &str,
+        target_type: &str,
+        assoc_name: &str,
+        ty: Type,
+    ) {
+        self.assoc_bindings
+            .entry((trait_name.to_string(), target_type.to_string()))
+            .or_default()
+            .insert(assoc_name.to_string(), ty);
+    }
+
+    /// ADR 0041. Look up the concrete type bound to an associated
+    /// type, if the impl has been registered. Returns `None` for
+    /// an unregistered pair.
+    pub fn resolve_assoc(
+        &self,
+        trait_name: &str,
+        target_type: &str,
+        assoc_name: &str,
+    ) -> Option<&Type> {
+        self.assoc_bindings
+            .get(&(trait_name.to_string(), target_type.to_string()))?
+            .get(assoc_name)
+    }
+
     pub fn get_trait_methods(&self, trait_name: &str) -> Option<&Vec<TraitMethod>> {
         self.traits.get(trait_name).map(|t| &t.methods)
     }

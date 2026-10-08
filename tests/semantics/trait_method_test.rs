@@ -53,6 +53,7 @@ fn test_trait_registry_resolution() {
         constants: Vec::new(),
         visibility: Visibility::Private,
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_trait(trait_decl);
 
@@ -81,6 +82,7 @@ fn test_trait_registry_resolution() {
         constants: Vec::new(),
         where_clauses: Vec::new(),
         module: None,
+        associated_types: Vec::new(),
     };
     registry.register_impl(impl_block);
 

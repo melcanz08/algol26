@@ -49,6 +49,18 @@ impl<'ctx> IRCodeGen<'ctx> {
             // it does not. If codegen reaches here, the matrix is out
             // of sync with the IR.
             TypeSyntax::DynTrait { .. } => Type::Unknown,
+            TypeSyntax::Projection { name, .. } => {
+                // ADR 0041. The analyzer must have normalized a
+                // projection before codegen. Reaching here is a
+                // compiler bug.
+                debug_assert!(
+                    false,
+                    "LLVM codegen: `::{}` reached resolve_field_type \
+                     (ADR 0041 normalization should have rewritten it)",
+                    name,
+                );
+                Type::Unknown
+            }
             TypeSyntax::Unknown => Type::Unknown,
         }
     }
@@ -230,6 +242,13 @@ impl<'ctx> IRCodeGen<'ctx> {
             Type::DynTrait { .. } => unreachable!(
                 "LLVM codegen reached Type::DynTrait — dynamic dispatch \
                  should have been refused by check_backend (ADR 0038)"
+            ),
+            // ADR 0041. Projections must be normalized before
+            // codegen. Reaching here means the analyzer did not
+            // rewrite `Self::Item` against the impl's binding.
+            Type::Associated { .. } => unreachable!(
+                "LLVM codegen reached Type::Associated — projection \
+                 normalization should have rewritten it (ADR 0041)"
             ),
 
             // Should not appear in verified IR:

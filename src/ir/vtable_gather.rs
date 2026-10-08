@@ -225,6 +225,7 @@ mod tests {
             constants: vec![],
             visibility: Visibility::Private,
             module: None,
+            associated_types: Vec::new(),
         });
         let target_type = Type::borrow(Type::dyn_trait(TraitId(trait_id), trait_name));
         let value = TypedIRValue::DynTrait {

@@ -384,6 +384,15 @@ pub const MATRIX: &[FeatureRow] = &[
         notes: "",
     },
     FeatureRow {
+        name: "assoc_types",
+        conformance_dir: Some("assoc_types"),
+        interpreter: Support::Full,
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "",
+    },
+    FeatureRow {
         name: "defer",
         conformance_dir: Some("defer"),
         interpreter: Support::Full,

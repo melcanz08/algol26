@@ -337,6 +337,13 @@ impl SemanticAnalyzer {
     pub fn trait_decls(&self) -> Vec<crate::frontend::ast::TraitDecl> {
         self.trait_registry.trait_decls()
     }
+
+    /// ADR 0041. Forward the registry's associated-type bindings to
+    /// the IR builder so `type_of_expr` can normalize a projection
+    /// after substituting its base type variable.
+    pub fn assoc_bindings(&self) -> HashMap<(String, String), HashMap<String, Type>> {
+        self.trait_registry.assoc_bindings.clone()
+    }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
         &self.state
@@ -471,6 +478,106 @@ impl SemanticAnalyzer {
         }
         for impl_block in impls {
             self.trait_registry.register_impl(impl_block.clone());
+        }
+        // ADR 0041. Resolve each impl's associated type definitions
+        // to concrete types and store them in the registry so
+        // method-signature substitution can consult them. Validate
+        // that the impl's set matches the trait's declaration.
+        for impl_block in impls {
+            let Some(trait_name) = impl_block.trait_name.as_deref() else {
+                // Inherent impls cannot declare associated types
+                // (ADR 0041 D6). Reject explicitly.
+                if !impl_block.associated_types.is_empty() {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "inherent impl on '{}' declares associated \
+                             type(s); associated types are only valid \
+                             in trait impls (ADR 0041)",
+                            impl_block.target_type
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                continue;
+            };
+
+            // Trait-declared associated types (in order).
+            let declared: Vec<String> = self
+                .trait_registry
+                .traits
+                .get(trait_name)
+                .map(|t| t.associated_types.clone())
+                .unwrap_or_default();
+
+            // Every declared assoc must be defined; no extras.
+            let defined_names: std::collections::HashSet<&str> = impl_block
+                .associated_types
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect();
+            for declared_name in &declared {
+                if !defined_names.contains(declared_name.as_str()) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "impl of trait '{}' for '{}' does not define \
+                             associated type '{}'",
+                            trait_name, impl_block.target_type, declared_name
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+            }
+            let declared_set: std::collections::HashSet<&str> =
+                declared.iter().map(String::as_str).collect();
+            for (name, _) in &impl_block.associated_types {
+                if !declared_set.contains(name.as_str()) {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "impl of trait '{}' for '{}' defines associated \
+                             type '{}', which the trait does not declare",
+                            trait_name, impl_block.target_type, name
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+            }
+
+            // Resolve each binding and register it. The key uses
+            // the *full* target form (`List<Int>`) so the lookup in
+            // `normalize_assoc`, which receives a concrete `Type`
+            // and calls `.to_string()`, matches.
+            let target_str = if impl_block.target_type_args.is_empty() {
+                impl_block.target_type.clone()
+            } else {
+                let args: Vec<String> = impl_block
+                    .target_type_args
+                    .iter()
+                    .map(|t| t.to_string_rep())
+                    .collect();
+                format!("{}<{}>", impl_block.target_type, args.join(", "))
+            };
+            for (name, syntax) in &impl_block.associated_types {
+                let ty = Self::resolve_syntax_with_records(
+                    syntax,
+                    &self.records,
+                    &self.nominal_types,
+                    &self.enum_types,
+                    &self.subrange_types,
+                    &[],
+                    &self.trait_registry,
+                )?;
+                self.trait_registry
+                    .register_assoc_binding(trait_name, &target_str, name, ty);
+            }
         }
         for impl_block in impls {
             if let Err(err) = self.trait_registry.validate_impl(impl_block) {
@@ -799,6 +906,116 @@ impl SemanticAnalyzer {
         self.trait_registry
             .resolve_method(type_, method_name)
             .cloned()
+    }
+
+    /// ADR 0041. Find the trait bound on `base` that declares an
+    /// associated type named `assoc_name`. Only type variables are
+    /// supported in v1: a concrete base would require resolving
+    /// through the impl table, which the ADR defers to a future
+    /// step.
+    fn find_assoc_trait_for_base(&self, base: &Type, assoc_name: &str) -> Option<String> {
+        let Type::TypeVar(param_name) = base else {
+            return None;
+        };
+        for scope in self.type_constraints.iter().rev() {
+            if let Some(bounds) = scope.get(param_name) {
+                for bound_trait in bounds {
+                    if let Some(trait_decl) = self.trait_registry.traits.get(bound_trait) {
+                        if trait_decl.associated_types.iter().any(|n| n == assoc_name) {
+                            return Some(bound_trait.clone());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// ADR 0041. Replace any `Type::Associated` with a concrete base
+    /// by the impl's binding. Symbolic bases (still containing type
+    /// variables or `Unknown`) stay as projections so a later
+    /// substitution pass can resolve them.
+    pub(super) fn normalize_assoc(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Associated {
+                base,
+                trait_name,
+                assoc_name,
+            } => {
+                let base_norm = self.normalize_assoc(base);
+                if base_norm.contains_unresolved() {
+                    return Type::Associated {
+                        base: Box::new(base_norm),
+                        trait_name: trait_name.clone(),
+                        assoc_name: assoc_name.clone(),
+                    };
+                }
+                let target_str = base_norm.to_string();
+                if let Some(concrete) = self
+                    .trait_registry
+                    .resolve_assoc(trait_name, &target_str, assoc_name)
+                    .cloned()
+                {
+                    // Recursively normalize: the binding may itself
+                    // contain another projection.
+                    return self.normalize_assoc(&concrete);
+                }
+                // No binding: leave symbolic so the verifier can
+                // reject it (Step 8).
+                Type::Associated {
+                    base: Box::new(base_norm),
+                    trait_name: trait_name.clone(),
+                    assoc_name: assoc_name.clone(),
+                }
+            }
+            Type::List(inner) => Type::list(self.normalize_assoc(inner)),
+            Type::Array(inner, n) => Type::array(self.normalize_assoc(inner), *n),
+            Type::Option(inner) => Type::option(self.normalize_assoc(inner)),
+            Type::Result { ok, error } => {
+                Type::result(self.normalize_assoc(ok), self.normalize_assoc(error))
+            }
+            Type::Map(k, v) => Type::map(self.normalize_assoc(k), self.normalize_assoc(v)),
+            Type::Set(inner) => Type::set(self.normalize_assoc(inner)),
+            Type::Pointer(inner) => Type::pointer(self.normalize_assoc(inner)),
+            Type::Borrow(inner) => Type::borrow(self.normalize_assoc(inner)),
+            Type::MutBorrow(inner) => Type::mut_borrow(self.normalize_assoc(inner)),
+            Type::Channel(inner) => Type::channel(self.normalize_assoc(inner)),
+            Type::Tuple(elems) => {
+                Type::tuple(elems.iter().map(|e| self.normalize_assoc(e)).collect())
+            }
+            Type::Generic { name, args } => {
+                Type::generic(name, args.iter().map(|a| self.normalize_assoc(a)).collect())
+            }
+            Type::Record(name, args) => {
+                Type::record(name, args.iter().map(|a| self.normalize_assoc(a)).collect())
+            }
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params.iter().map(|p| self.normalize_assoc(p)).collect(),
+                return_type: Box::new(self.normalize_assoc(return_type)),
+            },
+            Type::Distinct { id, name, base } => Type::Distinct {
+                id: *id,
+                name: name.clone(),
+                base: Box::new(self.normalize_assoc(base)),
+            },
+            Type::Subrange {
+                id,
+                name,
+                base,
+                low,
+                high,
+            } => Type::Subrange {
+                id: *id,
+                name: name.clone(),
+                base: Box::new(self.normalize_assoc(base)),
+                low: *low,
+                high: *high,
+            },
+            _ => ty.clone(),
+        }
     }
 
     /// ADR 0039. Reject a cross-module access to a private item.

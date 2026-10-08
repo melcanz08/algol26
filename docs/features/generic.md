@@ -371,6 +371,8 @@ parameterization), you need to touch:
 
 ## See also
 
+- `docs/features/associated_types.md` — trait-declared associated types
+- `docs/decisions/0041-associated-types.md` — the ADR for associated types
 - `docs/architecture-direction.md` — the feature contract pattern itself
 - `docs/features/trait.md` — trait bounds on generics
 - `docs/decisions/0003-type-system.md` — the type system

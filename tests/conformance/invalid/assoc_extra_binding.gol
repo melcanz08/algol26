@@ -1,0 +1,9 @@
+trait Container
+    type Item
+
+impl Container for List<Int>
+    type Item := Int
+    type Extra := Float
+
+proc main
+    print(0)

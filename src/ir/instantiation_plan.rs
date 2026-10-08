@@ -429,6 +429,20 @@ pub fn mangled_type_name(ty: &Type) -> String {
         // `DynTrait_` prefix keeps this disjoint from `Distinct_`,
         // `Enum_`, and `Subrange_`.
         Type::DynTrait { trait_id, .. } => format!("DynTrait_{}", trait_id.0),
+        // ADR 0041. A projection mangles with its trait name,
+        // associated name, and the mangled base. Injectivity holds
+        // because the trait and associated names cannot contain `_`
+        // in a way that collides with the field separators.
+        Type::Associated {
+            base,
+            trait_name,
+            assoc_name,
+        } => format!(
+            "Assoc_{}_{}_{}",
+            trait_name,
+            assoc_name,
+            mangled_type_name(base)
+        ),
         Type::Set(inner) => format!("Set_{}", mangled_type_name(inner)),
     }
 }

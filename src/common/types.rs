@@ -163,6 +163,21 @@ pub enum Type {
         trait_id: TraitId,
         trait_name: String,
     },
+    /// ADR 0041. A projection through a trait's associated type.
+    /// `base` is the type whose trait binding is projected;
+    /// `trait_name` is the trait declaring the associated type;
+    /// `assoc_name` is the associated type's declared name.
+    ///
+    /// Normalization: the analyzer replaces this variant with the
+    /// concrete type bound by the impl once the base type is known.
+    /// Only unnormalized projections appear in pre-verifier IR; the
+    /// verifier rejects any `Associated` value that reaches it,
+    /// matching how `TypeVar` is handled. See ADR 0041.
+    Associated {
+        base: Box<Type>,
+        trait_name: String,
+        assoc_name: String,
+    },
 }
 
 impl Type {
@@ -242,6 +257,15 @@ impl Type {
     /// constructor does not check.
     pub fn set(element: Type) -> Self {
         Type::Set(Box::new(element))
+    }
+
+    /// Construct a projection type. See `Type::Associated`. ADR 0041.
+    pub fn associated(base: Type, trait_name: &str, assoc_name: &str) -> Self {
+        Type::Associated {
+            base: Box::new(base),
+            trait_name: trait_name.to_string(),
+            assoc_name: assoc_name.to_string(),
+        }
     }
 
     /// Construct a trait-object type. Only valid inside a borrow;
@@ -711,6 +735,21 @@ impl Type {
             // There is no upcast in v1. See ADR 0038.
             (Type::DynTrait { trait_id: a, .. }, Type::DynTrait { trait_id: b, .. }) => a == b,
 
+            // ADR 0041. Projection casts only to the same base
+            // trait + associated name pair. No `.to_base()` applies.
+            (
+                Type::Associated {
+                    trait_name: t1,
+                    assoc_name: a1,
+                    base: b1,
+                },
+                Type::Associated {
+                    trait_name: t2,
+                    assoc_name: a2,
+                    base: b2,
+                },
+            ) => t1 == t2 && a1 == a2 && b1.can_cast_to(b2),
+
             // Default: no cast
             _ => false,
         }
@@ -911,6 +950,7 @@ impl Type {
                 return_type,
             } => params.iter().any(|p| p.contains_type_var()) || return_type.contains_type_var(),
             Type::Set(inner) => inner.contains_type_var(),
+            Type::Associated { base, .. } => base.contains_type_var(),
             _ => false,
         }
     }
@@ -943,6 +983,7 @@ impl Type {
                 return_type,
             } => params.iter().any(|p| p.contains_unknown()) || return_type.contains_unknown(),
             Type::Set(inner) => inner.contains_unknown(),
+            Type::Associated { base, .. } => base.contains_unknown(),
             _ => false,
         }
     }
@@ -1024,6 +1065,15 @@ impl Type {
                 return_type: Box::new(return_type.substitute(substitutions)),
             },
             Type::Set(inner) => Type::set(inner.substitute(substitutions)),
+            Type::Associated {
+                base,
+                trait_name,
+                assoc_name,
+            } => Type::Associated {
+                base: Box::new(base.substitute(substitutions)),
+                trait_name: trait_name.clone(),
+                assoc_name: assoc_name.clone(),
+            },
             _ => self.clone(),
         }
     }
@@ -1073,6 +1123,9 @@ impl fmt::Display for Type {
             Type::Subrange { name, .. } => name.clone(),
             Type::Set(inner) => format!("Set<{}>", inner),
             Type::DynTrait { trait_name, .. } => format!("dyn {}", trait_name),
+            Type::Associated {
+                base, assoc_name, ..
+            } => format!("{}::{}", base, assoc_name),
             Type::Pointer(t) => format!("*{}", t),
             Type::Borrow(t) => format!("Borrow<{}>", t),
             Type::MutBorrow(t) => format!("MutBorrow<{}>", t),

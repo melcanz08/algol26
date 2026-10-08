@@ -23,6 +23,25 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
 
 ## Recent changes (through 2026-10-01)
 
+### Associated types (ADR 0041)
+
+- **Trait-declared associated types.** A trait declares `type Item`
+  in its body; each impl binds it with `type Item := ConcreteType`.
+- **Projections in signatures.** `Self::Item` inside a trait method
+  is legal type syntax; `C::Item` for a where-clause-bound type
+  variable is also legal (`function head<C>(c: C) -> C::Item where
+  C: Container`).
+- **Normalization at specialization.** The analyzer stores a
+  projection symbolically; the base becomes concrete at a generic
+  call site, and the projection reduces to the impl's binding. The
+  IR verifier rejects any unnormalized projection that survives to
+  executable IR.
+- **Validation.** An impl must define every trait-declared
+  associated type and no others. Inherent impls cannot declare
+  associated types.
+- **Not yet supported:** associated type bounds, associated type
+  defaults, supertrait associated types, generic associated types.
+
 ### Visibility (`pub`, ADR 0039)
 
 - **Item-level visibility.** Every top-level declaration carries a
@@ -316,6 +335,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | Traits + impls | ✅ | ✅ | ✅ | ✅ | 28, 29, 37 |
 | `&dyn Trait` / `&mut dyn Trait` | ✅ | ✅ | ✅ | ✅ | — |
 | Visibility (`pub`) | ✅ | ✅ | ✅ | ✅ | — |
+| Associated types | ✅ | ✅ | ✅ | ✅ | — |
 | Generics | ✅ | ✅ | ✅ | ✅ | — |
 | `rec` records | ✅ | ✅ | ✅ | ⛔ | — |
 | Structural `Copy` | ✅ | ✅ | ✅ | ⛔ | — |

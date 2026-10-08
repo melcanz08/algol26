@@ -86,6 +86,10 @@ pub struct SemanticIRBuilder {
     /// from the analyzer. Consulted by `resolve_type_syntax` to
     /// reconstruct `Type::DynTrait` from a bare annotation.
     pub(super) trait_ids: HashMap<String, crate::common::types::TraitId>,
+    /// ADR 0041. Associated-type bindings, forwarded from the
+    /// analyzer. Consulted by `normalize_assoc` after substituting
+    /// a projection's base type variable.
+    pub(super) assoc_bindings: HashMap<(String, String), HashMap<String, Type>>,
 }
 
 #[allow(dead_code)]
@@ -107,6 +111,7 @@ impl SemanticIRBuilder {
         const_values: HashMap<String, (Type, Expr)>,
         virtual_calls: HashMap<ExprId, VirtualCallInfo>,
         trait_ids: HashMap<String, crate::common::types::TraitId>,
+        assoc_bindings: HashMap<(String, String), HashMap<String, Type>>,
     ) -> (SemanticProgram, Vec<String>) {
         let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
 
@@ -130,6 +135,7 @@ impl SemanticIRBuilder {
             const_values,
             virtual_calls,
             trait_ids,
+            assoc_bindings,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -197,6 +203,16 @@ impl SemanticIRBuilder {
                     Type::Unknown
                 }
             }
+            TypeSyntax::Projection { base, name: _ } => {
+                // ADR 0041. The builder re-resolves type syntax from
+                // the raw AST; it has no bound-trait information and
+                // cannot construct `Type::Associated`. Return
+                // `Unknown` — the specialization pass overwrites
+                // the concrete return type for each monomorphization,
+                // the same way it does for a bare `TypeVar`.
+                let _ = self.resolve_type_syntax(base);
+                Type::Unknown
+            }
             TypeSyntax::Named(name) => {
                 if let Some(enum_ty) = self.enum_types.get(name.as_str()) {
                     return enum_ty.clone();
@@ -262,9 +278,100 @@ impl SemanticIRBuilder {
     // The substitution is a no-op when `current_subst` is empty,
     // which is the case for every non-generic function.
     pub(super) fn type_of_expr(&self, expr: &Expr) -> Option<Type> {
-        self.type_table_id
-            .get(&expr.id)
-            .map(|ty| ty.substitute(&self.current_subst))
+        self.type_table_id.get(&expr.id).map(|ty| {
+            // ADR 0041. Substitute the current specialization's
+            // type arguments first (which may make a projection's
+            // base concrete), then normalize the result against
+            // the impl's associated-type bindings.
+            let substituted = ty.substitute(&self.current_subst);
+            self.normalize_assoc(&substituted)
+        })
+    }
+
+    /// ADR 0041. Replace any `Type::Associated` with a concrete base
+    /// by the impl's binding. Symbolic bases stay as projections so
+    /// a later substitution pass can resolve them. Mirrors the
+    /// analyzer's method, reading from `self.assoc_bindings` (which
+    /// was forwarded through `build`) instead of the analyzer's
+    /// trait registry.
+    pub(super) fn normalize_assoc(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Associated {
+                base,
+                trait_name,
+                assoc_name,
+            } => {
+                let base_norm = self.normalize_assoc(base);
+                if base_norm.contains_unresolved() {
+                    return Type::Associated {
+                        base: Box::new(base_norm),
+                        trait_name: trait_name.clone(),
+                        assoc_name: assoc_name.clone(),
+                    };
+                }
+                let target_str = base_norm.to_string();
+                if let Some(concrete) = self
+                    .assoc_bindings
+                    .get(&(trait_name.clone(), target_str))
+                    .and_then(|m| m.get(assoc_name))
+                    .cloned()
+                {
+                    return self.normalize_assoc(&concrete);
+                }
+                Type::Associated {
+                    base: Box::new(base_norm),
+                    trait_name: trait_name.clone(),
+                    assoc_name: assoc_name.clone(),
+                }
+            }
+            Type::List(inner) => Type::list(self.normalize_assoc(inner)),
+            Type::Array(inner, n) => Type::array(self.normalize_assoc(inner), *n),
+            Type::Option(inner) => Type::option(self.normalize_assoc(inner)),
+            Type::Result { ok, error } => {
+                Type::result(self.normalize_assoc(ok), self.normalize_assoc(error))
+            }
+            Type::Map(k, v) => Type::map(self.normalize_assoc(k), self.normalize_assoc(v)),
+            Type::Set(inner) => Type::set(self.normalize_assoc(inner)),
+            Type::Pointer(inner) => Type::pointer(self.normalize_assoc(inner)),
+            Type::Borrow(inner) => Type::borrow(self.normalize_assoc(inner)),
+            Type::MutBorrow(inner) => Type::mut_borrow(self.normalize_assoc(inner)),
+            Type::Channel(inner) => Type::channel(self.normalize_assoc(inner)),
+            Type::Tuple(elems) => {
+                Type::tuple(elems.iter().map(|e| self.normalize_assoc(e)).collect())
+            }
+            Type::Generic { name, args } => {
+                Type::generic(name, args.iter().map(|a| self.normalize_assoc(a)).collect())
+            }
+            Type::Record(name, args) => {
+                Type::record(name, args.iter().map(|a| self.normalize_assoc(a)).collect())
+            }
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params.iter().map(|p| self.normalize_assoc(p)).collect(),
+                return_type: Box::new(self.normalize_assoc(return_type)),
+            },
+            Type::Distinct { id, name, base } => Type::Distinct {
+                id: *id,
+                name: name.clone(),
+                base: Box::new(self.normalize_assoc(base)),
+            },
+            Type::Subrange {
+                id,
+                name,
+                base,
+                low,
+                high,
+            } => Type::Subrange {
+                id: *id,
+                name: name.clone(),
+                base: Box::new(self.normalize_assoc(base)),
+                low: *low,
+                high: *high,
+            },
+            _ => ty.clone(),
+        }
     }
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -333,6 +440,7 @@ mod substitution_tests {
             const_values: HashMap::new(),
             virtual_calls: HashMap::new(),
             trait_ids: HashMap::new(),
+            assoc_bindings: HashMap::new(),
         }
     }
 

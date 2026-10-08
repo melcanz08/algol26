@@ -171,6 +171,13 @@ fn format_type(out: &mut String, ty: &TypeSyntax) {
             out.push_str("dyn ");
             out.push_str(name);
         }
+        TypeSyntax::Projection { base, name } => {
+            // ADR 0041. `Base::Name` — a projection through a
+            // trait's associated type.
+            format_type(out, base);
+            out.push_str("::");
+            out.push_str(name);
+        }
         TypeSyntax::Unknown => out.push('_'),
     }
 }
@@ -827,6 +834,7 @@ mod tests {
             constants: Vec::new(),
             visibility: Visibility::Private,
             module: None,
+            associated_types: Vec::new(),
         };
         let im = ImplBlock {
             trait_name: Some("Display".into()),
@@ -837,6 +845,7 @@ mod tests {
             constants: Vec::new(),
             where_clauses: Vec::new(),
             module: None,
+            associated_types: Vec::new(),
         };
         let out = format_program(&[], &[tr], &[im]);
         assert!(out.contains("trait Display"), "got:\n{}", out);

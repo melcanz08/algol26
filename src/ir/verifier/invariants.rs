@@ -1,7 +1,8 @@
 // src/ir/verifier/invariants.rs
 //
 // ADR 0014. Machine-checked invariant of executable IR: no
-// `Type::TypeVar` appears in a function's parameters, return type,
+// `Type::TypeVar` or an unnormalized `Type::Associated` appears in a
+// function's parameters, return type,
 // or any value carried by an instruction or terminator.
 //
 // Call-target resolution is NOT checked here. `SemanticProgram::verify`
@@ -31,7 +32,7 @@ impl std::fmt::Display for InvariantError {
         match self {
             InvariantError::TypeVarInExecutableIr { function, location } => write!(
                 f,
-                "function `{}` contains TypeVar in executable IR ({})",
+                "function `{}` contains unresolved TypeVar or Associated in executable IR ({}); the analyzer did not normalize this type (ADR 0041)",
                 function, location
             ),
         }
@@ -296,9 +297,15 @@ fn check_value(
 /// Structural `TypeVar` detection. Duplicated from any similar helper
 /// on `Type` by design — the verifier must not depend on the same
 /// code the builder uses.
+/// ADR 0041. A `Type::Associated` that reaches the verifier was not
+/// normalized by the analyzer's projection-reduction pass. Reject
+/// it under the same rule as `TypeVar`: executable IR must contain
+/// neither. Recurse into the base so a nested projection inside a
+/// composite is caught.
 fn contains_type_var(ty: &Type) -> bool {
     match ty {
         Type::TypeVar(_) => true,
+        Type::Associated { base, .. } => contains_type_var(base),
         Type::List(inner)
         | Type::Option(inner)
         | Type::Pointer(inner)

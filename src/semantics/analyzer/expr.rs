@@ -332,6 +332,16 @@ impl SemanticAnalyzer {
                     .with_suggestion(&format!("Declare it with `rec {}` before using it", name))
                 })?;
 
+                // ADR 0039. Reject cross-module access to a private
+                // record type before checking any field.
+                self.check_visibility(
+                    rec.module.as_deref(),
+                    rec.visibility,
+                    name,
+                    "record",
+                    self.current_span,
+                )?;
+
                 // Type-arg arity check.
                 if !type_args.is_empty() && type_args.len() != rec.type_params.len() {
                     return Err(CompileError::at(
@@ -366,6 +376,23 @@ impl SemanticAnalyzer {
                                 ErrorCode::E0004,
                             )
                         })?;
+
+                    // ADR 0039. Reject cross-module access to a
+                    // private field. The check reads the field's
+                    // visibility from the record's side table.
+                    let field_vis = rec
+                        .field_visibilities
+                        .get(field_name)
+                        .copied()
+                        .unwrap_or(crate::frontend::ast::Visibility::Private);
+                    self.check_visibility(
+                        rec.module.as_deref(),
+                        field_vis,
+                        &format!("{}::{}", name, field_name),
+                        "field",
+                        self.current_span,
+                    )?;
+
                     let expected = self.substitute_type_vars(field_ty, &subs);
                     let actual = self.analyze_expr_with_context(value_expr, Some(&expected))?;
                     if !actual.can_coerce_to(&expected) && expected != Type::Unknown {
@@ -1566,6 +1593,16 @@ impl SemanticAnalyzer {
                     ))
                 })?;
 
+                // ADR 0039. Reject cross-module access to a private
+                // free function.
+                self.check_visibility(
+                    func_info.module.as_deref(),
+                    func_info.visibility,
+                    clean_name,
+                    "function",
+                    self.current_span,
+                )?;
+
                 let is_variadic = self.variadic_functions.contains(clean_name);
                 let arity_ok = if is_variadic {
                     args.len() >= func_info.params.len()
@@ -1989,6 +2026,17 @@ impl SemanticAnalyzer {
                             ErrorCode::E0003,
                         )
                     })?;
+
+                    // ADR 0039. Reject cross-module access to a
+                    // private record type.
+                    self.check_visibility(
+                        rec.module.as_deref(),
+                        rec.visibility,
+                        rec_name,
+                        "record",
+                        self.current_span,
+                    )?;
+
                     let (_, field_ty) =
                         rec.fields.iter().find(|(n, _)| n == field).ok_or_else(|| {
                             CompileError::at(
@@ -1997,6 +2045,22 @@ impl SemanticAnalyzer {
                                 ErrorCode::E0004,
                             )
                         })?;
+
+                    // ADR 0039. Reject cross-module access to a
+                    // private field.
+                    let field_vis = rec
+                        .field_visibilities
+                        .get(field.as_str())
+                        .copied()
+                        .unwrap_or(crate::frontend::ast::Visibility::Private);
+                    self.check_visibility(
+                        rec.module.as_deref(),
+                        field_vis,
+                        &format!("{}::{}", rec_name, field),
+                        "field",
+                        self.current_span,
+                    )?;
+
                     let mut subs = HashMap::new();
                     for (p, a) in rec.type_params.iter().zip(rec_args.iter()) {
                         subs.insert(p.clone(), a.clone());

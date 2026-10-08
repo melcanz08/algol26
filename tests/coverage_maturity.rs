@@ -137,6 +137,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("generic", Maturity::Universal),
     ("method_call", Maturity::AllBackends),
     ("dyn_trait", Maturity::AllBackends),
+    ("visibility", Maturity::AllBackends),
     ("defer", Maturity::AllBackends),
     // FFI
     ("ffi", Maturity::LlvmOnly),

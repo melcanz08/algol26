@@ -411,6 +411,7 @@ fn expr_kind(e: &Expr) -> &'static str {
 mod tests {
     use super::*;
     use crate::common::span::Span;
+    use crate::frontend::ast::Visibility;
 
     #[test]
     fn walker_reports_every_leaf_node() {
@@ -452,6 +453,8 @@ mod tests {
             type_params: vec![],
             where_clauses: vec![],
             receiver: None,
+            visibility: Visibility::Private,
+            module: None,
         }];
         assign_expr_ids(&mut functions);
 

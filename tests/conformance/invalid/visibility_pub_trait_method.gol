@@ -1,0 +1,5 @@
+trait Shape
+    pub function area(self: &Self) -> Float
+
+proc main
+    print(0)

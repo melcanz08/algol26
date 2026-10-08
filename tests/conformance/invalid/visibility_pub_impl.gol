@@ -1,0 +1,9 @@
+rec Foo
+    x: Int
+
+pub impl Foo
+    function get(self: &Foo) -> Int
+        return self.x
+
+proc main
+    print(0)

@@ -251,6 +251,8 @@ proc main
 
 ## See also
 
+- `docs/features/visibility.md` — item-level visibility (`pub`)
+- `docs/decisions/0039-visibility.md` — the ADR for visibility
 - `docs/decisions/0024-record.md` — the record feature ADR
 - `docs/decisions/0026-structural-copy.md` — the `Copy` rule
 - `docs/features/trait.md` — how `impl` blocks work

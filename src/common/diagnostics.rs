@@ -97,6 +97,10 @@ pub enum ErrorCode {
     /// is not a borrow at all. Distinct from `E0002` so a caller
     /// can point at the missing impl specifically.
     E0012,
+    /// ADR 0039: a name resolves to an item declared in another
+    /// module without `pub`. Cross-module access to a private
+    /// function, record, record field, trait, or type.
+    E0013,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +133,7 @@ impl ErrorCode {
             ErrorCode::E0010 => "E0010",
             ErrorCode::E0011 => "E0011",
             ErrorCode::E0012 => "E0012",
+            ErrorCode::E0013 => "E0013",
         }
     }
 }

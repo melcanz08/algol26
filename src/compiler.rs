@@ -448,7 +448,7 @@ impl Compiler {
         let lex = start.elapsed();
 
         let start = Instant::now();
-        let parsed = self.parse(lexed)?;
+        let parsed = self.parse(lexed, filename)?;
         let parse = start.elapsed();
 
         let start = Instant::now();
@@ -895,9 +895,37 @@ impl Compiler {
         }
     }
 
-    fn parse(&self, lexed: LexedProgram) -> Result<ParsedProgram> {
+    fn parse(&self, lexed: LexedProgram, filename: &str) -> Result<ParsedProgram> {
         let mut parser = Parser::new(lexed.tokens);
-        let program = parser.parse_program()?;
+        let mut program = parser.parse_program()?;
+
+        // ADR 0039. Tag every top-level declaration with its defining
+        // module so the analyzer's visibility check can compare a use
+        // site against the declaring file. Imported items are tagged
+        // in `load_import_recursive` with their own canonical path.
+        let module_tag = Some(filename.to_string());
+        for f in &mut program.functions {
+            f.module = module_tag.clone();
+        }
+        for t in &mut program.traits {
+            t.module = module_tag.clone();
+        }
+        for i in &mut program.impls {
+            i.module = module_tag.clone();
+        }
+        for r in &mut program.records {
+            r.module = module_tag.clone();
+        }
+        for d in &mut program.distinct_decls {
+            d.module = module_tag.clone();
+        }
+        for e in &mut program.enum_decls {
+            e.module = module_tag.clone();
+        }
+        for s in &mut program.subrange_decls {
+            s.module = module_tag.clone();
+        }
+
         Ok(ParsedProgram {
             functions: Rc::new(program.functions),
             traits: program.traits,
@@ -1015,7 +1043,33 @@ impl Compiler {
         if !source.is_empty() {
             let lexer = Lexer::new(source)?;
             let mut parser = Parser::new(lexer.tokens);
-            let imported = parser.parse_program()?;
+            let mut imported = parser.parse_program()?;
+
+            // ADR 0039. Tag every imported item with its canonical
+            // path so the analyzer's visibility check can compare it
+            // against the accessing function's module.
+            let module_tag = Some(canonical.to_string_lossy().to_string());
+            for f in &mut imported.functions {
+                f.module = module_tag.clone();
+            }
+            for r in &mut imported.records {
+                r.module = module_tag.clone();
+            }
+            for d in &mut imported.distinct_decls {
+                d.module = module_tag.clone();
+            }
+            for e in &mut imported.enum_decls {
+                e.module = module_tag.clone();
+            }
+            for s in &mut imported.subrange_decls {
+                s.module = module_tag.clone();
+            }
+            for t in &mut imported.traits {
+                t.module = module_tag.clone();
+            }
+            for i in &mut imported.impls {
+                i.module = module_tag.clone();
+            }
 
             // Collect nested imports from this file before consuming it.
             let mut nested: Vec<String> = imported.imports.clone();

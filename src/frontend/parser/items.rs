@@ -1,7 +1,7 @@
 // src/frontend/parser/items.rs
 
 use super::*;
-use crate::frontend::ast::{ImplConst, ReceiverMode, TraitConst};
+use crate::frontend::ast::{ImplConst, ReceiverMode, TraitConst, Visibility};
 
 impl Parser {
     pub fn parse_program(&mut self) -> Result<Program> {
@@ -15,28 +15,52 @@ impl Parser {
         let mut subrange_decls = Vec::new();
 
         while !matches!(self.peek(), Token::Eof) {
-            if matches!(self.peek(), Token::Trait) {
+            // ADR 0039. Optional leading `pub` on any declaration.
+            // Determine the declaration kind by looking past it; each
+            // parser consumes the `pub` itself.
+            let pub_offset = if matches!(self.peek(), Token::Identifier(s) if s == "pub") {
+                1
+            } else {
+                0
+            };
+            let lookahead: &Token = self
+                .tokens
+                .get(self.pos + pub_offset)
+                .map(|ti| &ti.token)
+                .unwrap_or(&Token::Eof);
+
+            if matches!(lookahead, Token::Trait) {
                 traits.push(self.parse_trait()?);
-            } else if matches!(self.peek(), Token::Impl) {
+            } else if matches!(lookahead, Token::Impl) {
+                if pub_offset == 1 {
+                    return Err(self.error(
+                        "`pub` is not allowed on `impl` blocks; visibility \
+                         is a property of the item an impl attaches to, \
+                         not of the impl itself",
+                    ));
+                }
                 impls.push(self.parse_impl()?);
-            } else if matches!(self.peek(), Token::Rec) {
-                // NEW
-                records.push(self.parse_record_decl()?); // NEW
-            } else if matches!(self.peek(), Token::Identifier(s) if s == "type") {
+            } else if matches!(lookahead, Token::Rec) {
+                records.push(self.parse_record_decl()?);
+            } else if matches!(lookahead, Token::Identifier(s) if s == "type") {
                 // `type Name distinct Base` or `type Name Base in Low..High`.
-                // Peek two tokens ahead (past `type` and the name) to
-                // disambiguate.
-                let after_name = self.tokens.get(self.pos + 2).map(|ti| &ti.token);
+                let after_name = self
+                    .tokens
+                    .get(self.pos + pub_offset + 2)
+                    .map(|ti| &ti.token);
                 if matches!(after_name, Some(Token::Identifier(s)) if s == "distinct") {
                     distinct_decls.push(self.parse_distinct_decl()?);
                 } else {
                     subrange_decls.push(self.parse_subrange_decl()?);
                 }
-            } else if matches!(self.peek(), Token::Identifier(s) if s == "enum") {
+            } else if matches!(lookahead, Token::Identifier(s) if s == "enum") {
                 enum_decls.push(self.parse_enum_decl()?);
-            } else if matches!(self.peek(), Token::Proc | Token::Function | Token::Extern) {
+            } else if matches!(lookahead, Token::Proc | Token::Function | Token::Extern) {
                 functions.push(self.parse_function()?);
-            } else if matches!(self.peek(), Token::Import) {
+            } else if matches!(lookahead, Token::Import) {
+                if pub_offset == 1 {
+                    return Err(self.error("`pub` is not allowed on `import` statements"));
+                }
                 self.advance();
                 let path = match self.advance() {
                     Token::StringLit(s) => s,
@@ -78,6 +102,7 @@ impl Parser {
     /// (`parse_program`) via a two-token lookahead; this method
     /// assumes the distinct form did not match.
     pub(super) fn parse_subrange_decl(&mut self) -> Result<SubrangeDecl> {
+        let visibility = self.try_parse_visibility();
         let start_span = self.current_span();
 
         // Consume `type` (an Identifier, not a reserved keyword).
@@ -113,6 +138,8 @@ impl Parser {
             low,
             high,
             span: self.span_from(start_span),
+            visibility,
+            module: None,
         })
     }
 
@@ -138,6 +165,7 @@ impl Parser {
     /// `Identifier`. This mirrors `type` (ADR 0029) so existing
     /// programs that use `enum` as a variable name keep working.
     pub(super) fn parse_enum_decl(&mut self) -> Result<EnumDecl> {
+        let visibility = self.try_parse_visibility();
         let start_span = self.current_span();
 
         // Consume `enum` (an Identifier, not a reserved keyword).
@@ -168,6 +196,8 @@ impl Parser {
             name,
             variants,
             span: start_span,
+            visibility,
+            module: None,
         })
     }
 
@@ -178,6 +208,7 @@ impl Parser {
     /// alias) is reserved for a future ADR and is rejected here with
     /// a message that names the currently supported form.
     pub(super) fn parse_distinct_decl(&mut self) -> Result<DistinctDecl> {
+        let visibility = self.try_parse_visibility();
         let start_span = self.current_span();
 
         // Consume `type` (an Identifier, not a reserved keyword).
@@ -207,10 +238,17 @@ impl Parser {
             name,
             base,
             span: self.span_from(start_span),
+            visibility,
+            module: None,
         })
     }
 
     pub(super) fn parse_function(&mut self) -> Result<FunctionDecl> {
+        // ADR 0039. Top-level functions and impl methods may carry a
+        // leading `pub`. Trait-method and trait-impl rejection is
+        // enforced by the callers (parse_trait and parse_impl).
+        let visibility = self.try_parse_visibility();
+
         let is_extern = matches!(self.peek(), Token::Extern);
         let mut ffi_info = None;
 
@@ -369,10 +407,13 @@ impl Parser {
             type_params,
             where_clauses,
             receiver,
+            visibility,
+            module: None,
         })
     }
 
     pub(super) fn parse_trait(&mut self) -> Result<TraitDecl> {
+        let visibility = self.try_parse_visibility();
         self.advance();
         let name = self.expect_identifier("trait name")?;
         let mut methods = Vec::new();
@@ -380,6 +421,15 @@ impl Parser {
         if let Token::Indent = self.peek() {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                // ADR 0039. Trait methods are public by definition.
+                // A redundant `pub` is rejected so the source matches
+                // the model.
+                if matches!(self.peek(), Token::Identifier(s) if s == "pub") {
+                    return Err(self.error(
+                        "`pub` is not allowed on trait methods; a trait \
+                         method is public by definition",
+                    ));
+                }
                 // Associated constant declaration: `const NAME: Type`.
                 // Value is supplied by each impl (step 1c).
                 if matches!(self.peek(), Token::Const) {
@@ -436,6 +486,8 @@ impl Parser {
             name,
             methods,
             constants,
+            visibility,
+            module: None,
         })
     }
 
@@ -524,7 +576,18 @@ impl Parser {
                     });
                     continue;
                 }
-                methods.push(self.parse_function()?);
+                let method = self.parse_function()?;
+                // ADR 0039. A method that satisfies a trait method
+                // inherits the trait's public visibility; a redundant
+                // `pub` is rejected. Inherent impl methods respect the
+                // default-private rule and may carry `pub`.
+                if trait_name.is_some() && method.visibility == Visibility::Public {
+                    return Err(self.error(
+                        "`pub` is not allowed on a trait impl method; \
+                         the trait method is already public",
+                    ));
+                }
+                methods.push(method);
             }
             if let Token::Dedent = self.peek() {
                 self.advance();
@@ -539,6 +602,7 @@ impl Parser {
             methods,
             constants,
             where_clauses,
+            module: None,
         })
     }
 
@@ -560,6 +624,7 @@ impl Parser {
     }
 
     pub(super) fn parse_record_decl(&mut self) -> Result<RecordDecl> {
+        let visibility = self.try_parse_visibility();
         let start_span = self.current_span();
         self.advance(); // consume `rec`
 
@@ -583,10 +648,12 @@ impl Parser {
         if let Token::Indent = self.peek() {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+                // ADR 0039. Per-field `pub`; default private.
+                let field_vis = self.try_parse_visibility();
                 let field_name = self.expect_identifier("field name")?;
                 self.expect_token(Token::Colon, "':'")?;
                 let field_type = self.parse_type_syntax()?;
-                fields.push((field_name, field_type));
+                fields.push((field_name, field_type, field_vis));
             }
             if let Token::Dedent = self.peek() {
                 self.advance();
@@ -598,6 +665,8 @@ impl Parser {
             type_params,
             fields,
             span: start_span,
+            visibility,
+            module: None,
         })
     }
 

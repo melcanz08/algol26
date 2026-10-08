@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. Requires investigation before implementation.
+Accepted. Implemented on all three backends (interpreter, LLVM, WASM).
 
 > **Status note (2026-10-06).** Every declaration in ALGOL26 is
 > currently visible everywhere. This ADR proposes adding visibility

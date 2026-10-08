@@ -1,0 +1,4 @@
+pub import "helpers.gol"
+
+proc main
+    print(0)

@@ -846,7 +846,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 };
 
-                let field_idx = match rec_decl.fields.iter().position(|(n, _)| n == field) {
+                let field_idx = match rec_decl.fields.iter().position(|(n, _, _)| n == field) {
                     Some(i) => i,
                     None => {
                         return Err(CompileError::simple(

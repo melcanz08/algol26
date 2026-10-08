@@ -727,6 +727,7 @@ fn unop_str(op: &UnaryOp) -> &'static str {
 mod tests {
     use super::*;
     use crate::common::span::Span;
+    use crate::frontend::ast::Visibility;
 
     fn mk_fn(name: &str, body: Vec<Stmt>) -> FunctionDecl {
         FunctionDecl {
@@ -739,6 +740,8 @@ mod tests {
             type_params: vec![],
             where_clauses: vec![],
             receiver: None,
+            visibility: Visibility::Private,
+            module: None,
         }
     }
 
@@ -822,6 +825,8 @@ mod tests {
                 return_type: Some(TypeSyntax::Named("String".into())),
             }],
             constants: Vec::new(),
+            visibility: Visibility::Private,
+            module: None,
         };
         let im = ImplBlock {
             trait_name: Some("Display".into()),
@@ -831,6 +836,7 @@ mod tests {
             target_type_args: Vec::new(),
             constants: Vec::new(),
             where_clauses: Vec::new(),
+            module: None,
         };
         let out = format_program(&[], &[tr], &[im]);
         assert!(out.contains("trait Display"), "got:\n{}", out);

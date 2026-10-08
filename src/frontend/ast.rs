@@ -2,6 +2,17 @@
 
 use crate::common::span::Span;
 
+/// ADR 0039. Item-level visibility. Every declaration carries one.
+/// The default is `Private`; `pub` opts a declaration into the
+/// module's public surface. Scope is the file. See
+/// `docs/decisions/0039-visibility.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Visibility {
+    #[default]
+    Private,
+    Public,
+}
+
 /// Stable identity for an AST expression node.
 ///
 /// Assigned exactly once by `assign_expr_ids`, after the last AST
@@ -394,13 +405,27 @@ pub struct FunctionDecl {
     pub type_params: Vec<String>,
     pub where_clauses: Vec<WhereClause>,
     pub receiver: Option<ReceiverMode>,
+    /// ADR 0039. Visibility of this declaration. Default is Private.
+    pub visibility: Visibility,
+    /// ADR 0039. Canonical path of the file this declaration was
+    /// parsed from. `None` for the entry file (whose path is
+    /// whatever the driver passed, not yet threaded through here).
+    /// Used by the analyzer's visibility check to compare a use
+    /// site's module against the declaration's module.
+    pub module: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct RecordDecl {
     pub name: String,
     pub type_params: Vec<String>,
-    pub fields: Vec<(String, TypeSyntax)>,
+    /// ADR 0039. Each field carries its own visibility. Default is
+    /// Private even when the record itself is Public.
+    pub fields: Vec<(String, TypeSyntax, Visibility)>,
+    /// ADR 0039. Visibility of the record type itself.
+    pub visibility: Visibility,
+    /// ADR 0039. Defining module. See `FunctionDecl::module`.
+    pub module: Option<String>,
     pub span: Span,
 }
 
@@ -412,6 +437,10 @@ pub struct RecordDecl {
 pub struct DistinctDecl {
     pub name: String,
     pub base: TypeSyntax,
+    /// ADR 0039. Visibility of the nominal type.
+    pub visibility: Visibility,
+    /// ADR 0039. Defining module. See `FunctionDecl::module`.
+    pub module: Option<String>,
     pub span: Span,
 }
 
@@ -422,6 +451,11 @@ pub struct DistinctDecl {
 pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<String>,
+    /// ADR 0039. Visibility of the enum. All variants are public if
+    /// the enum is.
+    pub visibility: Visibility,
+    /// ADR 0039. Defining module. See `FunctionDecl::module`.
+    pub module: Option<String>,
     pub span: Span,
 }
 
@@ -436,6 +470,10 @@ pub struct SubrangeDecl {
     pub base: TypeSyntax,
     pub low: Expr,
     pub high: Expr,
+    /// ADR 0039. Visibility of the subrange type.
+    pub visibility: Visibility,
+    /// ADR 0039. Defining module. See `FunctionDecl::module`.
+    pub module: Option<String>,
     pub span: Span,
 }
 
@@ -492,6 +530,12 @@ pub struct TraitDecl {
     pub name: String,
     pub methods: Vec<TraitMethod>,
     pub constants: Vec<TraitConst>,
+    /// ADR 0039. Visibility of the trait itself. Trait methods are
+    /// always public by definition and carry no per-method
+    /// visibility.
+    pub visibility: Visibility,
+    /// ADR 0039. Defining module. See `FunctionDecl::module`.
+    pub module: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -524,6 +568,8 @@ pub struct ImplBlock {
     /// without a where clause. See ADR 0025 (bound satisfaction)
     /// and ADR 0034 (generic impls).
     pub where_clauses: Vec<WhereClause>,
+    /// ADR 0039. Defining module. See `FunctionDecl::module`.
+    pub module: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

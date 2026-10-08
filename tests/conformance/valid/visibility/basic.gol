@@ -1,0 +1,16 @@
+pub function exported() -> Int
+    return 42
+
+function internal() -> Int
+    return 7
+
+pub rec Point
+    pub x: Int
+    pub y: Int
+
+proc main
+    val p := Point { x: 3, y: 4 }
+    print(exported())
+    print(internal())
+    print(p.x)
+    print(p.y)

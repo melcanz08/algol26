@@ -6,7 +6,7 @@ use crate::frontend::ast::SubrangeDecl;
 use crate::frontend::ast::{
     BinOp, DistinctDecl, EnumDecl, Expr, ExprKind, ExternDecl, FunctionDecl, ImplBlock,
     MatchCaseExpr, Pattern, Program, RecordDecl, Stmt, TraitDecl, TraitMethod, TypeSyntax, UnaryOp,
-    WhereClause,
+    Visibility, WhereClause,
 };
 use crate::frontend::lexer::{SpannedToken, Token};
 
@@ -133,6 +133,20 @@ impl Parser {
             if id == keyword {
                 self.advance();
             }
+        }
+    }
+
+    /// ADR 0039. Consume an optional leading `pub` soft keyword.
+    /// Returns `Public` if one was present, `Private` otherwise.
+    /// `pub` is matched as a plain identifier, like `type` and
+    /// `enum`, so programs that use `pub` as a variable name keep
+    /// working.
+    pub(super) fn try_parse_visibility(&mut self) -> Visibility {
+        if matches!(self.peek(), Token::Identifier(s) if s == "pub") {
+            self.advance();
+            Visibility::Public
+        } else {
+            Visibility::Private
         }
     }
 

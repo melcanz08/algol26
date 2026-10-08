@@ -333,6 +333,8 @@ The checklist is much shorter than for features that reach the IR.
 
 ## See also
 
+- `docs/features/visibility.md` — item-level visibility (`pub`)
+- `docs/decisions/0039-visibility.md` — the ADR for visibility
 - `docs/features/dyn_trait.md` — borrowed dynamic dispatch (`&dyn Trait` / `&mut dyn Trait`)
 - `docs/decisions/0038-dynamic-dispatch.md` — the ADR for dynamic dispatch
 - `docs/architecture-direction.md` — the feature contract pattern itself

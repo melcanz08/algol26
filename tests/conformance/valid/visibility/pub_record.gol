@@ -1,0 +1,8 @@
+pub rec Config
+    pub width: Int
+    pub height: Int
+
+proc main
+    val c := Config { width: 800, height: 600 }
+    print(c.width)
+    print(c.height)

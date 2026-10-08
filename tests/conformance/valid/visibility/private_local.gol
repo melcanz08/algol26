@@ -1,0 +1,14 @@
+rec Internal
+    secret: Int
+
+impl Internal
+    function reveal(self: &Internal) -> Int
+        return self.secret
+
+function helper() -> Int
+    return 5
+
+proc main
+    val i := Internal { secret: 99 }
+    print(i.reveal())
+    print(helper())

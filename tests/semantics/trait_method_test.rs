@@ -2,7 +2,7 @@ use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 
 use algol26::common::types::Type;
-use algol26::frontend::ast::TypeSyntax;
+use algol26::frontend::ast::{TypeSyntax, Visibility};
 use algol26::semantics::trait_registry::TraitRegistry;
 
 #[test]
@@ -51,6 +51,8 @@ fn test_trait_registry_resolution() {
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
         constants: Vec::new(),
+        visibility: Visibility::Private,
+        module: None,
     };
     registry.register_trait(trait_decl);
 
@@ -71,11 +73,14 @@ fn test_trait_registry_resolution() {
             type_params: vec![],
             where_clauses: vec![],
             receiver: None,
+            visibility: Visibility::Private,
+            module: None,
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
         where_clauses: Vec::new(),
+        module: None,
     };
     registry.register_impl(impl_block);
 

@@ -210,6 +210,7 @@ fn walk_terminator(
 mod tests {
     use super::*;
     use crate::common::types::TraitId;
+    use crate::frontend::ast::Visibility;
     use crate::ir::semantic_ir::{Instruction, SemanticBlock, SemanticFunction, TypedIRValue};
 
     fn program_with_dyn_trait(vtable_id: &str, trait_id: u32, trait_name: &str) -> SemanticProgram {
@@ -222,6 +223,8 @@ mod tests {
                 return_type: None,
             }],
             constants: vec![],
+            visibility: Visibility::Private,
+            module: None,
         });
         let target_type = Type::borrow(Type::dyn_trait(TraitId(trait_id), trait_name));
         let value = TypedIRValue::DynTrait {

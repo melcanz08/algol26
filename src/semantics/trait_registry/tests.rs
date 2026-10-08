@@ -1,7 +1,7 @@
 // src/semantics/trait_registry/tests.rs
 
 use super::*;
-use crate::frontend::ast::TypeSyntax;
+use crate::frontend::ast::{TypeSyntax, Visibility};
 
 #[test]
 fn test_register_trait() {
@@ -17,6 +17,8 @@ fn test_register_trait() {
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
         constants: Vec::new(),
+        visibility: Visibility::Private,
+        module: None,
     };
     registry.register_trait(trait_decl);
     assert!(registry.trait_exists("Comparable"));
@@ -34,6 +36,8 @@ fn test_type_implements_trait() {
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
         constants: Vec::new(),
+        visibility: Visibility::Private,
+        module: None,
     };
     registry.register_trait(trait_decl);
 
@@ -50,11 +54,14 @@ fn test_type_implements_trait() {
             type_params: vec![],
             where_clauses: vec![],
             receiver: None,
+            visibility: Visibility::Private,
+            module: None,
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
         where_clauses: Vec::new(),
+        module: None,
     };
     registry.register_impl(impl_block);
 
@@ -77,6 +84,8 @@ fn test_validate_impl_signature_mismatch() {
             return_type: Some(TypeSyntax::Named("Int".to_string())),
         }],
         constants: Vec::new(),
+        visibility: Visibility::Private,
+        module: None,
     };
     registry.register_trait(trait_decl);
 
@@ -93,11 +102,14 @@ fn test_validate_impl_signature_mismatch() {
             type_params: vec![],
             where_clauses: vec![],
             receiver: None,
+            visibility: Visibility::Private,
+            module: None,
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
         where_clauses: Vec::new(),
+        module: None,
     };
 
     assert!(registry.validate_impl(&impl_block).is_err());
@@ -115,6 +127,8 @@ fn test_generic_impl() {
             return_type: Some(TypeSyntax::Named("String".to_string())),
         }],
         constants: Vec::new(),
+        visibility: Visibility::Private,
+        module: None,
     };
     registry.register_trait(trait_decl);
 
@@ -132,11 +146,14 @@ fn test_generic_impl() {
             type_params: vec!["T".to_string()],
             where_clauses: vec![],
             receiver: None,
+            visibility: Visibility::Private,
+            module: None,
         }],
         type_params: Vec::new(),
         target_type_args: Vec::new(),
         constants: Vec::new(),
         where_clauses: Vec::new(),
+        module: None,
     };
     registry.register_impl(impl_block);
 

@@ -23,6 +23,26 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
 
 ## Recent changes (through 2026-10-01)
 
+### Visibility (`pub`, ADR 0039)
+
+- **Item-level visibility.** Every top-level declaration carries a
+  `Visibility`. Default is private; `pub` opts a declaration into the
+  module's public surface. Scope is the file.
+- **Record fields have their own visibility.** A public record can
+  have private fields; only the record's own `impl` (in its
+  declaring file) can read or write them.
+- **Trait methods and trait-impl methods are always public.** A
+  redundant `pub` in either position is a parse error. Inherent impl
+  methods respect the default-private rule.
+- **Enforcement at resolution.** The analyzer compares the current
+  function's module against the item's declaring module at every
+  cross-module function call, record construction, and field read.
+  Diagnostics name the item, its defining module, and the access
+  site (`E0013`).
+- **Not yet supported:** scoped visibility (`pub(crate)`),
+  declared modules, `private` / `internal` synonyms. Traits and
+  impls are not forwarded through imports yet (pre-existing gap).
+
 ### Dynamic dispatch (ADR 0038)
 
 - **`&dyn Trait` / `&mut dyn Trait`.** Implicit coercion from
@@ -295,6 +315,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `try` / `catch` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | Traits + impls | ✅ | ✅ | ✅ | ✅ | 28, 29, 37 |
 | `&dyn Trait` / `&mut dyn Trait` | ✅ | ✅ | ✅ | ✅ | — |
+| Visibility (`pub`) | ✅ | ✅ | ✅ | ✅ | — |
 | Generics | ✅ | ✅ | ✅ | ✅ | — |
 | `rec` records | ✅ | ✅ | ✅ | ⛔ | — |
 | Structural `Copy` | ✅ | ✅ | ✅ | ⛔ | — |

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::common::types::{EnumTypeId, SubrangeTypeId};
-use crate::frontend::ast::{RecordDecl, TypeSyntax};
+use crate::frontend::ast::{RecordDecl, TypeSyntax, Visibility};
 
 impl SemanticAnalyzer {
     pub(super) fn register_builtin_functions(&mut self) {
@@ -33,6 +33,8 @@ impl SemanticAnalyzer {
                     return_type,
                     type_params: Vec::new(),
                     where_clauses: Vec::new(),
+                    visibility: Visibility::Public,
+                    module: None,
                 },
             );
         }
@@ -77,6 +79,8 @@ impl SemanticAnalyzer {
                     return_type,
                     type_params: Vec::new(),
                     where_clauses: Vec::new(),
+                    visibility: Visibility::Public,
+                    module: None,
                 },
             );
         }
@@ -104,6 +108,8 @@ impl SemanticAnalyzer {
                     return_type,
                     type_params: Vec::new(),
                     where_clauses: Vec::new(),
+                    visibility: Visibility::Public,
+                    module: None,
                 },
             );
         }
@@ -140,6 +146,8 @@ impl SemanticAnalyzer {
                     return_type,
                     type_params: Vec::new(),
                     where_clauses: Vec::new(),
+                    visibility: Visibility::Public,
+                    module: None,
                 },
             );
         }
@@ -150,6 +158,8 @@ impl SemanticAnalyzer {
                 return_type: Type::pointer(Type::Unknown),
                 type_params: Vec::new(),
                 where_clauses: Vec::new(),
+                visibility: Visibility::Public,
+                module: None,
             },
         );
         self.functions.insert(
@@ -159,6 +169,8 @@ impl SemanticAnalyzer {
                 return_type: Type::Void,
                 type_params: Vec::new(),
                 where_clauses: Vec::new(),
+                visibility: Visibility::Public,
+                module: None,
             },
         );
         self.functions.insert(
@@ -171,6 +183,8 @@ impl SemanticAnalyzer {
                 return_type: Type::Void,
                 type_params: Vec::new(),
                 where_clauses: Vec::new(),
+                visibility: Visibility::Public,
+                module: None,
             },
         );
         self.functions.insert(
@@ -180,6 +194,8 @@ impl SemanticAnalyzer {
                 return_type: Type::list(Type::String),
                 type_params: Vec::new(),
                 where_clauses: Vec::new(),
+                visibility: Visibility::Public,
+                module: None,
             },
         );
         self.functions.insert(
@@ -189,6 +205,8 @@ impl SemanticAnalyzer {
                 return_type: Type::String,
                 type_params: Vec::new(),
                 where_clauses: Vec::new(),
+                visibility: Visibility::Public,
+                module: None,
             },
         );
         self.functions.insert(
@@ -198,6 +216,8 @@ impl SemanticAnalyzer {
                 return_type: Type::option(Type::Int),
                 type_params: Vec::new(),
                 where_clauses: Vec::new(),
+                visibility: Visibility::Public,
+                module: None,
             },
         );
     }
@@ -446,6 +466,8 @@ impl SemanticAnalyzer {
                     return_type,
                     type_params: func.type_params.clone(),
                     where_clauses: func.where_clauses.clone(),
+                    visibility: func.visibility,
+                    module: func.module.clone(),
                 },
             );
         }
@@ -464,7 +486,7 @@ impl SemanticAnalyzer {
 
         // Duplicate field names are an error.
         let mut seen = HashSet::new();
-        for (field, _) in &decl.fields {
+        for (field, _, _) in &decl.fields {
             if !seen.insert(field.clone()) {
                 return Err(CompileError::simple(
                     &format!("Duplicate field '{}' in record '{}'", field, decl.name),
@@ -486,9 +508,16 @@ impl SemanticAnalyzer {
         let fields: Vec<(String, Type)> = decl
             .fields
             .iter()
-            .map(|(name, ty)| Ok((name.clone(), self.resolve_type_syntax(ty)?)))
+            .map(|(name, ty, _)| Ok((name.clone(), self.resolve_type_syntax(ty)?)))
             .collect::<Result<Vec<_>>>()?;
         self.type_params.pop();
+
+        // ADR 0039. Field visibilities, keyed by field name.
+        let field_visibilities: HashMap<String, crate::frontend::ast::Visibility> = decl
+            .fields
+            .iter()
+            .map(|(name, _, vis)| (name.clone(), *vis))
+            .collect();
 
         self.records.insert(
             decl.name.clone(),
@@ -496,11 +525,18 @@ impl SemanticAnalyzer {
                 name: decl.name.clone(),
                 type_params: decl.type_params.clone(),
                 fields,
+                field_visibilities,
+                visibility: decl.visibility,
+                module: decl.module.clone(),
             },
         );
         Ok(())
     }
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
+        // ADR 0039. Record which module's body we're analyzing so
+        // visibility checks compare use sites to the declaring module.
+        self.current_module = func.module.clone();
+
         if func.is_extern {
             // Declaration-site FFI boundary check. A signature no
             // caller could legally use is rejected here — this is

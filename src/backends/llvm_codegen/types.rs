@@ -169,7 +169,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let field_types: Vec<BasicTypeEnum<'ctx>> = rec
                     .fields
                     .iter()
-                    .map(|(_, field_ty)| self.map_type(&self.resolve_field_type(field_ty)))
+                    .map(|(_, field_ty, _)| self.map_type(&self.resolve_field_type(field_ty)))
                     .collect();
 
                 struct_ty.set_body(&field_types, false);

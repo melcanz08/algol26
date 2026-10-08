@@ -124,6 +124,10 @@ pub struct SemanticAnalyzer {
     /// this map at the same call site to emit `Instruction::VirtualCall`
     /// instead of `Instruction::Call`.
     virtual_calls: HashMap<ExprId, VirtualCallInfo>,
+    /// ADR 0039. Canonical module path of the function currently
+    /// being analyzed. Set at the top of `analyze_function` from
+    /// `func.module`. Consulted by `check_visibility`.
+    current_module: Option<String>,
 }
 
 /// ADR 0038 D4b. What the analyzer resolved at a `dyn Trait` method
@@ -150,6 +154,13 @@ struct FunctionInfo {
     /// check bound satisfaction once concrete type arguments are
     /// known. See ADR 0025 (enforce path).
     where_clauses: Vec<WhereClause>,
+    /// ADR 0039. Visibility of the declaration. Used by the
+    /// cross-module access check.
+    visibility: crate::frontend::ast::Visibility,
+    /// ADR 0039. Defining module (canonical path). `None` for
+    /// builtins and for the entry file before the driver's filename
+    /// was threaded through.
+    module: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +168,14 @@ pub struct RecordInfo {
     pub name: String,
     pub type_params: Vec<String>,
     pub fields: Vec<(String, Type)>,
+    /// ADR 0039. Per-field visibility, keyed by field name. Parallel
+    /// to `fields`; kept separate so existing destructure sites
+    /// (`|(n, _)|`) stay 2-tuples.
+    pub field_visibilities: HashMap<String, crate::frontend::ast::Visibility>,
+    /// ADR 0039. Visibility of the record type itself.
+    pub visibility: crate::frontend::ast::Visibility,
+    /// ADR 0039. Defining module. See `FunctionInfo::module`.
+    pub module: Option<String>,
 }
 
 /// A recorded generic instantiation. Produced by the analyzer when
@@ -223,6 +242,7 @@ impl SemanticAnalyzer {
             unsafe_depth: 0,
             records: HashMap::new(),
             virtual_calls: HashMap::new(),
+            current_module: None,
             nominal_types: HashMap::new(),
             next_nominal_id: 0,
             enum_types: HashMap::new(),
@@ -779,5 +799,41 @@ impl SemanticAnalyzer {
         self.trait_registry
             .resolve_method(type_, method_name)
             .cloned()
+    }
+
+    /// ADR 0039. Reject a cross-module access to a private item.
+    /// Returns `Ok(())` when either side's module is unknown, when
+    /// the item is `Public`, or when the access is within the
+    /// declaring module.
+    pub(super) fn check_visibility(
+        &self,
+        item_module: Option<&str>,
+        item_vis: crate::frontend::ast::Visibility,
+        item_name: &str,
+        kind: &str,
+        span: Span,
+    ) -> Result<()> {
+        use crate::frontend::ast::Visibility;
+        if item_vis == Visibility::Public {
+            return Ok(());
+        }
+        let (Some(current), Some(item_mod)) = (self.current_module.as_deref(), item_module) else {
+            return Ok(());
+        };
+        if current == item_mod {
+            return Ok(());
+        }
+        Err(CompileError::at(
+            span,
+            &format!(
+                "{} `{}` is private to module `{}`",
+                kind, item_name, item_mod
+            ),
+            ErrorCode::E0013,
+        )
+        .with_suggestion(
+            "Add `pub` to the declaration, or move the access into the \
+             declaring module",
+        ))
     }
 }

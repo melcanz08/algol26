@@ -344,14 +344,22 @@ impl SemanticIRBuilder {
                     (n.clone(), raw.substitute(&subst))
                 })
                 .collect();
-            let return_type = self.normalize_assoc(
-                &func
-                    .return_type
-                    .as_ref()
-                    .map(|t| self.resolve_type_syntax(t))
-                    .unwrap_or(Type::Void)
-                    .substitute(&subst),
-            );
+            // ADR 0041. Prefer the analyzer's resolved return type.
+            // The AST path resolves a `Projection` to `Unknown`
+            // because the builder has no bound-trait context; the
+            // analyzer's map holds the concrete form which
+            // `substitute + normalize_assoc` reduces further.
+            let raw_ret = self
+                .function_returns
+                .get(&func.name)
+                .cloned()
+                .unwrap_or_else(|| {
+                    func.return_type
+                        .as_ref()
+                        .map(|t| self.resolve_type_syntax(t))
+                        .unwrap_or(Type::Void)
+                });
+            let return_type = self.normalize_assoc(&raw_ret.substitute(&subst));
             self.function_types.insert(
                 spec.mangled_name.clone(),
                 FunctionSignature {
@@ -407,14 +415,21 @@ impl SemanticIRBuilder {
                 (n.clone(), raw.substitute(&self.current_subst))
             })
             .collect();
-        let emitted_return = self.normalize_assoc(
-            &func
-                .return_type
-                .as_ref()
-                .map(|t| self.resolve_type_syntax(t))
-                .unwrap_or(Type::Void)
-                .substitute(&self.current_subst),
-        );
+        // ADR 0041. Prefer the analyzer's resolved return type so a
+        // projection in a generic signature normalizes correctly.
+        // Fall back to AST re-resolution for builtins and
+        // non-analyzed functions.
+        let raw_ret = self
+            .function_returns
+            .get(&func.name)
+            .cloned()
+            .unwrap_or_else(|| {
+                func.return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type_syntax(t))
+                    .unwrap_or(Type::Void)
+            });
+        let emitted_return = self.normalize_assoc(&raw_ret.substitute(&self.current_subst));
 
         let mut semantic_func = SemanticFunction {
             name: emitted_name.clone(),

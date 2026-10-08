@@ -119,6 +119,12 @@ pub struct TypedProgram {
         (String, String),
         std::collections::HashMap<String, crate::common::types::Type>,
     >,
+    /// ADR 0041. Function return types resolved by the analyzer,
+    /// keyed by clean name. Forwarded so the builder's
+    /// specialization emit can use the resolved type instead of
+    /// re-resolving a `Projection` from AST (which lacks
+    /// bound-trait context).
+    pub function_returns: std::collections::HashMap<String, crate::common::types::Type>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -284,6 +290,7 @@ pub fn type_check_program(
         trait_ids: analyzer.trait_ids(),
         traits: analyzer.trait_decls(),
         assoc_bindings: analyzer.assoc_bindings(),
+        function_returns: analyzer.function_returns(),
     })
 }
 
@@ -317,6 +324,7 @@ pub fn build_semantic_ir_program(
         (String, String),
         std::collections::HashMap<String, crate::common::types::Type>,
     >,
+    function_returns: std::collections::HashMap<String, crate::common::types::Type>,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
     use crate::semantics::builder::SemanticIRBuilder;
@@ -333,6 +341,7 @@ pub fn build_semantic_ir_program(
         virtual_calls,
         trait_ids,
         assoc_bindings,
+        function_returns,
     );
     if !diagnostics.is_empty() {
         for diag in &diagnostics {

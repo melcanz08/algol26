@@ -90,6 +90,12 @@ pub struct SemanticIRBuilder {
     /// analyzer. Consulted by `normalize_assoc` after substituting
     /// a projection's base type variable.
     pub(super) assoc_bindings: HashMap<(String, String), HashMap<String, Type>>,
+    /// ADR 0041. Analyzer-resolved function return types, keyed by
+    /// clean name. Consulted by `emit_one_function` and
+    /// `register_specialization_signatures` so a generic function
+    /// whose return type is a projection specializes with the
+    /// concrete type rather than re-resolving from AST.
+    pub(super) function_returns: HashMap<String, Type>,
 }
 
 #[allow(dead_code)]
@@ -112,6 +118,7 @@ impl SemanticIRBuilder {
         virtual_calls: HashMap<ExprId, VirtualCallInfo>,
         trait_ids: HashMap<String, crate::common::types::TraitId>,
         assoc_bindings: HashMap<(String, String), HashMap<String, Type>>,
+        function_returns: HashMap<String, Type>,
     ) -> (SemanticProgram, Vec<String>) {
         let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
 
@@ -136,6 +143,7 @@ impl SemanticIRBuilder {
             virtual_calls,
             trait_ids,
             assoc_bindings,
+            function_returns,
         };
         let program = builder.build_impl(functions);
         (program, builder.diagnostics)
@@ -441,6 +449,7 @@ mod substitution_tests {
             virtual_calls: HashMap::new(),
             trait_ids: HashMap::new(),
             assoc_bindings: HashMap::new(),
+            function_returns: HashMap::new(),
         }
     }
 

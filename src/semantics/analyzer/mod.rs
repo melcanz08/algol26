@@ -344,6 +344,20 @@ impl SemanticAnalyzer {
     pub fn assoc_bindings(&self) -> HashMap<(String, String), HashMap<String, Type>> {
         self.trait_registry.assoc_bindings.clone()
     }
+
+    /// ADR 0041. Forward each function's *resolved* return type,
+    /// keyed by clean name. The builder cannot re-resolve a
+    /// `Projection` in a generic function's signature — it has no
+    /// bound-trait context — but the analyzer's map already holds
+    /// the resolution. Reading from here at specialization-emit
+    /// time makes the concrete specialization's return type
+    /// correct.
+    pub fn function_returns(&self) -> HashMap<String, Type> {
+        self.functions
+            .iter()
+            .map(|(k, v)| (k.clone(), v.return_type.clone()))
+            .collect()
+    }
     /// Access unified state (for dataflow integration)
     pub fn state(&self) -> &SemanticState {
         &self.state
@@ -440,6 +454,20 @@ impl SemanticAnalyzer {
             self.register_record(rec)?;
         }
 
+        // ADR 0041. Register traits and impls BEFORE user functions
+        // so signature resolution (inside `register_user_functions`)
+        // can consult the trait registry for bound declarations and
+        // associated-type bindings. Previously this ran after
+        // `register_user_functions`; that was fine until
+        // `resolve_syntax_with_records` needed the registry to
+        // resolve a `C::Item` projection in a generic signature.
+        for trait_decl in traits {
+            self.trait_registry.register_trait(trait_decl.clone());
+        }
+        for impl_block in impls {
+            self.trait_registry.register_impl(impl_block.clone());
+        }
+
         self.register_user_functions(functions)?;
         // ─── ADR 0033: `self` is only legal inside an impl block ───
         // `expand_impl_methods` has already renamed impl methods to
@@ -472,12 +500,6 @@ impl SemanticAnalyzer {
                     ErrorCode::E0002,
                 ));
             }
-        }
-        for trait_decl in traits {
-            self.trait_registry.register_trait(trait_decl.clone());
-        }
-        for impl_block in impls {
-            self.trait_registry.register_impl(impl_block.clone());
         }
         // ADR 0041. Resolve each impl's associated type definitions
         // to concrete types and store them in the registry so

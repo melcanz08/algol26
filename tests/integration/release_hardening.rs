@@ -23,6 +23,7 @@ fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         std::collections::HashMap::new(), // virtual_calls (ADR 0038)
         std::collections::HashMap::new(), // trait_ids (ADR 0038)
         std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        std::collections::HashMap::new(), // function_returns (ADR 0041)
     )
 }
 fn run_interp(prog: SemanticProgram) -> String {
@@ -177,6 +178,7 @@ fn test_negative_corpus_no_ice() {
                 std::collections::HashMap::new(), // virtual_calls (ADR 0038)
                 std::collections::HashMap::new(), // trait_ids (ADR 0038)
                 std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+                std::collections::HashMap::new(), // function_returns (ADR 0041)
             );
             let mut analyzer = algol26::semantics::analyzer::SemanticAnalyzer::new();
             let analyzer_invalid = analyzer.analyze(&functions).is_err();

@@ -19,6 +19,7 @@ fn build_ir(src: &str) -> algol26::ir::semantic_ir::SemanticProgram {
         std::collections::HashMap::new(), // virtual_calls (ADR 0038)
         std::collections::HashMap::new(), // trait_ids (ADR 0038)
         std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        std::collections::HashMap::new(), // function_returns (ADR 0041)
     );
     assert!(diags.is_empty(), "diags: {:?}", diags);
     ir

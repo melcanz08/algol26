@@ -77,9 +77,19 @@ pub(super) struct GenericImpl {
     /// arguments. See ADR 0025 bound enforcement.
     where_clauses: Vec<WhereClause>,
     /// ADR 0041. The impl's associated type definitions, in
-    /// declaration order. Kept here so `validate_impl` can check
-    /// them against the trait's declaration without re-walking the
-    /// AST.
+    /// declaration order.
+    ///
+    /// Retained on the struct for a future enhancement: the current
+    /// implementation registers bindings against a resolved
+    /// `(trait, target_type)` key, which handles the concrete-impl
+    /// case (`impl Container for List<Int>`) but not a generic
+    /// impl whose target has an unresolved type parameter
+    /// (`impl<T> Container for Pair<T>`). Resolving that case will
+    /// read this field at call-site unification. Until then the
+    /// field is populated but not consumed — allowed as dead_code
+    /// so the shape stays documented in the source rather than
+    /// being silently deleted and reintroduced.
+    #[allow(dead_code)]
     associated_types: Vec<(String, TypeSyntax)>,
 }
 #[derive(Debug, Clone)]

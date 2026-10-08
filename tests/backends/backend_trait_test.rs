@@ -32,6 +32,7 @@ fn build_semantic_ir(
         std::collections::HashMap::new(), // virtual_calls (ADR 0038)
         std::collections::HashMap::new(), // trait_ids (ADR 0038)
         std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        std::collections::HashMap::new(), // function_returns (ADR 0041)
     );
     (ir, diagnostics, functions)
 }

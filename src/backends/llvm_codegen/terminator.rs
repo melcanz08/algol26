@@ -428,20 +428,24 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ));
                     }
                 };
-                let elem_ir_ty = match elem_llvm_ty {
-                    BasicTypeEnum::IntType(_) => Type::Int,
-                    BasicTypeEnum::FloatType(_) => Type::Float,
-                    BasicTypeEnum::PointerType(_) => Type::Ptr,
-                    other => {
-                        return Err(CompileError::unsupported_operation(
-                            &format!(
-                                "iterator `{}` element type {:?} has no ALGOL26 equivalent",
-                                iterator, other
-                            ),
-                            "llvm",
-                        ));
-                    }
-                };
+                // Prefer the ALGOL26 element type registered by
+                // `IteratorInit`. Falling back to a reverse-lookup
+                // from the LLVM element type loses composite
+                // information — `%User = type { ptr }` has no
+                // ALGOL26 form. The reverse-lookup is retained for
+                // iterators created before the elem-type map was
+                // introduced (defensive only; both init sites now
+                // populate the map).
+                let elem_ir_ty = self
+                    .iterator_elem_types
+                    .get(iterator)
+                    .cloned()
+                    .unwrap_or_else(|| match elem_llvm_ty {
+                        BasicTypeEnum::IntType(_) => Type::Int,
+                        BasicTypeEnum::FloatType(_) => Type::Float,
+                        BasicTypeEnum::PointerType(_) => Type::Ptr,
+                        _ => Type::Unknown,
+                    });
 
                 let idx_i32 = self
                     .builder

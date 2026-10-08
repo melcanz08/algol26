@@ -337,6 +337,24 @@ impl<'ctx> IRCodeGen<'ctx> {
                         )
                         .unwrap()
                 };
+                // A record literal compiles to a pointer to its
+                // alloca, but a struct-typed slot holds the struct
+                // value. Load through the pointer when the element
+                // type is a struct. Same fix as the list-literal
+                // and iterator-init paths.
+                let val = {
+                    let elem_ty = match array_ty {
+                        BasicTypeEnum::ArrayType(at) => at.get_element_type(),
+                        _ => array_ty,
+                    };
+                    match (val, &elem_ty) {
+                        (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => self
+                            .builder
+                            .build_load(*st, p, "arr_assign_elem_load")
+                            .unwrap(),
+                        (v, _) => v,
+                    }
+                };
                 self.builder.build_store(gep, val).unwrap();
                 Ok(())
             }
@@ -587,6 +605,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                             })?;
                     self.iterator_arrays.insert(iterator.clone(), arr_ptr);
                     self.iterator_array_types.insert(iterator.clone(), arr_ty);
+                    // Record the ALGOL26 element type so `IteratorNext`
+                    // can bind the loop variable without reverse-
+                    // mapping an LLVM struct type back to ALGOL26.
+                    let arr_elem_ty = self
+                        .var_types
+                        .get(&arr_name)
+                        .and_then(|t| match t {
+                            Type::List(inner) => Some((**inner).clone()),
+                            _ => None,
+                        })
+                        .unwrap_or(Type::Unknown);
+                    self.iterator_elem_types
+                        .insert(iterator.clone(), arr_elem_ty);
                     if let Some(len) = self.list_lengths.get(&arr_name) {
                         self.iterator_lengths.insert(iterator.clone(), *len);
                     }
@@ -667,6 +698,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                     self.iterator_arrays.insert(iterator.clone(), arr_alloca);
                     self.iterator_array_types.insert(iterator.clone(), array_ty);
+                    // The destructured `elem_ty` is already the
+                    // ALGOL26 element type. Stash it for
+                    // `IteratorNext`.
+                    self.iterator_elem_types
+                        .insert(iterator.clone(), elem_ty.clone());
                     self.iterator_lengths.insert(iterator.clone(), len);
                     let idx_alloca =
                         self.create_entry_alloca(&format!("{}_idx", iterator), &Type::Int);

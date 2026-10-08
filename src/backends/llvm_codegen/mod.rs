@@ -49,6 +49,12 @@ pub struct IRCodeGen<'ctx> {
     pub(super) list_lengths: HashMap<String, usize>,
     pub(super) iterator_arrays: HashMap<String, PointerValue<'ctx>>,
     pub(super) iterator_array_types: HashMap<String, BasicTypeEnum<'ctx>>,
+    /// ALGOL26 element type of each iterator's backing array.
+    /// Populated at `IteratorInit` so `IteratorNext` can bind the
+    /// loop variable with the correct type. Falling back to a
+    /// reverse-lookup from the LLVM element type loses composite
+    /// information (`%User = type { ptr }` has no ALGOL26 form).
+    pub(super) iterator_elem_types: HashMap<String, Type>,
     pub(super) iterator_indices: HashMap<String, PointerValue<'ctx>>,
     pub(super) iterator_lengths: HashMap<String, usize>,
     /// ALGOL26 extern name -> C symbol. Populated by
@@ -152,6 +158,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             list_lengths: HashMap::new(),
             iterator_arrays: HashMap::new(),
             iterator_array_types: HashMap::new(),
+            iterator_elem_types: HashMap::new(),
             iterator_indices: HashMap::new(),
             iterator_lengths: HashMap::new(),
             ffi_symbols: HashMap::new(),
@@ -369,6 +376,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.list_lengths.clear();
         self.iterator_arrays.clear();
         self.iterator_array_types.clear();
+        self.iterator_elem_types.clear();
         self.iterator_indices.clear();
         self.iterator_lengths.clear();
         self.region_frames.clear();

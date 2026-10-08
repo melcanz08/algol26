@@ -64,6 +64,14 @@ pub enum Type {
     // Composite types
     List(Box<Type>),
     Array(Box<Type>, usize), // Array of type with size
+    /// Tuple type. Reserved-internal; not constructible from source
+    /// in v1. `TypeSyntax` has no `Tuple` variant. Retained as an
+    /// internal representation for a future feature (multiple return
+    /// values, or a foreign-function ABI that passes structs by
+    /// value). The ADR that exposes tuples must decide whether they
+    /// are positional-only or support named fields, and how they
+    /// interact with the ownership model. See
+    /// `docs/decisions/0040-function-value-surface.md`.
     Tuple(Vec<Type>),
     Option(Box<Type>),
     Result {
@@ -79,7 +87,15 @@ pub enum Type {
     // Concurrency types
     Channel(Box<Type>),
 
-    // Function types (for future use)
+    /// Function type. Reserved-internal; not constructible from
+    /// source in v1. `TypeSyntax` has no `Function` variant, so no
+    /// user-written type annotation can produce this. Retained as an
+    /// internal representation for a future feature (FFI callback
+    /// parameters, or a trait method taking a function value). The
+    /// ADR that exposes function types must name a motivating use
+    /// case and choose a runtime representation before adding a
+    /// `TypeSyntax::Function` variant. See
+    /// `docs/decisions/0040-function-value-surface.md`.
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,

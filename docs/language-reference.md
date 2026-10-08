@@ -1121,3 +1121,30 @@ that would fail if the guarantee were broken.
 The `VERSION` file at the repository root and the git tags are the
 authoritative source of the language version. This document tracks
 the latest released version.
+
+## Not yet supported
+
+The following features are deliberately absent in v1. Each is a
+recorded decision, not an oversight; see the named ADR for the
+reasoning.
+
+- **Default parameter values.** A parameter is `name: Type`; there
+  is no grammar for `name: Type = expr`. Expressed today via
+  overload-like naming (`parse`, `parse_with_defaults`) or via an
+  `Option<T>` parameter with `None` meaning "use the fallback".
+  See `docs/decisions/0040-function-value-surface.md`.
+
+- **Function types in source.** A user cannot write a
+  function-typed parameter, return, variable, or field. The
+  internal `Type::Function` variant exists but is not reachable
+  from `TypeSyntax`. Adding source-level function types requires
+  first choosing a runtime representation for function values
+  (raw code pointer, fat pointer with environment, or trait
+  object). See `docs/decisions/0040-function-value-surface.md`.
+
+- **Closures and lambdas.** No anonymous-function syntax. Nested
+  function declarations are separate `SemanticFunction` entries in
+  the IR with no capture mechanism; they are not closures. Most
+  programs a closure would serve are served today by a small
+  helper at module scope with the captured values passed
+  explicitly. See `docs/decisions/0040-function-value-surface.md`.

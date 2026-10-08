@@ -2,8 +2,13 @@
 
 ## Status
 
-Proposed. First-pass decision on which first-class-function features
-are in scope for the language's near-term roadmap.
+Accepted. Three of the four subjects (default parameter values,
+function types in source, closures and lambdas) are recorded
+deferrals; the fourth subject — the four incidental fixes noted
+below — has landed. This ADR is a decision document as much as an
+implementation: its value is that a future contributor who notices
+one of the three absences finds the reasoning rather than an
+oversight.
 
 > **Status note (2026-10-07).** This ADR was prompted by a direct
 > inspection of the parser, AST, and language reference, which

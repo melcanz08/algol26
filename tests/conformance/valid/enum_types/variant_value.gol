@@ -13,4 +13,6 @@ enum Day
 proc main
     val weekend := Day.Saturday
     val weekday := Day.Monday
+    print(weekend.to_ordinal())
+    print(weekday.to_ordinal())
 end

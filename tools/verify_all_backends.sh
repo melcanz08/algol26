@@ -2,6 +2,7 @@
 # Run every conformance fixture on both backends; compare outputs.
 set -u
 fails=0
+vacuous=0
 for f in tests/conformance/valid/*/*.gol; do
   if ! llvm_out=$(cargo run --quiet -- run "$f" 2>&1); then
     : # LLVM refusal is acceptable for capability-gated features
@@ -20,7 +21,16 @@ for f in tests/conformance/valid/*/*.gol; do
     echo "  interp: $interp_lines"
     fails=$((fails+1))
   fi
+  # A fixture that produces no output on either backend compiles and
+  # runs but exercises nothing observable. Reported as a signal, not
+  # a failure — the fixture may legitimately be a pure "does it
+  # compile?" check. See enum_types/variant_value.gol for an example
+  # of a fixture that was promoted from vacuous to observable.
+  if [ -z "$llvm_lines" ] && [ -z "$interp_lines" ]; then
+    echo "VACUOUS: $f (neither backend produced output)"
+    vacuous=$((vacuous+1))
+  fi
 done
 echo "---"
-echo "$fails mismatch(es)"
+echo "$fails mismatch(es), $vacuous vacuous"
 exit $((fails > 0))

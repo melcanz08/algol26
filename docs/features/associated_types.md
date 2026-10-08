@@ -93,6 +93,16 @@ IR cannot contain unresolved types.
   a concrete base against the impl table is a future step. In
   practice the analyzer resolves through the type table before
   this path is taken.
+- **Generic-function specialization return types.** A generic
+  function whose return type is a projection
+  (`function head<C>(c: C) -> C::Item where C: Container`) is
+  supported at the analyzer level but the builder's specialization
+  emit path currently resolves the return type to `Unknown`
+  instead of normalizing `C::Item` to the concrete binding. The
+  builder consults `resolve_type_syntax` on the raw AST, which has
+  no trait-registry access. The direct-projection case (methods on
+  concrete receivers) works. The fix threads the analyzer's
+  resolved return types to the builder; it is a follow-up.
 
 ## Capability
 

@@ -192,6 +192,10 @@ Explicitly **out of scope** for v1:
 - **Supertrait associated types.** A subtrait inheriting the
   parent's associated types.
 - **Generic associated types.** `type Item<T>`.
+- **Generic-function specialization return types.** A projection
+  in a generic function's return type is not normalized during
+  specialization (see `docs/features/associated_types.md` for the
+  details).
 - **Associated types on inherent impls.** See D6.
 
 Each of these can land in its own ADR if a motivating use case

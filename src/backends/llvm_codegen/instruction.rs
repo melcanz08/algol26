@@ -127,6 +127,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                     );
                     for (i, elem) in elems.iter().enumerate() {
                         let ev = self.compile_value(elem)?;
+                        // A record literal compiles to a pointer to
+                        // its alloca, but a struct-typed slot holds
+                        // the struct value. Load through the pointer
+                        // when the slot expects a struct, matching
+                        // the fix in `Declare`'s list path.
+                        let ev = match (ev, &elem_llvm_ty) {
+                            (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => {
+                                self.builder
+                                    .build_load(*st, p, &format!("{}_assign_load_{}", target, i))
+                                    .unwrap()
+                            }
+                            (v, _) => v,
+                        };
                         let idx = self.context.i32_type().const_int(i as u64, false);
                         let ptr = unsafe {
                             self.builder
@@ -597,12 +610,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // ADR 0021. Every list-literal element type
                     // must have an array lowering. The previous
                     // `_ =>` arm silently lowered anything not
-                    // Int/Float to f64; a list of pointers would
-                    // be lowered as f64 and produce wrong IR.
+                    // Int/Float/Pointer lower directly; Struct
+                    // (records) also lowers. The `other` arm is a
+                    // fail-closed guard for future element types
+                    // that need their own handling.
                     let array_ty = match elem_llvm_ty {
                         BasicTypeEnum::FloatType(t) => t.array_type(len as u32).into(),
                         BasicTypeEnum::IntType(t) => t.array_type(len as u32).into(),
                         BasicTypeEnum::PointerType(t) => t.array_type(len as u32).into(),
+                        BasicTypeEnum::StructType(t) => t.array_type(len as u32).into(),
                         other => {
                             return Err(CompileError::unsupported_operation(
                                 &format!(
@@ -628,6 +644,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap();
                     for (i, elem) in elems.iter().enumerate() {
                         let ev = self.compile_value(elem)?;
+                        // Load through a pointer when the slot
+                        // expects a struct. See the ArrayAssign
+                        // loop above for the same pattern.
+                        let ev = match (ev, &elem_llvm_ty) {
+                            (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => b
+                                .build_load(*st, p, &format!("lit_elem_load_{}", i))
+                                .unwrap(),
+                            (v, _) => v,
+                        };
                         let idx = self.context.i32_type().const_int(i as u64, false);
                         let ptr = unsafe {
                             b.build_gep(

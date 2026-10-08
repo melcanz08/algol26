@@ -1,0 +1,18 @@
+rec User
+    name: String
+
+impl User
+    function label(self: &User) -> String
+        return self.name
+
+proc main
+    val arr := [User { name: "Alice" }, User { name: "Bob" }]
+    print(arr[0].label())
+
+    var mutable := [User { name: "Carol" }, User { name: "Dave" }]
+    mutable[0] := User { name: "Eve" }
+    print(mutable[0].label())
+    print(mutable[1].label())
+
+    for u in mutable
+        print(u.label())

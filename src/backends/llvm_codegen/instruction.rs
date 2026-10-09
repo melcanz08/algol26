@@ -101,6 +101,63 @@ impl<'ctx> IRCodeGen<'ctx> {
                     return Ok(());
                 }
 
+                // List move: `var b := a` where `a` is a list
+                // variable. `List<T>` is non-Copy and the analyzer
+                // enforces move semantics (`E0007` on any later use
+                // of `a`), so this is safe to lower as an alias: copy
+                // `a`'s pointer and the three bookkeeping entries
+                // under `b`. Any subsequent `b[i]` or `for x in b`
+                // then finds them in `list_arrays` / `list_array_types`
+                // / `list_lengths`, which the scalar path below would
+                // have left unpopulated (leading to E0004 "unknown
+                // list" at the first use of `b`).
+                if let TypedIRValue::Variable(src, _) = value {
+                    if matches!(self.var_types.get(src), Some(Type::List(_))) {
+                        let src_ptr = self.variables.get(src).copied().ok_or_else(|| {
+                            CompileError::simple(
+                                &format!(
+                                    "LLVM codegen: list move from undefined variable `{}`",
+                                    src
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0004,
+                            )
+                        })?;
+                        let src_ty = self.var_types.get(src).cloned().unwrap();
+                        let src_arr_ty = self.list_array_types.get(src).cloned();
+                        let src_len = self.list_lengths.get(src).copied();
+
+                        self.variables.insert(name.clone(), src_ptr);
+                        self.var_types.insert(name.clone(), src_ty);
+                        if let Some(arr_ty) = src_arr_ty {
+                            self.list_arrays.insert(name.clone(), src_ptr);
+                            self.list_array_types.insert(name.clone(), arr_ty);
+                        }
+                        if let Some(len) = src_len {
+                            self.list_lengths.insert(name.clone(), len);
+                        }
+                        return Ok(());
+                    }
+                }
+                // Fail closed: a list-typed target must have been
+                // handled by one of the arms above (list literal,
+                // record literal, or list-variable move). Any other
+                // value shape reaching this point would produce a
+                // list whose bookkeeping is unpopulated, which
+                // silently fails later at the first `b[i]`.
+                if matches!(type_, Type::List(_)) {
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "LLVM codegen: cannot lower list declaration `{}` \
+                             — only list literals and list-variable moves are \
+                             currently supported",
+                            name
+                        ),
+                        "llvm",
+                    ));
+                }
                 // Non-list: single alloca, straightforward store.
                 let alloca = self.create_entry_alloca(name, type_);
                 let val = self.compile_value(value)?;
@@ -174,6 +231,56 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.variables
                         .insert(target.clone(), val.into_pointer_value());
                     return Ok(());
+                }
+                // List move: `b := a` where both are list variables.
+                // Same reasoning as Declare's list-variable arm above:
+                // alias the source's pointer and bookkeeping under the
+                // target name. The analyzer's move rules guarantee
+                // `a` is dead after this instruction, so aliasing is
+                // safe; without it, `list_arrays[target]` is never
+                // populated and the next `target[i]` fails with E0004.
+                if let TypedIRValue::Variable(src, _) = value {
+                    if matches!(self.var_types.get(src), Some(Type::List(_))) {
+                        let src_ptr = self.variables.get(src).copied().ok_or_else(|| {
+                            CompileError::simple(
+                                &format!(
+                                    "LLVM codegen: list move from undefined variable `{}`",
+                                    src
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0004,
+                            )
+                        })?;
+                        let src_ty = self.var_types.get(src).cloned().unwrap();
+                        let src_arr_ty = self.list_array_types.get(src).cloned();
+                        let src_len = self.list_lengths.get(src).copied();
+
+                        self.variables.insert(target.clone(), src_ptr);
+                        self.var_types.insert(target.clone(), src_ty);
+                        if let Some(arr_ty) = src_arr_ty {
+                            self.list_arrays.insert(target.clone(), src_ptr);
+                            self.list_array_types.insert(target.clone(), arr_ty);
+                        }
+                        if let Some(len) = src_len {
+                            self.list_lengths.insert(target.clone(), len);
+                        }
+                        return Ok(());
+                    }
+                }
+                // Fail closed: list-typed target must have been
+                // handled above (list literal or list-variable move).
+                if matches!(self.var_types.get(target), Some(Type::List(_))) {
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "LLVM codegen: cannot lower list assignment to `{}` \
+                             from this value shape — only list literals and \
+                             list-variable moves are currently supported",
+                            target
+                        ),
+                        "llvm",
+                    ));
                 }
                 let ptr = self.variables.get(target).cloned().ok_or_else(|| {
                     CompileError::simple(

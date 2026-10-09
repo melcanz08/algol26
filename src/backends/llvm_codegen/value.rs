@@ -410,7 +410,30 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // `compile_function`. Returning that pointer is the
                 // list's runtime value; a `build_load` would read
                 // element 0 as if it were the whole list.
+                //
+                // A reference parameter (`self: &Point`, `x: &mut T`)
+                // is analogous: `compile_function` inserts the
+                // incoming pointer directly into `variables[name]`,
+                // and its *value* is that pointer — the reference
+                // itself. Loading would read the first 8 bytes of the
+                // referent and treat them as a pointer, which
+                // segfaults at the next use. This is what broke
+                // `return self` in methods with `&self` (probe:
+                // `p.self_ref().x` → SIGSEGV on the LLVM backend).
                 if matches!(ty, Type::List(_)) {
+                    return Ok((*ptr).into());
+                }
+                // A reference *parameter* has the pointer directly in
+                // `variables[name]`; its value is the reference
+                // itself. A local reference binding (`val r := &x`)
+                // is created by `Declare` via `create_entry_alloca`,
+                // so `variables[r]` is an alloca *holding* a pointer
+                // and needs a load. Both have `var_types` of
+                // `Borrow(_)`, so the type alone can't distinguish
+                // them; `ref_param_vars` carries the signal.
+                if matches!(ty, Type::Borrow(_) | Type::MutBorrow(_))
+                    && self.ref_param_vars.contains(name)
+                {
                     return Ok((*ptr).into());
                 }
                 let llvm_ty = self.map_type(&ty);

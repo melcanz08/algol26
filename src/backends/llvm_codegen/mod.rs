@@ -51,6 +51,14 @@ pub struct IRCodeGen<'ctx> {
     pub(super) builder: Builder<'ctx>,
     pub(super) variables: HashMap<String, PointerValue<'ctx>>,
     pub(super) var_types: HashMap<String, Type>,
+    /// Names of variables that are reference *parameters* — `self:
+    /// &T`, `x: &mut U`. Populated by `compile_function` when the
+    /// incoming pointer is inserted into `variables` directly
+    /// (rather than via `create_entry_alloca`). Consumed by
+    /// `compile_value(Variable)` to distinguish a reference
+    /// parameter (value = the pointer itself) from a local
+    /// reference binding (value = load from the alloca).
+    pub(super) ref_param_vars: std::collections::HashSet<String>,
     pub(super) functions: HashMap<String, FunctionValue<'ctx>>,
     pub(super) current_function: Option<FunctionValue<'ctx>>,
     pub(super) blocks: HashMap<usize, inkwell::basic_block::BasicBlock<'ctx>>,
@@ -160,6 +168,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             builder,
             variables: HashMap::new(),
             var_types: HashMap::new(),
+            ref_param_vars: std::collections::HashSet::new(),
             functions: HashMap::new(),
             current_function: None,
             blocks: HashMap::new(),
@@ -380,6 +389,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.current_function = Some(function);
         self.variables.clear();
         self.var_types.clear();
+        self.ref_param_vars.clear();
         self.blocks.clear();
         self.list_arrays.clear();
         self.list_array_types.clear();
@@ -420,6 +430,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                 param_type,
                 Type::Borrow(_) | Type::MutBorrow(_) | Type::List(_)
             ) {
+                // Reference parameters are tracked separately because
+                // their value is the incoming pointer itself, not
+                // something loaded through an alloca. Lists have their
+                // own convention (`variables[name]` is always the
+                // array pointer), so they don't need the set.
+                if matches!(param_type, Type::Borrow(_) | Type::MutBorrow(_)) {
+                    self.ref_param_vars.insert(param_name.clone());
+                }
                 if !param.is_pointer_value() {
                     return Err(CompileError::simple(
                         &format!(

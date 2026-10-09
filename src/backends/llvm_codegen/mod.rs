@@ -65,6 +65,14 @@ pub struct IRCodeGen<'ctx> {
     pub(super) list_arrays: HashMap<String, PointerValue<'ctx>>,
     pub(super) list_array_types: HashMap<String, BasicTypeEnum<'ctx>>,
     pub(super) list_lengths: HashMap<String, usize>,
+    /// ADR 0042 phase 1a. Per-list descriptor struct alloca.
+    /// Holds `{ buffer: ptr, length: i64, capacity: i64 }`. The
+    /// struct is populated at every list-producing site and is
+    /// write-only in phase 1a -- no code reads from it yet.
+    /// Phase 2 (runtime length) reads field 1; phase 4
+    /// (`List.append`) writes fields 0 and 2. See
+    /// docs/decisions/0042-llvm-dynamic-lists.md.
+    pub(super) list_structs: HashMap<String, PointerValue<'ctx>>,
     pub(super) iterator_arrays: HashMap<String, PointerValue<'ctx>>,
     pub(super) iterator_array_types: HashMap<String, BasicTypeEnum<'ctx>>,
     /// ALGOL26 element type of each iterator's backing array.
@@ -175,6 +183,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             list_arrays: HashMap::new(),
             list_array_types: HashMap::new(),
             list_lengths: HashMap::new(),
+            list_structs: HashMap::new(),
             iterator_arrays: HashMap::new(),
             iterator_array_types: HashMap::new(),
             iterator_elem_types: HashMap::new(),
@@ -394,6 +403,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.list_arrays.clear();
         self.list_array_types.clear();
         self.list_lengths.clear();
+        self.list_structs.clear();
         self.iterator_arrays.clear();
         self.iterator_array_types.clear();
         self.iterator_elem_types.clear();

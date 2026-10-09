@@ -15,11 +15,11 @@ container whose element type is only known once you know the
 container type.
 
     trait Container
-        function first(self: &Self) -> Self::Item
+        proc first(self: &Self) -> Self::Item
 
     impl Container for List<Int>
         type Item = Int
-        function first(self: &List<Int>) -> Int
+        proc first(self: &List<Int>) -> Int
             return self[0]
 
 `Self::Item` cannot be written today: `TypeSyntax` has no form
@@ -119,23 +119,23 @@ Declaration in a trait body:
 
     trait Container
         type Item
-        function first(self: &Self) -> Self::Item
+        proc first(self: &Self) -> Self::Item
 
 Definition in a trait impl:
 
     impl Container for List<Int>
         type Item = Int
-        function first(self: &List<Int>) -> Int
+        proc first(self: &List<Int>) -> Int
             return self[0]
 
 Use inside a generic function:
 
-    function head<C: Container>(c: C) -> C::Item
+    proc head<C: Container>(c: C) -> C::Item
         return c.first()
 
 Use nested in another type:
 
-    function all<C: Container>(c: C) -> List<C::Item>
+    proc all<C: Container>(c: C) -> List<C::Item>
         ...
 
 ## Implementation plan (for the follow-on session)

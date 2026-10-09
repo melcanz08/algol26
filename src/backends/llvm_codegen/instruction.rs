@@ -7,10 +7,52 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{Instruction, TypedIRValue};
 use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::BasicValueEnum;
+use inkwell::values::{BasicValueEnum, PointerValue};
 use inkwell::AddressSpace;
 
 impl<'ctx> IRCodeGen<'ctx> {
+    /// ADR 0042 phase 1a. Allocate a `{ptr, i64, i64}` descriptor
+    /// struct for a list, store `{buffer, length, 0}` into it, and
+    /// return the struct alloca. `capacity == 0` means the buffer
+    /// is a stack alloca owned by the enclosing frame.
+    ///
+    /// Write-only in phase 1a. Phase 2 (runtime length) reads
+    /// field 1; phase 4 (`List.append`) writes fields 0 and 2.
+    fn emit_list_struct(
+        &self,
+        name: &str,
+        buffer: PointerValue<'ctx>,
+        len: usize,
+    ) -> PointerValue<'ctx> {
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+        let i64_ty = self.context.i64_type();
+        let struct_ty = self
+            .context
+            .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+        let alloca =
+            self.create_entry_alloca_llvm(&format!("{}_list_struct", name), struct_ty.into());
+        let buf_slot = self
+            .builder
+            .build_struct_gep(struct_ty, alloca, 0, &format!("{}_buf_slot", name))
+            .unwrap();
+        let len_slot = self
+            .builder
+            .build_struct_gep(struct_ty, alloca, 1, &format!("{}_len_slot", name))
+            .unwrap();
+        let cap_slot = self
+            .builder
+            .build_struct_gep(struct_ty, alloca, 2, &format!("{}_cap_slot", name))
+            .unwrap();
+        self.builder.build_store(buf_slot, buffer).unwrap();
+        self.builder
+            .build_store(len_slot, i64_ty.const_int(len as u64, false))
+            .unwrap();
+        self.builder
+            .build_store(cap_slot, i64_ty.const_zero())
+            .unwrap();
+        alloca
+    }
+
     pub(super) fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
         match instr {
             Instruction::Nop => Ok(()),
@@ -73,6 +115,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.list_lengths.insert(name.clone(), len);
                     self.variables.insert(name.clone(), arr_alloca);
                     self.var_types.insert(name.clone(), type_.clone());
+                    // ADR 0042 phase 1a: populate the descriptor
+                    // struct. Write-only for now.
+                    let list_struct = self.emit_list_struct(name, arr_alloca, len);
+                    self.list_structs.insert(name.clone(), list_struct);
                     return Ok(());
                 }
 
@@ -137,6 +183,13 @@ impl<'ctx> IRCodeGen<'ctx> {
                         }
                         if let Some(len) = src_len {
                             self.list_lengths.insert(name.clone(), len);
+                        }
+                        // ADR 0042 phase 1a: share the descriptor
+                        // struct with the source. Safe because the
+                        // analyzer guarantees `src` is dead after
+                        // the move.
+                        if let Some(struct_alloca) = self.list_structs.get(src).copied() {
+                            self.list_structs.insert(name.clone(), struct_alloca);
                         }
                         return Ok(());
                     }
@@ -215,6 +268,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .insert(target.clone(), array_ty.into());
                     self.list_lengths.insert(target.clone(), len);
                     self.variables.insert(target.clone(), arr_alloca);
+                    // ADR 0042 phase 1a: populate the descriptor
+                    // struct.
+                    let list_struct = self.emit_list_struct(target, arr_alloca, len);
+                    self.list_structs.insert(target.clone(), list_struct);
                     return Ok(());
                 }
                 if let TypedIRValue::Record { .. } = value {
@@ -265,6 +322,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                         }
                         if let Some(len) = src_len {
                             self.list_lengths.insert(target.clone(), len);
+                        }
+                        // ADR 0042 phase 1a: share the descriptor
+                        // struct with the source.
+                        if let Some(struct_alloca) = self.list_structs.get(src).copied() {
+                            self.list_structs.insert(target.clone(), struct_alloca);
                         }
                         return Ok(());
                     }

@@ -31,6 +31,7 @@ code changes.
 | `test-organization.md` | What lives in each `tests/` subdirectory |
 | `no-panic-policy.md` | Rules about panics, unwraps, and errors |
 | `status/safety-guarantees.md` | The language’s safety claims, what enforces each, where they end |
+| `status/analyzer-verifier-partition.md` | Which safety rules the analyzer owns vs. the verifier, and why the overlap is deliberate |
 
 Reference docs that drift are worse than no docs. If a Reference doc
 makes a claim that is not backed by code or a corpus program, remove

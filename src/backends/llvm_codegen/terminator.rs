@@ -428,24 +428,40 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ));
                     }
                 };
-                // Prefer the ALGOL26 element type registered by
-                // `IteratorInit`. Falling back to a reverse-lookup
-                // from the LLVM element type loses composite
-                // information — `%User = type { ptr }` has no
-                // ALGOL26 form. The reverse-lookup is retained for
-                // iterators created before the elem-type map was
-                // introduced (defensive only; both init sites now
-                // populate the map).
+                // The ALGOL26 element type was recorded by
+                // `IteratorInit` at the iterator's binding site. It
+                // cannot be reverse-mapped from the LLVM element type
+                // in general — `%User = type { ptr }` has no ALGOL26
+                // form, and `Int`/`Float`/`Ptr` would silently be
+                // wrong for any composite. Both init sites populate
+                // the map (see `instruction.rs`), so a miss here is
+                // a producer bug, not a case to paper over. Fail
+                // closed: a wrong loop-variable type would surface
+                // later as a confusing instruction-level error, or
+                // worse, as silently wrong code if the composite
+                // happens to have the same LLVM shape as a scalar.
                 let elem_ir_ty =
                     self.iterator_elem_types
                         .get(iterator)
                         .cloned()
-                        .unwrap_or(match elem_llvm_ty {
-                            BasicTypeEnum::IntType(_) => Type::Int,
-                            BasicTypeEnum::FloatType(_) => Type::Float,
-                            BasicTypeEnum::PointerType(_) => Type::Ptr,
-                            _ => Type::Unknown,
-                        });
+                        .ok_or_else(|| {
+                            CompileError::simple(
+                                &format!(
+                                    "LLVM codegen: `IteratorNext` on `{}` but its \
+                                 ALGOL26 element type was not recorded. \
+                                 `IteratorInit` is supposed to insert this on \
+                                 the same iterator name; a producer that \
+                                 emitted `IteratorNext` without a matching \
+                                 `IteratorInit` reached codegen, which is a \
+                                 compiler bug.",
+                                    iterator
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
 
                 let idx_i32 = self
                     .builder

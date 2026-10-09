@@ -1,5 +1,15 @@
 // src/backends/llvm_codegen/mod.rs
-
+//
+// This module is shared between the LLVM backend and the WASM
+// backend. The `IRCodeGen` struct, its bookkeeping maps, and the
+// instruction / terminator / value lowering it drives are used by
+// both. Any representation bug here is a bug in **both** backends
+// simultaneously, which means the LLVM-vs-WASM differential test
+// only catches differences in the *emit* layer (function
+// signatures, memory model, module-writing), not codegen-level
+// bugs. For codegen-level coverage, use the interpreter as the
+// oracle: it does not go through `IRCodeGen` at all.
+//
 // NOTE: This module has blanket allows for `dead_code`,
 // `unused_variables`, and `clippy::unwrap_used`. The first two are
 // housekeeping. The third is **known technical debt**: the module

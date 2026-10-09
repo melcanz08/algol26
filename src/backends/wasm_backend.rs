@@ -31,7 +31,12 @@ impl Backend for WasmBackend {
         // `BackendCapabilities::wasm()` and enforced here before
         // any codegen runs.
         //
-        // Note: the WASM backend reuses `IRCodeGen` — the same
+        // The WASM backend reuses `IRCodeGen` — the same
+        // representation decisions, bookkeeping maps, and lowering
+        // logic as the LLVM backend. See the module-level doc in
+        // `src/backends/llvm_codegen/mod.rs` for what that means
+        // for differential-test coverage. The note below is
+        // historical.
         // struct the LLVM backend uses. So the fail-closed work
         // done across `value.rs`, `instruction.rs`, `terminator.rs`,
         // etc. applies here for free; there is no separate WASM

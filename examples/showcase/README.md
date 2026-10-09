@@ -1,6 +1,6 @@
 # Algol26 Generated Showcase
 
-11 programs, each runs identically on interpreter, LLVM, and WASM.
+12 programs, each runs identically on interpreter, LLVM, and WASM.
 
 ## Programs
 
@@ -15,6 +15,7 @@
 9. `option_some.gol`
 10. `records_basic.gol`
 11. `string_ops_basic.gol`
+12. `fn_proc_split.gol`
 
 ## Not in the showcase
 

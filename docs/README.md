@@ -30,6 +30,7 @@ code changes.
 | `ir-transformations.md` | What each IR transformation does |
 | `test-organization.md` | What lives in each `tests/` subdirectory |
 | `no-panic-policy.md` | Rules about panics, unwraps, and errors |
+| `status/safety-guarantees.md` | The language’s safety claims, what enforces each, where they end |
 
 Reference docs that drift are worse than no docs. If a Reference doc
 makes a claim that is not backed by code or a corpus program, remove

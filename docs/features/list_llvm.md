@@ -77,40 +77,28 @@ regression ADR 0021 fixed.
 | `xs` as a function parameter | Supported | `map_type(Type::List)` gives the type; the callee sees a pointer |
 | `xs` as a function return value | Refused (indirectly) | return value would be a `TypedIRValue::List`, hit `value.rs:77` |
 
-## The `types.rs` mismatch
+## The `types.rs` mapping (resolved)
 
-`src/backends/llvm_codegen/types.rs:63` maps `Type::List(inner)` to
-an LLVM struct `{ elem, i64 }` — a pointer-plus-length shape.
-Nothing in the codegen uses this mapping for list values. The
-comment in that file already says so:
+`src/backends/llvm_codegen/types.rs` maps `Type::List(_)` to an
+LLVM `ptr`. This was changed from an earlier `{elem, i64}` struct
+shape that never matched the actual list storage — a bug fixed
+in commit `b6d1e31` (A2). `map_type(Type::List(_))` and the code
+that allocates list storage now agree: a list value is a pointer
+to its backing `[N x elem]` array.
 
-> NOTE (Tier 2 follow-up): the current runtime representation of a
-> list in `instruction.rs` is a fixed-size LLVM array `[N x elem]`,
-> but this mapping returns `{elem, i64}`. The two disagree. Callers
-> that actually allocate list storage use the array form directly,
-> so this mapping is not load-bearing for correct programs.
+For a list variable, `variables[name]` holds that pointer
+directly; `list_arrays[name]` and `list_array_types[name]` carry
+the corresponding type information; `list_lengths[name]` records
+the compile-time length.
 
-This file freezes the array form as **the** representation. The
-`{elem, i64}` mapping is a stub for a future dynamic-list feature;
-until that feature exists, the mapping should not be trusted.
-
-### What to do about the stub
-
-Two options for `map_type(Type::List(_))`:
-
-- **(a) Leave it as-is.** The comment stays; the function keeps
-  returning `{elem, i64}`; callers that need the actual shape use
-  the array form. A latent miscompile waits for a caller that
-  trusts the map.
-- **(b) Make it `unreachable!()`.** Same shape as `Type::Record`
-  and `TypedIRValue::Record` — refuse loudly rather than answer
-  wrong. Safer, but breaks any caller currently reaching the map
-  for a legitimate reason.
-
-**Recommendation: (b), as a small follow-up commit.** Find every
-call site of `map_type` where the type could be `Type::List`,
-verify it doesn't need the map, then change the arm to panic with
-a message pointing at this doc.
+For a list parameter, `variables[name]` is the incoming pointer
+from the caller. `list_arrays[name]` and `list_array_types[name]`
+are populated with a zero-length array type `[0 x T]` (LLVM's
+flexible-array-member idiom, used only for GEP stride). There is
+no `list_lengths[name]` entry — the callee cannot know the
+caller's list length — and every site that would read it
+(`ArrayAccess` bounds check, `ArrayAssign` bounds check,
+`IteratorInit` length) guards on the absence.
 
 ## What this means for ADR 0036 (records)
 

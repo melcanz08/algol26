@@ -403,25 +403,42 @@ impl<'ctx> IRCodeGen<'ctx> {
                     )
                 })?;
 
-                // A list variable's slot already holds the array
-                // pointer: `variables[name]` is set to the array
-                // alloca by `Declare`'s list arm, and to the caller's
-                // pointer by the list-parameter arm of
-                // `compile_function`. Returning that pointer is the
-                // list's runtime value; a `build_load` would read
-                // element 0 as if it were the whole list.
+                // ADR 0042 phase 1b. A list variable's value is
+                // the {buffer, length, capacity} descriptor, not the
+                // buffer pointer. The descriptor alloca is registered
+                // in `list_structs` by every producer (phase 1a: list
+                // literals, list moves; phase 1b: list parameters).
+                // Loading it here is what makes a list value flow
+                // through `compile_value` as a struct, matching the
+                // ABI `declare_function` now declares.
                 //
                 // A reference parameter (`self: &Point`, `x: &mut T`)
-                // is analogous: `compile_function` inserts the
-                // incoming pointer directly into `variables[name]`,
-                // and its *value* is that pointer — the reference
-                // itself. Loading would read the first 8 bytes of the
-                // referent and treat them as a pointer, which
-                // segfaults at the next use. This is what broke
-                // `return self` in methods with `&self` (probe:
-                // `p.self_ref().x` → SIGSEGV on the LLVM backend).
+                // is analogous to the old behavior: the incoming
+                // pointer IS the reference. That branch is unchanged
+                // below.
                 if matches!(ty, Type::List(_)) {
-                    return Ok((*ptr).into());
+                    let struct_alloca = self.list_structs.get(name).copied().ok_or_else(|| {
+                        CompileError::simple(
+                            &format!(
+                                "LLVM codegen: list `{}` has no descriptor struct; \
+                                 a producer registered it in `variables` without \
+                                 populating `list_structs`",
+                                name
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                    let struct_ty = match self.map_type(&ty) {
+                        BasicTypeEnum::StructType(s) => s,
+                        _ => unreachable!("map_type(Type::List) returned non-struct"),
+                    };
+                    return Ok(self
+                        .builder
+                        .build_load(struct_ty, struct_alloca, name)
+                        .unwrap());
                 }
                 // A reference *parameter* has the pointer directly in
                 // `variables[name]`; its value is the reference

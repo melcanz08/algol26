@@ -120,21 +120,24 @@ impl<'ctx> IRCodeGen<'ctx> {
             Type::Set(_) => self.context.i64_type().into(),
 
             Type::List(_) => {
-                // A list's runtime value is a pointer to its backing
-                // storage `[N x elem]`, allocated at the point of
-                // declaration or initialization (see `Declare`,
-                // `Assign`, and `IteratorInit` in `instruction.rs`).
+                // ADR 0042 phase 1b. A list's runtime value is a
+                // `{ buffer: ptr, length: i64, capacity: i64 }`
+                // descriptor. `capacity == 0` means `buffer` points
+                // at a stack alloca owned by the enclosing frame;
+                // `capacity > 0` means it points at a heap buffer
+                // that the list owns and must free at scope exit.
                 //
-                // Historically this arm returned `{elem, i64}`, which
-                // never matched the actual storage shape and forced
-                // callers to reach into `list_arrays` /
-                // `list_array_types` directly — an implicit contract
-                // that was easy to violate (see the `List<Record>`
-                // slot-store bugs). Returning `ptr` makes `map_type`
-                // agree with the runtime and lets a list value flow
-                // through the same `compile_value` path as any other
-                // variable.
-                self.context.ptr_type(AddressSpace::default()).into()
+                // Phase 1a populated a `list_structs` side table with
+                // one descriptor alloca per list name. This arm makes
+                // `map_type` agree with that shape so a list value
+                // can flow through `compile_value` as a struct.
+                //
+                // See docs/decisions/0042-llvm-dynamic-lists.md.
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let i64_ty = self.context.i64_type();
+                self.context
+                    .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false)
+                    .into()
             }
             Type::Record(name, args) => {
                 // ADR 0036 L1. Named LLVM struct type, cached so

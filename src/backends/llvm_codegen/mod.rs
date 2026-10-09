@@ -365,6 +365,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ));
                 }
             },
+            // ADR 0042 phase 1b. A list return value is a
+            // {buffer, length, capacity} struct.
+            Type::List(_) => match self.map_type(&func.return_type) {
+                BasicTypeEnum::StructType(st) => st.fn_type(&param_types, is_variadic),
+                _ => {
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "list return type did not map to a struct for `{}`",
+                            func.name
+                        ),
+                        "llvm",
+                    ));
+                }
+            },
             ref other => {
                 return Err(CompileError::unsupported_operation(
                     &format!(
@@ -436,18 +450,11 @@ impl<'ctx> IRCodeGen<'ctx> {
             // a `ptr*` while the list's own invariants expect a bare
             // pointer — the same reason references are inserted
             // directly, just below.
-            if matches!(
-                param_type,
-                Type::Borrow(_) | Type::MutBorrow(_) | Type::List(_)
-            ) {
-                // Reference parameters are tracked separately because
-                // their value is the incoming pointer itself, not
-                // something loaded through an alloca. Lists have their
-                // own convention (`variables[name]` is always the
-                // array pointer), so they don't need the set.
-                if matches!(param_type, Type::Borrow(_) | Type::MutBorrow(_)) {
-                    self.ref_param_vars.insert(param_name.clone());
-                }
+            if matches!(param_type, Type::Borrow(_) | Type::MutBorrow(_)) {
+                // Reference parameters: the incoming pointer IS the
+                // reference. Register it directly; loading through an
+                // alloca would read the referent's first 8 bytes and
+                // treat them as a pointer.
                 if !param.is_pointer_value() {
                     return Err(CompileError::simple(
                         &format!(
@@ -461,47 +468,71 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ));
                 }
                 let incoming = param.into_pointer_value();
+                self.ref_param_vars.insert(param_name.clone());
                 self.variables.insert(param_name.clone(), incoming);
                 self.var_types
                     .insert(param_name.clone(), param_type.clone());
-
-                // Option B for list parameters (see
-                // docs/features/list_llvm.md). A list param arrives
-                // as the caller's array pointer. Register it in
-                // `list_arrays` so `xs[i]` can find it, and record a
-                // zero-length array type so GEP can compute the
-                // element stride. `list_lengths` deliberately gets
-                // no entry: the length lives in the caller's frame
-                // and is not visible here — the bounds-check sites
-                // in `value.rs` and `instruction.rs` skip their
-                // runtime check when the length is unknown. Iteration
-                // over a list param therefore fails closed (see the
-                // `IteratorInit` arm).
-                if let Type::List(inner) = param_type {
-                    let elem_llvm = self.map_type(inner);
-                    // BasicTypeEnum has no `array_type` method —
-                    // matching the variants is the same shape the
-                    // list-literal arm in `instruction.rs` uses.
-                    let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
-                        BasicTypeEnum::IntType(t) => t.array_type(0).into(),
-                        BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
-                        BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
-                        BasicTypeEnum::StructType(t) => t.array_type(0).into(),
-                        other => {
-                            return Err(CompileError::unsupported_operation(
-                                &format!(
-                                    "LLVM codegen: list parameter `{}` has \
-                                     element type {:?} with no LLVM array \
-                                     lowering",
-                                    param_name, other
-                                ),
-                                "llvm",
-                            ));
-                        }
-                    };
-                    self.list_arrays.insert(param_name.clone(), incoming);
-                    self.list_array_types.insert(param_name.clone(), arr_ty);
+            } else if let Type::List(inner) = param_type {
+                // ADR 0042 phase 1b. A list parameter arrives as a
+                // {buffer, length, capacity} struct value. Allocate a
+                // slot for it, store the struct, and extract the
+                // buffer pointer (field 0) into `list_arrays` so
+                // `xs[i]` and iteration can find it. No `list_lengths`
+                // entry is registered: the length now lives in the
+                // struct and is read at runtime in a later phase.
+                if !param.is_struct_value() {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "LLVM codegen: list parameter '{}' did not arrive as a struct (got LLVM kind {:?})",
+                            param_name, param
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
                 }
+                let st = param.into_struct_value();
+                let alloca = self.create_entry_alloca(param_name, param_type);
+                self.builder.build_store(alloca, st).unwrap();
+                self.variables.insert(param_name.clone(), alloca);
+                self.var_types
+                    .insert(param_name.clone(), param_type.clone());
+                self.list_structs.insert(param_name.clone(), alloca);
+
+                let struct_ty = match self.map_type(param_type) {
+                    BasicTypeEnum::StructType(s) => s,
+                    _ => unreachable!("map_type(Type::List) returned non-struct"),
+                };
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let buf_slot = self
+                    .builder
+                    .build_struct_gep(struct_ty, alloca, 0, &format!("{}_buf_slot", param_name))
+                    .unwrap();
+                let buf = self
+                    .builder
+                    .build_load(ptr_ty, buf_slot, &format!("{}_buf", param_name))
+                    .unwrap()
+                    .into_pointer_value();
+                self.list_arrays.insert(param_name.clone(), buf);
+
+                let elem_llvm = self.map_type(inner);
+                let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
+                    BasicTypeEnum::IntType(t) => t.array_type(0).into(),
+                    BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
+                    BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
+                    BasicTypeEnum::StructType(t) => t.array_type(0).into(),
+                    other => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!(
+                                "LLVM codegen: list parameter `{}` has element type {:?} with no LLVM array lowering",
+                                param_name, other
+                            ),
+                            "llvm",
+                        ));
+                    }
+                };
+                self.list_array_types.insert(param_name.clone(), arr_ty);
             } else {
                 let alloca = self.create_entry_alloca(param_name, param_type);
                 self.builder.build_store(alloca, param).unwrap();

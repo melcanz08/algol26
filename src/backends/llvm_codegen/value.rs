@@ -358,7 +358,29 @@ impl<'ctx> IRCodeGen<'ctx> {
                     )
                 })?;
 
-                let ty = self.var_types.get(name).cloned().unwrap_or(Type::Float);
+                // `variables` and `var_types` are updated in
+                // lockstep by every producer (`Declare`, `Assign`,
+                // `Allocate`, list-init, iterator-init, parameter
+                // bind). A variable in one but not the other means
+                // a producer updated only half the invariant. Fail
+                // closed rather than defaulting to Float — the
+                // previous `unwrap_or(Type::Float)` would silently
+                // load an f64 from a non-float slot.
+                let ty = self.var_types.get(name).cloned().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "LLVM codegen: variable `{}` has an alloca but no \
+                             recorded type. A producer added it to `variables` \
+                             without also adding it to `var_types`.",
+                            name
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+
                 // A list variable's slot already holds the array
                 // pointer: `variables[name]` is set to the array
                 // alloca by `Declare`'s list arm, and to the caller's

@@ -26,7 +26,7 @@
 // Classify a quantity sold into a coarse volume band.
 // Returns a String, so this also tests that a user-defined
 // function can return a String through the interpreter.
-function volume_category(qty: Int) -> String
+proc volume_category(qty: Int) -> String
     if qty > 200 then
         return "bulk"
     else if qty > 100 then

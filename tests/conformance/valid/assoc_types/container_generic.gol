@@ -1,15 +1,13 @@
 trait Container
     type Item
-    function first(self: &Self) -> Self::Item
+    fn first(self: &Self) -> Self::Item
 
 impl Container for List<Int>
     type Item := Int
-    function first(self: &List<Int>) -> Int
-        return 1
-
-function head<C>(c: C) -> C::Item where C: Container
-    return c.first()
-
+    fn first(self: &List<Int>) -> Int
+        1
+fn head<C>(c: C) -> C::Item where C: Container
+    c.first()
 proc main
     val xs := [1, 2, 3]
     print(head(xs))

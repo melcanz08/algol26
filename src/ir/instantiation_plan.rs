@@ -884,12 +884,10 @@ mod tests {
     #[test]
     fn closure_materializes_single_hop_specialization() {
         let source = r#"
-function f<T>(x: T) -> T
-    return g(x)
-
-function g<T>(x: T) -> T
-    return x
-
+fn f<T>(x: T) -> T
+    g(x)
+fn g<T>(x: T) -> T
+    x
 proc main
     val y := f(42)
     print(y)
@@ -911,15 +909,12 @@ proc main
     #[test]
     fn closure_materializes_two_hop_specialization() {
         let source = r#"
-function f<T>(x: T) -> T
-    return g(x)
-
-function g<T>(x: T) -> T
-    return h(x)
-
-function h<T>(x: T) -> T
-    return x
-
+fn f<T>(x: T) -> T
+    g(x)
+fn g<T>(x: T) -> T
+    h(x)
+fn h<T>(x: T) -> T
+    x
 proc main
     val y := f(42)
     print(y)
@@ -936,12 +931,10 @@ proc main
     #[test]
     fn closure_with_composite_type_argument() {
         let source = r#"
-function outer<T>(x: T) -> T
-    return inner(x)
-
-function inner<T>(x: T) -> T
-    return x
-
+fn outer<T>(x: T) -> T
+    inner(x)
+fn inner<T>(x: T) -> T
+    x
 proc main
     val list := [1, 2, 3]
     val y := outer(list)
@@ -966,12 +959,10 @@ proc main
     #[test]
     fn closure_handles_multiple_concrete_calls() {
         let source = r#"
-function outer<T>(x: T) -> T
-    return inner(x)
-
-function inner<T>(x: T) -> T
-    return x
-
+fn outer<T>(x: T) -> T
+    inner(x)
+fn inner<T>(x: T) -> T
+    x
 proc main
     val a := outer(1)
     val b := outer("hello")
@@ -991,12 +982,10 @@ proc main
     #[test]
     fn closure_is_idempotent() {
         let source = r#"
-function f<T>(x: T) -> T
-    return g(x)
-
-function g<T>(x: T) -> T
-    return x
-
+fn f<T>(x: T) -> T
+    g(x)
+fn g<T>(x: T) -> T
+    x
 proc main
     val y := f(42)
     print(y)

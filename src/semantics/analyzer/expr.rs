@@ -1670,7 +1670,7 @@ impl SemanticAnalyzer {
                     return Err(CompileError::at(
                         self.current_span,
                         &format!(
-                            "Function '{}' expects {}, got {}",
+                            "Call to '{}' expects {}, got {}",
                             name,
                             expected_msg,
                             args.len()

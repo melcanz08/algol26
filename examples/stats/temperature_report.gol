@@ -4,9 +4,8 @@
 // conditionals, array indexing, and both Int and Float printing.
 // Compiles and runs identically under LLVM and the interpreter.
 
-function to_fahrenheit(c: float) -> float
-    return c * 9.0 / 5.0 + 32.0
-
+fn to_fahrenheit(c: float) -> float
+    c * 9.0 / 5.0 + 32.0
 proc main
     val temps := [18.5, 19.2, 20.1, 21.4, 22.8, 23.5, 22.9, 21.0, 19.8, 18.3]
 

@@ -1,8 +1,7 @@
 // ADVERSARIAL: generics
 // EXPECT: REJECT
-function show<T>(x: T) -> String where T: Display
-    return "ok"
-
+fn show<T>(x: T) -> String where T: Display
+    "ok"
 proc main
     val p := [1, 2, 3]
     print(show(p))

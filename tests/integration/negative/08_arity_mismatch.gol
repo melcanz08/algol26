@@ -1,4 +1,4 @@
-function add(a: float, b: float) -> float
-    return a + b
+fn add(a: float, b: float) -> float
+    a + b
 proc main
     print(add(1.0))

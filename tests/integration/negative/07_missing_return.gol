@@ -1,5 +1,5 @@
 proc main
-    function get_val(x: float) -> float
+    proc get_val(x: float) -> float
         val y := x + 1.0
         // missing return
     print(get_val(5.0))

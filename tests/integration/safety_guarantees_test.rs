@@ -35,7 +35,7 @@ proc main
 fn test_borrow_lifetime() {
     // Borrow should not outlive the borrowed value
     let source = r#"
-function get_ref() -> &float
+proc get_ref() -> &float
     val x := 10.0
     return &x  // ERROR: Returning reference to local variable
 "#;

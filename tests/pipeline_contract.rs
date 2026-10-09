@@ -312,9 +312,8 @@ fn well_formed_multi_function_program_passes() {
     use algol26::ir::cfg::{build_cfgs_from_semantic_program, DataflowEngine, OwnershipTransfer};
 
     let source = r#"
-function helper(x: Int) -> Int
-    return x + 1
-
+fn helper(x: Int) -> Int
+    x + 1
 proc main
     val y := helper(1)
     print(y)

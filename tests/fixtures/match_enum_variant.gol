@@ -6,8 +6,8 @@ enum Color
     Green
     Blue
 
-function name(c: Color) -> String
-    return match c
+fn name(c: Color) -> String
+    match c
         case Red
             "red"
         case Green

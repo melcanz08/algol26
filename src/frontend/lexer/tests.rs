@@ -173,7 +173,7 @@ fn test_mut_in_signature_lexes_as_keyword() {
     // *signature* must lex to Token::Mut (not Identifier("mut")),
     // otherwise `&mut T` in a type annotation fails to parse as
     // MutBorrow.
-    let source = "function f(x: &mut Float) -> Float\n    return x";
+    let source = "fn f(x: &mut Float) -> Float\n    x";
     let lexer = Lexer::new(source.to_string()).expect("ICE");
     assert!(
         has_token(&lexer, &Token::Mut),

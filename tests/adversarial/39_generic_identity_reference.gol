@@ -1,9 +1,8 @@
 // ADVERSARIAL: generic function receiving a reference
 // EXPECT: ACCEPT
 // BACKEND: interpreter
-function identity<T>(x: T) -> T
-    return x
-
+fn identity<T>(x: T) -> T
+    x
 proc main
     val v := 5.0
     val p := &v

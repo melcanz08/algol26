@@ -1,12 +1,11 @@
 trait Container
     type Item
-    function first(self: &Self) -> Self::Item
+    fn first(self: &Self) -> Self::Item
 
 impl Container for List<Int>
     type Item := Int
-    function first(self: &List<Int>) -> Int
-        return 1
-
+    fn first(self: &List<Int>) -> Int
+        1
 proc main
     val xs := [1, 2, 3]
     print(xs.first())

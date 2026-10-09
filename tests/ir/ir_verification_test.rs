@@ -268,9 +268,8 @@ fn generic_call_emits_specialized_function_and_rewrites_callee() {
     use algol26::compiler::Compiler;
 
     let source = r#"
-function identity<T>(x: T) -> T
-    return x
-
+fn identity<T>(x: T) -> T
+    x
 proc main
     val v := 1.0
     val p := &v
@@ -333,12 +332,10 @@ fn transitive_generic_call_closure_emits_both_specializations() {
     use algol26::compiler::Compiler;
 
     let source = r#"
-function outer<T>(x: T) -> T
-    return inner(x)
-
-function inner<T>(x: T) -> T
-    return x
-
+fn outer<T>(x: T) -> T
+    inner(x)
+fn inner<T>(x: T) -> T
+    x
 proc main
     val q := outer(42)
     print(q)

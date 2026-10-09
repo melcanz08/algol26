@@ -1,5 +1,5 @@
 trait Shape
-    function area(self: &Self) -> Float
+    fn area(self: &Self) -> Float
 
 rec Circle
     r: Float
@@ -8,13 +8,11 @@ rec Square
     side: Float
 
 impl Shape for Circle
-    function area(self: &Circle) -> Float
-        return 3.14159 * self.r * self.r
-
+    fn area(self: &Circle) -> Float
+        3.14159 * self.r * self.r
 impl Shape for Square
-    function area(self: &Square) -> Float
-        return self.side * self.side
-
+    fn area(self: &Square) -> Float
+        self.side * self.side
 proc main
     val c := Circle { r: 2.0 }
     val sq := Square { side: 3.0 }

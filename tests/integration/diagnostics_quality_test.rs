@@ -18,7 +18,7 @@ fn analyze_source(src: &str) -> Result<(), algol26::common::diagnostics::Compile
 #[test]
 fn test_diag_undefined_var_has_code_and_name() {
     let src = r#"
-function main()
+proc main()
     print unknownVar
 "#;
     let err = analyze_source(src).unwrap_err();
@@ -30,7 +30,7 @@ function main()
 #[test]
 fn test_diag_type_mismatch_has_expected() {
     let src = r#"
-function main()
+proc main()
     var x: Int := 3.14
 "#;
     let err = analyze_source(src).unwrap_err();

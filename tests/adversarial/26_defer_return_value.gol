@@ -1,6 +1,6 @@
 // SEMANTIC PROBE
 // EXPECT: ACCEPT-DEFER
-function f() -> Int
+proc f() -> Int
     defer
         print("cleanup")
     return 42

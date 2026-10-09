@@ -1,6 +1,6 @@
 // ADVERSARIAL: lifetime
 // EXPECT: REJECT
-function leak() -> Pointer<Int>
+proc leak() -> Pointer<Int>
     val x := 42
     return &x
 

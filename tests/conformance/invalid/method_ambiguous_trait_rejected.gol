@@ -3,17 +3,17 @@ rec User
     name: String
 
 trait Saveable
-    function save(self: &User)
+    proc save(self: &User)
 
 trait Persistable
-    function save(self: &User)
+    proc save(self: &User)
 
 impl Saveable for User
-    function save(self: &User)
+    proc save(self: &User)
         print("saveable")
 
 impl Persistable for User
-    function save(self: &User)
+    proc save(self: &User)
         print("persistable")
 
 proc main

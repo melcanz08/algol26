@@ -1,13 +1,12 @@
 // Analysis functions for temperature data
 
-function calculate_average(temps: float) -> float
+proc calculate_average(temps: float) -> float
     // Calculate average from the list
     val sum := List.sum(temps)
     val count := List.length(temps)
     return sum / count
 
-function find_max(temps: float) -> float
-    return List.max(temps)
-
-function find_min(temps: float) -> float
-    return List.min(temps)
+fn find_max(temps: float) -> float
+    List.max(temps)
+fn find_min(temps: float) -> float
+    List.min(temps)

@@ -2,7 +2,7 @@
 // OUTPUT: before
 // OUTPUT: unsafely
 // OUTPUT: after
-function do_unsafe() -> Int
+proc do_unsafe() -> Int
     unsafe
         print("unsafely")
     return 0

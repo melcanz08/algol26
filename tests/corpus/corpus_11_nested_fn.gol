@@ -1,11 +1,9 @@
 // OUTPUT: 95
 // OUTPUT: 190
-function inner(a: Int) -> Int
-    return a * 2
-
-function outer(a: Int) -> Int
-    return inner(a) * inner(a) - a
-
+fn inner(a: Int) -> Int
+    a * 2
+fn outer(a: Int) -> Int
+    inner(a) * inner(a) - a
 proc main
     print(outer(5))
     print(inner(outer(5)))

@@ -9,10 +9,10 @@ use algol26::semantics::trait_registry::TraitRegistry;
 fn test_trait_registration_and_lookup() {
     let source = r#"
 trait Comparable
-    function compare(other: Self) -> Int
+    fn compare(other: Self) -> Int
 
 impl Comparable for Int
-    function compare(other: Int) -> Int
+    proc compare(other: Int) -> Int
         if self < other
             return -1
         else if self > other

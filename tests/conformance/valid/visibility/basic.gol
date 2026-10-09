@@ -1,9 +1,7 @@
-pub function exported() -> Int
-    return 42
-
-function internal() -> Int
-    return 7
-
+pub fn exported() -> Int
+    42
+fn internal() -> Int
+    7
 pub rec Point
     pub x: Int
     pub y: Int

@@ -1,9 +1,7 @@
-function get_number() -> float
-    return 42.0
-
-function get_message() -> float
-    return 99.5
-
+fn get_number() -> float
+    42.0
+fn get_message() -> float
+    99.5
 proc main
     val num := get_number()
     print(num)

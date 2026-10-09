@@ -824,9 +824,8 @@ fn llvm_rejects_map_method_calls_without_literal() {
     // fix, `Feature::Map` would not fire and LLVM would accept
     // this program, then panic in codegen.
     const SOURCE: &str = r#"
-function get_first(m: Map<String, Int>) -> Option<Int>
-    return m.get("first")
-
+fn get_first(m: Map<String, Int>) -> Option<Int>
+    m.get("first")
 proc main
     print("x")
 "#;

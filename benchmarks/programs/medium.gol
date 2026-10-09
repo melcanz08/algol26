@@ -1,10 +1,10 @@
-function factorial(n: Int) -> Int
+proc factorial(n: Int) -> Int
     if n <= 1
         return 1
     else
         return n * factorial(n - 1)
 
-function main() -> Int
+proc main() -> Int
     val result := factorial(10)
     print result
     

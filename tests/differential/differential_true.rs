@@ -182,9 +182,8 @@ proc main
 #[test]
 fn test_differential_functions_with_params() {
     let source = r#"
-function add(x: float, y: float) -> float
-    return x + y
-
+fn add(x: float, y: float) -> float
+    x + y
 proc main
     val result := add(10.0, 32.0)
     print(result)
@@ -250,12 +249,10 @@ proc main
 #[test]
 fn test_differential_nested_calls() {
     let source = r#"
-function double(x: float) -> float
-    return x * 2.0
-
-function add(x: float, y: float) -> float
-    return x + y
-
+fn double(x: float) -> float
+    x * 2.0
+fn add(x: float, y: float) -> float
+    x + y
 proc main
     val result := double(add(10.0, 11.0))
     print(result)

@@ -55,8 +55,13 @@ impl Parser {
                 }
             } else if matches!(lookahead, Token::Identifier(s) if s == "enum") {
                 enum_decls.push(self.parse_enum_decl()?);
-            } else if matches!(lookahead, Token::Proc | Token::Function | Token::Extern) {
+            } else if matches!(lookahead, Token::Proc | Token::Fn | Token::Extern) {
                 functions.push(self.parse_function()?);
+            } else if matches!(lookahead, Token::Identifier(s) if s == "function") {
+                return Err(self.error(
+                    "`function` was removed; use `fn` for a single-expression body, \
+                     or `proc` for a statement body",
+                ));
             } else if matches!(lookahead, Token::Import) {
                 if pub_offset == 1 {
                     return Err(self.error("`pub` is not allowed on `import` statements"));
@@ -262,9 +267,15 @@ impl Parser {
             ffi_info = Some(info);
         }
 
-        let is_function = matches!(self.peek(), Token::Function);
-        if !is_function && !matches!(self.peek(), Token::Proc) {
-            return Err(self.error("Expected 'function' or 'proc'"));
+        if matches!(self.peek(), Token::Identifier(s) if s == "function") {
+            return Err(self.error(
+                "`function` was removed; use `fn` for a single-expression body, \
+                 or `proc` for a statement body",
+            ));
+        }
+        let is_fn = matches!(self.peek(), Token::Fn);
+        if !is_fn && !matches!(self.peek(), Token::Proc) {
+            return Err(self.error("Expected 'fn' or 'proc'"));
         }
         self.advance();
 
@@ -335,14 +346,16 @@ impl Parser {
             self.expect_token(Token::RParen, "')'")?;
         }
 
-        // return type
-        let return_type = if is_function {
-            if matches!(self.peek(), Token::Arrow | Token::Colon) {
-                self.advance();
-                Some(self.parse_type_syntax()?)
-            } else {
-                None
-            }
+        // return type. ADR 0048: `-> T` is legal on all three
+        // declaration keywords. `fn` requires it; `proc` and
+        // `function` take it optionally. The `-> Void` spelling is
+        // accepted for symmetry with `function` and for explicit
+        // entry-point signatures like `proc main() -> Void`.
+        let return_type = if matches!(self.peek(), Token::Arrow | Token::Colon) {
+            self.advance();
+            Some(self.parse_type_syntax()?)
+        } else if is_fn {
+            return Err(self.error("`fn` requires a return type: write `fn NAME(...) -> T`"));
         } else {
             None
         };
@@ -393,6 +406,38 @@ impl Parser {
         // body
         let body = if is_extern {
             Vec::new()
+        } else if is_fn {
+            // ADR 0048. An `fn` body is a single indented expression;
+            // its value is the return value.
+            //
+            // Parse the expression directly with `parse_expr`, not
+            // through `parse_block`. Statement position is more
+            // restrictive than expression position: a bare binary
+            // expression like `x * x` is not a legal statement, so
+            // `parse_block` rejects it before this check ever runs
+            // (first phase-1 smoke run: "Unexpected expression: Plus").
+            // `parse_expr` handles binary operators, calls, `if`,
+            // `match`, and every other expression form uniformly.
+            if !matches!(self.peek(), Token::Indent) {
+                return Err(self.error("`fn` body must be an indented expression on the next line"));
+            }
+            self.advance();
+            if matches!(self.peek(), Token::Return) {
+                return Err(self.error(
+                    "`fn` bodies have no `return` keyword; the body expression is the return value",
+                ));
+            }
+            let e = self.parse_expr()?;
+            if !matches!(self.peek(), Token::Dedent) {
+                return Err(self.error(
+                    "`fn` body must be a single expression; use `proc` for a statement body",
+                ));
+            }
+            self.advance();
+            vec![Stmt::Return {
+                span: e.span(),
+                value: Some(e),
+            }]
         } else {
             self.parse_block()?
         };
@@ -452,9 +497,15 @@ impl Parser {
                     });
                     continue;
                 }
-                let is_function = matches!(self.peek(), Token::Function);
-                if !is_function && !matches!(self.peek(), Token::Proc) {
-                    return Err(self.error("Expected 'function' or 'const' in trait body"));
+                if matches!(self.peek(), Token::Identifier(s) if s == "function") {
+                    return Err(self.error(
+                        "`function` was removed; use `fn` for a single-expression body, \
+                         or `proc` for a statement body",
+                    ));
+                }
+                let is_fn = matches!(self.peek(), Token::Fn);
+                if !is_fn && !matches!(self.peek(), Token::Proc) {
+                    return Err(self.error("Expected 'fn' or 'const' in trait body"));
                 }
                 self.advance();
                 let method_name = self.expect_identifier("method name")?;
@@ -471,13 +522,13 @@ impl Parser {
                     }
                     self.expect_token(Token::RParen, "')'")?;
                 }
-                let return_type = if is_function {
-                    if matches!(self.peek(), Token::Arrow | Token::Colon) {
-                        self.advance();
-                        Some(self.parse_type_syntax()?)
-                    } else {
-                        None
-                    }
+                let return_type = if matches!(self.peek(), Token::Arrow | Token::Colon) {
+                    self.advance();
+                    Some(self.parse_type_syntax()?)
+                } else if is_fn {
+                    return Err(
+                        self.error("`fn` requires a return type: write `fn NAME(...) -> T`")
+                    );
                 } else {
                     None
                 };

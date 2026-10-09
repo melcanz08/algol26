@@ -27,7 +27,7 @@ impl Pass<Program> for OptimizePass {
             ],
             must_preserve: &[
                 "program semantics",
-                "function signatures",
+                "proc signatures",
                 "types",
                 "source spans",
             ],

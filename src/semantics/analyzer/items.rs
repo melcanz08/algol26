@@ -649,7 +649,7 @@ impl SemanticAnalyzer {
             if !has_return {
                 return Err(CompileError::simple(
                     &format!(
-                        "Function '{}' may not return a value on all paths",
+                        "Declaration '{}' may not return a value on all paths",
                         func.name
                     ),
                     0,

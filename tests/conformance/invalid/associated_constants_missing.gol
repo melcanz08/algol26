@@ -3,8 +3,7 @@ trait Sizable
     const SIZE: Int
 
 impl Sizable for Int
-    function describe(self: &Int) -> String
-        return "int"
-
+    fn describe(self: &Int) -> String
+        "int"
 proc main
     print(Int.to_string(Int::SIZE))

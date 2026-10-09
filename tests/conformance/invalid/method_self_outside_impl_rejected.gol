@@ -1,7 +1,6 @@
 // tests/conformance/invalid/method_self_outside_impl_rejected.gol
 // ERROR_CODE: E0002
-function standalone(self: Int) -> Int
-    return self
-
+fn standalone(self: Int) -> Int
+    self
 proc main
     print(standalone(5))

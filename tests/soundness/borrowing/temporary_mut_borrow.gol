@@ -1,5 +1,5 @@
 // EXPECT: COMPILE
-function increment(x: &mut Int)
+proc increment(x: &mut Int)
 end
 
 proc main

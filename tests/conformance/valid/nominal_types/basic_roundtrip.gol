@@ -1,8 +1,7 @@
 type UserId distinct Int
 
-function show(id: UserId) -> Int
-    return id.to_base()
-
+fn show(id: UserId) -> Int
+    id.to_base()
 proc main
     val id := UserId.from_base(42)
     print show(id)

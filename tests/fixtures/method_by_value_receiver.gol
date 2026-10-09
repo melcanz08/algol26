@@ -9,9 +9,8 @@ rec Book
     copies: Int
 
 impl Book
-    function retitled(self: Book, new_title: String) -> Book
-        return Book { title: new_title, copies: self.copies }
-
+    fn retitled(self: Book, new_title: String) -> Book
+        Book { title: new_title, copies: self.copies }
 proc main
     val b := Book { title: "Dune", copies: 3 }
     val renamed := b.retitled("Dune (Deluxe)")

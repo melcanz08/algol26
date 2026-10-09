@@ -8,10 +8,9 @@ rec Point
     y: Int
 
 impl Point
-    function sum(self: &Point) -> Int
-        return self.x + self.y
-
-    function translate(self: &mut Point, dx: Int)
+    fn sum(self: &Point) -> Int
+        self.x + self.y
+    proc translate(self: &mut Point, dx: Int)
         self.x := self.x + dx
 
 proc main

@@ -52,7 +52,7 @@ fn run_interpreter(source: &str) -> String {
 #[test]
 fn test_oracle_arithmetic() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     print 3.0
     print 15.0
     return 0
@@ -65,7 +65,7 @@ function main() -> Int
 #[test]
 fn test_oracle_control_flow() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     if true
         print "yes"
     else
@@ -80,7 +80,7 @@ function main() -> Int
 #[test]
 fn test_oracle_lists() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     val arr := [1, 2, 3, 4, 5]
     print List.length(arr)
     print List.sum(arr)
@@ -105,7 +105,7 @@ proc main
 #[test]
 fn test_oracle_print_list_var() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     val arr := [1.0, 2.0, 3.0]
     print(arr)
     return 0
@@ -118,7 +118,7 @@ function main() -> Int
 #[test]
 fn test_oracle_print_list_literal() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     print([10.0, 20.0])
     return 0
 "#;
@@ -129,7 +129,7 @@ function main() -> Int
 #[test]
 fn test_oracle_array_access() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     val arr := [1.0, 2.0, 3.0]
     print(arr[0])
     print(arr[1])

@@ -5,6 +5,6 @@ proc main
     defer print("outer")
     print(compute())
 
-function compute() -> String
+proc compute() -> String
     defer print("inner")
     return "result"

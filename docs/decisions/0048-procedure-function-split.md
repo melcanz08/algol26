@@ -1,6 +1,6 @@
 # ADR 0048: Restore the procedure / function distinction
 
-Status: Proposed (design)
+Status: Accepted
 
 ## Context
 

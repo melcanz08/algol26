@@ -25,9 +25,9 @@ fn compile_to_native(source: &str, output_name: &str) -> bool {
 #[test]
 fn test_wasm_compiles_same_programs_as_llvm() {
     let programs = [
-        ("function main() -> Int\n    print \"hello\"\n    return 0\n", "wasm_test_basic"),
-        ("function main() -> Int\n    val x := 10\n    val y := 20\n    print x + y\n    return 0\n", "wasm_test_arithmetic"),
-        ("function main() -> Int\n    if 5 > 3\n        print \"yes\"\n    else\n        print \"no\"\n    return 0\n", "wasm_test_control_flow"),
+        ("proc main() -> Int\n    print \"hello\"\n    return 0\n", "wasm_test_basic"),
+        ("proc main() -> Int\n    val x := 10\n    val y := 20\n    print x + y\n    return 0\n", "wasm_test_arithmetic"),
+        ("proc main() -> Int\n    if 5 > 3\n        print \"yes\"\n    else\n        print \"no\"\n    return 0\n", "wasm_test_control_flow"),
     ];
     for (source, name) in programs {
         let wasm_ok = compile_to_wasm(source, name);
@@ -39,7 +39,7 @@ fn test_wasm_compiles_same_programs_as_llvm() {
 
 #[test]
 fn test_wasm_backend_isolation() {
-    let source = "function main() -> Int\n    print \"isolation test\"\n    return 0\n";
+    let source = "proc main() -> Int\n    print \"isolation test\"\n    return 0\n";
     let ok = compile_to_wasm(source, "wasm_isolation");
     assert!(ok, "WASM backend failed isolation test");
 }

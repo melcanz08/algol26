@@ -213,9 +213,8 @@ fn expr_kind(e: &Expr) -> &'static str {
 #[test]
 fn every_ast_node_has_a_real_span() {
     let source = r#"
-function add(x: Float, y: Float) -> Float
-    return x + y
-
+fn add(x: Float, y: Float) -> Float
+    x + y
 proc main
     var a := 5.0
     var b := 10.0

@@ -57,7 +57,7 @@ fn build_and_run(source: &str) -> (SemanticProgram, Vec<String>, String) {
 #[test]
 fn test_defer_with_return() {
     let source = "\
-function f() -> Int
+proc f() -> Int
     defer
         print(\"cleanup\")
     return 42

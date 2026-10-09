@@ -1,6 +1,6 @@
 // EXPECT: COMPILE
 // String maps to char* (null-terminated, ALGOL26 owns the buffer).
-extern "C" function puts(s: String) -> Int
+extern "C" fn puts(s: String) -> Int
 
 proc main
     val n := puts("hello")

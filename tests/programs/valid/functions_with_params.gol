@@ -1,9 +1,7 @@
-function double_value(x: Float) -> Float
-    return x * 2.0
-
-function add(x: Float, y: Float) -> Float
-    return x + y
-
+fn double_value(x: Float) -> Float
+    x * 2.0
+fn add(x: Float, y: Float) -> Float
+    x + y
 proc main
     val a := 5.0
     val b := 10.0

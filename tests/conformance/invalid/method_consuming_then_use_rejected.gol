@@ -3,9 +3,8 @@ rec User
     name: String
 
 impl User
-    function into_name(self: User) -> String
-        return self.name
-
+    fn into_name(self: User) -> String
+        self.name
 proc main
     val u := User { name: "Alice" }
     val n := u.into_name()

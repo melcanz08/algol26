@@ -1,18 +1,16 @@
 // ERROR_CODE: E0002
 trait Sortable
-    function sort_me(self: &Self) -> String
+    fn sort_me(self: &Self) -> String
 
 trait Ordered
-    function cmp(self: &Int, other: Int) -> Int
+    fn cmp(self: &Int, other: Int) -> Int
 
 impl Ordered for Int
-    function cmp(self: &Int, other: Int) -> Int
-        return 0
-
+    fn cmp(self: &Int, other: Int) -> Int
+        0
 impl<T> Sortable for List<T> where T: Ordered
-    function sort_me(self: &List<T>) -> String
-        return "sorted"
-
+    fn sort_me(self: &List<T>) -> String
+        "sorted"
 rec Foo
     x: Int
 

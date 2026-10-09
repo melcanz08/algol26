@@ -1,2 +1,2 @@
-function main()
+proc main()
     print unknownVar

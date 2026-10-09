@@ -1,11 +1,11 @@
 trait Persistable
-    function save(self: &Self)
+    proc save(self: &Self)
 
 rec User
     name: String
 
 impl Persistable for User
-    function save(self: &User)
+    proc save(self: &User)
         print("saved")
 
 proc main

@@ -1,7 +1,7 @@
 // EXPECT: COMPILE
 // A variadic extern may be called with more args than it declares;
 // extra args are untyped, matching C's variadic ABI.
-extern "C" function printf(fmt: String, ...) -> Int
+extern "C" fn printf(fmt: String, ...) -> Int
 
 proc main
     val n := printf("%d %s %f\n", 1, "x", 2.5)

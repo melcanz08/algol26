@@ -527,7 +527,7 @@ impl SemanticIRBuilder {
             && flow.is_reachable()
         {
             self.diagnostics.push(format!(
-                "Function '{}' may reach end without returning a value",
+                "Declaration '{}' may reach end without returning a value",
                 emitted_name
             ));
         }

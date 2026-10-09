@@ -2,11 +2,9 @@ rec User
     name: String
 
 impl User
-    function label(self: &User) -> String
-        return self.name
-
-function make_user() -> User
-    return User { name: "Alice" }
-
+    fn label(self: &User) -> String
+        self.name
+fn make_user() -> User
+    User { name: "Alice" }
 proc main
     print(make_user().label())

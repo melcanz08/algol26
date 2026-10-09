@@ -108,3 +108,4 @@ tests/corpus/**/*
 !tests/corpus/**/*.gol
 !tests/corpus/**/*.sh
 !tests/corpus/**/*.mdtests/fixtures/*/
+audit.json

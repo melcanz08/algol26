@@ -67,7 +67,7 @@ fn format_function(out: &mut String, level: usize, func: &FunctionDecl) {
             }
         }
     }
-    out.push_str("function ");
+    out.push_str("fn ");
     out.push_str(&func.name);
     if !func.type_params.is_empty() {
         write!(out, "<{}>", func.type_params.join(", ")).unwrap();
@@ -118,7 +118,7 @@ fn format_trait(out: &mut String, level: usize, tr: &TraitDecl) {
 
 fn format_trait_method(out: &mut String, level: usize, m: &TraitMethod) {
     indent(out, level);
-    write!(out, "function {}(", m.name).unwrap();
+    write!(out, "fn {}(", m.name).unwrap();
     for (i, (name, ty)) in m.params.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
@@ -762,7 +762,7 @@ mod tests {
             }],
         );
         let out = format_program(&[f], &[], &[]);
-        assert!(out.contains("function main()"), "got:\n{}", out);
+        assert!(out.contains("fn main()"), "got:\n{}", out);
         assert!(out.contains("print(\"hello\")"), "got:\n{}", out);
     }
 
@@ -849,7 +849,7 @@ mod tests {
         };
         let out = format_program(&[], &[tr], &[im]);
         assert!(out.contains("trait Display"), "got:\n{}", out);
-        assert!(out.contains("function show() -> String"), "got:\n{}", out);
+        assert!(out.contains("fn show() -> String"), "got:\n{}", out);
         assert!(out.contains("impl Display for Int"), "got:\n{}", out);
     }
 }

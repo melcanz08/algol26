@@ -1,7 +1,6 @@
 // OUTPUT: 6
-function inc(n: Int) -> Int
-    return n + 1
-
+fn inc(n: Int) -> Int
+    n + 1
 proc main
     var count := 0
     var i := 0

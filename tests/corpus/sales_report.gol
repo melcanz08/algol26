@@ -27,7 +27,7 @@
 // OUTPUT: 1192.0
 // OUTPUT: specialty
 
-function volume_category(qty: Int) -> String
+proc volume_category(qty: Int) -> String
     if qty > 200 then
         return "bulk"
     else if qty > 100 then

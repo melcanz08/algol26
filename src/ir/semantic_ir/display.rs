@@ -95,7 +95,7 @@ pub fn format_program_with(program: &SemanticProgram, opts: FormatOptions) -> St
 fn format_function(out: &mut String, func: &SemanticFunction, opts: FormatOptions) {
     // Header: match source-language syntax so the IR view is
     // immediately recognizable.
-    write!(out, "function {}(", func.name).unwrap();
+    write!(out, "fn {}(", func.name).unwrap();
     for (i, (name, ty)) in func.params.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
@@ -609,7 +609,7 @@ mod tests {
         program.functions.push(func);
 
         let out = format_program(&program);
-        assert!(out.contains("function main() -> Void"), "got:\n{}", out);
+        assert!(out.contains("fn main() -> Void"), "got:\n{}", out);
         assert!(out.contains("[0] (entry):"), "got:\n{}", out);
         assert!(out.contains("var x: Int := 5"), "got:\n{}", out);
         assert!(out.contains("print(x)"), "got:\n{}", out);

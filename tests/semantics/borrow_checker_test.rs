@@ -137,9 +137,8 @@ proc main
 fn test_borrow_in_function_scope() {
     // FIXED: Should support reference parameters
     let source = r#"
-function get_value(x: &float) -> float
-    return x
-
+fn get_value(x: &float) -> float
+    x
 proc main
     val value := 10.0
     val result := get_value(&value)
@@ -185,9 +184,8 @@ proc main
 fn test_borrow_across_function_calls() {
     // Borrow should work across function calls
     let source = r#"
-function add_one(x: &float) -> float
-    return x + 1.0
-
+fn add_one(x: &float) -> float
+    x + 1.0
 proc main
     val value := 10.0
     val result := add_one(&value)
@@ -205,7 +203,7 @@ proc main
 fn test_mutable_borrow_across_functions() {
     // Mutable borrow in function
     let source = r#"
-function increment(x: &mut float)
+proc increment(x: &mut float)
     x := x + 1.0
 
 proc main

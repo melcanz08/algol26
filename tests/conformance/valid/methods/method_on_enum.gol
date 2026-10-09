@@ -4,9 +4,8 @@ enum Day
     Wednesday
 
 impl Day
-    function is_weekday(self: &Day) -> Bool
-        return true
-
+    fn is_weekday(self: &Day) -> Bool
+        true
 proc main
     val d := Day.Monday
     print(d.is_weekday())

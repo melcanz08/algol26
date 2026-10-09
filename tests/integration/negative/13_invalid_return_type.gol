@@ -1,4 +1,4 @@
-function bad() -> float
-    return "not a float"
+fn bad() -> float
+    "not a float"
 proc main
     print(bad())

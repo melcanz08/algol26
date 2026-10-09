@@ -1,7 +1,6 @@
-function identity<T>(x: T) -> T
-    return x
-
-function main() -> Int
+fn identity<T>(x: T) -> T
+    x
+proc main() -> Int
     val a := identity(5)
     print a
     

@@ -1,4 +1,4 @@
-function main() -> Int
+proc main() -> Int
     val value := Some(5)
     
     match value

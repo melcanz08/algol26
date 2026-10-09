@@ -1,7 +1,7 @@
 // Weather Analysis System
 // Demonstrates ALGOL26's Result-based try/catch.
 
-function classify_temperature(temp: float) -> string
+proc classify_temperature(temp: float) -> string
     if temp < 10.0 then
         return "Cold"
     if temp < 20.0 then
@@ -11,7 +11,7 @@ function classify_temperature(temp: float) -> string
     return "Hot"
 
 // Simulated fallible operation: returns Error if the input is negative.
-function safe_average(a: float, b: float, c: float, d: float, e: float, f: float, g: float) -> Result<float, string>
+proc safe_average(a: float, b: float, c: float, d: float, e: float, f: float, g: float) -> Result<float, string>
     val sum := a + b + c + d + e + f + g
     if sum < 0.0 then
         return Error("negative sum")

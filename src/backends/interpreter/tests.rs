@@ -477,7 +477,7 @@ proc main
 fn var_decl_call_evaluates_once() {
     let output = run_source(
         r#"
-function make() -> Int
+proc make() -> Int
     print("making")
     return 42
 
@@ -493,7 +493,7 @@ proc main
 fn unused_var_decl_call_side_effect_preserved() {
     let output = run_source(
         r#"
-function make() -> Int
+proc make() -> Int
     print("side effect")
     return 42
 
@@ -534,12 +534,11 @@ rec Point
     y: Int
 
 trait Show
-    function show() -> String
+    fn show() -> String
 
 impl Show for Point
-    function show() -> String
-        return "(" + Int.to_string(self.x) + "," + Int.to_string(self.y) + ")"
-
+    fn show() -> String
+        "(" + Int.to_string(self.x) + "," + Int.to_string(self.y) + ")"
 proc main
     val p := Point { x: 1, y: 2 }
     print(p.show())

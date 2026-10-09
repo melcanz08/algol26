@@ -83,9 +83,8 @@ fn generic_function_reaches_backend_with_resolved_types() {
     use algol26::compiler::Compiler;
 
     let source = r#"
-function identity<T>(x: T) -> T
-    return x
-
+fn identity<T>(x: T) -> T
+    x
 proc main
     val q := identity(42)
     print(q)

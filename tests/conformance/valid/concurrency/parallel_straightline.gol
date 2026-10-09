@@ -1,4 +1,4 @@
-function main() -> Void
+proc main() -> Void
     parallel do
         print("a1")
         print("a2")

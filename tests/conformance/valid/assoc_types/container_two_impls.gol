@@ -1,6 +1,6 @@
 trait Container
     type Item
-    function first(self: &Self) -> Self::Item
+    fn first(self: &Self) -> Self::Item
 
 rec IntBox
     value: Int
@@ -10,14 +10,12 @@ rec FloatBox
 
 impl Container for IntBox
     type Item := Int
-    function first(self: &IntBox) -> Int
-        return self.value
-
+    fn first(self: &IntBox) -> Int
+        self.value
 impl Container for FloatBox
     type Item := Float
-    function first(self: &FloatBox) -> Float
-        return self.value
-
+    fn first(self: &FloatBox) -> Float
+        self.value
 proc main
     val bi := IntBox { value: 42 }
     val bf := FloatBox { value: 3.5 }

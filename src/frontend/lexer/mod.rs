@@ -16,7 +16,7 @@ mod tests;
 pub enum Token {
     // Keywords
     Proc,
-    Function,
+    Fn,
     Return,
     Var,
     Val,
@@ -164,7 +164,7 @@ lazy_static::lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token> = {
         let mut m = HashMap::new();
         m.insert("proc", Token::Proc);
-        m.insert("function", Token::Function);
+        m.insert("fn", Token::Fn);
         m.insert("var", Token::Var);
         m.insert("val", Token::Val);
         m.insert("if", Token::If);
@@ -222,6 +222,20 @@ lazy_static::lazy_static! {
 // in-string state, and `\\` does not start an escape. Without this, a
 // line like `print("a\"b") // c` leaves the state machine out of sync
 // and the trailing comment is mis-tokenized.
+/// True when `line` begins with `kw` followed by a non-identifier
+/// character (or end-of-line). Used by `tokenize_line` for the very
+/// short `fn` keyword: a bare `starts_with("fn")` would also match
+/// an identifier like `fnord`.
+fn starts_with_keyword(line: &str, kw: &str) -> bool {
+    if !line.starts_with(kw) {
+        return false;
+    }
+    line[kw.len()..]
+        .chars()
+        .next()
+        .map_or(true, |c| !c.is_alphanumeric() && c != '_')
+}
+
 fn strip_comment_not_in_string(line: &str) -> String {
     let mut result = String::new();
     let mut in_string = false;
@@ -472,14 +486,13 @@ impl Lexer {
     ) -> Result<()> {
         if trimmed.starts_with("proc") {
             Lexer::parse_declaration(Token::Proc, "proc".len(), trimmed, tokens, positions);
-        } else if trimmed.starts_with("function") {
-            Lexer::parse_declaration(
-                Token::Function,
-                "function".len(),
-                trimmed,
-                tokens,
-                positions,
-            );
+        } else if starts_with_keyword(trimmed, "fn") {
+            // ADR 0048. `fn` is only two characters, so a bare
+            // `starts_with("fn")` would also match an identifier
+            // like `fnord`. Recognize the keyword only when it is
+            // followed by a non-identifier character (space, `(`,
+            // `<`, or end-of-line).
+            Lexer::parse_declaration(Token::Fn, "fn".len(), trimmed, tokens, positions);
         } else {
             Lexer::tokenize_expression(trimmed, line_number, line, tokens, positions)?;
         }

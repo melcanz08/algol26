@@ -99,9 +99,8 @@ proc main
 #[test]
 fn test_differential_functions() {
     let source = r#"
-function square(x: float) -> float
-    return x * x
-
+fn square(x: float) -> float
+    x * x
 proc main
     val result := square(4.0)
     print(result)

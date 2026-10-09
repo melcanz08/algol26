@@ -2,9 +2,8 @@ rec User
     name: String
 
 impl User
-    function label(self: &User) -> String
-        return self.name
-
+    fn label(self: &User) -> String
+        self.name
 proc main
     val u := User { name: "Alice" }
     print(u.label())

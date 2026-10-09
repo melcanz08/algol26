@@ -1,11 +1,10 @@
 // OUTPUT: 1
 trait Constant
-    function value() -> Int
+    fn value() -> Int
 
 impl Constant for Int
-    function value() -> Int
-        return 1
-
+    fn value() -> Int
+        1
 proc main
     val x := 10
     print(x.value())

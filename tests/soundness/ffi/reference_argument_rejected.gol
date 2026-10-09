@@ -3,7 +3,7 @@
 // `&T` / `&mut T` are compile-time concepts; the FFI boundary sees
 // only pointers. Rejected at declaration site by the analyzer.
 // See docs/status/ffi-boundary.md.
-extern "C" function takes_ref(x: &Int) -> Void
+extern "C" fn takes_ref(x: &Int) -> Void
 
 proc main
     var n := 5

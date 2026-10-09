@@ -12,7 +12,7 @@ fn parse_source(source: &str) -> Result<Vec<FunctionDecl>> {
 
 #[test]
 fn test_parse_simple_function() {
-    let source = "function main() -> Float\n    return 42.0";
+    let source = "fn main() -> Float\n    42.0";
     let functions = parse_source(source).expect("parse error");
     assert_eq!(functions.len(), 1);
     assert_eq!(functions[0].name, "main");
@@ -25,21 +25,21 @@ fn test_parse_simple_function() {
 
 #[test]
 fn test_parse_var_decl() {
-    let source = "function main()\n    var x := 5\n    val y := 10";
+    let source = "proc main()\n    var x := 5\n    val y := 10";
     let functions = parse_source(source).expect("parse error");
     assert_eq!(functions[0].body.len(), 2);
 }
 
 #[test]
 fn test_parse_if_else() {
-    let source = "function main()\n    if x > 5\n        print x\n    else\n        print 0";
+    let source = "proc main()\n    if x > 5\n        print x\n    else\n        print 0";
     let functions = parse_source(source).expect("parse error");
     assert_eq!(functions[0].body.len(), 1);
 }
 
 #[test]
 fn test_parse_array_access() {
-    let source = "function main()\n    var x := arr[0]";
+    let source = "proc main()\n    var x := arr[0]";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::VarDecl { value, .. } => match &value.kind {
@@ -52,7 +52,7 @@ fn test_parse_array_access() {
 
 #[test]
 fn test_parse_function_call() {
-    let source = "function main()\n    print add(1, 2)";
+    let source = "proc main()\n    print add(1, 2)";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::Print { expr, .. } => match &expr.kind {
@@ -68,7 +68,7 @@ fn test_parse_function_call() {
 
 #[test]
 fn test_parse_for_as_expr() {
-    let source = "function main()\n    val x := for i in [1,2,3] do i + 1";
+    let source = "proc main()\n    val x := for i in [1,2,3] do i + 1";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::VarDecl { value, .. } => match &value.kind {
@@ -86,7 +86,7 @@ fn test_parse_for_as_expr() {
 
 #[test]
 fn test_parse_method_call() {
-    let source = "function main()\n    list.append(3)";
+    let source = "proc main()\n    list.append(3)";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::Expression(e) => match &e.kind {
@@ -102,7 +102,7 @@ fn test_parse_method_call() {
 
 #[test]
 fn test_parse_range() {
-    let source = "function main()\n    val r := 1..5";
+    let source = "proc main()\n    val r := 1..5";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::VarDecl { value, .. } => match &value.kind {
@@ -126,7 +126,7 @@ fn test_parse_range() {
 fn test_negation_produces_unary_negate() {
     use crate::frontend::ast::UnaryOp;
 
-    let source = "function main() -> Float\n    return -5.0";
+    let source = "fn main() -> Float\n    -5.0";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::Return {
@@ -145,7 +145,7 @@ fn test_negation_produces_unary_negate() {
 #[test]
 fn test_match_expression_in_value_position() {
     let source = "\
-function main() -> Float
+proc main() -> Float
     val x := match 1
         case 1
             42.0
@@ -186,7 +186,7 @@ fn test_garbage_pattern_is_rejected() {
     // handle) rather than a character like `@`, which the lexer rejects
     // before the parser runs.
     let source = "\
-function main() -> Float
+proc main() -> Float
     val x := match 1
         case + 42
             1.0
@@ -207,7 +207,7 @@ fn test_mixed_parens_on_some_is_rejected() {
     // `Some(5` (missing close paren) must error, not silently accept
     // the value as if the paren were optional.
     let source = "\
-function main() -> Float
+proc main() -> Float
     val x := Some(5
     return 0.0";
     let err = parse_source(source).expect_err("unbalanced parens should fail");
@@ -222,7 +222,7 @@ fn test_do_at_statement_position_is_rejected() {
     // no-op. Previously `parse_stmt` consumed the `do` and parsed the
     // next statement, which hid typos.
     let source = "\
-function main() -> Float
+proc main() -> Float
     do val x := 5
     return 0.0";
     let err = parse_source(source).expect_err("`do` at statement position should fail");

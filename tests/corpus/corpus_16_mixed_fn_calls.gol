@@ -1,7 +1,7 @@
 // OUTPUT: 6
 // OUTPUT: 120
 // OUTPUT: 8
-function sum_to(n: Int) -> Int
+proc sum_to(n: Int) -> Int
     var total := 0
     var i := 1
     for _ in [1, 2, 3] do
@@ -9,7 +9,7 @@ function sum_to(n: Int) -> Int
         i := i + 1
     return total
 
-function fact(n: Int) -> Int
+proc fact(n: Int) -> Int
     if n <= 1 then
         return 1
     else

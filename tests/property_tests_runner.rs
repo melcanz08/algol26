@@ -32,13 +32,13 @@ fn test_lexer_no_panic_random_strings() {
 #[test]
 fn test_parser_no_panic_random_strings() {
     let random_strings = vec![
-        "function main() -> Int\n    return 0",
+        "fn main() -> Int\n    0",
         "proc main\n    print 1",
         "val x := 5",
         "if true\n    print 1",
         "for i in [1, 2, 3]\n    print i",
-        "trait Test\n    function method()",
-        "impl Test for Int\n    function method()\n        return 0",
+        "trait Test\n    proc method()",
+        "impl Test for Int\n    proc method()\n        return 0",
     ];
 
     for source in random_strings {
@@ -118,16 +118,16 @@ fn test_type_from_str_no_panic() {
 #[test]
 fn test_compile_no_panic_malformed_source() {
     let malformed_sources = vec![
-        "",                // Empty
-        "function",        // Incomplete function
-        "function main(",  // Unclosed paren
-        "function main()", // No body
-        "val",             // Incomplete declaration
-        "if",              // Incomplete if
-        "for",             // Incomplete for
-        "while",           // Incomplete while
-        "trait",           // Incomplete trait
-        "impl",            // Incomplete impl
+        "",            // Empty
+        "function",    // Incomplete function
+        "proc main(",  // Unclosed paren
+        "proc main()", // No body
+        "val",         // Incomplete declaration
+        "if",          // Incomplete if
+        "for",         // Incomplete for
+        "while",       // Incomplete while
+        "trait",       // Incomplete trait
+        "impl",        // Incomplete impl
     ];
 
     for source in malformed_sources {

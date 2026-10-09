@@ -111,16 +111,7 @@ fn test_stress_nested_control_flow() {
 }
 #[test]
 fn test_stress_nested_functions() {
-    let source = r#"function add(x: float, y: float) -> float
-    return x + y
-function multiply(x: float, y: float) -> float
-    return x * y
-function compute(x: float) -> float
-    return multiply(add(x, 2.0), add(x, 3.0))
-proc main
-    val result := compute(5.0)
-    print(result)
-"#;
+    let source = "fn add(x: float, y: float) -> float\n    x + y\nfn multiply(x: float, y: float) -> float\n    x * y\nfn compute(x: float) -> float\n    multiply(add(x, 2.0), add(x, 3.0))\nproc main\n    val result := compute(5.0)\n    print(result)\n";
     let (_ir, diags) = build_ir(source);
     assert!(diags.is_empty(), "got {:?}", diags);
 }
@@ -230,11 +221,11 @@ fn test_stress_10_level_nested_if_for_defer_break_return() {
 fn test_stress_10_level_call_chain() {
     let mut src = String::new();
     for i in 0..10 {
-        src.push_str(&format!("function f{}(x{}: float) -> float\n", i, i));
+        src.push_str(&format!("fn f{}(x{}: float) -> float\n", i, i));
         if i > 0 {
-            src.push_str(&format!(" return f{}(x{} + 1.0) + x{}\n", i - 1, i, i));
+            src.push_str(&format!(" f{}(x{} + 1.0) + x{}\n", i - 1, i, i));
         } else {
-            src.push_str(&format!(" return x{} + 1.0\n", i));
+            src.push_str(&format!(" x{} + 1.0\n", i));
         }
         src.push('\n');
     }
@@ -363,17 +354,7 @@ fn test_optimization_preserves_borrow_semantics() {
 #[test]
 fn test_optimization_diff_interpreter_complex() {
     let (before, after) = run_before_after(
-        r#"function add(a: float, b: float) -> float
-    return a + b
-proc main
-    val x := 5.0 + 3.0
-    val y := x + x
-    val z := add(y, 2.0)
-    var total := 0.0
-    for i in [1.0, 2.0, 3.0] do
-        total := total + z
-    print(total)
-"#,
+        "fn add(a: float, b: float) -> float\n    a + b\nproc main\n    val x := 5.0 + 3.0\n    val y := x + x\n    val z := add(y, 2.0)\n    var total := 0.0\n    for i in [1.0, 2.0, 3.0] do\n        total := total + z\n    print(total)\n",
     );
     assert_eq!(before, after, "complex opt broke semantics");
 }

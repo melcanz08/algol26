@@ -3,7 +3,7 @@
 extern "C" function sqrt(x: Float) -> Float from "m"
 extern "C" function pow(x: Float, y: Float) -> Float from "m"
 
-function main() -> Int
+proc main() -> Int
     // Call C sqrt
     val result := sqrt(16.0)
     print result

@@ -63,7 +63,7 @@ fn assert_optimization_preserves(source: &str) {
 #[test]
 fn test_optimization_preserves_arithmetic() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     print 3.0
     print 15.0
     return 0
@@ -74,7 +74,7 @@ function main() -> Int
 #[test]
 fn test_optimization_preserves_lists() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     val arr := [1, 2, 3, 4, 5]
     print List.sum(arr)
     return 0
@@ -85,7 +85,7 @@ function main() -> Int
 #[test]
 fn test_optimization_preserves_strings() {
     let source = r#"
-function main() -> Int
+proc main() -> Int
     print "hello"
     return 0
 "#;

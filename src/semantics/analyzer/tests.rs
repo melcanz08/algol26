@@ -268,7 +268,7 @@ proc main
 #[test]
 fn test_match_option_with_both_arms_accepted() {
     let source = "\
-function unwrap_or(m: Option<Float>, d: Float) -> Float
+proc unwrap_or(m: Option<Float>, d: Float) -> Float
     return match m
         case Some(v)
             v
@@ -284,7 +284,7 @@ function unwrap_or(m: Option<Float>, d: Float) -> Float
 #[test]
 fn test_match_option_missing_none_rejected() {
     let source = "\
-function unwrap(m: Option<Float>) -> Float
+proc unwrap(m: Option<Float>) -> Float
     return match m
         case Some(v)
             v
@@ -305,7 +305,7 @@ function unwrap(m: Option<Float>) -> Float
 #[test]
 fn test_match_option_with_wildcard_accepted() {
     let source = "\
-function unwrap(m: Option<Float>) -> Float
+proc unwrap(m: Option<Float>) -> Float
     return match m
         case Some(v)
             v
@@ -321,7 +321,7 @@ function unwrap(m: Option<Float>) -> Float
 #[test]
 fn test_match_result_missing_error_rejected() {
     let source = "\
-function unwrap(r: Result<Float, String>) -> Float
+proc unwrap(r: Result<Float, String>) -> Float
     return match r
         case Ok(v)
             v
@@ -336,7 +336,7 @@ function unwrap(r: Result<Float, String>) -> Float
 #[test]
 fn test_match_bool_missing_false_rejected() {
     let source = "\
-function f(b: Bool) -> Float
+proc f(b: Bool) -> Float
     return match b
         case true
             1.0
@@ -353,7 +353,7 @@ function f(b: Bool) -> Float
 #[test]
 fn test_path_return_through_match_accepted() {
     let source = "\
-function f(m: Option<Float>) -> Float
+proc f(m: Option<Float>) -> Float
     match m
         case Some(v)
             return v
@@ -369,7 +369,7 @@ function f(m: Option<Float>) -> Float
 #[test]
 fn test_variadic_extern_accepts_extra_args() {
     let source = "\
-extern \"C\" function printf(fmt: String, ...) -> Int
+extern \"C\" fn printf(fmt: String, ...) -> Int
 
 proc main
     printf(\"hello\\n\")
@@ -384,7 +384,7 @@ proc main
 #[test]
 fn test_variadic_extern_rejects_too_few_args() {
     let source = "\
-extern \"C\" function printf(fmt: String, ...) -> Int
+extern \"C\" fn printf(fmt: String, ...) -> Int
 
 proc main
     printf()
@@ -456,9 +456,8 @@ fn records_instantiation_for_generic_call_with_int_argument() {
     use crate::compiler::assign_expr_ids;
 
     let source = "\
-function identity<T>(x: T) -> T
-    return x
-
+fn identity<T>(x: T) -> T
+    x
 proc main
     val x := identity(42)
     print(x)
@@ -506,9 +505,8 @@ fn records_instantiation_for_generic_call_with_reference_argument() {
     use crate::compiler::assign_expr_ids;
 
     let source = "\
-function identity<T>(x: T) -> T
-    return x
-
+fn identity<T>(x: T) -> T
+    x
 proc main
     val v := 1.0
     val p := &v
@@ -552,9 +550,8 @@ fn non_generic_calls_record_no_instantiation() {
     use crate::compiler::assign_expr_ids;
 
     let source = "\
-function add(x: Int, y: Int) -> Int
-    return x + y
-
+fn add(x: Int, y: Int) -> Int
+    x + y
 proc main
     val z := add(1, 2)
     print(z)
@@ -748,8 +745,8 @@ proc main
 #[test]
 fn unknown_record_name_in_signature_rejected() {
     let source = "\
-function f() -> MissingRecord
-    return 0
+fn f() -> MissingRecord
+    0
 ";
     let err = analyze(source).unwrap_err();
     assert!(
@@ -766,8 +763,8 @@ rec Point
     x: Int
     y: Int
 
-function origin() -> Point
-    return Point { x: 0, y: 0 }
+fn origin() -> Point
+    Point { x: 0, y: 0 }
 ";
     analyze(source).expect("record declared before use should resolve");
 }
@@ -775,9 +772,8 @@ function origin() -> Point
 #[test]
 fn single_letter_type_param_still_resolves() {
     let source = "\
-function identity<T>(x: T) -> T
-    return x
-
+fn identity<T>(x: T) -> T
+    x
 proc main
     print(identity(42))
 ";
@@ -787,8 +783,8 @@ proc main
 #[test]
 fn unknown_record_as_parameter_type_rejected() {
     let source = "\
-function f(p: MissingRecord) -> Int
-    return 0
+fn f(p: MissingRecord) -> Int
+    0
 ";
     let err = analyze(source).unwrap_err();
     assert!(
@@ -870,9 +866,8 @@ rec Point
     x: Int
     y: Int
 
-function manhattan(p: Point) -> Int
-    return p.x + p.y
-
+fn manhattan(p: Point) -> Int
+    p.x + p.y
 proc main
     val p := Point { x: 3, y: 4 }
     val d := manhattan(p)
@@ -1164,9 +1159,8 @@ fn option_of_record_in_signature_resolves() {
 rec Sale
     amount: Int
 
-function maybe_sale() -> Option<Sale>
-    return None
-
+fn maybe_sale() -> Option<Sale>
+    None
 proc main
     match maybe_sale()
         case Some(s)
@@ -1215,9 +1209,8 @@ enum Day
     Tuesday
     Wednesday
 
-function first(s: Set<Day>) -> Day
-    return Day.Monday
-
+fn first(s: Set<Day>) -> Day
+    Day.Monday
 proc main
 end
 "#;
@@ -1227,9 +1220,8 @@ end
 #[test]
 fn set_of_bool_in_signature_resolves() {
     let source = r#"
-function is_empty(s: Set<Bool>) -> Bool
-    return true
-
+fn is_empty(s: Set<Bool>) -> Bool
+    true
 proc main
 end
 "#;
@@ -1239,9 +1231,8 @@ end
 #[test]
 fn set_of_int_in_signature_rejected() {
     let source = r#"
-function f(s: Set<Int>) -> Int
-    return 0
-
+fn f(s: Set<Int>) -> Int
+    0
 proc main
 end
 "#;
@@ -1256,9 +1247,8 @@ end
 #[test]
 fn set_of_float_in_signature_rejected() {
     let source = r#"
-function f(s: Set<Float>) -> Float
-    return 0.0
-
+fn f(s: Set<Float>) -> Float
+    0.0
 proc main
 end
 "#;
@@ -1276,9 +1266,8 @@ fn set_of_small_subrange_resolves() {
     let source = r#"
 type Byte Int in 0..63
 
-function f(s: Set<Byte>) -> Int
-    return 0
-
+fn f(s: Set<Byte>) -> Int
+    0
 proc main
 end
 "#;
@@ -1291,9 +1280,8 @@ fn set_of_large_subrange_rejected() {
     let source = r#"
 type Percentage Int in 0..100
 
-function f(s: Set<Percentage>) -> Int
-    return 0
-
+fn f(s: Set<Percentage>) -> Int
+    0
 proc main
 end
 "#;
@@ -1552,15 +1540,14 @@ end
 fn dyn_trait_coercion_accepts_implementing_type() {
     let source = "\
 trait Shape
-    function area(self: &Self) -> Float
+    fn area(self: &Self) -> Float
 
 rec Circle
     r: Float
 
 impl Shape for Circle
-    function area(self: &Circle) -> Float
-        return self.r
-
+    fn area(self: &Circle) -> Float
+        self.r
 proc main
     val c := Circle { r: 2.0 }
     val s: &dyn Shape := &c
@@ -1572,7 +1559,7 @@ proc main
 fn dyn_trait_coercion_rejects_missing_impl() {
     let source = "\
 trait Shape
-    function area(self: &Self) -> Float
+    fn area(self: &Self) -> Float
 
 rec Square
     side: Float
@@ -1599,7 +1586,7 @@ fn dyn_trait_requires_object_safe_trait() {
     // a property of the trait declaration alone.
     let source = "\
 trait Consuming
-    function take(self: Self) -> Int
+    fn take(self: Self) -> Int
 
 proc main
     var x: &dyn Consuming := 0

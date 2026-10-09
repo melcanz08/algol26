@@ -1,6 +1,6 @@
 // OUTPUT: cleanup
 // OUTPUT: 42
-function compute() -> Int
+proc compute() -> Int
     defer
         print("cleanup")
     return 42

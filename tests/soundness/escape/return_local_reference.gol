@@ -1,5 +1,5 @@
 // EXPECT: REJECT E-ESCAPE-001
-function get_ref() -> &Int
+proc get_ref() -> &Int
     var x := 5
     return &x
 end

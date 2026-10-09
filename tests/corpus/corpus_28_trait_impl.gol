@@ -1,11 +1,10 @@
 // OUTPUT: 20
 trait Doubler
-    function double(n: Int) -> Int
+    fn double(n: Int) -> Int
 
 impl Doubler for Int
-    function double(n: Int) -> Int
-        return n * 2
-
+    fn double(n: Int) -> Int
+        n * 2
 proc main
     val x := 10
     print(x.double(x))

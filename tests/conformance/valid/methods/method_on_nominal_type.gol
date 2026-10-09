@@ -1,9 +1,8 @@
 type UserId distinct Int
 
 impl UserId
-    function describe(self: &UserId) -> String
-        return "user"
-
+    fn describe(self: &UserId) -> String
+        "user"
 proc main
     val id := UserId.from_base(1)
     print(id.describe())

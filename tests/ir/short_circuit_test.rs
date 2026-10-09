@@ -47,7 +47,7 @@ fn run(source: &str) -> String {
 #[test]
 fn test_and_short_circuits() {
     let source = "\
-function side_effect() -> Bool
+proc side_effect() -> Bool
     print(\"evaluated\")
     return true
 
@@ -67,7 +67,7 @@ proc main
 #[test]
 fn test_or_short_circuits() {
     let source = "\
-function side_effect() -> Bool
+proc side_effect() -> Bool
     print(\"evaluated\")
     return false
 
@@ -87,7 +87,7 @@ proc main
 #[test]
 fn test_and_evaluates_right_when_left_is_true() {
     let source = "\
-function side_effect() -> Bool
+proc side_effect() -> Bool
     print(\"evaluated\")
     return true
 
@@ -103,7 +103,7 @@ proc main
 #[test]
 fn test_or_evaluates_right_when_left_is_false() {
     let source = "\
-function side_effect() -> Bool
+proc side_effect() -> Bool
     print(\"evaluated\")
     return true
 

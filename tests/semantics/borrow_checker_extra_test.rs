@@ -167,9 +167,8 @@ proc main
 fn test_borrow_across_function_boundary() {
     // Borrow passed to function should not escape
     let source = r#"
-function read_value(x: &float) -> float
-    return x
-
+fn read_value(x: &float) -> float
+    x
 proc main
     val value := 42.0
     val result := read_value(&value)
@@ -252,9 +251,8 @@ fn test_two_mut_borrows_in_same_call_rejected() {
     // statement-scoped temporary borrow; the second hits it in
     // `check_borrow_rules`. Must be rejected.
     let source = r#"
-function take(a: &mut float, b: &mut float) -> float
-    return a
-
+fn take(a: &mut float, b: &mut float) -> float
+    a
 proc main
     var x := 0.0
     val y := take(&mut x, &mut x)
@@ -274,12 +272,10 @@ fn test_two_mut_borrows_in_same_statement_expression_rejected() {
     // temporary is still live when the second call's argument is
     // analyzed. Must be rejected.
     let source = r#"
-function f(a: &mut float) -> float
-    return a
-
-function g(a: &mut float) -> float
-    return a
-
+fn f(a: &mut float) -> float
+    a
+fn g(a: &mut float) -> float
+    a
 proc main
     var x := 0.0
     val y := f(&mut x) + g(&mut x)
@@ -298,12 +294,10 @@ fn test_two_mut_borrows_in_separate_statements_accepted() {
     // Separate statements: the first temporary is released at the
     // statement boundary, so the second call sees no conflict.
     let source = r#"
-function f(a: &mut float) -> float
-    return a
-
-function g(a: &mut float) -> float
-    return a
-
+fn f(a: &mut float) -> float
+    a
+fn g(a: &mut float) -> float
+    a
 proc main
     var x := 0.0
     val y := f(&mut x)
@@ -324,9 +318,8 @@ fn test_mut_borrow_then_read_in_next_statement_accepted() {
     // subsequent read of x is not blocked by the earlier
     // `&mut x` argument.
     let source = r#"
-function f(a: &mut float) -> float
-    return a
-
+fn f(a: &mut float) -> float
+    a
 proc main
     var x := 0.0
     val y := f(&mut x)

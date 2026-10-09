@@ -49,9 +49,8 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
 #[test]
 fn test_semantic_ir_is_backend_independent() {
     let source = r#"
-function add(x: float, y: float) -> float
-    return x + y
-
+fn add(x: float, y: float) -> float
+    x + y
 proc main
     val result := add(5.0, 3.0)
     print(result)

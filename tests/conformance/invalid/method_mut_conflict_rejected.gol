@@ -3,7 +3,7 @@ rec User
     name: String
 
 impl User
-    function rename(self: &mut User, new_name: String)
+    proc rename(self: &mut User, new_name: String)
         self.name := new_name
 
 proc main

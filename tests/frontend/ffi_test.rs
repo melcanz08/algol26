@@ -5,7 +5,7 @@ use algol26::frontend::parser::Parser;
 #[test]
 fn test_parse_simple_ffi() {
     let source = r#"
-extern "C" function sqrt(x: Float) -> Float from "m"
+extern "C" fn sqrt(x: Float) -> Float from "m"
 "#;
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
@@ -24,7 +24,7 @@ extern "C" function sqrt(x: Float) -> Float from "m"
 #[test]
 fn test_parse_symbol_renaming() {
     let source = r#"
-extern "C" function my_func(x: Int) -> Int from "libcustom" as "real_c_name"
+extern "C" fn my_func(x: Int) -> Int from "libcustom" as "real_c_name"
 "#;
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);

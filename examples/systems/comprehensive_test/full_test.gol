@@ -3,12 +3,10 @@
 
 import "helpers.gol"
 
-function add_values(x: float, y: float) -> float
-    return x + y
-
-function string_processor(text: string) -> string
-    return String.to_upper(text)
-
+fn add_values(x: float, y: float) -> float
+    x + y
+fn string_processor(text: string) -> string
+    String.to_upper(text)
 proc main
     print("=== ALGOL26 COMPREHENSIVE TEST ===")
     

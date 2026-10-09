@@ -1,5 +1,5 @@
 trait Shape
-    function area(self: &Self) -> Float
+    fn area(self: &Self) -> Float
 
 proc main
     var x: dyn Shape := 0

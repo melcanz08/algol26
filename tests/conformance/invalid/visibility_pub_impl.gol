@@ -2,8 +2,7 @@ rec Foo
     x: Int
 
 pub impl Foo
-    function get(self: &Foo) -> Int
-        return self.x
-
+    fn get(self: &Foo) -> Int
+        self.x
 proc main
     print(0)

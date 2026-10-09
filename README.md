@@ -103,11 +103,15 @@ proc main
 >   Run a WASM build with `runtime/wasm/run.sh <file.gol>`.
 >
 > Several features are interpreter-only in the current version —
-> `rec` records, `Map<K, V>`, `List.append`, `Option`, `Result` with
-> `try`/`catch`, and `String.*` conversions among them. LLVM and WASM
-> refuse these at the capability boundary and print an `E0002` error
-> suggesting `--interpreter`. The matrix below is the authoritative
-> list.
+> `Map<K, V>`, `List.append`, `Option`, `Result` with `try`/`catch`,
+> and `String.*` conversions among them. LLVM and WASM refuse these
+> at the capability boundary and print an `E0002` error suggesting
+> `--interpreter`. The matrix below is the authoritative list.
+>
+> `rec` records are **no longer** on this list. Every record
+> boundary — parameter, return, nested field, in a list, method
+> with `&self` or by-value `self` — works on both interpreter and
+> LLVM. Verified by probe.
 
 ## Backends
 
@@ -148,9 +152,16 @@ Plus `--timing` for per-phase compile durations, on the LLVM path:
 
 These are verified gaps in the current version.
 
-- **Chained method calls on field accesses don't parse.**
-  `x.field.method()` is rejected by the parser; bind the field to a
-  local first (`val tmp := x.field; tmp.method()`).
+- **Chained method calls on field accesses fail on LLVM.**
+  `x.field.method()` and `a.b.c.method()` parse and run on the
+  interpreter, but LLVM codegen emits malformed IR for the field-
+  access receiver shape and fails with an `E0002` "Call parameter
+  type" error. Workaround: bind the field to a local first
+  (`val tmp := x.field; tmp.method()`). Index-receiver and
+  method-then-field chains (`arr[0].method()`, `x.m().field`) work
+  on both backends. The parser is not the problem — the README
+  previously described this as a parse limitation, which was
+  stale.
 - **Nested `import` inside a `procedure` works; top-level imports
   work; imported files' own imports are followed recursively.**
   Only circular imports are rejected.
@@ -225,11 +236,14 @@ but it is not the only mechanism.
 |----------|---------|
 | [`docs/STATUS.md`](docs/STATUS.md) | Feature matrix + known gaps |
 | [`docs/pass-contracts.md`](docs/pass-contracts.md) | Compiler pass contracts and pipeline rules |
-| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0028) |
+| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0048) |
 | [`docs/features/`](docs/features/) | Per-feature reference docs |
 | [`docs/releases/`](docs/releases/) | Release notes |
 | [`docs/archive/`](docs/archive/) | Superseded docs, kept for history |
 | [`docs/README.md`](docs/README.md) | Full index of all docs |
+| [`docs/status/safety-guarantees.md`](docs/status/safety-guarantees.md) | The language's four safety claims, what enforces each, where they end |
+| [`docs/status/analyzer-verifier-partition.md`](docs/status/analyzer-verifier-partition.md) | Which safety rules the analyzer owns vs. the verifier |
+| [`docs/status/llvm-support.md`](docs/status/llvm-support.md) | What LLVM refuses and why, per feature |
 
 ## Architecture
 
@@ -276,9 +290,11 @@ optimization without pretending the level changed.
 
 > **The borrow checker is conservative in the current version.**
 > It accepts some programs a stricter borrow system would reject.
-> The known gaps are documented in
-> `docs/STATUS.md`. Fixing them requires design
-> decisions that belong in their own ADRs.
+> The known gaps are enumerated in
+> [`docs/status/safety-guarantees.md`](docs/status/safety-guarantees.md)
+> §"Known gaps" (by review ID: B1, B2, B3, B5). Fixing them
+> requires design decisions that belong in their own ADRs (0043,
+> 0044, 0045, 0046).
 
 ## Contributing
 

@@ -29,27 +29,18 @@ impl RaceDetector {
                 }
                 self.analyze_expr(value, in_spawn);
             }
-            Stmt::VarDecl {
-                name,
-                value,
-                mutable,
-                ..
-            } => {
-                // Only `var` bindings participate in race analysis. A
-                // `val` is written exactly once, before any concurrent
-                // observer could exist, and never reassigned — so it
-                // cannot race with anything. Recording it as a write
-                // produces false positives on read-only sharing (e.g.
-                // `val x := 42; spawn { print(x) }`).
-                if *mutable {
-                    if in_spawn {
-                        if let Some(accesses) = self.spawned_accesses.last_mut() {
-                            Self::merge_access_map(accesses, name, AccessType::Write);
-                        }
-                    } else {
-                        Self::merge_access_map(&mut self.main_accesses, name, AccessType::Write);
-                    }
-                }
+            Stmt::VarDecl { value, .. } => {
+                // A declaration is not a race-relevant access. It
+                // happens once, sequentially, before any concurrent
+                // observer exists. Recording it as a Write produced a
+                // false positive on the common pattern
+                //     var s := ...; spawn { print(s) }
+                // where the declaration write conflicted with the
+                // spawn's read even though the declaration completed
+                // before the spawn began. Subsequent reads and
+                // assignments are tracked by the `analyze_expr` (Var)
+                // and `Stmt::Assign` arms; the declaration itself adds
+                // nothing.
                 self.analyze_expr(value, in_spawn);
             }
             Stmt::Expression(Expr {
@@ -140,15 +131,10 @@ impl RaceDetector {
                 Self::merge_access_map(accesses, name, AccessType::Write);
                 self.collect_expr_accesses(value, accesses);
             }
-            Stmt::VarDecl {
-                name,
-                value,
-                mutable,
-                ..
-            } => {
-                if *mutable {
-                    Self::merge_access_map(accesses, name, AccessType::Write);
-                }
+            Stmt::VarDecl { value, .. } => {
+                // Declaration is not an access; see the comment in
+                // `analyze_stmt`. Only the value expression can
+                // reference existing variables.
                 self.collect_expr_accesses(value, accesses);
             }
             Stmt::Print { expr, .. } => {

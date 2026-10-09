@@ -1,0 +1,60 @@
+// sample: ADR 0048 grammar split in miniature.
+//
+// `fn` bodies are a single indented expression: the value of that
+// expression is the return value. No `return`, no statements.
+//
+// `proc` bodies are a block of statements: `return E` for an
+// early value, `return` alone to exit void. `main` is a `proc`.
+
+rec Student
+    name: String
+    score: Int
+
+impl Student
+    fn passed(self: &Student) -> Bool
+        self.score >= 60
+
+    fn curved(self: &Student) -> Int
+        self.score + 5
+
+    fn honors(self: &Student) -> Bool
+        self.score >= 90
+
+fn highest(a: Int, b: Int) -> Int
+    if a > b then a else b
+
+fn lowest(a: Int, b: Int) -> Int
+    if a < b then a else b
+
+fn average(a: Int, b: Int) -> Int
+    (a + b) / 2
+
+fn band(score: Int) -> String
+    if score >= 90 then "A" else band_lower(score)
+
+fn band_lower(score: Int) -> String
+    if score >= 70 then "B" else "C"
+
+proc report(s: Student)
+    print(s.name)
+    print(s.score)
+    print(s.passed())
+    print(s.honors())
+    print(band(s.score))
+
+proc main
+    val alice := Student { name: "Alice", score: 92 }
+    val bob := Student { name: "Bob", score: 78 }
+    val carol := Student { name: "Carol", score: 55 }
+
+    val a := alice.score
+    val b := bob.score
+    val c := carol.score
+
+    report(alice)
+    report(bob)
+    report(carol)
+
+    val best := highest(a, b)
+    val worst := lowest(b, c)
+    print(average(best, worst))

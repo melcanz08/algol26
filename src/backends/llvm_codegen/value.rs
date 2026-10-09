@@ -496,8 +496,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                             .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
                         let idx_val = self.compile_value(index)?;
 
-                        // Bounds checking
-                        if idx_val.is_int_value() {
+                        // Bounds checking. Only emitted when the
+                        // codegen has a compile-time length for this
+                        // list. A list parameter (`xs: List<Int>`)
+                        // has no `list_lengths` entry — its length
+                        // lives in the caller's frame — so the check
+                        // is skipped for it. See
+                        // docs/features/list_llvm.md.
+                        if self.list_lengths.contains_key(&arr_name) && idx_val.is_int_value() {
                             let idx_int = idx_val.into_int_value();
                             let len = self.list_lengths.get(&arr_name).cloned().unwrap_or(0) as u64;
                             let len_val = self.context.i64_type().const_int(len, false);

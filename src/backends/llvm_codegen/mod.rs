@@ -422,10 +422,48 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ErrorCode::E0002,
                     ));
                 }
-                self.variables
-                    .insert(param_name.clone(), param.into_pointer_value());
+                let incoming = param.into_pointer_value();
+                self.variables.insert(param_name.clone(), incoming);
                 self.var_types
                     .insert(param_name.clone(), param_type.clone());
+
+                // Option B for list parameters (see
+                // docs/features/list_llvm.md). A list param arrives
+                // as the caller's array pointer. Register it in
+                // `list_arrays` so `xs[i]` can find it, and record a
+                // zero-length array type so GEP can compute the
+                // element stride. `list_lengths` deliberately gets
+                // no entry: the length lives in the caller's frame
+                // and is not visible here — the bounds-check sites
+                // in `value.rs` and `instruction.rs` skip their
+                // runtime check when the length is unknown. Iteration
+                // over a list param therefore fails closed (see the
+                // `IteratorInit` arm).
+                if let Type::List(inner) = param_type {
+                    let elem_llvm = self.map_type(inner);
+                    // BasicTypeEnum has no `array_type` method —
+                    // matching the variants is the same shape the
+                    // list-literal arm in `instruction.rs` uses.
+                    let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
+                        BasicTypeEnum::IntType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::StructType(t) => t.array_type(0).into(),
+                        other => {
+                            return Err(CompileError::unsupported_operation(
+                                &format!(
+                                    "LLVM codegen: list parameter `{}` has \
+                                     element type {:?} with no LLVM array \
+                                     lowering",
+                                    param_name, other
+                                ),
+                                "llvm",
+                            ));
+                        }
+                    };
+                    self.list_arrays.insert(param_name.clone(), incoming);
+                    self.list_array_types.insert(param_name.clone(), arr_ty);
+                }
             } else {
                 let alloca = self.create_entry_alloca(param_name, param_type);
                 self.builder.build_store(alloca, param).unwrap();

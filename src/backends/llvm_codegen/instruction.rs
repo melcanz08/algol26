@@ -333,7 +333,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 };
                 let idx_val = self.compile_value(index)?;
-                if idx_val.is_int_value() {
+                // Same guard as the sibling site in `value.rs`: only
+                // emit the bounds check when the codegen has a
+                // compile-time length. List parameters have no
+                // `list_lengths` entry.
+                if self.list_lengths.contains_key(&arr_name) && idx_val.is_int_value() {
                     let idx_int = idx_val.into_int_value();
                     let len = self.list_lengths.get(&arr_name).cloned().unwrap_or(0) as u64;
                     let len_val = self.context.i64_type().const_int(len, false);
@@ -725,9 +729,27 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .unwrap_or(Type::Unknown);
                     self.iterator_elem_types
                         .insert(iterator.clone(), arr_elem_ty);
-                    if let Some(len) = self.list_lengths.get(&arr_name) {
-                        self.iterator_lengths.insert(iterator.clone(), *len);
-                    }
+                    // Fail closed when the iterable's length is not
+                    // known. This happens for list parameters: the
+                    // callee has the array pointer (registered in
+                    // `list_arrays` by `compile_function`) but not
+                    // the caller's length. A rolled loop needs a
+                    // runtime count and an unrolled one needs a
+                    // compile-time count; neither is available.
+                    // Refuse rather than emit a wrong-length loop.
+                    let len = self.list_lengths.get(&arr_name).copied().ok_or_else(|| {
+                        CompileError::unsupported_operation(
+                            &format!(
+                                "cannot iterate list parameter `{}` \
+                                 — its length is not tracked in the callee. \
+                                 Index it (`{}[i]`) or copy it into a local list \
+                                 first.",
+                                arr_name, arr_name
+                            ),
+                            "llvm",
+                        )
+                    })?;
+                    self.iterator_lengths.insert(iterator.clone(), len);
                     let idx_alloca =
                         self.create_entry_alloca(&format!("{}_idx", iterator), &Type::Int);
                     self.builder

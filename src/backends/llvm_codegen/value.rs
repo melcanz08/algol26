@@ -934,17 +934,46 @@ impl<'ctx> IRCodeGen<'ctx> {
                         }
                     }
                     _ => {
+                        // Most record values are already pointers to
+                        // their alloca: `RecordLiteral` returns one
+                        // (see the arm above) and `Variable` for a
+                        // record holds one directly. One path breaks
+                        // the convention — `ArrayAccess` on a
+                        // `List<Record>` loads the struct by value
+                        // out of the element slot. Spill a by-value
+                        // struct to a temporary alloca so the GEP
+                        // below has a pointer to work with. The
+                        // alloca is stack-allocated and LLVM's
+                        // mem2reg promotes it, so there is no
+                        // runtime cost. This is the surgical fix;
+                        // unifying the representation of a record
+                        // value across all producers is a separate
+                        // refactor (see the List<T> work in A2 for
+                        // the shape of that class of problem).
                         let val = self.compile_value(object)?;
-                        if !val.is_pointer_value() {
+                        if val.is_pointer_value() {
+                            val.into_pointer_value()
+                        } else if val.is_struct_value() {
+                            let st = val.into_struct_value();
+                            let tmp = self
+                                .builder
+                                .build_alloca(st.get_type(), "field_obj_tmp")
+                                .unwrap();
+                            self.builder.build_store(tmp, st).unwrap();
+                            tmp
+                        } else {
                             return Err(CompileError::simple(
-                                "LLVM codegen: record object is not a pointer",
+                                &format!(
+                                    "LLVM codegen: record object is not a \
+                                     pointer or struct value (kind: {:?})",
+                                    val
+                                ),
                                 0,
                                 0,
                                 "",
                                 ErrorCode::E0002,
                             ));
                         }
-                        val.into_pointer_value()
                     }
                 };
 

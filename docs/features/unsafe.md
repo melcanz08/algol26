@@ -62,11 +62,14 @@ proc main
         val q := alloc(4)      // accepted
 ```
 
-compile to identical IR, produce identical output, and have identical
-safety properties. The `unsafe` keyword is currently a no-op.
+differ at analysis time: the first is rejected with
+`E0007 alloc requires an unsafe block`, the second is accepted.
+The keyword is enforced for the two operations listed above.
 
-This is not a bug in the sense of producing wrong output. It is a
-gap: the language advertises a safety boundary that does not exist.
+This was not always the case. ADR 0015 landed the enforcement;
+earlier revisions of this document described the pre-0015 state
+where `unsafe` was parsed but unenforced. The passages below
+reflect the current behavior.
 
 ## Syntax
 
@@ -164,19 +167,21 @@ the two operations above.
 
 ## Diagnostics
 
-Unsafe-related error codes currently emitted:
+Unsafe-related errors are reported under `E0007`, the ownership /
+memory-safety bucket. Two message shapes:
 
-**None.** `unsafe` produces no diagnostics because it produces no
-semantics.
+- ``alloc`` / ``free`` outside an `unsafe` block:
+  `alloc requires an unsafe block`
+- Dereference of `Pointer<T>` outside an `unsafe` block:
+  `raw pointer dereference requires an unsafe block`
 
-The intended diagnostic, once enforcement exists, would be
-`E-UNSAFE-001` — "operation X requires an `unsafe` block".
+`E-UNSAFE-001` was the intended code in the original ADR 0009
+design, but ADR 0015 chose to reuse `E0007` rather than add a
+feature-specific code. The message text disambiguates.
 
-This is the **seventh** feature with no coded diagnostics (after
-traits, generics, defer, spawn, FFI, and alloc/free). But it is a
-different kind of gap: those features produce free-form strings for
-errors that *do* occur, whereas `unsafe` produces no errors because
-it enforces nothing.
+`unsafe` blocks themselves produce no diagnostics. An empty
+`unsafe` block is accepted (see "Open questions"); a block whose
+body uses no gated operations is accepted.
 
 ## Test coverage
 
@@ -220,9 +225,10 @@ Following the stages in `docs/architecture-direction.md`:
 unsafe
     semantics:   Not implemented (parsed only)
     parsed:      yes
-    typed:       no (the block is type-checked, but the keyword's
-                      effect on typing is not modeled)
-    validated:   no
+    typed:       yes (the block is type-checked; the analyzer's
+                      unsafe_depth counter tracks the boundary)
+    validated:   yes (ADR 0015 enforcement; see Enforcement
+                      section above)
     IR:          N/A (no IR representation)
     verified:    no
     interpreter: N/A (block unwraps to a plain block)

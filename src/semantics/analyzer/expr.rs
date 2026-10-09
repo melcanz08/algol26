@@ -762,6 +762,13 @@ impl SemanticAnalyzer {
 
                 let entry_state = self.state.fork();
 
+                // Names visible before entering the loop body, matching
+                // the `for` handler. Only moves of these count as "move
+                // in loop body"; a variable declared inside the body is
+                // recreated each iteration.
+                let outer_vars: HashSet<String> =
+                    self.scopes.iter().flat_map(|s| s.keys().cloned()).collect();
+
                 let (body_result, body_exit) = self.in_branch(|a| {
                     a.loop_stack.push(LoopContext {
                         region_depth_at_entry: a.region_depth,
@@ -782,6 +789,34 @@ impl SemanticAnalyzer {
                     r
                 });
                 let result_type = body_result?;
+
+                // Reject moves of outer variables inside a `while` body,
+                // matching the `for` handler. A while body that runs more
+                // than once would move the same variable on the second
+                // iteration; the analyzer models only the first pass. Prior
+                // to this check, the same program shape was rejected at a
+                // *later* use of the moved variable (via the post-loop
+                // MaybeMoved join), producing a confusing diagnostic that
+                // pointed at the use, not the move. The check is placed
+                // before the join so the error fires at the loop, like in
+                // `for`.
+                let new_moves: Vec<String> = outer_vars
+                    .iter()
+                    .filter(|name| {
+                        let was_owned = entry_state.vars.get(*name).map_or(true, |s| !s.is_moved());
+                        let now_moved = body_exit.vars.get(*name).is_some_and(|s| s.is_moved());
+                        was_owned && now_moved
+                    })
+                    .cloned()
+                    .collect();
+
+                if let Some(moved_var) = new_moves.first() {
+                    return Err(CompileError::at(
+                        *span,
+                        &format!("Cannot move '{}' in loop body", moved_var),
+                        ErrorCode::E0008,
+                    ));
+                }
 
                 // The loop may run zero times. Joining entry with exit yields
                 // MaybeMoved for anything moved in the body — the same

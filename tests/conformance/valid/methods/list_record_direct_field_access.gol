@@ -1,0 +1,13 @@
+rec User
+    name: String
+    age: Int
+
+proc main
+    val a := [User { name: "Alice", age: 30 }, User { name: "Bob", age: 25 }]
+    print(a[0].name)
+    print(a[0].age)
+    print(a[1].name)
+
+    val b := a
+    print(b[0].name)
+    print(b[1].age)

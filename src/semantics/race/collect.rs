@@ -107,7 +107,134 @@ impl RaceDetector {
             ExprKind::AddrOf { expr, .. } => {
                 self.collect_expr_accesses(expr, accesses);
             }
-            _ => {}
+            ExprKind::Borrow { expr, .. } => {
+                self.collect_expr_accesses(expr, accesses);
+            }
+            ExprKind::MutBorrow { expr, .. } => {
+                self.collect_expr_accesses(expr, accesses);
+            }
+            ExprKind::FieldAccess { object, .. } => {
+                self.collect_expr_accesses(object, accesses);
+            }
+            ExprKind::MethodCall { receiver, args, .. } => {
+                self.collect_expr_accesses(receiver, accesses);
+                for arg in args {
+                    self.collect_expr_accesses(arg, accesses);
+                }
+            }
+            ExprKind::Some { value, .. }
+            | ExprKind::Ok { value, .. }
+            | ExprKind::Error { value, .. } => {
+                self.collect_expr_accesses(value, accesses);
+            }
+            ExprKind::RecordLiteral { fields, .. } => {
+                for (_, v) in fields {
+                    self.collect_expr_accesses(v, accesses);
+                }
+            }
+            ExprKind::MapLiteral { entries, .. } => {
+                for (k, v) in entries {
+                    self.collect_expr_accesses(k, accesses);
+                    self.collect_expr_accesses(v, accesses);
+                }
+            }
+            ExprKind::SetLiteral { elements, .. } => {
+                for e in elements {
+                    self.collect_expr_accesses(e, accesses);
+                }
+            }
+            ExprKind::Range { start, end, .. } => {
+                if let Some(s) = start {
+                    self.collect_expr_accesses(s, accesses);
+                }
+                if let Some(e) = end {
+                    self.collect_expr_accesses(e, accesses);
+                }
+            }
+            // Statement-bodied expression variants. Delegate to
+            // `analyze_stmt_in_collection`, which records against the
+            // caller's access map directly (as opposed to the global
+            // `main_accesses` / `spawned_accesses`).
+            ExprKind::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                for stmt in statements {
+                    self.analyze_stmt_in_collection(stmt, accesses);
+                }
+                if let Some(e) = trailing_expr {
+                    self.collect_expr_accesses(e, accesses);
+                }
+            }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.collect_expr_accesses(condition, accesses);
+                self.collect_expr_accesses(then_branch, accesses);
+                if let Some(e) = else_branch {
+                    self.collect_expr_accesses(e, accesses);
+                }
+            }
+            ExprKind::Match { value, cases, .. } => {
+                self.collect_expr_accesses(value, accesses);
+                for case in cases {
+                    self.collect_expr_accesses(&case.body, accesses);
+                }
+            }
+            ExprKind::TryCatch {
+                try_branch,
+                catch_branch,
+                finally_body,
+                ..
+            } => {
+                self.collect_expr_accesses(try_branch, accesses);
+                self.collect_expr_accesses(catch_branch, accesses);
+                if let Some(body) = finally_body {
+                    for stmt in body {
+                        self.analyze_stmt_in_collection(stmt, accesses);
+                    }
+                }
+            }
+            ExprKind::For {
+                iterable,
+                body,
+                trailing_expr,
+                ..
+            } => {
+                self.collect_expr_accesses(iterable, accesses);
+                for stmt in body {
+                    self.analyze_stmt_in_collection(stmt, accesses);
+                }
+                if let Some(e) = trailing_expr {
+                    self.collect_expr_accesses(e, accesses);
+                }
+            }
+            ExprKind::While {
+                condition,
+                body,
+                trailing_expr,
+                ..
+            } => {
+                self.collect_expr_accesses(condition, accesses);
+                for stmt in body {
+                    self.analyze_stmt_in_collection(stmt, accesses);
+                }
+                if let Some(e) = trailing_expr {
+                    self.collect_expr_accesses(e, accesses);
+                }
+            }
+            // Literal-only variants: no accesses.
+            ExprKind::Number(_, _)
+            | ExprKind::Int(_, _)
+            | ExprKind::String(_, _)
+            | ExprKind::Bool(_, _)
+            | ExprKind::NullPtr(_)
+            | ExprKind::PtrLiteral(_, _)
+            | ExprKind::None(_) => {}
         }
     }
 

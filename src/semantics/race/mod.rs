@@ -44,6 +44,10 @@ impl RaceDetector {
     }
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Vec<String> {
         let mut races = Vec::new();
+        // Names already flagged for a concrete race, so the
+        // conservative pass below can skip them and avoid duplicate
+        // messages.
+        let mut flagged_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         // First pass: collect variable declarations
         for func in functions {
@@ -64,6 +68,7 @@ impl RaceDetector {
                             "Data race detected: variable '{}' accessed concurrently (spawn: {:?}, main: {:?})",
                             var, spawn_access, main_access
                         ));
+                        flagged_vars.insert(var.clone());
                     }
                 }
             }
@@ -80,9 +85,46 @@ impl RaceDetector {
                                     "Data race detected: variable '{}' accessed concurrently between spawned blocks (spawn1: {:?}, spawn2: {:?})",
                                     var, access1, access2
                                 ));
+                                flagged_vars.insert(var.clone());
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Conservative pass: a `var` binding visible to both main
+        // and a spawn is treated as a potential race even when the
+        // only recorded accesses are reads. Rationale: the detector
+        // is per-function and does not follow writes through
+        // function calls, so it cannot prove that no spawn-visible
+        // mutation exists in code it did not analyze. `val` bindings
+        // are exempt — a `val` is written exactly once at
+        // declaration, before any spawn can observe it, and never
+        // reassigned. See `test_val_sharing_is_not_a_race` and
+        // `test_var_sharing_with_spawn_is_conservatively_flagged`.
+        //
+        // This replaces the previous mechanism (recording the
+        // declaration itself as a Write), which produced the same
+        // rejection but with a misleading message that named a
+        // Write that does not exist in the source. The policy is
+        // unchanged; the diagnostic now describes the situation
+        // that actually triggered it.
+        //
+        // The conservative flag is removed when ADR 0044 lands:
+        // place-based tracking can distinguish a read of `x` from
+        // an indirect write through `f(&mut x)`, which the current
+        // name-based model cannot.
+        for spawned in &self.spawned_accesses {
+            for var in spawned.keys() {
+                if self.main_accesses.contains_key(var)
+                    && self.variable_mutability.get(var).copied().unwrap_or(false)
+                    && !flagged_vars.contains(var)
+                {
+                    races.push(format!(
+                        "variable '{}' is a `var` binding shared between main                          and a spawn. The race detector cannot prove that no                          concurrent mutation reaches it — it does not follow                          writes through function calls. Change the binding to                          `val` if it is not reassigned, or restructure to                          avoid sharing a mutable binding across a spawn.",
+                        var
+                    ));
                 }
             }
         }

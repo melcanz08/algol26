@@ -29,6 +29,22 @@ impl RaceDetector {
                 }
                 self.analyze_expr(value, in_spawn);
             }
+            Stmt::FieldAssign { target, value, .. } => {
+                // `b.v := 1` writes through the base variable `b`.
+                // The detector tracks by name, so this is a Write of
+                // `b` — same shape as `Stmt::Assign` for the base
+                // variable. Field-level disambiguation (b.v vs b.w)
+                // is the same place-based-analysis problem as ADR
+                // 0044; deferred.
+                if in_spawn {
+                    if let Some(accesses) = self.spawned_accesses.last_mut() {
+                        Self::merge_access_map(accesses, target, AccessType::Write);
+                    }
+                } else {
+                    Self::merge_access_map(&mut self.main_accesses, target, AccessType::Write);
+                }
+                self.analyze_expr(value, in_spawn);
+            }
             Stmt::VarDecl { value, .. } => {
                 // A declaration is not a race-relevant access. It
                 // happens once, sequentially, before any concurrent
@@ -129,6 +145,10 @@ impl RaceDetector {
         match stmt {
             Stmt::Assign { name, value, .. } => {
                 Self::merge_access_map(accesses, name, AccessType::Write);
+                self.collect_expr_accesses(value, accesses);
+            }
+            Stmt::FieldAssign { target, value, .. } => {
+                Self::merge_access_map(accesses, target, AccessType::Write);
                 self.collect_expr_accesses(value, accesses);
             }
             Stmt::VarDecl { value, .. } => {
@@ -240,7 +260,150 @@ impl RaceDetector {
             ExprKind::AddrOf { expr, .. } => {
                 self.analyze_expr(expr, in_spawn);
             }
-            _ => {}
+            ExprKind::Borrow { expr, .. } => {
+                self.analyze_expr(expr, in_spawn);
+            }
+            ExprKind::MutBorrow { expr, .. } => {
+                self.analyze_expr(expr, in_spawn);
+            }
+            ExprKind::FieldAccess { object, .. } => {
+                // `b.v` reads through the base variable `b`.
+                // Recursing into `object` handles `Variable("b")`
+                // (records a Read) and any nested expression.
+                // Field-level disambiguation is deferred; see the
+                // `Stmt::FieldAssign` arm.
+                self.analyze_expr(object, in_spawn);
+            }
+            ExprKind::MethodCall { receiver, args, .. } => {
+                self.analyze_expr(receiver, in_spawn);
+                for arg in args {
+                    self.analyze_expr(arg, in_spawn);
+                }
+            }
+            ExprKind::Some { value, .. }
+            | ExprKind::Ok { value, .. }
+            | ExprKind::Error { value, .. } => {
+                self.analyze_expr(value, in_spawn);
+            }
+            ExprKind::RecordLiteral { fields, .. } => {
+                for (_, v) in fields {
+                    self.analyze_expr(v, in_spawn);
+                }
+            }
+            ExprKind::MapLiteral { entries, .. } => {
+                for (k, v) in entries {
+                    self.analyze_expr(k, in_spawn);
+                    self.analyze_expr(v, in_spawn);
+                }
+            }
+            ExprKind::SetLiteral { elements, .. } => {
+                for e in elements {
+                    self.analyze_expr(e, in_spawn);
+                }
+            }
+            ExprKind::Range { start, end, .. } => {
+                if let Some(s) = start {
+                    self.analyze_expr(s, in_spawn);
+                }
+                if let Some(e) = end {
+                    self.analyze_expr(e, in_spawn);
+                }
+            }
+            // Statement-bodied expression variants. These normally
+            // appear as `Stmt::Expression(Expr { kind: If/For/While
+            // .. })` and are dispatched by `analyze_stmt`'s own arms,
+            // but nothing prevents them appearing nested inside
+            // another expression (e.g. a `Block` used as a value).
+            // Recurse into sub-expressions and delegate nested
+            // statements back to `analyze_stmt`, which respects the
+            // `in_spawn` flag we're carrying.
+            ExprKind::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                for stmt in statements {
+                    self.analyze_stmt(stmt, in_spawn);
+                }
+                if let Some(e) = trailing_expr {
+                    self.analyze_expr(e, in_spawn);
+                }
+            }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.analyze_expr(condition, in_spawn);
+                self.analyze_expr(then_branch, in_spawn);
+                if let Some(e) = else_branch {
+                    self.analyze_expr(e, in_spawn);
+                }
+            }
+            ExprKind::Match { value, cases, .. } => {
+                self.analyze_expr(value, in_spawn);
+                for case in cases {
+                    // Patterns bind names; only the case body can
+                    // reference variables.
+                    self.analyze_expr(&case.body, in_spawn);
+                }
+            }
+            ExprKind::TryCatch {
+                try_branch,
+                catch_branch,
+                finally_body,
+                ..
+            } => {
+                self.analyze_expr(try_branch, in_spawn);
+                self.analyze_expr(catch_branch, in_spawn);
+                if let Some(body) = finally_body {
+                    for stmt in body {
+                        self.analyze_stmt(stmt, in_spawn);
+                    }
+                }
+            }
+            ExprKind::For {
+                iterable,
+                body,
+                trailing_expr,
+                ..
+            } => {
+                self.analyze_expr(iterable, in_spawn);
+                for stmt in body {
+                    self.analyze_stmt(stmt, in_spawn);
+                }
+                if let Some(e) = trailing_expr {
+                    self.analyze_expr(e, in_spawn);
+                }
+            }
+            ExprKind::While {
+                condition,
+                body,
+                trailing_expr,
+                ..
+            } => {
+                self.analyze_expr(condition, in_spawn);
+                for stmt in body {
+                    self.analyze_stmt(stmt, in_spawn);
+                }
+                if let Some(e) = trailing_expr {
+                    self.analyze_expr(e, in_spawn);
+                }
+            }
+            // Literal-only variants: no sub-expressions, no
+            // accesses to record. Listed explicitly so the compiler
+            // forces a decision when a new ExprKind is added; the
+            // previous `_ => {}` silently ignored FieldAccess,
+            // MethodCall, and every composite constructor, which is
+            // how the C4_race_via_record hole went unnoticed.
+            ExprKind::Number(_, _)
+            | ExprKind::Int(_, _)
+            | ExprKind::String(_, _)
+            | ExprKind::Bool(_, _)
+            | ExprKind::NullPtr(_)
+            | ExprKind::PtrLiteral(_, _)
+            | ExprKind::None(_) => {}
         }
     }
 }

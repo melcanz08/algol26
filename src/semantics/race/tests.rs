@@ -125,8 +125,18 @@ proc main
     );
 }
 
+/// A `var` binding shared with a spawn is conservatively flagged
+/// even when the analyzed program only reads it. The rationale:
+/// the detector is per-function and cannot follow writes through
+/// function calls, so it cannot prove the binding is not mutated
+/// elsewhere. `val` sharing is accepted (`test_val_sharing_is_not_a_race`)
+/// because a `val` is written exactly once before any spawn can
+/// observe it.
+///
+/// The conservative flag is removed when ADR 0044 lands (place-
+/// based tracking distinguishes reads from indirect writes).
 #[test]
-fn test_var_read_during_spawn_is_conservatively_flagged() {
+fn test_var_sharing_with_spawn_is_conservatively_flagged() {
     use crate::frontend::lexer::Lexer;
     use crate::frontend::parser::Parser;
 
@@ -145,6 +155,13 @@ proc main
     let races = detector.analyze(&program.functions);
     assert!(
         !races.is_empty(),
-        "mutable variable shared across spawn must be flagged"
+        "var shared with a spawn must be conservatively flagged"
+    );
+    // The diagnostic must describe the actual situation (a shared
+    // `var`), not a spurious Write that isn't in the source.
+    assert!(
+        races.iter().any(|r| r.contains("`var` binding shared")),
+        "expected conservative-flag message; got: {:?}",
+        races
     );
 }

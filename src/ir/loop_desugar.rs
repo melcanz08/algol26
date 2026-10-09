@@ -1,7 +1,7 @@
 // src/ir/loop_desugar.rs
 
 use crate::common::span::Span;
-use crate::frontend::ast::{BinOp, Expr, ExprKind, FunctionDecl, Stmt};
+use crate::frontend::ast::{BinOp, Expr, ExprKind, FunctionDecl, MatchCaseExpr, Stmt};
 use std::collections::HashMap;
 
 pub fn desugar_loops(functions: &mut [FunctionDecl]) {
@@ -777,7 +777,158 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
             type_args: type_args.clone(),
             span: *span,
         }),
-        _ => expr.clone(),
+        ExprKind::Range {
+            start,
+            end,
+            inclusive,
+            span,
+        } => Expr::new(ExprKind::Range {
+            start: start
+                .as_ref()
+                .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
+            end: end
+                .as_ref()
+                .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
+            inclusive: *inclusive,
+            span: *span,
+        }),
+        ExprKind::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+            span,
+        } => Expr::new(ExprKind::MapLiteral {
+            key_type: key_type.clone(),
+            value_type: value_type.clone(),
+            entries: entries
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        substitute_expr_literal(k, old_name, literal),
+                        substitute_expr_literal(v, old_name, literal),
+                    )
+                })
+                .collect(),
+            span: *span,
+        }),
+        ExprKind::SetLiteral {
+            element_type,
+            elements,
+            span,
+        } => Expr::new(ExprKind::SetLiteral {
+            element_type: element_type.clone(),
+            elements: elements
+                .iter()
+                .map(|e| substitute_expr_literal(e, old_name, literal))
+                .collect(),
+            span: *span,
+        }),
+        ExprKind::Ok { value, span } => Expr::new(ExprKind::Ok {
+            value: Box::new(substitute_expr_literal(value, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::Error { value, span } => Expr::new(ExprKind::Error {
+            value: Box::new(substitute_expr_literal(value, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::Match { value, cases, span } => Expr::new(ExprKind::Match {
+            value: Box::new(substitute_expr_literal(value, old_name, literal)),
+            // Patterns bind names; the substitution must not rewrite
+            // identifiers inside a pattern (they are bindings, not
+            // uses). Substituting only into each case's `body` is the
+            // correct choice. A pattern that shadows the loop var
+            // would ideally suppress substitution in that arm's body,
+            // but patterns in ALGOL26 bind names not appearing in the
+            // enclosing scope — the analyzer rejects collisions — so
+            // conservative substitution is safe.
+            cases: cases
+                .iter()
+                .map(|c| MatchCaseExpr {
+                    pattern: c.pattern.clone(),
+                    body: substitute_expr_literal(&c.body, old_name, literal),
+                })
+                .collect(),
+            span: *span,
+        }),
+        ExprKind::TryCatch {
+            try_branch,
+            catch_var,
+            catch_branch,
+            finally_body,
+            span,
+        } => Expr::new(ExprKind::TryCatch {
+            try_branch: Box::new(substitute_expr_literal(try_branch, old_name, literal)),
+            // The catch variable shadows `old_name` inside
+            // `catch_branch`. If a program writes
+            // `try { ... } catch u { ... uses u ... }` inside a
+            // `for u in ...` body, the catch's `u` is a fresh
+            // binding and the loop's literal must not be substituted
+            // into it.
+            catch_var: catch_var.clone(),
+            catch_branch: if catch_var.as_deref() == Some(old_name) {
+                catch_branch.clone()
+            } else {
+                Box::new(substitute_expr_literal(catch_branch, old_name, literal))
+            },
+            finally_body: finally_body
+                .as_ref()
+                .map(|stmts| substitute_var_literal(stmts, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::For {
+            var,
+            iterable,
+            body,
+            trailing_expr,
+            span,
+        } => Expr::new(ExprKind::For {
+            // The iterable expression is in the *outer* scope, so it
+            // is always substituted.
+            var: var.clone(),
+            iterable: Box::new(substitute_expr_literal(iterable, old_name, literal)),
+            // The body is in the inner scope: if the nested loop's
+            // variable shadows the outer one, the loop-literal must
+            // not be substituted for it.
+            body: if var == old_name {
+                body.clone()
+            } else {
+                substitute_var_literal(body, old_name, literal)
+            },
+            trailing_expr: if var == old_name {
+                trailing_expr.clone()
+            } else {
+                trailing_expr
+                    .as_ref()
+                    .map(|e| Box::new(substitute_expr_literal(e, old_name, literal)))
+            },
+            span: *span,
+        }),
+        ExprKind::While {
+            condition,
+            body,
+            trailing_expr,
+            span,
+        } => Expr::new(ExprKind::While {
+            condition: Box::new(substitute_expr_literal(condition, old_name, literal)),
+            body: substitute_var_literal(body, old_name, literal),
+            trailing_expr: trailing_expr
+                .as_ref()
+                .map(|e| Box::new(substitute_expr_literal(e, old_name, literal))),
+            span: *span,
+        }),
+        // Literal-only variants: no sub-expressions, no substitution
+        // possible. Listed explicitly so the compiler forces a
+        // decision when a new ExprKind variant is added — the
+        // previous `_ => expr.clone()` silently accepted any variant,
+        // which is exactly how the FieldAccess/MethodCall/etc. bugs
+        // went unnoticed.
+        ExprKind::Number(_, _)
+        | ExprKind::Int(_, _)
+        | ExprKind::String(_, _)
+        | ExprKind::Bool(_, _)
+        | ExprKind::NullPtr(_)
+        | ExprKind::PtrLiteral(_, _)
+        | ExprKind::None(_) => expr.clone(),
     }
 }
 

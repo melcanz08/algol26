@@ -171,6 +171,21 @@ fn main() {
             eprint!("{}", render_one_with_source(&e, Some(&source)));
             std::process::exit(1);
         }
+    } else if command == "check" {
+        // Type-check only. Previously this fell through to the
+        // general `compiler.compile(...)` branch, which ran the
+        // full backend pipeline and could surface codegen errors
+        // (E0002, E0004) from `check`. The help text already says
+        // "Type-check only"; this branch makes the behavior match.
+        //
+        // `--interpreter` is ignored here: `check` is `check`, and
+        // the flag is documented as a codegen-path selector.
+        let mut compiler = Compiler::new();
+        if let Err(e) = compiler.type_check_source_for(&source, &filename) {
+            let e = e.with_file(&filename);
+            eprint!("{}", render_one_with_source(&e, Some(&source)));
+            std::process::exit(1);
+        }
     } else if use_interpreter {
         eprintln!("[Interpreting {}]", filename);
         let mut compiler = Compiler::new();

@@ -339,7 +339,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // `list_lengths` entry.
                 if self.list_lengths.contains_key(&arr_name) && idx_val.is_int_value() {
                     let idx_int = idx_val.into_int_value();
-                    let len = self.list_lengths.get(&arr_name).cloned().unwrap_or(0) as u64;
+                    // Same reasoning as the sibling site in `value.rs`:
+                    // the guard proves the entry exists. Fail closed
+                    // rather than silently defaulting to 0.
+                    let len = self
+                        .list_lengths
+                        .get(&arr_name)
+                        .cloned()
+                        .expect("list_lengths entry disappeared between contains_key and get")
+                        as u64;
                     let len_val = self.context.i64_type().const_int(len, false);
                     let zero = self.context.i64_type().const_int(0, false);
 

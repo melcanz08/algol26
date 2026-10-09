@@ -505,7 +505,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                         // docs/features/list_llvm.md.
                         if self.list_lengths.contains_key(&arr_name) && idx_val.is_int_value() {
                             let idx_int = idx_val.into_int_value();
-                            let len = self.list_lengths.get(&arr_name).cloned().unwrap_or(0) as u64;
+                            // The `contains_key` guard above proves the
+                            // entry exists. `unwrap_or(0)` would silently
+                            // check the index against a length-0 list if
+                            // the guard ever regressed — a fail-open that
+                            // makes every out-of-bounds check pass. Fail
+                            // closed instead: the invariant is
+                            // established, not assumed.
+                            let len = self.list_lengths.get(&arr_name).cloned().expect(
+                                "list_lengths entry disappeared between contains_key and get",
+                            ) as u64;
                             let len_val = self.context.i64_type().const_int(len, false);
 
                             // Check idx >= 0

@@ -29,7 +29,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
-use inkwell::values::{FunctionValue, PointerValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
 use std::collections::HashMap;
 
@@ -594,6 +594,68 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.builder.build_unconditional_branch(skip_bb).unwrap();
         self.builder.position_at_end(skip_bb);
         Ok(())
+    }
+
+    /// Coerce a compiled argument to the LLVM parameter type the
+    /// callee expects at position `idx`.
+    ///
+    /// The codegen compiles every argument with `compile_value`, which
+    /// produces a *value*. For a callee whose LLVM signature takes a
+    /// pointer (a method's `&self`, a user function taking `&T`, an
+    /// FFI call taking a C pointer), the argument may need to be a
+    /// pointer instead.
+    ///
+    /// The mismatch surfaces most often when a method call has a
+    /// field-access receiver: `o.inner.get()` compiles `o.inner` to
+    /// the `%Inner` struct value, but `Inner.get`'s signature takes
+    /// `ptr`. Passing the struct produces the LLVM verifier error
+    /// "Call parameter type does not match function signature".
+    ///
+    /// This helper bridges the gap: if the callee expects a pointer
+    /// and we have a struct value, spill to a temp alloca and pass
+    /// the pointer. Reads through `&self` see the right bytes; writes
+    /// through `&mut self` do not (the mutation lands in the temp).
+    /// The `&mut` case is a separate concern — the IR builder would
+    /// need to distinguish "pass by reference" from "pass by value"
+    /// for a `&mut self` receiver. For now, this fix closes the
+    /// read-only case and eliminates the invalid IR.
+    pub(super) fn coerce_arg_to_param(
+        &self,
+        callee: FunctionValue<'ctx>,
+        idx: usize,
+        val: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let param_types = callee.get_type().get_param_types();
+        let Some(expected) = param_types.get(idx) else {
+            // Variadic extra arg — nothing to compare against.
+            return Ok(val);
+        };
+        let expects_ptr = matches!(expected, BasicMetadataTypeEnum::PointerType(_));
+        if !expects_ptr {
+            return Ok(val);
+        }
+        if val.is_pointer_value() {
+            return Ok(val);
+        }
+        if val.is_struct_value() {
+            let st = val.into_struct_value();
+            let tmp = self
+                .builder
+                .build_alloca(st.get_type(), "arg_spill")
+                .unwrap();
+            self.builder.build_store(tmp, st).unwrap();
+            return Ok(tmp.into());
+        }
+        Err(CompileError::unsupported_operation(
+            &format!(
+                "cannot pass value of LLVM kind {:?} to a pointer parameter \
+                 of `{}` (arg {})",
+                val,
+                callee.get_name().to_string_lossy(),
+                idx,
+            ),
+            "llvm",
+        ))
     }
 
     pub(super) fn create_entry_alloca(&self, name: &str, ty: &Type) -> PointerValue<'ctx> {

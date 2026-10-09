@@ -500,8 +500,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .cloned()
                     .or_else(|| self.module.get_function(&llvm_name))
                 {
+                    // Coerce args to the callee's LLVM parameter types.
+                    // The most common case: a method's `&self` parameter
+                    // is `ptr` in LLVM, but `compile_value` may have
+                    // produced a struct value for a field-access receiver.
+                    let coerced: Vec<BasicValueEnum> = arg_vals
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| self.coerce_arg_to_param(callee, i, *v))
+                        .collect::<Result<Vec<_>>>()?;
                     let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
-                        arg_vals.iter().map(|v| (*v).into()).collect();
+                        coerced.iter().map(|v| (*v).into()).collect();
                     let call_site = self
                         .builder
                         .build_call(callee, &call_args, "calltmp")

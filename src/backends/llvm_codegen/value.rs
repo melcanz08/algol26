@@ -335,6 +335,28 @@ impl<'ctx> IRCodeGen<'ctx> {
                             .unwrap()
                     };
                     let fv = self.compile_value(fval)?;
+
+                    // A nested record literal compiles to a pointer to
+                    // its own alloca (see this arm's tail, where
+                    // `alloca.into()` is the return value). The
+                    // enclosing struct's field slot is the struct type
+                    // itself — `%Outer = type { %Inner }`, not
+                    // `{ ptr }` — so storing the pointer would put 8
+                    // bytes of address in a slot that downstream code
+                    // reads as the struct's value. Load the struct
+                    // through the pointer before storing, matching the
+                    // fix pattern in A3 (List<Record> slot-store).
+                    let field_llvm_ty = struct_ty
+                        .get_field_type_at_index(i as u32)
+                        .expect("record struct has fewer fields than its literal");
+                    let fv = match (fv, &field_llvm_ty) {
+                        (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => self
+                            .builder
+                            .build_load(*st, p, &format!("{}_field_{}_load", name, i))
+                            .unwrap(),
+                        (v, _) => v,
+                    };
+
                     self.builder.build_store(fptr, fv).unwrap();
                 }
                 let _ = rec_decl;
@@ -429,8 +451,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .get_function(&llvm_name)
                     .or_else(|| self.functions.get(&llvm_name).cloned())
                 {
+                    // Same coercion as the Instruction::Call form:
+                    // see `coerce_arg_to_param` in mod.rs.
+                    let coerced: Vec<BasicValueEnum> = arg_vals
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| self.coerce_arg_to_param(callee, i, *v))
+                        .collect::<Result<Vec<_>>>()?;
                     let call_args: Vec<inkwell::values::BasicMetadataValueEnum> =
-                        arg_vals.iter().map(|v| (*v).into()).collect();
+                        coerced.iter().map(|v| (*v).into()).collect();
                     let call_site = self
                         .builder
                         .build_call(callee, &call_args, "calltmp")

@@ -120,6 +120,15 @@ fn main() {
         }
     };
 
+    // `--interpreter` selects how a program is executed; `check`
+    // doesn't execute anything, so the combination is a user error.
+    // Reject rather than silently ignoring, which is what happened
+    // before (check ran type-check-only and the flag was dropped).
+    if command == "check" && use_interpreter {
+        eprintln!("Error: '--interpreter' has no meaning with 'check'; 'check' is type-check only");
+        std::process::exit(1);
+    }
+
     let run = command == "run" || run_flag;
 
     let output_name = output_from_cli.unwrap_or_else(|| {

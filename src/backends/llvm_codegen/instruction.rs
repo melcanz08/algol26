@@ -548,7 +548,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 } else if callee_name == "print" || callee_name == "println" {
                     if let Some(first) = arg_vals.first() {
-                        let ty = args.first().map(|a| a.type_of()).unwrap_or(Type::Float);
+                        // `arg_vals` is `args.map(compile_value)`, so if
+                        // `arg_vals.first()` is Some, `args.first()` is
+                        // Some too. The old `unwrap_or(Type::Float)` was
+                        // a fail-open: if the two ever diverged it would
+                        // print the first argument as if it were a Float.
+                        let ty = args
+                            .first()
+                            .expect("arg_vals has an element but args does not")
+                            .type_of();
                         self.emit_print(*first, ty)?;
                     }
                 } else {
@@ -727,6 +735,15 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // Record the ALGOL26 element type so `IteratorNext`
                     // can bind the loop variable without reverse-
                     // mapping an LLVM struct type back to ALGOL26.
+                    //
+                    // The `list_arrays` / `list_array_types` lookup
+                    // above proved `arr_name` is a tracked list, so
+                    // `var_types[arr_name]` must be `List<_>` — the
+                    // codegen's invariant is that every name in
+                    // `list_arrays` has a matching `List<_>` entry in
+                    // `var_types`. A miss here is a producer bug;
+                    // silently binding the loop variable to `Unknown`
+                    // would let the wrong type through undetected.
                     let arr_elem_ty = self
                         .var_types
                         .get(&arr_name)
@@ -734,7 +751,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                             Type::List(inner) => Some((**inner).clone()),
                             _ => None,
                         })
-                        .unwrap_or(Type::Unknown);
+                        .ok_or_else(|| {
+                            CompileError::simple(
+                                &format!(
+                                    "LLVM codegen: iterator over `{}` but its \
+                                     ALGOL26 element type is not recorded in \
+                                     `var_types` as a `List<_>`. A producer \
+                                     registered `{}` in `list_arrays` without \
+                                     setting `var_types[{}]` to a list type; \
+                                     this is a compiler bug.",
+                                    arr_name, arr_name, arr_name
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
                     self.iterator_elem_types
                         .insert(iterator.clone(), arr_elem_ty);
                     // Fail closed when the iterable's length is not

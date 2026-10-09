@@ -4,7 +4,7 @@ use super::IRCodeGen;
 use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{SemanticPattern, Terminator, TypedIRValue};
-use inkwell::types::BasicTypeEnum;
+use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::FloatPredicate;
 
 impl<'ctx> IRCodeGen<'ctx> {
@@ -53,6 +53,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                             compiled
                         };
                         self.builder.build_return(Some(&to_return)).unwrap();
+                    } else if let Type::List(inner) = ret_type {
+                        // ADR 0042 phase 1b (ext). Escape a stack-backed
+                        // list to the heap so the caller receives a
+                        // buffer that outlives this frame. Emits the
+                        // return itself in both branches.
+                        self.emit_list_return(compiled, inner)?;
                     } else {
                         self.builder.build_return(Some(&compiled)).unwrap();
                     }
@@ -523,6 +529,155 @@ impl<'ctx> IRCodeGen<'ctx> {
                 "llvm",
             )),
         }
+    }
+
+    /// ADR 0042 phase 1b (ext). Emit a `return` for a list-typed
+    /// function, escaping a stack-backed buffer to the heap first.
+    ///
+    /// The value `compiled` is the `{buffer, length, capacity}`
+    /// descriptor. If `capacity == 0`, the buffer points at a
+    /// stack alloca owned by this frame; memcpy it into a fresh
+    /// `malloc` buffer of `length * elem_size` bytes and return
+    /// `{new_buffer, length, length}`. If `capacity > 0`, the
+    /// buffer is already heap-owned and the descriptor is returned
+    /// unchanged — the caller takes ownership.
+    ///
+    /// Both branches terminate with `ret`, so this helper does not
+    /// produce a merged value; it emits the return instruction
+    /// itself. The caller must not emit a second `ret` after
+    /// calling this.
+    fn emit_list_return(
+        &self,
+        compiled: inkwell::values::BasicValueEnum<'ctx>,
+        inner: &Type,
+    ) -> Result<()> {
+        let st = match compiled {
+            inkwell::values::BasicValueEnum::StructValue(s) => s,
+            _ => {
+                return Err(CompileError::unsupported_operation(
+                    &format!(
+                        "list return value did not lower to a struct (kind {:?})",
+                        compiled
+                    ),
+                    "llvm",
+                ));
+            }
+        };
+        let struct_ty = st.get_type();
+        let i64_ty = self.context.i64_type();
+
+        let buffer = self
+            .builder
+            .build_extract_value(st, 0, "ret_buf")
+            .unwrap()
+            .into_pointer_value();
+        let length = self
+            .builder
+            .build_extract_value(st, 1, "ret_len")
+            .unwrap()
+            .into_int_value();
+        let capacity = self
+            .builder
+            .build_extract_value(st, 2, "ret_cap")
+            .unwrap()
+            .into_int_value();
+
+        let is_stack = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                capacity,
+                i64_ty.const_zero(),
+                "list_is_stack",
+            )
+            .unwrap();
+
+        let elem_llvm_ty = self.map_type(inner);
+        let elem_size = elem_llvm_ty.size_of().ok_or_else(|| {
+            CompileError::unsupported_operation(
+                "list element type has no LLVM size (variable-length element?)",
+                "llvm",
+            )
+        })?;
+        let byte_count = self
+            .builder
+            .build_int_mul(length, elem_size, "list_byte_count")
+            .unwrap();
+
+        let current_fn = self.current_function.ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: emit_list_return with no current function",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let escape_bb = self.context.append_basic_block(current_fn, "list_escape");
+        let skip_bb = self
+            .context
+            .append_basic_block(current_fn, "list_no_escape");
+
+        self.builder
+            .build_conditional_branch(is_stack, escape_bb, skip_bb)
+            .unwrap();
+
+        // Escape branch: malloc, memcpy, return {new_buf, length, length}.
+        self.builder.position_at_end(escape_bb);
+        let malloc_fn = self.module.get_function("malloc").ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: malloc not registered in stdlib",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let new_buf_call = self
+            .builder
+            .build_call(malloc_fn, &[byte_count.into()], "list_escape_malloc")
+            .unwrap();
+        let new_buf = match new_buf_call.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+            inkwell::values::ValueKind::Instruction(_) => {
+                return Err(CompileError::unsupported_operation(
+                    "malloc returned no value (unexpected)",
+                    "llvm",
+                ));
+            }
+        };
+        self.builder
+            .build_memcpy(new_buf, 4, buffer, 4, byte_count)
+            .unwrap();
+
+        let undef = struct_ty.get_undef();
+        let with_buf = self
+            .builder
+            .build_insert_value(undef, new_buf, 0, "esc_buf")
+            .unwrap()
+            .into_struct_value();
+        let with_len = self
+            .builder
+            .build_insert_value(with_buf, length, 1, "esc_len")
+            .unwrap()
+            .into_struct_value();
+        let escaped = self
+            .builder
+            .build_insert_value(with_len, length, 2, "esc_cap")
+            .unwrap()
+            .into_struct_value();
+        let escaped_v: inkwell::values::BasicValueEnum = escaped.into();
+        self.builder.build_return(Some(&escaped_v)).unwrap();
+
+        // Skip branch: return the original descriptor unchanged.
+        self.builder.position_at_end(skip_bb);
+        self.builder.build_return(Some(&compiled)).unwrap();
+
+        // Both branches are terminated. Position the builder at the
+        // skip block so any subsequent (unreachable) emission has a
+        // valid insert point.
+        self.builder.position_at_end(skip_bb);
+        Ok(())
     }
 
     /// Lower a match whose scrutinee is `Option<T>` and whose

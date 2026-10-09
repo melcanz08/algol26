@@ -194,22 +194,129 @@ impl<'ctx> IRCodeGen<'ctx> {
                         return Ok(());
                     }
                 }
-                // Fail closed: a list-typed target must have been
-                // handled by one of the arms above (list literal,
-                // record literal, or list-variable move). Any other
-                // value shape reaching this point would produce a
-                // list whose bookkeeping is unpopulated, which
-                // silently fails later at the first `b[i]`.
+                // ADR 0042 phase 1b (ext). A list-typed declaration
+                // whose value is neither a literal nor a variable
+                // move — e.g. the result of a function call returning
+                // List<T>. The value compiles to the
+                // {buffer, length, capacity} struct. Store it into a
+                // fresh descriptor alloca and extract the buffer
+                // field so downstream indexing can find it.
                 if matches!(type_, Type::List(_)) {
-                    return Err(CompileError::unsupported_operation(
-                        &format!(
-                            "LLVM codegen: cannot lower list declaration `{}` \
-                             — only list literals and list-variable moves are \
-                             currently supported",
-                            name
-                        ),
-                        "llvm",
-                    ));
+                    // ADR 0042 phase 1b (ext). If the value is a
+                    // variable whose alloca already holds a
+                    // {ptr, i64, i64} struct (produced by a preceding
+                    // Instruction::Call that returned a list), adopt
+                    // that alloca. This is the `val c := make()` case
+                    // where `make() -> List<T>`.
+                    if let TypedIRValue::Variable(src, _) = value {
+                        if self.list_structs.contains_key(src.as_str()) {
+                            if let Some(src_alloca) = self.list_structs.get(src).copied() {
+                                let st = match self.map_type(type_) {
+                                    BasicTypeEnum::StructType(s) => s,
+                                    _ => unreachable!("map_type(Type::List) returned non-struct"),
+                                };
+                                if st.count_fields() == 3 {
+                                    self.list_structs.insert(name.clone(), src_alloca);
+                                    self.variables.insert(name.clone(), src_alloca);
+                                    self.var_types.insert(name.clone(), type_.clone());
+                                    let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                                    let buf_slot = self
+                                        .builder
+                                        .build_struct_gep(
+                                            st,
+                                            src_alloca,
+                                            0,
+                                            &format!("{}_buf_slot", name),
+                                        )
+                                        .unwrap();
+                                    let buf = self
+                                        .builder
+                                        .build_load(ptr_ty, buf_slot, &format!("{}_buf", name))
+                                        .unwrap()
+                                        .into_pointer_value();
+                                    self.list_arrays.insert(name.clone(), buf);
+                                    if let Type::List(inner) = type_ {
+                                        let elem_llvm = self.map_type(inner);
+                                        let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
+                                            BasicTypeEnum::IntType(t) => t.array_type(0).into(),
+                                            BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
+                                            BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
+                                            BasicTypeEnum::StructType(t) => t.array_type(0).into(),
+                                            other => {
+                                                return Err(CompileError::unsupported_operation(
+                                                        &format!(
+                                                            "LLVM codegen: list `{}` has element type {:?} with no LLVM array lowering",
+                                                            name, other
+                                                        ),
+                                                        "llvm",
+                                                    ));
+                                            }
+                                        };
+                                        self.list_array_types.insert(name.clone(), arr_ty);
+                                    }
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
+                    let val = self.compile_value(value)?;
+                    if !val.is_struct_value() {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: list declaration `{}` expected a \
+                                 struct value, got LLVM kind {:?}",
+                                name, val
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    let st = val.into_struct_value();
+                    let struct_ty = match self.map_type(type_) {
+                        BasicTypeEnum::StructType(s) => s,
+                        _ => unreachable!("map_type(Type::List) returned non-struct"),
+                    };
+                    let alloca = self.create_entry_alloca(name, type_);
+                    self.builder.build_store(alloca, st).unwrap();
+                    self.variables.insert(name.clone(), alloca);
+                    self.var_types.insert(name.clone(), type_.clone());
+                    self.list_structs.insert(name.clone(), alloca);
+
+                    let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                    let buf_slot = self
+                        .builder
+                        .build_struct_gep(struct_ty, alloca, 0, &format!("{}_buf_slot", name))
+                        .unwrap();
+                    let buf = self
+                        .builder
+                        .build_load(ptr_ty, buf_slot, &format!("{}_buf", name))
+                        .unwrap()
+                        .into_pointer_value();
+                    self.list_arrays.insert(name.clone(), buf);
+
+                    if let Type::List(inner) = type_ {
+                        let elem_llvm = self.map_type(inner);
+                        let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
+                            BasicTypeEnum::IntType(t) => t.array_type(0).into(),
+                            BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
+                            BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
+                            BasicTypeEnum::StructType(t) => t.array_type(0).into(),
+                            other => {
+                                return Err(CompileError::unsupported_operation(
+                                    &format!(
+                                        "LLVM codegen: list `{}` has element type \
+                                         {:?} with no LLVM array lowering",
+                                        name, other
+                                    ),
+                                    "llvm",
+                                ));
+                            }
+                        };
+                        self.list_array_types.insert(name.clone(), arr_ty);
+                    }
+                    return Ok(());
                 }
                 // Non-list: single alloca, straightforward store.
                 let alloca = self.create_entry_alloca(name, type_);
@@ -331,18 +438,77 @@ impl<'ctx> IRCodeGen<'ctx> {
                         return Ok(());
                     }
                 }
-                // Fail closed: list-typed target must have been
-                // handled above (list literal or list-variable move).
+                // ADR 0042 phase 1b (ext). A list-typed assignment
+                // whose value is neither a literal nor a variable
+                // move — e.g. a call result. Reuse the target's
+                // existing descriptor alloca if it has one, else
+                // create a fresh one; store the incoming struct and
+                // refresh the buffer mapping.
                 if matches!(self.var_types.get(target), Some(Type::List(_))) {
-                    return Err(CompileError::unsupported_operation(
-                        &format!(
-                            "LLVM codegen: cannot lower list assignment to `{}` \
-                             from this value shape — only list literals and \
-                             list-variable moves are currently supported",
-                            target
-                        ),
-                        "llvm",
-                    ));
+                    let val = self.compile_value(value)?;
+                    if !val.is_struct_value() {
+                        return Err(CompileError::simple(
+                            &format!(
+                                "LLVM codegen: list assignment to `{}` expected \
+                                 a struct value, got LLVM kind {:?}",
+                                target, val
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0002,
+                        ));
+                    }
+                    let st = val.into_struct_value();
+                    let target_ty = self.var_types.get(target).cloned().unwrap();
+                    let struct_ty = match self.map_type(&target_ty) {
+                        BasicTypeEnum::StructType(s) => s,
+                        _ => unreachable!("map_type(Type::List) returned non-struct"),
+                    };
+                    let alloca = match self.list_structs.get(target).copied() {
+                        Some(a) => a,
+                        None => {
+                            let a = self.create_entry_alloca(target, &target_ty);
+                            self.list_structs.insert(target.clone(), a);
+                            self.variables.insert(target.clone(), a);
+                            a
+                        }
+                    };
+                    self.builder.build_store(alloca, st).unwrap();
+
+                    let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                    let buf_slot = self
+                        .builder
+                        .build_struct_gep(struct_ty, alloca, 0, &format!("{}_buf_slot", target))
+                        .unwrap();
+                    let buf = self
+                        .builder
+                        .build_load(ptr_ty, buf_slot, &format!("{}_buf", target))
+                        .unwrap()
+                        .into_pointer_value();
+                    self.list_arrays.insert(target.clone(), buf);
+
+                    if let Type::List(inner) = &target_ty {
+                        let elem_llvm = self.map_type(inner);
+                        let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
+                            BasicTypeEnum::IntType(t) => t.array_type(0).into(),
+                            BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
+                            BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
+                            BasicTypeEnum::StructType(t) => t.array_type(0).into(),
+                            other => {
+                                return Err(CompileError::unsupported_operation(
+                                    &format!(
+                                        "LLVM codegen: list `{}` has element type \
+                                         {:?} with no LLVM array lowering",
+                                        target, other
+                                    ),
+                                    "llvm",
+                                ));
+                            }
+                        };
+                        self.list_array_types.insert(target.clone(), arr_ty);
+                    }
+                    return Ok(());
                 }
                 let ptr = self.variables.get(target).cloned().ok_or_else(|| {
                     CompileError::simple(
@@ -598,7 +764,52 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     };
                                     self.builder.build_store(alloca, ret).unwrap();
                                     self.variables.insert(res_name.clone(), alloca);
-                                    self.var_types.insert(res_name.clone(), Type::Float);
+                                    // ADR 0042 phase 1b (ext). A
+                                    // list-returning call yields a
+                                    // {ptr, i64, i64} struct. Detect
+                                    // the shape and register the
+                                    // descriptor so the subsequent
+                                    // Declare can adopt it. The
+                                    // element type is unknown here
+                                    // (the IR instruction carries no
+                                    // return type), so var_types is
+                                    // set to List<Unknown> — the
+                                    // Declare updates it with the
+                                    // concrete element type.
+                                    let mut is_list_shape = false;
+                                    if let BasicTypeEnum::StructType(st) = ret.get_type() {
+                                        if st.count_fields() == 3 {
+                                            is_list_shape = true;
+                                            self.list_structs.insert(res_name.clone(), alloca);
+                                            let ptr_ty =
+                                                self.context.ptr_type(AddressSpace::default());
+                                            let buf_slot = self
+                                                .builder
+                                                .build_struct_gep(
+                                                    st,
+                                                    alloca,
+                                                    0,
+                                                    &format!("{}_buf_slot", res_name),
+                                                )
+                                                .unwrap();
+                                            let buf = self
+                                                .builder
+                                                .build_load(
+                                                    ptr_ty,
+                                                    buf_slot,
+                                                    &format!("{}_buf", res_name),
+                                                )
+                                                .unwrap()
+                                                .into_pointer_value();
+                                            self.list_arrays.insert(res_name.clone(), buf);
+                                        }
+                                    }
+                                    if is_list_shape {
+                                        self.var_types
+                                            .insert(res_name.clone(), Type::list(Type::Unknown));
+                                    } else {
+                                        self.var_types.insert(res_name.clone(), Type::Float);
+                                    }
                                 }
                             }
                             inkwell::values::ValueKind::Instruction(_) => {

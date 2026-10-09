@@ -365,8 +365,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ));
                 }
             },
-            // ADR 0042 phase 1b. A list return value is a
-            // {buffer, length, capacity} struct.
+            // ADR 0042 phase 1b (ext). A list return value is the
+            // {buffer, length, capacity} descriptor. When the buffer
+            // is stack-backed (`capacity == 0`), `compile_terminator`
+            // escapes it to the heap before the return instruction so
+            // the caller receives a descriptor whose buffer outlives
+            // the callee's frame.
             Type::List(_) => match self.map_type(&func.return_type) {
                 BasicTypeEnum::StructType(st) => st.fn_type(&param_types, is_variadic),
                 _ => {

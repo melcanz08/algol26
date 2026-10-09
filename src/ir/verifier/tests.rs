@@ -623,3 +623,149 @@ fn addrof_on_variable_is_accepted() {
 
     assert!(crate::ir::verifier::verify(&program).is_ok());
 }
+
+// ─── Worklist verifier: join-point env handling ──────────────────
+
+fn branch_program(declare_x_in_then: bool) -> SemanticProgram {
+    // Shared skeleton for the two join tests. When
+    // `declare_x_in_then` is true, the `then` branch declares
+    // `x: Int`; the `else` branch always jumps straight to the
+    // join. The join block reads `x` in both cases — which is
+    // legal only when `x` dominates the branch, which it does not
+    // in either variant.
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    let then_bb = program.new_block_id();
+    let else_bb = program.new_block_id();
+    let join_bb = program.new_block_id();
+
+    let then_instrs = if declare_x_in_then {
+        vec![Instruction::Declare {
+            name: "x".to_string(),
+            mutable: false,
+            type_: Type::Int,
+            value: TypedIRValue::Int(1),
+        }]
+    } else {
+        vec![]
+    };
+
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![
+            SemanticBlock {
+                id: entry,
+                instructions: vec![],
+                terminator: Some(Terminator::Branch {
+                    condition: TypedIRValue::Bool(true),
+                    then_block: then_bb,
+                    else_block: else_bb,
+                }),
+            },
+            SemanticBlock {
+                id: then_bb,
+                instructions: then_instrs,
+                terminator: Some(Terminator::Jump { block: join_bb }),
+            },
+            SemanticBlock {
+                id: else_bb,
+                instructions: vec![],
+                terminator: Some(Terminator::Jump { block: join_bb }),
+            },
+            SemanticBlock {
+                id: join_bb,
+                instructions: vec![Instruction::Print {
+                    value: TypedIRValue::Variable("x".to_string(), Type::Int),
+                }],
+                terminator: Some(Terminator::Return {
+                    value: None,
+                    type_: Type::Void,
+                }),
+            },
+        ],
+        entry_block: entry,
+        is_extern: false,
+    });
+
+    program
+}
+
+#[test]
+fn verifier_rejects_use_of_branch_local_variable() {
+    // `x` is declared only in the `then` branch; the join block
+    // reads it. Under the old DFS-first-visited-wins verifier, if
+    // `then` happened to be walked first, the join would see `x`
+    // in scope and pass — a false negative that let a
+    // not-actually-in-scope name through. The worklist verifier
+    // joins predecessor envs, drops `x` (present in only one side),
+    // and rejects the join block's read.
+    let program = branch_program(true);
+    assert!(
+        verify(&program).is_err(),
+        "verifier should reject use of `x` after a branch that may not declare it"
+    );
+}
+
+#[test]
+fn verifier_accepts_use_of_dominating_variable_at_join() {
+    // Same shape, but `x` is declared in the *entry* block (dominates
+    // both branches). Both predecessors carry it in their envs, so
+    // the join keeps it, and the join block's read is fine.
+    let mut program = SemanticProgram::new();
+    let entry = program.new_block_id();
+    let then_bb = program.new_block_id();
+    let else_bb = program.new_block_id();
+    let join_bb = program.new_block_id();
+
+    program.functions.push(SemanticFunction {
+        name: "main".to_string(),
+        params: vec![],
+        return_type: Type::Void,
+        blocks: vec![
+            SemanticBlock {
+                id: entry,
+                instructions: vec![Instruction::Declare {
+                    name: "x".to_string(),
+                    mutable: false,
+                    type_: Type::Int,
+                    value: TypedIRValue::Int(1),
+                }],
+                terminator: Some(Terminator::Branch {
+                    condition: TypedIRValue::Bool(true),
+                    then_block: then_bb,
+                    else_block: else_bb,
+                }),
+            },
+            SemanticBlock {
+                id: then_bb,
+                instructions: vec![],
+                terminator: Some(Terminator::Jump { block: join_bb }),
+            },
+            SemanticBlock {
+                id: else_bb,
+                instructions: vec![],
+                terminator: Some(Terminator::Jump { block: join_bb }),
+            },
+            SemanticBlock {
+                id: join_bb,
+                instructions: vec![Instruction::Print {
+                    value: TypedIRValue::Variable("x".to_string(), Type::Int),
+                }],
+                terminator: Some(Terminator::Return {
+                    value: None,
+                    type_: Type::Void,
+                }),
+            },
+        ],
+        entry_block: entry,
+        is_extern: false,
+    });
+
+    assert!(
+        verify(&program).is_ok(),
+        "dominating-variable join should verify; got: {:?}",
+        verify(&program)
+    );
+}

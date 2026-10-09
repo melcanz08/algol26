@@ -55,8 +55,10 @@
 // Still not verified:
 //   - `Spawn`/`Fork` capture semantics (ownership transfer into a
 //     spawned block).
-//   - Data-flow joins at CFG merges — the current DFS uses a
-//     first-visited-wins environment, not a proper fixed-point join.
+//   - Data-flow joins at CFG merges are handled by the worklist
+//     verifier in `verify_function`, which joins all predecessor
+//     environments before verifying a merge block. See `join_envs`
+//     for the merge rules.
 //   - Absolute bounds proofs for `ArrayAccess`. Only type-level
 //     checks are performed; the runtime is responsible for
 //     enforcement.
@@ -71,7 +73,7 @@ use crate::ir::semantic_ir::{
 };
 use builtins::{builtin_signatures, contains_type_var};
 use instruction::verify_instruction;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use terminator::verify_terminator;
 use value::{types_compatible_for_call, verify_value};
 
@@ -121,7 +123,7 @@ pub fn verify(program: &SemanticProgram) -> Result<(), String> {
 // Environment
 // ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct FunctionSignature {
     params: Vec<(String, Type)>,
     return_type: Type,
@@ -131,7 +133,7 @@ pub(super) struct FunctionSignature {
     variadic: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(super) struct VerifyEnv {
     pub(super) variables: HashMap<String, Type>,
     pub(super) mutability: HashMap<String, bool>,
@@ -180,10 +182,63 @@ fn verify_function(
         verify_return_paths(func)?;
     }
 
-    let env = VerifyEnv::new_for(func, sigs);
-    let mut visited: HashSet<usize> = HashSet::new();
+    // Worklist verifier with environment joins at merge points.
+    // Each block is verified under the join of all predecessors'
+    // exit environments. When a new predecessor contributes a
+    // different env, the successor is re-verified — a proper
+    // fixed-point iteration, terminating because the join is
+    // monotone (concrete types only degrade to `Unknown`, never
+    // sharpen back). This replaces the previous first-visited-wins
+    // DFS, which silently used whichever predecessor the walk
+    // happened to reach first as the merge block's env.
+    let entry_env = VerifyEnv::new_for(func, sigs);
+    let mut envs: HashMap<usize, VerifyEnv> = HashMap::new();
+    let mut worklist: Vec<usize> = vec![func.entry_block];
+    envs.insert(func.entry_block, entry_env);
 
-    verify_block_dfs(func, func.entry_block, env, &mut visited)
+    while let Some(block_id) = worklist.pop() {
+        let mut env = envs
+            .get(&block_id)
+            .cloned()
+            .expect("worklist contains a block without an env");
+
+        let block = func
+            .blocks
+            .iter()
+            .find(|b| b.id == block_id)
+            .ok_or_else(|| format!("Function '{}': block {} not found", func.name, block_id))?;
+
+        for instr in &block.instructions {
+            verify_instruction(func, instr, &mut env)?;
+        }
+
+        let term = block.terminator.as_ref().ok_or_else(|| {
+            format!(
+                "Function '{}': block {} has no terminator",
+                func.name, block_id
+            )
+        })?;
+
+        verify_terminator(func, term, &mut env)?;
+
+        for (succ, succ_env) in successors_with_envs(term, &env) {
+            match envs.get(&succ) {
+                None => {
+                    envs.insert(succ, succ_env);
+                    worklist.push(succ);
+                }
+                Some(existing) => {
+                    let joined = join_envs(existing, &succ_env)?;
+                    if joined != *existing {
+                        envs.insert(succ, joined);
+                        worklist.push(succ);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Compute each successor of a terminator along with the environment
@@ -265,44 +320,75 @@ fn successors_with_envs(term: &Terminator, env: &VerifyEnv) -> Vec<(usize, Verif
     }
 }
 
-fn verify_block_dfs(
-    func: &SemanticFunction,
-    block_id: usize,
-    mut env: VerifyEnv,
-    visited: &mut HashSet<usize>,
-) -> Result<(), String> {
-    if !visited.insert(block_id) {
-        // Already verified on a previous DFS path. We don't re-verify
-        // with the current env — this is the linear-scan approximation.
-        return Ok(());
+/// Join two environments at a CFG merge point.
+///
+/// Merge rules:
+///
+/// - `variables` and `iterator_elem_types`:
+///   - present in both, same concrete type → keep as-is
+///   - present in both, one side `Unknown` → `Unknown`
+///   - present in both, both concrete but different → error
+///   - present in only one side → dropped (the name is conditionally
+///     in scope; uses at the join block are rejected)
+///
+/// - `mutability`:
+///   - present in both, both `true` → `true`
+///   - any other case → `false` (immutable wins; more restrictive)
+///
+/// - `function_sigs` is constant across the whole function; taken
+///   from `a`.
+fn join_envs(a: &VerifyEnv, b: &VerifyEnv) -> Result<VerifyEnv, String> {
+    let mut variables = HashMap::new();
+    let mut mutability = HashMap::new();
+    let mut iterator_elem_types = HashMap::new();
+
+    for (name, ty_a) in &a.variables {
+        if let Some(ty_b) = b.variables.get(name) {
+            let joined = match (ty_a, ty_b) {
+                (Type::Unknown, _) | (_, Type::Unknown) => Type::Unknown,
+                (x, y) if x == y => x.clone(),
+                (x, y) => {
+                    return Err(format!(
+                        "variable `{}` has type `{}` in one predecessor and `{}` \
+                         in another; the analyzer should have unified these \
+                         before IR emission",
+                        name, x, y
+                    ));
+                }
+            };
+            variables.insert(name.clone(), joined);
+        }
     }
 
-    let block = func
-        .blocks
-        .iter()
-        .find(|b| b.id == block_id)
-        .ok_or_else(|| format!("Function '{}': block {} not found", func.name, block_id))?;
-
-    for instr in &block.instructions {
-        verify_instruction(func, instr, &mut env)?;
+    for (name, m_a) in &a.mutability {
+        if let Some(m_b) = b.mutability.get(name) {
+            mutability.insert(name.clone(), *m_a && *m_b);
+        }
     }
 
-    let term = block.terminator.as_ref().ok_or_else(|| {
-        format!(
-            "Function '{}': block {} has no terminator",
-            func.name, block_id
-        )
-    })?;
-
-    verify_terminator(func, term, &mut env)?;
-
-    // Recurse into successors. Each successor sees a clone of the env so
-    // modifications in one branch don't leak into a sibling branch.
-    for (succ, succ_env) in successors_with_envs(term, &env) {
-        verify_block_dfs(func, succ, succ_env, visited)?;
+    for (name, ty_a) in &a.iterator_elem_types {
+        if let Some(ty_b) = b.iterator_elem_types.get(name) {
+            let joined = match (ty_a, ty_b) {
+                (Type::Unknown, _) | (_, Type::Unknown) => Type::Unknown,
+                (x, y) if x == y => x.clone(),
+                (x, y) => {
+                    return Err(format!(
+                        "iterator `{}` has element type `{}` in one predecessor \
+                         and `{}` in another",
+                        name, x, y
+                    ));
+                }
+            };
+            iterator_elem_types.insert(name.clone(), joined);
+        }
     }
 
-    Ok(())
+    Ok(VerifyEnv {
+        variables,
+        mutability,
+        function_sigs: a.function_sigs.clone(),
+        iterator_elem_types,
+    })
 }
 
 fn verify_return_paths(func: &SemanticFunction) -> Result<(), String> {

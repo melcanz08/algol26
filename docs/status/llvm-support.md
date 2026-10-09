@@ -5,12 +5,23 @@
 > status page, not a decision — the "why" lives in the ADR or
 > feature doc cited per item.
 
-The LLVM backend is a **partial** implementation. Programs whose
-feature surface exceeds the backend are refused by the capability
-check with a clear diagnostic (`E0002: The LLVM backend does not
-support: <feature>`). Refusal is always a compile error, never a
-silent wrong-code lowering. That posture is deliberate — see
-ADR 0002 (fail-closed) and the sessions that closed A1/A2.
+ALGOL26 has three backends: interpreter, LLVM, WASM. They are
+peers, not tiers — each consumes the same IR and offers different
+feature coverage. This page tracks what the LLVM backend covers
+today and what it refuses.
+
+Programs whose feature surface exceeds what LLVM can lower are
+refused by the capability check with a clear diagnostic
+(`E0002: The LLVM backend does not support: <feature>`). Refusal
+is always a compile error, never a silent wrong-code lowering.
+That posture is deliberate — see ADR 0002 (fail-closed) and the
+sessions that closed A1/A2.
+
+A program that uses a feature LLVM cannot lower can still run on
+a backend that supports it (typically the interpreter today).
+Users pick the backend that fits the program; the capability
+matrix (`algol26 inspect --capabilities`) is how they find out
+which one.
 
 For a machine-readable view, `algol26 inspect --capabilities`
 prints the full feature × backend matrix.

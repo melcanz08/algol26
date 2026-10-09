@@ -469,7 +469,18 @@ fn inspect_type_table(compiler: &mut Compiler, source: &str, filename: &str) {
     match compiler.type_check_source_for(source, filename) {
         Ok(typed) => {
             println!("{} function(s)", typed.functions.len());
-            println!("{} type_table entries", typed.type_table_id.len());
+
+            // Print the entries sorted by ExprId for stable output.
+            // `id.0` avoids relying on ExprId deriving Ord. Must be
+            // read before `run_type_table_complete_pass_public` takes
+            // `typed` by value.
+            let mut entries: Vec<_> = typed.type_table_id.iter().collect();
+            entries.sort_by_key(|(id, _)| id.0);
+            println!("{} type_table entries:", entries.len());
+            for (id, ty) in &entries {
+                println!("  #{}: {}", id.0, ty);
+            }
+
             if let Err(e) = compiler.run_type_table_complete_pass_public(typed) {
                 eprint!("{}", render_one_with_source(&e, Some(source)));
                 std::process::exit(1);

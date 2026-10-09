@@ -657,12 +657,124 @@ fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr 
                 span: *span,
             })
         }
-        ExprKind::FunctionCall { name, args, span } => Expr::new(ExprKind::FunctionCall {
-            name: name.clone(),
+        ExprKind::FunctionCall { name, args, span } => {
+            // `u.label()` — a bare-var receiver on a method call —
+            // parses as `FunctionCall { name: "u.label" }` (see the
+            // `MethodCall` doc comment in `src/frontend/ast.rs`).
+            // If the receiver prefix is the loop variable, rewrite
+            // to the modern `MethodCall` shape with the substituted
+            // literal as receiver. Without this the string
+            // `"u.label"` survives into the unrolled body, the loop
+            // wrapper is dropped, and the analyzer reports
+            // E0004 "Undefined function 'u.label'".
+            if let Some(method) = name.strip_prefix(&format!("{}.", old_name)) {
+                Expr::new(ExprKind::MethodCall {
+                    receiver: Box::new(literal.clone()),
+                    method: method.to_string(),
+                    args: args
+                        .iter()
+                        .map(|a| substitute_expr_literal(a, old_name, literal))
+                        .collect(),
+                    span: *span,
+                })
+            } else {
+                Expr::new(ExprKind::FunctionCall {
+                    name: name.clone(),
+                    args: args
+                        .iter()
+                        .map(|a| substitute_expr_literal(a, old_name, literal))
+                        .collect(),
+                    span: *span,
+                })
+            }
+        }
+        // ─── Recursive arms added 2026-10 ───────────────────────────────
+        // Prior to this fix, only the variants above were walked. Every
+        // other variant fell into the `_ => expr.clone()` catch-all and
+        // was returned unchanged, so `Var(loop_var)` inside them was
+        // never substituted. Concretely: `print(u.name)` was returned as
+        // `print(u.name)` after the loop had been unrolled away, leaving
+        // `u` unbound at analysis time (E0003). Same failure for
+        // `u.method()`, `xs[u]`, `-u`, `[u]`, `Some(u)`,
+        // `Borrow(u)`/`*u`, and using `u` as a record field value.
+        //
+        // The catch-all below is retained for literal variants
+        // (`Number`, `Int`, `String`, `Bool`, `NullPtr`, `PtrLiteral`),
+        // which contain no sub-expressions. Any non-trivial variant must
+        // be added explicitly; leaving it out silently drops the
+        // substitution.
+        ExprKind::FieldAccess {
+            object,
+            field,
+            span,
+        } => Expr::new(ExprKind::FieldAccess {
+            object: Box::new(substitute_expr_literal(object, old_name, literal)),
+            field: field.clone(),
+            span: *span,
+        }),
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+            span,
+        } => Expr::new(ExprKind::MethodCall {
+            receiver: Box::new(substitute_expr_literal(receiver, old_name, literal)),
+            method: method.clone(),
             args: args
                 .iter()
                 .map(|a| substitute_expr_literal(a, old_name, literal))
                 .collect(),
+            span: *span,
+        }),
+        ExprKind::ArrayAccess { array, index, span } => Expr::new(ExprKind::ArrayAccess {
+            array: Box::new(substitute_expr_literal(array, old_name, literal)),
+            index: Box::new(substitute_expr_literal(index, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::Borrow { expr, span } => Expr::new(ExprKind::Borrow {
+            expr: Box::new(substitute_expr_literal(expr, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::MutBorrow { expr, span } => Expr::new(ExprKind::MutBorrow {
+            expr: Box::new(substitute_expr_literal(expr, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::Deref { expr, span } => Expr::new(ExprKind::Deref {
+            expr: Box::new(substitute_expr_literal(expr, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::AddrOf { expr, span } => Expr::new(ExprKind::AddrOf {
+            expr: Box::new(substitute_expr_literal(expr, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::Unary { op, expr, span } => Expr::new(ExprKind::Unary {
+            op: op.clone(),
+            expr: Box::new(substitute_expr_literal(expr, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::List(items, span) => Expr::new(ExprKind::List(
+            items
+                .iter()
+                .map(|e| substitute_expr_literal(e, old_name, literal))
+                .collect(),
+            *span,
+        )),
+        ExprKind::Some { value, span } => Expr::new(ExprKind::Some {
+            value: Box::new(substitute_expr_literal(value, old_name, literal)),
+            span: *span,
+        }),
+        ExprKind::RecordLiteral {
+            name,
+            fields,
+            type_args,
+            span,
+        } => Expr::new(ExprKind::RecordLiteral {
+            name: name.clone(),
+            fields: fields
+                .iter()
+                .map(|(n, v)| (n.clone(), substitute_expr_literal(v, old_name, literal)))
+                .collect(),
+            type_args: type_args.clone(),
             span: *span,
         }),
         _ => expr.clone(),

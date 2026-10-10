@@ -475,7 +475,15 @@ impl SemanticAnalyzer {
                     self.analyze_stmt(s)?;
                 }
                 let result = if let Some(expr) = trailing_expr {
-                    self.analyze_expr(expr)?
+                    // Propagate the block's expected type to its
+                    // trailing expression. Without this, a `Block`
+                    // wrapper — which the parser puts around every
+                    // `if` branch — swallows the context that a
+                    // `None`, an empty `[]`, or a `Result`'s error
+                    // half needs to resolve. The If arm's
+                    // bidirectional hint would be dead on arrival
+                    // here otherwise.
+                    self.analyze_expr_with_context(expr, expected_type)?
                 } else {
                     Type::Void
                 };
@@ -509,9 +517,17 @@ impl SemanticAnalyzer {
 
                 let (else_type_opt, else_exit) = match else_branch {
                     Some(else_expr) => {
+                        // Bidirectional hint: pass the then-branch's
+                        // type as the else-branch's expected type.
+                        // Without this, a `None` in the else arm
+                        // sees no expectation and produces
+                        // `Option<Unknown>`, which the LLVM codegen
+                        // cannot lower (`map_type(Unknown)` panics).
+                        // Same for an empty `[]` and other
+                        // context-dependent literals.
                         let (r, s) = self.in_branch(|a| {
                             a.push_scope();
-                            let r = a.analyze_expr(else_expr);
+                            let r = a.analyze_expr_with_context(else_expr, Some(&then_type));
                             a.pop_scope();
                             r
                         });

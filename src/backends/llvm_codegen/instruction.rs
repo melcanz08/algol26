@@ -478,6 +478,36 @@ impl<'ctx> IRCodeGen<'ctx> {
                     return Ok(());
                 }
 
+                // Call-result handoff. A struct-returning call —
+                // `val a := find(5)` where `find() -> Option<Int>`
+                // — is emitted by the IR builder as
+                //     Call { result: Some("__t") }
+                //     Declare { a, value: Variable("__t") }
+                // The Call handler stores the struct into a fresh
+                // alloca but registers `var_types["__t"] = Float` —
+                // a placeholder from before struct returns existed,
+                // because the Call instruction carries no ALGOL26
+                // type. If the Declare's annotation is *not* Float
+                // but the source's recorded type *is*, the source
+                // is that placeholder. Alias the two names to the
+                // same alloca and give the new name the correct
+                // type: no load, no store, no reinterpretation.
+                //
+                // The proper fix is for `Instruction::Call` to carry
+                // its result's ALGOL26 type; until then, this detects
+                // the placeholder by the mismatch.
+                if let TypedIRValue::Variable(src, _) = value {
+                    if matches!(self.var_types.get(src), Some(Type::Float))
+                        && !matches!(type_, Type::Float)
+                    {
+                        if let Some(src_alloca) = self.variables.get(src).copied() {
+                            self.variables.insert(name.clone(), src_alloca);
+                            self.var_types.insert(name.clone(), type_.clone());
+                            return Ok(());
+                        }
+                    }
+                }
+
                 // List move: `var b := a` where `a` is a list
                 // variable. `List<T>` is non-Copy and the analyzer
                 // enforces move semantics (`E0007` on any later use

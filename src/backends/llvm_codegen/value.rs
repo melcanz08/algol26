@@ -275,14 +275,85 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 }
             }
-            // List literals have no LLVM lowering in the current
-            // backend. Before this fix, the arm returned `null` — a
-            // silent wrong-code bug. Now it errors.
-            TypedIRValue::List(_, _) => {
-                return Err(CompileError::unsupported_operation(
-                    "list literal value (use List.length or iterate instead)",
-                    "llvm",
-                ));
+            // ADR 0052 phase 1. A list literal in *value* position
+            // — a record field, a call argument, a return value —
+            // lowers the same way it does in `Instruction::Declare`:
+            // allocate an `[N x elem]` stack alloca, store each
+            // element, then build the `{ptr, i64, i64}` descriptor
+            // with `capacity = 0` (stack-backed).
+            TypedIRValue::List(elements, elem_ty) => {
+                let len = elements.len();
+                let elem_llvm_ty = self.map_type(elem_ty);
+                let array_ty = match elem_llvm_ty {
+                    BasicTypeEnum::IntType(t) => t.array_type(len as u32),
+                    BasicTypeEnum::FloatType(t) => t.array_type(len as u32),
+                    BasicTypeEnum::PointerType(t) => t.array_type(len as u32),
+                    BasicTypeEnum::StructType(t) => t.array_type(len as u32),
+                    other => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!(
+                                "list literal element type has no LLVM array lowering: {:?}",
+                                other
+                            ),
+                            "llvm",
+                        ));
+                    }
+                };
+
+                // Alloca names are hints; LLVM appends a suffix
+                // on collision, so a fixed name is safe even when
+                // two literals live in the same function.
+                let buf = self.create_entry_alloca_llvm("list_lit_buf", array_ty.into());
+
+                for (i, elem) in elements.iter().enumerate() {
+                    let ev = self.compile_value(elem)?;
+                    // A nested record/list literal compiles to a
+                    // pointer or struct; the array slot holds the
+                    // struct value. Load through a pointer if the
+                    // element type is a struct.
+                    let ev = match (ev, &elem_llvm_ty) {
+                        (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => self
+                            .builder
+                            .build_load(*st, p, &format!("list_lit_elem_{}", i))
+                            .unwrap(),
+                        (v, _) => v,
+                    };
+                    let idx = self.context.i32_type().const_int(i as u64, false);
+                    let ptr = unsafe {
+                        self.builder
+                            .build_gep(
+                                array_ty,
+                                buf,
+                                &[self.context.i32_type().const_zero(), idx],
+                                &format!("list_lit_gep_{}", i),
+                            )
+                            .unwrap()
+                    };
+                    self.builder.build_store(ptr, ev).unwrap();
+                }
+
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let i64_ty = self.context.i64_type();
+                let struct_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+                let mut sv = struct_ty.get_undef();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, buf, 0, "list_lit_buf")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, i64_ty.const_int(len as u64, false), 1, "list_lit_len")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, i64_ty.const_zero(), 2, "list_lit_cap")
+                    .unwrap()
+                    .into_struct_value();
+                sv.into()
             }
             TypedIRValue::Record {
                 name,
@@ -889,6 +960,22 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_insert_value(struct_ty.get_undef(), tag, 0, "some_tag")
                     .unwrap()
                     .into_struct_value();
+
+                // Payload type reconciliation. A record (or list)
+                // literal compiles to a *pointer* to its storage
+                // alloca; the Option struct's field 1 is the struct
+                // value itself. Load through the pointer when the
+                // field's LLVM type is a struct and the incoming
+                // value is a pointer. Same shape as the List<Record>
+                // slot-store and nested-record field-store fixes.
+                let payload_field_ty = struct_ty.get_field_type_at_index(1);
+                let inner_val = match (inner_val, payload_field_ty) {
+                    (BasicValueEnum::PointerValue(p), Some(BasicTypeEnum::StructType(st))) => {
+                        self.builder.build_load(st, p, "some_payload_load").unwrap()
+                    }
+                    (v, _) => v,
+                };
+
                 let with_payload = self
                     .builder
                     .build_insert_value(with_tag, inner_val, 1, "some_payload")

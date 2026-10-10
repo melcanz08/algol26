@@ -55,17 +55,29 @@ impl SemanticIRBuilder {
         // If there is a trailing expression, translate it and assign to target
         if let Some(expr) = trailing_expr {
             let value = self.translate_expr(program, func, final_block, expr);
-            // Optionally coerce the value to the target type
+            // A trailing expression that branches — a nested `if`,
+            // `match`, or try/catch in expression position — sets
+            // `pending_merge` to the block where its value lands and
+            // terminates `final_block` with its own Branch/Switch.
+            // Appending the Assign to `final_block` would place an
+            // instruction after a terminator (dropped by codegen) and
+            // returning `final_block` would leave the inner merge
+            // unterminated. Attach the Assign to the merge instead,
+            // and report that as the final block.
+            let assign_block = self.pending_merge.take().unwrap_or(final_block);
             let coerced = self.coerce_value(value, &target_type);
             self.safe_push_instruction(
                 func,
-                final_block,
+                assign_block,
                 SemanticInstruction::Assign {
                     target: target.to_string(),
                     value: coerced,
                 },
             );
-        } else {
+            return Some(assign_block);
+        }
+
+        {
             // No trailing expression: assign a default value (Void or a default of target_type)
             // For now, we assign Void; this may be insufficient for types that need a value.
             self.safe_push_instruction(

@@ -550,9 +550,18 @@ impl Parser {
                 self.advance();
                 let else_if_span = self.last_span();
                 let else_if_expr = self.parse_if_expr()?;
+                // The inner `if` goes in `trailing_expr`, not
+                // `statements`. The analyzer's Block arm types a
+                // block as Void when there is no trailing
+                // expression — so `else if` in expression
+                // position used to produce "if branches produce
+                // inconsistent results" (one branch value, the
+                // other Void). This shape is what the
+                // `check_all_paths_return` comment in `items.rs`
+                // already assumed.
                 Some(Expr::boxed(ExprKind::Block {
-                    statements: vec![Stmt::Expression(else_if_expr)],
-                    trailing_expr: None,
+                    statements: vec![],
+                    trailing_expr: Some(Box::new(else_if_expr)),
                     span: else_if_span,
                 }))
             } else {

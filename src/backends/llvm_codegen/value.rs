@@ -811,13 +811,168 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ));
                     }
                 } else {
-                    return Err(CompileError::simple(
-                        "codegen: ArrayAccess with non-variable array expression",
-                        0,
-                        0,
-                        "",
-                        ErrorCode::E0004,
-                    ));
+                    // ADR 0052 phase 2 (partial). Non-variable
+                    // receiver: `nested[1][0]`, `self.grid[0]`,
+                    // `f().items[2]`. Compile the receiver — it
+                    // yields the {ptr, i64, i64} descriptor — and
+                    // extract the buffer and length fields. No
+                    // side-table lookup is possible because there
+                    // is no variable name; the descriptor is the
+                    // only source of truth.
+                    let arr_val = self.compile_value(array)?;
+                    let sv = match arr_val {
+                        BasicValueEnum::StructValue(s) => s,
+                        other => {
+                            return Err(CompileError::simple(
+                                &format!(
+                                    "codegen: ArrayAccess receiver lowered to \
+                                     non-struct LLVM value (kind {:?}); expected \
+                                     a list descriptor",
+                                    other
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0004,
+                            ));
+                        }
+                    };
+                    let arr_ptr = self
+                        .builder
+                        .build_extract_value(sv, 0, "nested_arr_buf")
+                        .unwrap()
+                        .into_pointer_value();
+                    let len_val = self
+                        .builder
+                        .build_extract_value(sv, 1, "nested_arr_len")
+                        .unwrap()
+                        .into_int_value();
+
+                    let idx_val = self.compile_value(index)?;
+
+                    // Bounds check reading length from the descriptor.
+                    if idx_val.is_int_value() {
+                        let idx_int = idx_val.into_int_value();
+                        let zero = self.context.i64_type().const_int(0, false);
+                        let is_negative = self
+                            .builder
+                            .build_int_compare(
+                                inkwell::IntPredicate::SLT,
+                                idx_int,
+                                zero,
+                                "nested_bounds_neg",
+                            )
+                            .unwrap();
+                        let is_too_big = self
+                            .builder
+                            .build_int_compare(
+                                inkwell::IntPredicate::SGE,
+                                idx_int,
+                                len_val,
+                                "nested_bounds_big",
+                            )
+                            .unwrap();
+                        let out_of_bounds = self
+                            .builder
+                            .build_or(is_negative, is_too_big, "nested_oob")
+                            .unwrap();
+
+                        let error_bb = self.context.append_basic_block(
+                            self.current_function.unwrap(),
+                            "nested_bounds_error",
+                        );
+                        let continue_bb = self
+                            .context
+                            .append_basic_block(self.current_function.unwrap(), "nested_bounds_ok");
+                        self.builder
+                            .build_conditional_branch(out_of_bounds, error_bb, continue_bb)
+                            .unwrap();
+
+                        self.builder.position_at_end(error_bb);
+                        let error_msg = self
+                            .builder
+                            .build_global_string_ptr(
+                                "Error: Array index out of bounds\n",
+                                "nested_bounds_msg",
+                            )
+                            .unwrap();
+                        let printf_fn = self.module.get_function("printf").unwrap();
+                        self.builder
+                            .build_call(
+                                printf_fn,
+                                &[error_msg.as_pointer_value().into()],
+                                "print_nested_error",
+                            )
+                            .unwrap();
+                        let exit_fn = self.module.get_function("exit").ok_or_else(|| {
+                            CompileError::simple(
+                                "LLVM codegen: exit not registered in stdlib",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
+                        let status = self.context.i32_type().const_int(1, false);
+                        self.builder
+                            .build_call(exit_fn, &[status.into()], "nested_oob_exit")
+                            .unwrap();
+                        self.builder.build_unreachable().unwrap();
+
+                        self.builder.position_at_end(continue_bb);
+                    }
+
+                    let idx_i32 = if idx_val.is_int_value() {
+                        let iv = idx_val.into_int_value();
+                        if iv.get_type().get_bit_width() != 32 {
+                            self.builder
+                                .build_int_cast(iv, self.context.i32_type(), "nested_idx32")
+                                .unwrap()
+                        } else {
+                            iv
+                        }
+                    } else {
+                        self.context.i32_type().const_zero()
+                    };
+
+                    // Array stride type from the element type
+                    // carried on the ArrayAccess node — no
+                    // `list_array_types` lookup for a name-less
+                    // receiver.
+                    let elem_llvm_ty = self.map_type(element_type);
+                    let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm_ty {
+                        BasicTypeEnum::IntType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::StructType(t) => t.array_type(0).into(),
+                        other => {
+                            return Err(CompileError::simple(
+                                &format!(
+                                    "codegen: nested ArrayAccess element type has \
+                                     no LLVM array lowering: {:?}",
+                                    other
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0004,
+                            ));
+                        }
+                    };
+
+                    let elem_ptr = unsafe {
+                        self.builder
+                            .build_gep(
+                                arr_ty,
+                                arr_ptr,
+                                &[self.context.i32_type().const_zero(), idx_i32],
+                                "nested_arr_access",
+                            )
+                            .unwrap()
+                    };
+                    self.builder
+                        .build_load(elem_llvm_ty, elem_ptr, "nested_elem_load")
+                        .unwrap()
                 }
             }
             TypedIRValue::Cast { value, target_type } => {

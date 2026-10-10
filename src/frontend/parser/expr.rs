@@ -564,6 +564,38 @@ impl Parser {
                     trailing_expr: Some(Box::new(else_if_expr)),
                     span: else_if_span,
                 }))
+            } else if matches!(self.peek(), Token::Match) {
+                // Same shape as `else if`: an expression-position
+                // `match` in the else arm. Without this branch,
+                // `else match n` falls through to
+                // `parse_block_expr`, which types the block as
+                // Void and produces "if branches produce
+                // inconsistent results" on the analyzer side.
+                //
+                // `parse_match_expr` expects the leading `match`
+                // token already consumed — same convention as the
+                // call site in `parse_stmt`.
+                let else_match_span = self.current_span();
+                self.advance();
+                let else_match_expr = self.parse_match_expr()?;
+                Some(Expr::boxed(ExprKind::Block {
+                    statements: vec![],
+                    trailing_expr: Some(Box::new(else_match_expr)),
+                    span: else_match_span,
+                }))
+            } else if matches!(self.peek(), Token::Try) {
+                // Same shape; `try E catch e F` is expression
+                // position. `parse_try_catch_expr` expects the
+                // leading `try` token already consumed, matching
+                // the call site in `parse_try_catch`.
+                let else_try_span = self.current_span();
+                self.advance();
+                let else_try_expr = self.parse_try_catch_expr()?;
+                Some(Expr::boxed(ExprKind::Block {
+                    statements: vec![],
+                    trailing_expr: Some(Box::new(else_try_expr)),
+                    span: else_try_span,
+                }))
             } else {
                 Some(Box::new(self.parse_block_expr()?))
             }

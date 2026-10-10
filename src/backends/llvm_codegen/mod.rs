@@ -28,7 +28,7 @@ use crate::ir::semantic_ir::{SemanticFunction, SemanticProgram};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, StructType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
 use std::collections::HashMap;
@@ -148,6 +148,19 @@ pub(super) struct LRegionFrame<'ctx> {
     /// `p := alloc(8); p := alloc(16)` inside a region release
     /// both allocations instead of just the second.
     pub saved_slots: Vec<inkwell::values::PointerValue<'ctx>>,
+    /// ADR 0050. List descriptors created inside this region,
+    /// paired with the LLVM struct type of their `{ptr, i64,
+    /// i64}` layout and the descriptor alloca itself. At
+    /// `RegionExit`, each is freed iff its `capacity` field is
+    /// \> 0 (heap-backed). A stack-backed list (capacity == 0)
+    /// is left alone — its buffer is a frame alloca. The
+    /// capacity field is zeroed after free, so a second cleanup
+    /// (early return, list moved to a new binding) is a no-op.
+    pub tracked_lists: Vec<(
+        String,
+        StructType<'ctx>,
+        inkwell::values::PointerValue<'ctx>,
+    )>,
 }
 
 /// Map an IR-level `Math.*` function name to the corresponding name
@@ -728,6 +741,109 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.builder.build_unconditional_branch(skip_bb).unwrap();
         self.builder.position_at_end(skip_bb);
         Ok(())
+    }
+
+    /// ADR 0050. Emit `if (capacity > 0) { free(buffer); capacity = 0; }`
+    /// for a list descriptor. Called from `RegionExit` and
+    /// `Terminator::Return` for every list registered in a region
+    /// frame. The `capacity = 0` store after free makes a second
+    /// cleanup a no-op — the descriptor is shared when a list is
+    /// moved to a new binding inside the same region.
+    pub(super) fn emit_free_list_if_heap(
+        &self,
+        descriptor: inkwell::values::PointerValue<'ctx>,
+        struct_ty: StructType<'ctx>,
+        name: &str,
+    ) -> Result<()> {
+        let i64_ty = self.context.i64_type();
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+
+        let cap_slot = self
+            .builder
+            .build_struct_gep(struct_ty, descriptor, 2, &format!("{}_cap_free_slot", name))
+            .unwrap();
+        let cap = self
+            .builder
+            .build_load(i64_ty, cap_slot, &format!("{}_cap_free", name))
+            .unwrap()
+            .into_int_value();
+        let is_heap = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::UGT,
+                cap,
+                i64_ty.const_zero(),
+                &format!("{}_is_heap", name),
+            )
+            .unwrap();
+
+        let current_fn = self.current_function.ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: emit_free_list_if_heap with no current function",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let do_free_bb = self
+            .context
+            .append_basic_block(current_fn, &format!("{}_free_do", name));
+        let skip_bb = self
+            .context
+            .append_basic_block(current_fn, &format!("{}_free_skip", name));
+        self.builder
+            .build_conditional_branch(is_heap, do_free_bb, skip_bb)
+            .unwrap();
+
+        self.builder.position_at_end(do_free_bb);
+        let buf_slot = self
+            .builder
+            .build_struct_gep(struct_ty, descriptor, 0, &format!("{}_buf_free_slot", name))
+            .unwrap();
+        let buf = self
+            .builder
+            .build_load(ptr_ty, buf_slot, &format!("{}_buf_free", name))
+            .unwrap();
+        let free_fn = self.module.get_function("free").ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: free not registered in stdlib",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        self.builder
+            .build_call(free_fn, &[buf.into()], &format!("{}_free_call", name))
+            .unwrap();
+        // Zero capacity so a second pass sees a stack-backed
+        // (capacity == 0) shape and skips.
+        self.builder
+            .build_store(cap_slot, i64_ty.const_zero())
+            .unwrap();
+        self.builder.build_unconditional_branch(skip_bb).unwrap();
+
+        self.builder.position_at_end(skip_bb);
+        Ok(())
+    }
+
+    /// ADR 0050. Register a list descriptor with the innermost
+    /// region frame, if any. Called from every site that creates
+    /// a fresh list descriptor alloca inside the current function
+    /// body — the list-literal, list-move, and call-result arms of
+    /// `Declare` / `Assign`. A no-op outside any region.
+    pub(super) fn register_region_list(
+        &mut self,
+        name: &str,
+        struct_ty: StructType<'ctx>,
+        descriptor: inkwell::values::PointerValue<'ctx>,
+    ) {
+        if let Some(frame) = self.region_frames.last_mut() {
+            frame
+                .tracked_lists
+                .push((name.to_string(), struct_ty, descriptor));
+        }
     }
 
     /// Coerce a compiled argument to the LLVM parameter type the

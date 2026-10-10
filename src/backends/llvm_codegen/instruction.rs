@@ -444,6 +444,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // struct. Write-only for now.
                     let list_struct = self.emit_list_struct(name, arr_alloca, len);
                     self.list_structs.insert(name.clone(), list_struct);
+                    // ADR 0050.
+                    let st = match self.map_type(type_) {
+                        BasicTypeEnum::StructType(s) => s,
+                        _ => unreachable!("map_type(Type::List) returned non-struct"),
+                    };
+                    self.register_region_list(name, st, list_struct);
                     return Ok(());
                 }
 
@@ -497,6 +503,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                             )
                         })?;
                         let src_ty = self.var_types.get(src).cloned().unwrap();
+                        let src_ty_clone = src_ty.clone();
                         let src_arr_ty = self.list_array_types.get(src).cloned();
                         let src_len = self.list_lengths.get(src).copied();
 
@@ -515,6 +522,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                         // the move.
                         if let Some(struct_alloca) = self.list_structs.get(src).copied() {
                             self.list_structs.insert(name.clone(), struct_alloca);
+                            // ADR 0050.
+                            let st = match self.map_type(&src_ty_clone) {
+                                BasicTypeEnum::StructType(s) => s,
+                                _ => unreachable!("map_type(Type::List) returned non-struct"),
+                            };
+                            self.register_region_list(name, st, struct_alloca);
                         }
                         return Ok(());
                     }
@@ -579,6 +592,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                                         };
                                         self.list_array_types.insert(name.clone(), arr_ty);
                                     }
+                                    // ADR 0050.
+                                    self.register_region_list(name, st, src_alloca);
                                     return Ok(());
                                 }
                             }
@@ -704,6 +719,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // struct.
                     let list_struct = self.emit_list_struct(target, arr_alloca, len);
                     self.list_structs.insert(target.clone(), list_struct);
+                    // ADR 0050.
+                    let target_ty_for_reg = self
+                        .var_types
+                        .get(target)
+                        .cloned()
+                        .unwrap_or_else(|| Type::list(Type::Unknown));
+                    let st = match self.map_type(&target_ty_for_reg) {
+                        BasicTypeEnum::StructType(s) => s,
+                        _ => unreachable!("map_type(Type::List) returned non-struct"),
+                    };
+                    self.register_region_list(target, st, list_struct);
                     return Ok(());
                 }
                 if let TypedIRValue::Record { .. } = value {
@@ -743,6 +769,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                             )
                         })?;
                         let src_ty = self.var_types.get(src).cloned().unwrap();
+                        let src_ty_clone = src_ty.clone();
                         let src_arr_ty = self.list_array_types.get(src).cloned();
                         let src_len = self.list_lengths.get(src).copied();
 
@@ -759,6 +786,12 @@ impl<'ctx> IRCodeGen<'ctx> {
                         // struct with the source.
                         if let Some(struct_alloca) = self.list_structs.get(src).copied() {
                             self.list_structs.insert(target.clone(), struct_alloca);
+                            // ADR 0050.
+                            let st = match self.map_type(&src_ty_clone) {
+                                BasicTypeEnum::StructType(s) => s,
+                                _ => unreachable!("map_type(Type::List) returned non-struct"),
+                            };
+                            self.register_region_list(target, st, struct_alloca);
                         }
                         return Ok(());
                     }
@@ -1826,6 +1859,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     name: name.clone(),
                     tracked_vars: Vec::new(),
                     saved_slots: Vec::new(),
+                    tracked_lists: Vec::new(),
                 });
                 Ok(())
             }
@@ -1852,6 +1886,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                         }
                         for alloca in cleanups {
                             self.emit_free_if_non_null(alloca)?;
+                        }
+                        // ADR 0050. Free each tracked list whose
+                        // capacity is > 0, in LIFO order.
+                        for (name, st, alloca) in frame.tracked_lists.iter().rev() {
+                            self.emit_free_list_if_heap(*alloca, *st, name)?;
                         }
                         Ok(())
                     }

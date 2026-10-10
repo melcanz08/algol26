@@ -1,0 +1,13 @@
+// probe: e2_mut_borrow_record
+// exercises: mut_borrow_record
+
+rec Counter
+    value: Int
+
+proc bump(c: &mut Counter)
+    c.value := c.value + 1
+
+proc main
+    var c := Counter { value: 0 }
+    bump(&mut c)
+    print(c.value)

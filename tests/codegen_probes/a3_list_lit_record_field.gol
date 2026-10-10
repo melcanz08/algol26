@@ -1,0 +1,9 @@
+// probe: a3_list_lit_record_field
+// exercises: list_lit_record_field
+
+rec Bag
+    items: List<Int>
+
+proc main
+    val b := Bag { items: [10, 20] }
+    print(List.length(b.items))

@@ -1,0 +1,17 @@
+// probe: c8_return_enum
+// exercises: return_enum
+
+enum Color
+    Red
+    Blue
+
+fn pick(n: Int) -> Color
+    if n > 0 then Color.Red else Color.Blue
+
+proc main
+    val c := pick(5)
+    match c
+        case Red
+            print("red")
+        case Blue
+            print("blue")

@@ -1,0 +1,13 @@
+// probe: c2_pass_record_list
+// exercises: pass_record_list
+
+rec Bag
+    items: List<Int>
+
+proc show(b: Bag)
+    print(List.length(b.items))
+
+proc main
+    var inner: List<Int> := [10, 20, 30]
+    val x := Bag { items: inner }
+    show(x)

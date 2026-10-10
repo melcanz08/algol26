@@ -1,0 +1,16 @@
+// probe: f7_option_of_record
+// exercises: option_of_record
+
+rec P
+    v: Int
+
+fn get(n: Int) -> Option<P>
+    if n > 0 then Some(P { v: n }) else None
+
+proc main
+    val a := get(5)
+    match a
+        case Some(p)
+            print(p.v)
+        case None
+            print(0)

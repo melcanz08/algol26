@@ -1,0 +1,8 @@
+// probe: a4_list_lit_call_arg
+// exercises: list_lit_call_arg
+
+fn head(xs: List<Int>) -> Int
+    xs[0]
+
+proc main
+    print(head([1, 2, 3]))

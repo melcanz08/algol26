@@ -1,0 +1,13 @@
+// probe: f6_enum_in_list
+// exercises: enum_in_list
+
+enum Color
+    Red
+    Blue
+
+proc main
+    var cs: List<Color> := []
+    cs.append(Color.Red)
+    cs.append(Color.Blue)
+    for c in cs
+        print(c.to_ordinal())

@@ -1,0 +1,6 @@
+// probe: b1_list_length_var
+// exercises: list_length_var
+
+proc main
+    var xs := [1, 2, 3]
+    print(xs.length())

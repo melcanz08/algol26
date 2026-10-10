@@ -1,0 +1,15 @@
+// probe: f5_record_in_list_in_record
+// exercises: record_in_list_in_record
+
+rec Inner
+    v: Int
+
+rec Outer
+    items: List<Inner>
+
+proc main
+    var is: List<Inner> := []
+    is.append(Inner { v: 5 })
+    is.append(Inner { v: 6 })
+    val o := Outer { items: is }
+    print(List.length(o.items))

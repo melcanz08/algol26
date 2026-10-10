@@ -1,0 +1,12 @@
+// probe: e1_borrow_field
+// exercises: borrow_field
+
+rec P
+    v: Int
+
+fn read(p: &P) -> Int
+    p.v
+
+proc main
+    val x := P { v: 42 }
+    print(read(&x))

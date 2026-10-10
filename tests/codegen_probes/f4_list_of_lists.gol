@@ -1,0 +1,10 @@
+// probe: f4_list_of_lists
+// exercises: list_of_lists
+
+proc main
+    var nested: List<List<Int>> := []
+    var a: List<Int> := [1, 2]
+    var b: List<Int> := [3, 4]
+    nested.append(a)
+    nested.append(b)
+    print(nested[1][0])

@@ -1,0 +1,13 @@
+// probe: c5_return_record_prim
+// exercises: return_record_prim
+
+rec P
+    a: Int
+    b: Int
+
+fn make() -> P
+    P { a: 10, b: 20 }
+
+proc main
+    val x := make()
+    print(x.a)

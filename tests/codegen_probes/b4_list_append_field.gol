@@ -1,0 +1,11 @@
+// probe: b4_list_append_field
+// exercises: list_append_field
+
+rec Bag
+    items: List<Int>
+
+proc main
+    var inner: List<Int> := [1]
+    var b := Bag { items: inner }
+    b.items.append(2)
+    print(List.length(b.items))

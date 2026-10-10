@@ -1,0 +1,9 @@
+// probe: a5_list_lit_return
+// exercises: list_lit_return
+
+fn make() -> List<Int>
+    [1, 2, 3]
+
+proc main
+    val xs := make()
+    print(xs[0])

@@ -1,0 +1,14 @@
+// probe: c1_pass_record_prim
+// exercises: pass_record_prim
+
+rec P
+    a: Int
+    b: Int
+
+proc show(p: P)
+    print(p.a)
+    print(p.b)
+
+proc main
+    val x := P { a: 1, b: 2 }
+    show(x)

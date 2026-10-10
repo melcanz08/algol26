@@ -1,0 +1,9 @@
+// probe: d1_if_expr_string
+// exercises: if_expr_string
+
+fn band(n: Int) -> String
+    if n >= 10 then "high" else "low"
+
+proc main
+    print(band(15))
+    print(band(5))

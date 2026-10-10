@@ -1,0 +1,10 @@
+// probe: b2_list_length_field
+// exercises: list_length_field
+
+rec Bag
+    items: List<Int>
+
+proc main
+    var inner: List<Int> := [10, 20, 30]
+    val b := Bag { items: inner }
+    print(b.items.length())

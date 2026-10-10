@@ -1,0 +1,13 @@
+// probe: c4_pass_option_int
+// exercises: pass_option_int
+
+proc show(o: Option<Int>)
+    match o
+        case Some(v)
+            print(v)
+        case None
+            print(0)
+
+proc main
+    show(Some(5))
+    show(None)

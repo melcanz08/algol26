@@ -1,0 +1,15 @@
+// probe: b5_method_on_iter_var
+// exercises: method_on_iter_var
+
+rec Student
+    name: String
+
+proc show_all(xs: List<Student>)
+    for s in xs
+        print(s.name.length())
+
+proc main
+    var a: List<Student> := []
+    a.append(Student { name: "Alice" })
+    a.append(Student { name: "Bob" })
+    show_all(a)

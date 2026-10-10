@@ -1,0 +1,16 @@
+// probe: b6_method_on_field_access
+// exercises: method_on_field_access
+
+rec Inner
+    v: Int
+
+impl Inner
+    fn get(self: &Inner) -> Int
+        self.v
+
+rec Outer
+    inner: Inner
+
+proc main
+    val o := Outer { inner: Inner { v: 42 } }
+    print(o.inner.get())

@@ -1,0 +1,15 @@
+// probe: f3_list_of_records_pass
+// exercises: list_of_records_pass
+
+rec P
+    v: Int
+
+proc show(p: P)
+    print(p.v)
+
+proc main
+    var ps: List<P> := []
+    ps.append(P { v: 10 })
+    ps.append(P { v: 20 })
+    for p in ps
+        show(p)

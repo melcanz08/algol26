@@ -1,0 +1,17 @@
+// probe: d2_match_expr_enum
+// exercises: match_expr_enum
+
+enum Day
+    Mon
+    Fri
+
+fn kind(d: Day) -> String
+    match d
+        case Mon
+            "weekday"
+        case Fri
+            "friday"
+
+proc main
+    print(kind(Day.Mon))
+    print(kind(Day.Fri))

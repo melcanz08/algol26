@@ -1,0 +1,12 @@
+// probe: d3_for_then_return
+// exercises: for_then_return
+
+proc sum(xs: List<Int>) -> Int
+    var total := 0
+    for x in xs
+        total := total + x
+    return total
+
+proc main
+    val a := [1, 2, 3, 4]
+    print(sum(a))

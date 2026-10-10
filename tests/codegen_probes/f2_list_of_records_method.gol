@@ -1,0 +1,16 @@
+// probe: f2_list_of_records_method
+// exercises: list_of_records_method
+
+rec P
+    v: Int
+
+impl P
+    fn doubled(self: &P) -> Int
+        self.v * 2
+
+proc main
+    var ps: List<P> := []
+    ps.append(P { v: 3 })
+    ps.append(P { v: 4 })
+    for p in ps
+        print(p.doubled())

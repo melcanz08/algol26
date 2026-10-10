@@ -1,0 +1,7 @@
+// probe: a2_list_lit_assign
+// exercises: list_lit_assign
+
+proc main
+    var xs: List<Int> := []
+    xs := [1, 2, 3]
+    print(xs[0])

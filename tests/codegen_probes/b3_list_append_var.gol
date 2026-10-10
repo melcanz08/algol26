@@ -1,0 +1,7 @@
+// probe: b3_list_append_var
+// exercises: list_append_var
+
+proc main
+    var xs := [1]
+    xs.append(2)
+    print(xs[1])

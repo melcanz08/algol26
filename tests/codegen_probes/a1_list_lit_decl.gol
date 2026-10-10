@@ -1,0 +1,6 @@
+// probe: a1_list_lit_decl
+// exercises: list_lit_decl
+
+proc main
+    var xs := [1, 2, 3]
+    print(xs[0])

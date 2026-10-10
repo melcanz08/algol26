@@ -1,0 +1,12 @@
+// probe: f1_list_of_records_iterate
+// exercises: list_of_records_iterate
+
+rec P
+    v: Int
+
+proc main
+    var ps: List<P> := []
+    ps.append(P { v: 1 })
+    ps.append(P { v: 2 })
+    for p in ps
+        print(p.v)

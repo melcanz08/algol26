@@ -1,0 +1,12 @@
+// probe: c7_return_list
+// exercises: return_list
+
+fn make() -> List<Int>
+    var inner: List<Int> := []
+    inner.append(7)
+    inner.append(8)
+    inner
+
+proc main
+    val xs := make()
+    print(xs[1])

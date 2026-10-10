@@ -1,0 +1,10 @@
+// probe: c3_pass_list_int
+// exercises: pass_list_int
+
+proc show(xs: List<Int>)
+    print(xs[0])
+    print(xs[2])
+
+proc main
+    val a := [10, 20, 30]
+    show(a)

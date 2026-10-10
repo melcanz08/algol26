@@ -1,0 +1,13 @@
+// probe: c6_return_option
+// exercises: return_option
+
+fn find(n: Int) -> Option<Int>
+    if n > 0 then Some(n) else None
+
+proc main
+    val a := find(5)
+    match a
+        case Some(v)
+            print(v)
+        case None
+            print(0)

@@ -739,6 +739,35 @@ impl<'ctx> IRCodeGen<'ctx> {
         builder.build_alloca(llvm_ty, name).unwrap()
     }
 
+    /// ADR 0042 phase 2. Compute the runtime length value for a
+    /// named list. Prefers a compile-time constant from
+    /// `list_lengths` when present (a stack-backed literal);
+    /// otherwise loads field 1 of the descriptor struct (a list
+    /// variable, parameter, or call result). Returns `None` only
+    /// when neither source exists -- every list should have a
+    /// descriptor after phase 1b, so a `None` here is a compiler
+    /// bug, and the caller should fail closed rather than skip
+    /// the check.
+    pub(super) fn list_length_value(&self, name: &str) -> Option<inkwell::values::IntValue<'ctx>> {
+        if let Some(static_len) = self.list_lengths.get(name).copied() {
+            return Some(self.context.i64_type().const_int(static_len as u64, false));
+        }
+        let struct_alloca = self.list_structs.get(name).copied()?;
+        let list_ty = self.var_types.get(name).cloned()?;
+        let struct_ty = match self.map_type(&list_ty) {
+            BasicTypeEnum::StructType(st) => st,
+            _ => return None,
+        };
+        let len_slot = self
+            .builder
+            .build_struct_gep(struct_ty, struct_alloca, 1, &format!("{}_len_slot", name))
+            .ok()?;
+        self.builder
+            .build_load(self.context.i64_type(), len_slot, &format!("{}_len", name))
+            .ok()
+            .map(|v| v.into_int_value())
+    }
+
     /// Same as `create_entry_alloca`, but takes an LLVM type directly.
     /// Used when the ALGOL26 `Type` isn't available — e.g. storing a
     /// struct-returning call's result into a caller alloca.

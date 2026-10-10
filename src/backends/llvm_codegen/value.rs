@@ -565,26 +565,30 @@ impl<'ctx> IRCodeGen<'ctx> {
                             .unwrap_or_else(|| self.context.f64_type().array_type(0).into());
                         let idx_val = self.compile_value(index)?;
 
-                        // Bounds checking. Only emitted when the
-                        // codegen has a compile-time length for this
-                        // list. A list parameter (`xs: List<Int>`)
-                        // has no `list_lengths` entry — its length
-                        // lives in the caller's frame — so the check
-                        // is skipped for it. See
-                        // docs/features/list_llvm.md.
-                        if self.list_lengths.contains_key(&arr_name) && idx_val.is_int_value() {
+                        // ADR 0042 phase 2. Bounds checking now
+                        // works for every list, including
+                        // parameters: the length comes from the
+                        // descriptor struct when no compile-time
+                        // hint exists. A `None` from the helper
+                        // means no producer registered a length --
+                        // a compiler bug, fail closed rather than
+                        // silently skip the check.
+                        if idx_val.is_int_value() {
                             let idx_int = idx_val.into_int_value();
-                            // The `contains_key` guard above proves the
-                            // entry exists. `unwrap_or(0)` would silently
-                            // check the index against a length-0 list if
-                            // the guard ever regressed — a fail-open that
-                            // makes every out-of-bounds check pass. Fail
-                            // closed instead: the invariant is
-                            // established, not assumed.
-                            let len = self.list_lengths.get(&arr_name).cloned().expect(
-                                "list_lengths entry disappeared between contains_key and get",
-                            ) as u64;
-                            let len_val = self.context.i64_type().const_int(len, false);
+                            let len_val = self.list_length_value(&arr_name).ok_or_else(|| {
+                                CompileError::simple(
+                                    &format!(
+                                        "LLVM codegen: bounds check on `{}` \
+                                         has no length source (no `list_lengths` \
+                                         entry and no `list_structs` descriptor)",
+                                        arr_name
+                                    ),
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
 
                             // Check idx >= 0
                             let zero = self.context.i64_type().const_int(0, false);
@@ -644,23 +648,32 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     "print_error",
                                 )
                                 .unwrap();
-                            // The error block terminates the function. Use the
-                            // function's actual return type — otherwise LLVM
-                            // rejects `ret i32 1` inside a void function.
-                            let current_fn = self.current_function.unwrap();
-                            let ret_type = current_fn.get_type().get_return_type();
-                            match ret_type {
-                                Some(_) => {
-                                    self.builder
-                                        .build_return(Some(
-                                            &self.context.i32_type().const_int(1, false),
-                                        ))
-                                        .unwrap();
-                                }
-                                None => {
-                                    self.builder.build_return(None).unwrap();
-                                }
-                            }
+                            // ADR 0042 phase 2. The error block calls
+                            // libc `exit(1)` rather than emitting a
+                            // `return`. Returning from inside the bounds
+                            // error handed control back to the caller
+                            // (e.g. a `print(a[0])` after a failed index
+                            // would run on stale state) and forced a
+                            // return-type match against the enclosing
+                            // function's signature — a `ret i32 1`
+                            // inside an `i64`-returning function is
+                            // invalid IR. `exit` is `noreturn` and
+                            // aborts the program, matching the
+                            // interpreter's semantics.
+                            let exit_fn = self.module.get_function("exit").ok_or_else(|| {
+                                CompileError::simple(
+                                    "LLVM codegen: exit not registered in stdlib",
+                                    0,
+                                    0,
+                                    "",
+                                    ErrorCode::E0009,
+                                )
+                            })?;
+                            let status = self.context.i32_type().const_int(1, false);
+                            self.builder
+                                .build_call(exit_fn, &[status.into()], "oob_exit")
+                                .unwrap();
+                            self.builder.build_unreachable().unwrap();
 
                             // Continue block
                             self.builder.position_at_end(continue_bb);

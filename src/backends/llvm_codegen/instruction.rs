@@ -561,22 +561,27 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 };
                 let idx_val = self.compile_value(index)?;
-                // Same guard as the sibling site in `value.rs`: only
-                // emit the bounds check when the codegen has a
-                // compile-time length. List parameters have no
-                // `list_lengths` entry.
-                if self.list_lengths.contains_key(&arr_name) && idx_val.is_int_value() {
+                // ADR 0042 phase 2. Same as the sibling site in
+                // `value.rs`: bounds checking now works for every
+                // list, including parameters, using the descriptor
+                // struct as the length source when no compile-time
+                // hint exists.
+                if idx_val.is_int_value() {
                     let idx_int = idx_val.into_int_value();
-                    // Same reasoning as the sibling site in `value.rs`:
-                    // the guard proves the entry exists. Fail closed
-                    // rather than silently defaulting to 0.
-                    let len = self
-                        .list_lengths
-                        .get(&arr_name)
-                        .cloned()
-                        .expect("list_lengths entry disappeared between contains_key and get")
-                        as u64;
-                    let len_val = self.context.i64_type().const_int(len, false);
+                    let len_val = self.list_length_value(&arr_name).ok_or_else(|| {
+                        CompileError::simple(
+                            &format!(
+                                "LLVM codegen: bounds check on `{}` has no \
+                                 length source (no `list_lengths` entry and \
+                                 no `list_structs` descriptor)",
+                                arr_name
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
                     let zero = self.context.i64_type().const_int(0, false);
 
                     let is_negative = self
@@ -630,18 +635,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                         )
                         .unwrap();
 
-                    // Return void if the enclosing function is void; otherwise return 1.
-                    let current_fn = self.current_function.unwrap();
-                    match current_fn.get_type().get_return_type() {
-                        Some(_) => {
-                            self.builder
-                                .build_return(Some(&self.context.i32_type().const_int(1, false)))
-                                .unwrap();
-                        }
-                        None => {
-                            self.builder.build_return(None).unwrap();
-                        }
-                    }
+                    // ADR 0042 phase 2. Same change as the sibling
+                    // site in `value.rs`: the OOB error block calls
+                    // `exit(1)` instead of emitting a `return`.
+                    let exit_fn = self.module.get_function("exit").ok_or_else(|| {
+                        CompileError::simple(
+                            "LLVM codegen: exit not registered in stdlib",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                    let status = self.context.i32_type().const_int(1, false);
+                    self.builder
+                        .build_call(exit_fn, &[status.into()], "oob_write_exit")
+                        .unwrap();
+                    self.builder.build_unreachable().unwrap();
 
                     self.builder.position_at_end(continue_bb);
                 }
@@ -1456,17 +1466,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                         "print_bounds_err",
                     )
                     .unwrap();
-                let current_fn = self.current_function.unwrap();
-                match current_fn.get_type().get_return_type() {
-                    Some(_) => {
-                        self.builder
-                            .build_return(Some(&self.context.i32_type().const_int(1, false)))
-                            .unwrap();
-                    }
-                    None => {
-                        self.builder.build_return(None).unwrap();
-                    }
-                }
+                // ADR 0042 phase 2. Same change as the OOB sites:
+                // the bounds-check error block calls `exit(1)`
+                // instead of `return`.
+                let exit_fn = self.module.get_function("exit").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: exit not registered in stdlib",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let status = self.context.i32_type().const_int(1, false);
+                self.builder
+                    .build_call(exit_fn, &[status.into()], "bc_exit")
+                    .unwrap();
+                self.builder.build_unreachable().unwrap();
 
                 self.builder.position_at_end(continue_bb);
                 Ok(())

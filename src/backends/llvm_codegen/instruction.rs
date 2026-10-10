@@ -1367,7 +1367,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                     _ => None,
                 };
                 if let Some(arr_name) = arr_name_opt {
-                    let arr_ptr = self.list_arrays.get(&arr_name).cloned().ok_or_else(|| {
+                    // ADR 0042 follow-up. Read the buffer from the
+                    // descriptor, not `list_arrays`. The table is
+                    // populated at `Declare` time with the original
+                    // stack alloca; a subsequent `.append` grows to
+                    // a heap buffer and updates the descriptor but
+                    // not the table. Using the stale pointer reads
+                    // garbage past the original alloca. Same fix as
+                    // `ArrayAccess`, `ArrayAssign`, and
+                    // `compile_reference` already carry.
+                    let arr_ptr = self.list_buffer_value(&arr_name).ok_or_else(|| {
                         CompileError::unsupported_operation(
                             &format!(
                                 "IteratorInit on `{}` which is not a tracked list \

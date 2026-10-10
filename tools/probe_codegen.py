@@ -89,6 +89,18 @@ def main():
             verdict = 'BOTH-FAIL'
         rows.append((tag, verdict, classify(l_err)))
 
+    # The compiler writes .ll files (and, for successful runs, an
+    # extensionless executable) next to the source regardless of
+    # cwd. Clean them up so the probe directory contains only .gol
+    # sources after every run.
+    for probe in probes:
+        for sibling in probe.parent.glob(f"{probe.stem}.*"):
+            if sibling.suffix != ".gol":
+                sibling.unlink(missing_ok=True)
+        binary = probe.parent / probe.stem
+        if binary.exists() and binary.is_file():
+            binary.unlink()
+
     width = max(len(r[0]) for r in rows)
     print(f"\n{'probe':<{width}}  {'verdict':<11}  class")
     print('-' * (width + 26))

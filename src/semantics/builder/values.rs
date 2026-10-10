@@ -11,6 +11,15 @@ impl SemanticIRBuilder {
         receiver_type: &Type,
         method_name: &str,
     ) -> Option<String> {
+        // Auto-deref one level of borrow. `self: &Student` has type
+        // `Borrow<Student>`; a method call `self.count()` must find
+        // `Student_count`. Mirror the analyzer's auto-deref so both
+        // sides agree on the resolved name.
+        let receiver_type: &Type = match receiver_type {
+            Type::Borrow(inner) | Type::MutBorrow(inner) => inner,
+            other => other,
+        };
+
         // User-defined types (records, enums, nominal types, subranges)
         // use the underscore form: `Type_method`. Their names come from
         // the type's own identity, not from a builtin base name.

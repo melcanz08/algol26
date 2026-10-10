@@ -1140,6 +1140,22 @@ impl SemanticAnalyzer {
                                     return Ok(ty);
                                 }
                             }
+                            // Auto-deref one level of borrow before
+                            // the inherent / builtin / trait tiers.
+                            // `self: &Student` calling `self.count()`
+                            // must find the method on `Student`, but
+                            // the binding's type is `Borrow<Student>`.
+                            // Without this, method dispatch only
+                            // matches the bare record type. The dyn-
+                            // trait and TypeVar checks above are on
+                            // the un-deref'd type (they need the
+                            // borrow wrapper); the remaining tiers
+                            // operate on the inner type.
+                            let receiver_type = match &receiver_type {
+                                Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+                                other => other.clone(),
+                            };
+
                             // ADR 0030: Enum ordinal extraction. `d.to_ordinal()`.
                             if let Type::Enum { .. } = &receiver_type {
                                 if method_name == "to_ordinal" {
@@ -1625,6 +1641,26 @@ impl SemanticAnalyzer {
                                 ErrorCode::E0011,
                             )
                             .with_suggestion(&suggestion));
+                        }
+                    }
+                }
+
+                // ADR 0032. A qualified enum variant in expression
+                // position (`then Tier.Gold`) reaches the analyzer as
+                // `FunctionCall { name: "Tier.Gold" }` — the parser's
+                // `parse_identifier_stmt` folds bare `Ident.Ident`
+                // without parens into a dotted function name. Before
+                // the "Undefined function" bail-out, check whether
+                // the receiver is a registered enum and the member a
+                // variant. Same recognition as the FieldAccess arm.
+                if clean_name.contains('.') {
+                    if let Some((receiver, variant)) = clean_name.split_once('.') {
+                        if let Some(enum_ty) = self.enum_types.get(receiver).cloned() {
+                            if let Type::Enum { variants, .. } = &enum_ty {
+                                if variants.iter().any(|v| v == variant) {
+                                    return Ok(enum_ty);
+                                }
+                            }
                         }
                     }
                 }

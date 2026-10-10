@@ -357,10 +357,21 @@ fn desugar_expr(expr: Expr, env: &mut HashMap<String, Vec<Expr>>) -> Expr {
 fn resolve_iterable(iterable: &Expr, env: &HashMap<String, Vec<Expr>>) -> Expr {
     match &iterable.kind {
         ExprKind::Var(vname, _) => {
-            if let Some(elems) = env.get(vname) {
-                Expr::new(ExprKind::List(elems.clone(), Span::default()))
-            } else {
-                iterable.clone()
+            // ADR 0049 follow-up. If the variable's tracked
+            // values are empty, keep the variable rather than
+            // synthesizing `List([], Span::default())`. The
+            // synthesized node has no source span and no type
+            // context, so the analyzer cannot resolve it — it
+            // fires the "empty list literal needs a type
+            // annotation" error, which is written for user
+            // source. Keeping the variable lets the analyzer
+            // resolve its declared type as it does for any
+            // non-empty case.
+            match env.get(vname) {
+                Some(elems) if !elems.is_empty() => {
+                    Expr::new(ExprKind::List(elems.clone(), Span::default()))
+                }
+                _ => iterable.clone(),
             }
         }
         _ => iterable.clone(),

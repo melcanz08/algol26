@@ -1,0 +1,131 @@
+// gradebook.gol — a small student grading and reporting system.
+//
+// Exercises a broad slice of ALGOL26: records, enums, methods,
+// the fn/proc split, expression-position if-chains, match on
+// enums and on Option, list.append, iteration over records, and
+// cross-function record passing.
+//
+// Runs identically on the interpreter, LLVM, and WASM backends.
+
+// ─── Domain types ───
+
+enum Tier
+    Gold
+    Silver
+    Bronze
+    AtRisk
+
+rec Student
+    name: String
+    scores: List<Int>
+
+// ─── Methods on Student ───
+
+impl Student
+    fn count(self: &Student) -> Int
+        List.length(self.scores)
+
+    proc total(self: &Student) -> Int
+        var sum := 0
+        for s in self.scores
+            sum := sum + s
+        return sum
+
+    proc highest(self: &Student) -> Int
+        var best := 0
+        for s in self.scores
+            if s > best
+                best := s
+        return best
+
+    fn average(self: &Student) -> Int
+        if self.count() = 0 then 0
+        else self.total() / self.count()
+
+    fn tier(self: &Student) -> Tier
+        if self.average() >= 90 then Tier.Gold
+        else if self.average() >= 75 then Tier.Silver
+        else if self.average() >= 60 then Tier.Bronze
+        else Tier.AtRisk
+
+// ─── Free functions ───
+
+fn letter(score: Int) -> String
+    if score >= 90 then "A"
+    else if score >= 80 then "B"
+    else if score >= 70 then "C"
+    else if score >= 60 then "D"
+    else "F"
+
+fn tier_name(t: Tier) -> String
+    match t
+        case Gold
+            "Gold"
+        case Silver
+            "Silver"
+        case Bronze
+            "Bronze"
+        case AtRisk
+            "At Risk"
+
+proc find_by_name(students: List<Student>, target: String) -> Option<Student>
+    for s in students
+        if s.name = target
+            return Some(s)
+    return None
+
+// ─── Reporting ───
+
+proc print_row(label: String, value: Int)
+    print(String.concat(String.concat(label, ": "), Int.to_string(value)))
+
+proc report_student(s: Student) -> Int
+    print("---")
+    print(s.name)
+    print_row("count", s.count())
+    print_row("average", s.average())
+    print_row("highest", s.highest())
+    print(String.concat("tier: ", tier_name(s.tier())))
+    print(String.concat("letter: ", letter(s.average())))
+    return 0
+
+proc honors_only(students: List<Student>) -> List<Student>
+    var honors: List<Student> := []
+    for s in students
+        if s.average() >= 90
+            honors.append(s)
+    return honors
+
+// ─── Entry point ───
+
+proc main
+    // ADR 0042 gap: LLVM does not yet lower a list literal in
+    // record-field position (`Student { scores: [1, 2, 3] }`).
+    // Bind each list first so it routes through `Declare`'s list
+    // path, which both backends support.
+    var roster: List<Student> := []
+    var alice_scores: List<Int> := [95, 88, 92]
+    var bob_scores: List<Int> := [72, 68, 75]
+    var carol_scores: List<Int> := [55, 62, 58]
+    roster.append(Student { name: "Alice", scores: alice_scores })
+    roster.append(Student { name: "Bob", scores: bob_scores })
+    roster.append(Student { name: "Carol", scores: carol_scores })
+
+    print("=== Full Roster ===")
+    for s in roster
+        val _dummy := report_student(s)
+
+    print("")
+    print("=== Honor Roll ===")
+    val honors := honors_only(roster)
+    for s in honors
+        print(String.concat(String.concat(s.name, " ("), String.concat(Int.to_string(s.average()), ")")))
+
+    print("")
+    print("=== Lookup ===")
+    val found := find_by_name(roster, "Bob")
+    match found
+        case Some(s)
+            print(String.concat("Found: ", s.name))
+        case None
+            print("Not found")

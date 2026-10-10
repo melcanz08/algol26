@@ -223,8 +223,10 @@ impl Parser {
 
         // `distinct` is required. `type X = Int` (a type alias) is
         // not implemented in this ADR. There is no `=` separator:
-        // the lexer reserves bare `=` for future use and rejects it
-        // with a message pointing at `:=` and `==`.
+        // `=` is the equality operator in this language (the lexer
+        // rejects `==` with a message pointing at `=`), and the
+        // assignment operator is `:=`. Writing `=` here would parse
+        // as the start of an expression, not as a separator.
         match self.peek().clone() {
             Token::Identifier(s) if s == "distinct" => {
                 self.advance();

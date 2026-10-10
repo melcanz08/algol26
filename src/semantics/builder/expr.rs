@@ -1007,6 +1007,30 @@ impl SemanticIRBuilder {
                     };
                 }
 
+                // ADR 0032. A qualified enum variant in expression
+                // position (`then Tier.Gold`) reaches the builder as
+                // `FunctionCall { name: "Tier.Gold" }` — the parser's
+                // `parse_identifier_stmt` folds bare `Ident.Ident`
+                // without parens into a dotted function name. Emit
+                // the variant's ordinal as a constant wrapped in a
+                // Cast to the enum type, matching the `from_ordinal`
+                // shape. Same recognition the analyzer's FunctionCall
+                // arm performs.
+                if clean_name.contains('.') {
+                    if let Some((receiver, variant)) = clean_name.split_once('.') {
+                        if let Some(enum_ty) = self.enum_types.get(receiver).cloned() {
+                            if let Type::Enum { variants, .. } = &enum_ty {
+                                if let Some(ordinal) = variants.iter().position(|v| v == variant) {
+                                    return TypedIRValue::Cast {
+                                        value: Box::new(TypedIRValue::Int(ordinal as i64)),
+                                        target_type: enum_ty,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ADR 0031: subrange construction. `Percentage(75)`.
                 // The callee is a bare identifier, not a dotted name.
                 // Emit a Cast that carries the subrange type; the
@@ -1233,21 +1257,35 @@ impl SemanticIRBuilder {
                                 // `User_label(self: &User)` expects `Borrow<User>`; passing a
                                 // bare `User` fails the verifier's arg-type check. Same for
                                 // `&mut self`. By-value `self: T` passes through unchanged.
-                                let receiver_value = match self
-                                    .function_types
-                                    .get(&resolved_name)
-                                    .and_then(|sig| sig.params.first())
-                                    .map(|(_, t)| t.clone())
-                                {
-                                    Some(Type::Borrow(_)) => TypedIRValue::BorrowShared {
-                                        expr: Box::new(raw_receiver),
-                                        target_type: Type::borrow(receiver_type.clone()),
-                                    },
-                                    Some(Type::MutBorrow(_)) => TypedIRValue::BorrowMutable {
-                                        expr: Box::new(raw_receiver),
-                                        target_type: Type::mut_borrow(receiver_type.clone()),
-                                    },
-                                    _ => raw_receiver,
+                                //
+                                // If the receiver is *already* a borrow — the common
+                                // case inside an `impl` method, where `self: &Student`
+                                // gives a binding of type `Borrow<Student>` — do not
+                                // wrap again: `Borrow(Borrow(Student))` fails the
+                                // callee's arg-type check. The inner borrow passes
+                                // straight through.
+                                let receiver_value = if matches!(
+                                    receiver_type,
+                                    Type::Borrow(_) | Type::MutBorrow(_)
+                                ) {
+                                    raw_receiver
+                                } else {
+                                    match self
+                                        .function_types
+                                        .get(&resolved_name)
+                                        .and_then(|sig| sig.params.first())
+                                        .map(|(_, t)| t.clone())
+                                    {
+                                        Some(Type::Borrow(_)) => TypedIRValue::BorrowShared {
+                                            expr: Box::new(raw_receiver),
+                                            target_type: Type::borrow(receiver_type.clone()),
+                                        },
+                                        Some(Type::MutBorrow(_)) => TypedIRValue::BorrowMutable {
+                                            expr: Box::new(raw_receiver),
+                                            target_type: Type::mut_borrow(receiver_type.clone()),
+                                        },
+                                        _ => raw_receiver,
+                                    }
                                 };
 
                                 let mut call_args = vec![receiver_value];

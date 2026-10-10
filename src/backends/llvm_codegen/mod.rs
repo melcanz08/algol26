@@ -82,7 +82,13 @@ pub struct IRCodeGen<'ctx> {
     /// information (`%User = type { ptr }` has no ALGOL26 form).
     pub(super) iterator_elem_types: HashMap<String, Type>,
     pub(super) iterator_indices: HashMap<String, PointerValue<'ctx>>,
-    pub(super) iterator_lengths: HashMap<String, usize>,
+    /// ADR 0042 phase 2. Per-iterator loop bound, as a runtime
+    /// `i64` value. A constant for a stack-backed list literal,
+    /// or a load from the descriptor's length field for a list
+    /// variable or parameter. Replaces the previous
+    /// `HashMap<String, usize>` so iteration over a list whose
+    /// length is only known at runtime can emit a rolled loop.
+    pub(super) iterator_lengths: HashMap<String, inkwell::values::IntValue<'ctx>>,
     /// ALGOL26 extern name -> C symbol. Populated by
     /// `compile()` from the program's FFI metadata. Used in
     /// `declare_function` so a call to `print_line` emits

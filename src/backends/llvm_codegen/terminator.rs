@@ -379,7 +379,11 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // the metadata is inconsistent; the previous
                 // `unwrap_or(0)` silently turned that into "iterate
                 // zero times." Fail closed instead.
-                let len = self
+                // ADR 0042 phase 2. `iterator_lengths` now holds
+                // the loop bound as a runtime `i64` — a constant
+                // for a literal, a descriptor load for a variable
+                // or parameter. Use it directly in the compare.
+                let len_val = self
                     .iterator_lengths
                     .get(iterator)
                     .cloned()
@@ -396,8 +400,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                             "",
                             ErrorCode::E0009,
                         )
-                    })? as u64;
-                let len_val = self.context.i64_type().const_int(len, false);
+                    })?;
                 let cond = self
                     .builder
                     .build_int_compare(inkwell::IntPredicate::ULT, idx_val, len_val, "iter_cond")

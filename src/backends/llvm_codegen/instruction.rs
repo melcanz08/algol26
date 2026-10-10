@@ -1052,27 +1052,66 @@ impl<'ctx> IRCodeGen<'ctx> {
                         })?;
                     self.iterator_elem_types
                         .insert(iterator.clone(), arr_elem_ty);
-                    // Fail closed when the iterable's length is not
-                    // known. This happens for list parameters: the
-                    // callee has the array pointer (registered in
-                    // `list_arrays` by `compile_function`) but not
-                    // the caller's length. A rolled loop needs a
-                    // runtime count and an unrolled one needs a
-                    // compile-time count; neither is available.
-                    // Refuse rather than emit a wrong-length loop.
-                    let len = self.list_lengths.get(&arr_name).copied().ok_or_else(|| {
-                        CompileError::unsupported_operation(
+                    // ADR 0042 phase 2. Iteration bound is either
+                    // a compile-time constant (a stack-backed list
+                    // literal, tracked in `list_lengths`) or a
+                    // runtime load from the descriptor's length
+                    // field (a list variable or parameter — phase
+                    // 1a/1b put the descriptor in `list_structs`
+                    // but only a literal gets a `list_lengths`
+                    // entry). The old "cannot iterate list
+                    // parameter" refusal is gone.
+                    let len_val: inkwell::values::IntValue<'ctx> = if let Some(static_len) =
+                        self.list_lengths.get(&arr_name).copied()
+                    {
+                        self.context.i64_type().const_int(static_len as u64, false)
+                    } else if let Some(struct_alloca) = self.list_structs.get(&arr_name).copied() {
+                        let list_ty = self.var_types.get(&arr_name).cloned().ok_or_else(|| {
+                            CompileError::simple(
+                                &format!(
+                                    "iterator over `{}` but `var_types` \
+                                             has no entry for it",
+                                    arr_name
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
+                        let struct_ty = match self.map_type(&list_ty) {
+                            BasicTypeEnum::StructType(st) => st,
+                            _ => unreachable!("map_type(Type::List) returned non-struct"),
+                        };
+                        let len_slot = self
+                            .builder
+                            .build_struct_gep(
+                                struct_ty,
+                                struct_alloca,
+                                1,
+                                &format!("{}_iter_len_slot", arr_name),
+                            )
+                            .unwrap();
+                        self.builder
+                            .build_load(
+                                self.context.i64_type(),
+                                len_slot,
+                                &format!("{}_iter_len", arr_name),
+                            )
+                            .unwrap()
+                            .into_int_value()
+                    } else {
+                        return Err(CompileError::unsupported_operation(
                             &format!(
-                                "cannot iterate list parameter `{}` \
-                                 — its length is not tracked in the callee. \
-                                 Index it (`{}[i]`) or copy it into a local list \
-                                 first.",
-                                arr_name, arr_name
+                                "cannot determine iteration length of `{}`: \
+                                     no compile-time length and no descriptor \
+                                     struct registered",
+                                arr_name
                             ),
                             "llvm",
-                        )
-                    })?;
-                    self.iterator_lengths.insert(iterator.clone(), len);
+                        ));
+                    };
+                    self.iterator_lengths.insert(iterator.clone(), len_val);
                     let idx_alloca =
                         self.create_entry_alloca(&format!("{}_idx", iterator), &Type::Int);
                     self.builder
@@ -1155,7 +1194,13 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // `IteratorNext`.
                     self.iterator_elem_types
                         .insert(iterator.clone(), elem_ty.clone());
-                    self.iterator_lengths.insert(iterator.clone(), len);
+                    // ADR 0042 phase 2: length is now a runtime
+                    // IntValue. A literal has a compile-time
+                    // constant.
+                    self.iterator_lengths.insert(
+                        iterator.clone(),
+                        self.context.i64_type().const_int(len as u64, false),
+                    );
                     let idx_alloca =
                         self.create_entry_alloca(&format!("{}_idx", iterator), &Type::Int);
                     self.builder

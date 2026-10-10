@@ -935,12 +935,23 @@ impl SemanticAnalyzer {
                     }
                 }
                 if let Some((idx_val, len, var_name)) = out_of_bounds {
+                    // `len.saturating_sub(1)` — an empty list has no
+                    // valid indices, and `0 - 1` underflows in debug
+                    // builds. The suggestion is rewritten for the
+                    // empty case, where "0..-1" is meaningless.
+                    let hint = if len == 0 {
+                        "The list is empty; append elements before indexing".to_string()
+                    } else {
+                        format!(
+                            "Valid indices are 0..{} for array of length {}",
+                            len.saturating_sub(1),
+                            len
+                        )
+                    };
                     return Err(CompileError::at(self.current_span, &format!(
                             "Array index out of bounds: index {} is out of bounds for '{}' with length {}",
                             idx_val, var_name, len
-                        ), ErrorCode::E0004).with_suggestion(&format!(
-                        "Valid indices are 0..{} for array of length {}", len - 1, len
-                    )));
+                        ), ErrorCode::E0004).with_suggestion(&hint));
                 }
                 if index_type != Type::Int && index_type != Type::Unknown {
                     return Err(CompileError::at(

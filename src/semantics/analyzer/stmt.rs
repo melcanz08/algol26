@@ -169,6 +169,23 @@ impl SemanticAnalyzer {
                     _ => var_type.clone(),
                 };
 
+                // Mirror `VarDecl`'s list bookkeeping. Without this,
+                // `var xs: List<Int> := []; xs := [1, 2, 3]` leaves
+                // the analyzer's `list_lengths` entry at 0, and
+                // `xs[0]` is misdiagnosed as out of bounds — a
+                // false positive on a valid program.
+                if let ExprKind::List(elements, _) = &value.kind {
+                    self.declare_list_length(name, elements.len());
+                    self.declare_list_values(name, elements.clone());
+                } else if let ExprKind::Var(source, _) = &value.kind {
+                    if let Some(len) = self.lookup_list_length(source) {
+                        self.declare_list_length(name, len);
+                    }
+                    if let Some(vals) = self.lookup_list_values(source) {
+                        self.declare_list_values(name, vals);
+                    }
+                }
+
                 let value_type = self.analyze_expr_with_context(value, Some(&target_type))?;
                 if target_type != value_type
                     && target_type != Type::Unknown

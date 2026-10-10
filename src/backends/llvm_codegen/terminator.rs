@@ -176,12 +176,16 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // Some/None/Ok/Error/Wildcard/Record - need runtime tag
                 // decoding and payload extraction that this codegen doesn't
                 // implement yet. Refuse cleanly instead of miscompiling.
+                // ADR 0042-followup. Wildcard (`case _`) is
+                // lowerable: its target block becomes the LLVM
+                // switch's default. Only Ok / Error / Record still
+                // need runtime tag decoding this backend does not
+                // implement.
                 let has_undecodable = cases.iter().any(|(pat, _)| {
                     matches!(
                         pat,
                         SemanticPattern::Ok { .. }
                             | SemanticPattern::Error { .. }
-                            | SemanticPattern::Wildcard
                             | SemanticPattern::Record { .. }
                     )
                 });
@@ -199,7 +203,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                 }
                 if val.is_int_value() {
                     let iv = val.into_int_value();
-                    let default_bb = if let Some(default_id) = default_block {
+
+                    // ADR 0042-followup. A Wildcard case becomes the
+                    // LLVM switch's default target — it is pulled out
+                    // of `case_pairs` so LLVM does not see a bogus
+                    // case entry, and its block overrides the merge
+                    // default the builder passed in.
+                    let wildcard_bb = cases.iter().find_map(|(pat, block_id)| {
+                        if matches!(pat, SemanticPattern::Wildcard) {
+                            self.blocks.get(block_id).cloned()
+                        } else {
+                            None
+                        }
+                    });
+
+                    let default_bb = if let Some(wc) = wildcard_bb {
+                        wc
+                    } else if let Some(default_id) = default_block {
                         self.blocks.get(default_id).cloned().ok_or_else(|| {
                             CompileError::unsupported_operation(
                                 &format!("switch to unknown default block {}", default_id),
@@ -226,6 +246,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                         inkwell::basic_block::BasicBlock<'ctx>,
                     )> = Vec::new();
                     for (pat, block_id) in cases {
+                        // Wildcard was pulled out above.
+                        if matches!(pat, SemanticPattern::Wildcard) {
+                            continue;
+                        }
                         let target_bb = self.blocks.get(block_id).cloned().ok_or_else(|| {
                             CompileError::unsupported_operation(
                                 &format!("switch case to unknown block {}", block_id),
@@ -242,10 +266,6 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     .bool_type()
                                     .const_int(if *b { 1 } else { 0 }, false),
                                 other => {
-                                    // Only Int and Bool literals lower to
-                                    // integer switch cases. A Float or
-                                    // String literal here would silently
-                                    // match case 0. Fail closed instead.
                                     return Err(CompileError::unsupported_operation(
                                         &format!(
                                             "switch literal pattern of unsupported kind: {:?}",
@@ -255,16 +275,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     ));
                                 }
                             },
-                            // Enum variant: compare against its ordinal.
-                            // See ADR 0030 - the ordinal is assigned at
-                            // IR-build time and the matched value carries
-                            // the same discriminant.
                             SemanticPattern::Variant { ordinal, .. } => {
                                 self.context.i64_type().const_int(*ordinal as u64, true)
                             }
-                            // has_undecodable was checked above; this arm
-                            // is a defensive fail-closed for anything the
-                            // guard didn't anticipate.
                             _ => {
                                 return Err(CompileError::unsupported_operation(
                                     "non-literal switch pattern (internal invariant violated)",
@@ -272,10 +285,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                                 ));
                             }
                         };
-                        // need to cast const_val to iv type if needed
                         let casted = if const_val.get_type() != iv.get_type() {
                             if iv.get_type().get_bit_width() == 1 {
-                                // bool case
                                 self.context.bool_type().const_int(
                                     if const_val.get_zero_extended_constant().unwrap_or(0) != 0 {
                                         1
@@ -295,6 +306,18 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.builder
                         .build_switch(iv, default_bb, &case_pairs)
                         .unwrap();
+                } else if let Some(wc_bb) = cases.iter().find_map(|(pat, block_id)| {
+                    if matches!(pat, SemanticPattern::Wildcard) {
+                        self.blocks.get(block_id).cloned()
+                    } else {
+                        None
+                    }
+                }) {
+                    // ADR 0042-followup. Non-integer switch value
+                    // (e.g. String) with a Wildcard case: branch to
+                    // the wildcard block. Same shape as the int path
+                    // — the wildcard becomes the effective default.
+                    self.builder.build_unconditional_branch(wc_bb).unwrap();
                 } else if let Some(default_id) = default_block {
                     // Non-integer switch value (e.g. String): we cannot
                     // build an LLVM switch on it, so branch to the

@@ -748,24 +748,61 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// descriptor after phase 1b, so a `None` here is a compiler
     /// bug, and the caller should fail closed rather than skip
     /// the check.
+    /// ADR 0042 phase 4. Runtime buffer pointer for a named list.
+    /// Loads field 0 of the descriptor when one exists (the
+    /// authoritative source after any `.append` mutated the
+    /// buffer); falls back to the static `list_arrays` map for
+    /// names without a descriptor (bare literals in for-loops).
+    pub(super) fn list_buffer_value(
+        &self,
+        name: &str,
+    ) -> Option<inkwell::values::PointerValue<'ctx>> {
+        if let Some(struct_alloca) = self.list_structs.get(name).copied() {
+            let list_ty = self.var_types.get(name).cloned()?;
+            let struct_ty = match self.map_type(&list_ty) {
+                BasicTypeEnum::StructType(st) => st,
+                _ => return None,
+            };
+            let buf_slot = self
+                .builder
+                .build_struct_gep(struct_ty, struct_alloca, 0, &format!("{}_buf_slot_r", name))
+                .ok()?;
+            let ptr_ty = self.context.ptr_type(AddressSpace::default());
+            return self
+                .builder
+                .build_load(ptr_ty, buf_slot, &format!("{}_buf_r", name))
+                .ok()
+                .map(|v| v.into_pointer_value());
+        }
+        self.list_arrays.get(name).copied()
+    }
+
     pub(super) fn list_length_value(&self, name: &str) -> Option<inkwell::values::IntValue<'ctx>> {
+        // ADR 0042 phase 4. Prefer the descriptor's runtime
+        // length. `list_lengths` is a compile-time hint recorded
+        // at construction and stale after any `.append`; the
+        // descriptor is the source of truth. Fall back to the
+        // hint only when no descriptor exists.
+        if let Some(struct_alloca) = self.list_structs.get(name).copied() {
+            let list_ty = self.var_types.get(name).cloned()?;
+            let struct_ty = match self.map_type(&list_ty) {
+                BasicTypeEnum::StructType(st) => st,
+                _ => return None,
+            };
+            let len_slot = self
+                .builder
+                .build_struct_gep(struct_ty, struct_alloca, 1, &format!("{}_len_slot", name))
+                .ok()?;
+            return self
+                .builder
+                .build_load(self.context.i64_type(), len_slot, &format!("{}_len", name))
+                .ok()
+                .map(|v| v.into_int_value());
+        }
         if let Some(static_len) = self.list_lengths.get(name).copied() {
             return Some(self.context.i64_type().const_int(static_len as u64, false));
         }
-        let struct_alloca = self.list_structs.get(name).copied()?;
-        let list_ty = self.var_types.get(name).cloned()?;
-        let struct_ty = match self.map_type(&list_ty) {
-            BasicTypeEnum::StructType(st) => st,
-            _ => return None,
-        };
-        let len_slot = self
-            .builder
-            .build_struct_gep(struct_ty, struct_alloca, 1, &format!("{}_len_slot", name))
-            .ok()?;
-        self.builder
-            .build_load(self.context.i64_type(), len_slot, &format!("{}_len", name))
-            .ok()
-            .map(|v| v.into_int_value())
+        None
     }
 
     /// Same as `create_entry_alloca`, but takes an LLVM type directly.

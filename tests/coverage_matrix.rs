@@ -512,14 +512,14 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "list_append",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
-        wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_list_append", "wasm_rejects_list_append"],
-        notes: "No conformance fixture yet. `List.append` is interpreter-only \
-                (ADR 0028); LLVM's list lowering assumes a static length. \
-                LLVM and WASM refuse at the capability check \
-                (`Feature::ListAppend`). LLVM refusal is pinned; WASM refusal \
-                is untested but follows from WASM's empty supported set.",
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "No conformance fixture yet. All three backends support \
+                `List.append` as of ADR 0042 phase 4. LLVM and WASM lower \
+                it via `emit_list_append`: stack-backed lists malloc on \
+                first append, heap-backed lists write in place or realloc \
+                when full. Descriptor mutation propagates to the caller.",
     },
     FeatureRow {
         name: "enum_types",

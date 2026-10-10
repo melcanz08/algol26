@@ -213,6 +213,11 @@ impl BackendCapabilities {
         // `Instruction::VirtualCall` lowers to a load of the
         // vtable slot followed by an indirect call.
         supported.insert(Feature::DynamicDispatch);
+        // ADR 0042 phase 4. `xs.append(v)` grows a stack-backed
+        // list to the heap, writes in place when spare capacity
+        // exists, and reallocs when full. Descriptor mutation via
+        // the shared alloca propagates to the caller.
+        supported.insert(Feature::ListAppend);
         BackendCapabilities {
             name: "LLVM",
             supported,
@@ -233,6 +238,8 @@ impl BackendCapabilities {
         // ADR 0038 D6-3. Same IR codegen path as LLVM; vtables and
         // indirect calls lower identically.
         supported.insert(Feature::DynamicDispatch);
+        // ADR 0042 phase 4. Same IR codegen as LLVM.
+        supported.insert(Feature::ListAppend);
         BackendCapabilities {
             name: "WASM",
             supported,

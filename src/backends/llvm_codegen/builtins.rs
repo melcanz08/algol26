@@ -566,6 +566,11 @@ impl<'ctx> IRCodeGen<'ctx> {
         let malloc_ty = i8_ptr.fn_type(&[self.context.i64_type().into()], false);
         let malloc_fn = self.module.add_function("malloc", malloc_ty, None);
         self.functions.insert("malloc".to_string(), malloc_fn);
+        // ADR 0042 phase 4. `List.append` grows a heap-backed list
+        // via `realloc(buffer, new_cap * elem_size)`.
+        let realloc_ty = i8_ptr.fn_type(&[i8_ptr.into(), self.context.i64_type().into()], false);
+        let realloc_fn = self.module.add_function("realloc", realloc_ty, None);
+        self.functions.insert("realloc".to_string(), realloc_fn);
 
         let free_ty = self.context.void_type().fn_type(&[i8_ptr.into()], false);
         let free_fn = self.module.add_function("free", free_ty, None);

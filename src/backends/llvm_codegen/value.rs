@@ -50,7 +50,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ));
                     }
                 };
-                let arr_ptr = self.list_arrays.get(&array_name).copied().ok_or_else(|| {
+                // ADR 0042 phase 4. Runtime buffer load when a
+                // descriptor exists.
+                let arr_ptr = self.list_buffer_value(&array_name).ok_or_else(|| {
                     CompileError::unsupported_operation(
                         &format!("reference to unknown array `{}`", array_name),
                         "llvm",
@@ -479,6 +481,20 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .map(|a| self.compile_value(a))
                     .collect::<Result<Vec<_>>>()?;
                 let callee_name = function.trim_end_matches("()").to_string();
+
+                // ADR 0042 phase 4. `xs.append(v)` in expression
+                // position (a loop body, an if-branch) routes through
+                // this arm, not `compile_instruction(Call)`. Dispatch
+                // to the same helper and return a Void placeholder —
+                // `compile_value` needs a value, and `Void` has no
+                // LLVM representation, so an f64 dummy is the least
+                // surprising placeholder (matches `TypedIRValue::Void`
+                // lowering elsewhere).
+                if callee_name == "List.append" {
+                    self.emit_list_append(args)?;
+                    return Ok(self.context.f64_type().const_float(0.0).into());
+                }
+
                 // `Math.*` names are registered in the LLVM module
                 // under their unmangled C names (sqrt, pow, fabs, ...).
                 // Translate before lookup so the call finds them.
@@ -557,7 +573,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                 };
 
                 if let Some(arr_name) = arr_name {
-                    if let Some(arr_ptr) = self.list_arrays.get(&arr_name).cloned() {
+                    // ADR 0042 phase 4. Runtime buffer load when a
+                    // descriptor exists — the static map is stale
+                    // after any append grew the list.
+                    if let Some(arr_ptr) = self.list_buffer_value(&arr_name) {
                         let arr_ty = self
                             .list_array_types
                             .get(&arr_name)

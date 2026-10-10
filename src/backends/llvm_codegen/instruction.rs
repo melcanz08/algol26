@@ -11,6 +11,331 @@ use inkwell::values::{BasicValueEnum, PointerValue};
 use inkwell::AddressSpace;
 
 impl<'ctx> IRCodeGen<'ctx> {
+    /// ADR 0042 phase 4. Lower `xs.append(v)` to a grow-and-write
+    /// sequence.
+    ///
+    /// The receiver is `args[0]`, always a `Variable(name)` — the
+    /// IR builder emits it that way (see `builder/expr.rs`), and
+    /// the interpreter refuses any other shape. That gives us the
+    /// descriptor alloca from `list_structs[name]`, which every
+    /// subsequent access reads through, so the mutation reaches
+    /// the caller automatically.
+    ///
+    /// Three paths, one for each `(capacity, length)` shape:
+    ///
+    ///   - `capacity == 0`  — stack-backed. `malloc(max(2*len,
+    ///     len+1) * elem_size)`, `memcpy` the old elements,
+    ///     continue to the common write with the new buffer and
+    ///     capacity.
+    ///   - `length < capacity` — heap-backed, spare slots. Write
+    ///     in place; capacity unchanged.
+    ///   - `length == capacity` — heap-backed, full. `realloc` to
+    ///     `2 * capacity`, continue to the common write.
+    ///
+    /// All three converge on `write_bb`, which stores the element
+    /// at `buffer[length]`, increments `length`, and writes all
+    /// three descriptor fields back. Buffer and capacity for the
+    /// merge come from phi nodes.
+    pub(super) fn emit_list_append(&self, args: &[TypedIRValue]) -> Result<()> {
+        if args.len() != 2 {
+            return Err(CompileError::simple(
+                &format!(
+                    "List.append expects 2 arguments (receiver, value), got {}",
+                    args.len()
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0002,
+            ));
+        }
+        let receiver_name = match &args[0] {
+            TypedIRValue::Variable(n, _) => n.clone(),
+            _ => {
+                return Err(CompileError::unsupported_operation(
+                    "List.append on non-variable receiver (IR builder emits Variable)",
+                    "llvm",
+                ));
+            }
+        };
+        let list_ty = self.var_types.get(&receiver_name).cloned().ok_or_else(|| {
+            CompileError::simple(
+                &format!(
+                    "LLVM codegen: List.append on `{}` which has no recorded type",
+                    receiver_name
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let elem_ty = match &list_ty {
+            Type::List(inner) => (**inner).clone(),
+            _ => {
+                return Err(CompileError::simple(
+                    &format!(
+                        "LLVM codegen: List.append receiver `{}` is not a list (type {})",
+                        receiver_name, list_ty
+                    ),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
+                ));
+            }
+        };
+        let struct_alloca = self.list_structs.get(&receiver_name).copied().ok_or_else(|| {
+            CompileError::simple(
+                &format!(
+                    "LLVM codegen: List.append on `{}` has no descriptor struct                      — a producer registered the variable without populating                      `list_structs`",
+                    receiver_name
+                ),
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+
+        let struct_ty = match self.map_type(&list_ty) {
+            BasicTypeEnum::StructType(st) => st,
+            _ => unreachable!("map_type(Type::List) returned non-struct"),
+        };
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+        let i64_ty = self.context.i64_type();
+
+        let buf_slot = self
+            .builder
+            .build_struct_gep(struct_ty, struct_alloca, 0, "la_buf_slot")
+            .unwrap();
+        let len_slot = self
+            .builder
+            .build_struct_gep(struct_ty, struct_alloca, 1, "la_len_slot")
+            .unwrap();
+        let cap_slot = self
+            .builder
+            .build_struct_gep(struct_ty, struct_alloca, 2, "la_cap_slot")
+            .unwrap();
+        let buf = self
+            .builder
+            .build_load(ptr_ty, buf_slot, "la_buf")
+            .unwrap()
+            .into_pointer_value();
+        let len = self
+            .builder
+            .build_load(i64_ty, len_slot, "la_len")
+            .unwrap()
+            .into_int_value();
+        let cap = self
+            .builder
+            .build_load(i64_ty, cap_slot, "la_cap")
+            .unwrap()
+            .into_int_value();
+
+        // Compile the appended value first — it may itself do work
+        // (allocate, call a user function), and doing so before the
+        // branch tree keeps the control flow simple.
+        let raw_value = self.compile_value(&args[1])?;
+
+        let elem_llvm_ty = self.map_type(&elem_ty);
+        let elem_size = elem_llvm_ty.size_of().ok_or_else(|| {
+            CompileError::unsupported_operation(
+                "list element type has no LLVM size (variable-length element?)",
+                "llvm",
+            )
+        })?;
+        let elem_size_i64 = self
+            .builder
+            .build_int_z_extend(elem_size, i64_ty, "la_elem_size")
+            .unwrap();
+
+        // Match the record-literal convention: a struct-typed slot
+        // stores the struct value, not a pointer to it. Load through
+        // the pointer if the value came in as one.
+        let value = match (raw_value, &elem_llvm_ty) {
+            (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => {
+                self.builder.build_load(*st, p, "la_elem_load").unwrap()
+            }
+            (v, _) => v,
+        };
+
+        let current_fn = self.current_function.ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: emit_list_append with no current function",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let stack_bb = self.context.append_basic_block(current_fn, "la_stack");
+        let spare_check_bb = self
+            .context
+            .append_basic_block(current_fn, "la_spare_check");
+        let grow_bb = self.context.append_basic_block(current_fn, "la_grow");
+        let write_bb = self.context.append_basic_block(current_fn, "la_write");
+        let done_bb = self.context.append_basic_block(current_fn, "la_done");
+
+        // cap == 0 ? -> stack path : heap path
+        let is_stack = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                cap,
+                i64_ty.const_zero(),
+                "la_is_stack",
+            )
+            .unwrap();
+        self.builder
+            .build_conditional_branch(is_stack, stack_bb, spare_check_bb)
+            .unwrap();
+
+        // Stack path: malloc(max(2*len, len+1) * elem_size), memcpy.
+        self.builder.position_at_end(stack_bb);
+        let two_len = self
+            .builder
+            .build_int_mul(i64_ty.const_int(2, false), len, "la_2len")
+            .unwrap();
+        let len_plus_one = self
+            .builder
+            .build_int_add(len, i64_ty.const_int(1, false), "la_len1")
+            .unwrap();
+        let two_len_bigger = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::UGT,
+                two_len,
+                len_plus_one,
+                "la_2len_gt",
+            )
+            .unwrap();
+        let new_cap_stack = self
+            .builder
+            .build_select(two_len_bigger, two_len, len_plus_one, "la_new_cap_stack")
+            .unwrap()
+            .into_int_value();
+        let stack_bytes = self
+            .builder
+            .build_int_mul(new_cap_stack, elem_size_i64, "la_stack_bytes")
+            .unwrap();
+        let malloc_fn = self.module.get_function("malloc").ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: malloc not registered in stdlib",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let new_buf_stack = match self
+            .builder
+            .build_call(malloc_fn, &[stack_bytes.into()], "la_malloc")
+            .unwrap()
+            .try_as_basic_value()
+        {
+            inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+            inkwell::values::ValueKind::Instruction(_) => {
+                return Err(CompileError::unsupported_operation(
+                    "malloc returned no value (unexpected)",
+                    "llvm",
+                ));
+            }
+        };
+        let copy_bytes = self
+            .builder
+            .build_int_mul(len, elem_size_i64, "la_copy_bytes")
+            .unwrap();
+        self.builder
+            .build_memcpy(new_buf_stack, 4, buf, 4, copy_bytes)
+            .unwrap();
+        self.builder.build_unconditional_branch(write_bb).unwrap();
+
+        // Heap spare check: len < cap ?
+        self.builder.position_at_end(spare_check_bb);
+        let has_room = self
+            .builder
+            .build_int_compare(inkwell::IntPredicate::ULT, len, cap, "la_has_room")
+            .unwrap();
+        self.builder
+            .build_conditional_branch(has_room, write_bb, grow_bb)
+            .unwrap();
+
+        // Grow path: realloc to 2 * cap.
+        self.builder.position_at_end(grow_bb);
+        let new_cap_grow = self
+            .builder
+            .build_int_mul(i64_ty.const_int(2, false), cap, "la_2cap")
+            .unwrap();
+        let grow_bytes = self
+            .builder
+            .build_int_mul(new_cap_grow, elem_size_i64, "la_grow_bytes")
+            .unwrap();
+        let realloc_fn = self.module.get_function("realloc").ok_or_else(|| {
+            CompileError::simple(
+                "LLVM codegen: realloc not registered in stdlib",
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        let new_buf_grow = match self
+            .builder
+            .build_call(realloc_fn, &[buf.into(), grow_bytes.into()], "la_realloc")
+            .unwrap()
+            .try_as_basic_value()
+        {
+            inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+            inkwell::values::ValueKind::Instruction(_) => {
+                return Err(CompileError::unsupported_operation(
+                    "realloc returned no value (unexpected)",
+                    "llvm",
+                ));
+            }
+        };
+        self.builder.build_unconditional_branch(write_bb).unwrap();
+
+        // Write block: phi the buffer/capacity from the three
+        // predecessors, write the element at index `len`, store
+        // the updated descriptor fields.
+        self.builder.position_at_end(write_bb);
+        let phi_buf = self.builder.build_phi(ptr_ty, "la_final_buf").unwrap();
+        phi_buf.add_incoming(&[
+            (&new_buf_stack, stack_bb),
+            (&buf, spare_check_bb),
+            (&new_buf_grow, grow_bb),
+        ]);
+        let final_buf = phi_buf.as_basic_value().into_pointer_value();
+
+        let phi_cap = self.builder.build_phi(i64_ty, "la_final_cap").unwrap();
+        phi_cap.add_incoming(&[
+            (&new_cap_stack, stack_bb),
+            (&cap, spare_check_bb),
+            (&new_cap_grow, grow_bb),
+        ]);
+        let final_cap = phi_cap.as_basic_value().into_int_value();
+
+        let elem_ptr = unsafe {
+            self.builder
+                .build_gep(elem_llvm_ty, final_buf, &[len], "la_elem_ptr")
+                .unwrap()
+        };
+        self.builder.build_store(elem_ptr, value).unwrap();
+
+        let new_len = self
+            .builder
+            .build_int_add(len, i64_ty.const_int(1, false), "la_new_len")
+            .unwrap();
+        self.builder.build_store(buf_slot, final_buf).unwrap();
+        self.builder.build_store(len_slot, new_len).unwrap();
+        self.builder.build_store(cap_slot, final_cap).unwrap();
+        self.builder.build_unconditional_branch(done_bb).unwrap();
+
+        self.builder.position_at_end(done_bb);
+        Ok(())
+    }
+
     /// ADR 0042 phase 1a. Allocate a `{ptr, i64, i64}` descriptor
     /// struct for a list, store `{buffer, length, 0}` into it, and
     /// return the struct alloca. `capacity == 0` means the buffer
@@ -656,7 +981,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.builder.position_at_end(continue_bb);
                 }
                 let val = self.compile_value(value)?;
-                let arr_ptr = self.list_arrays.get(&arr_name).cloned().ok_or_else(|| {
+                // ADR 0042 phase 4. Runtime buffer load when a
+                // descriptor exists.
+                let arr_ptr = self.list_buffer_value(&arr_name).ok_or_else(|| {
                     CompileError::unsupported_operation(
                         &format!(
                             "ArrayAssign on `{}` which is not a tracked list \
@@ -838,6 +1165,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                             }
                         }
                     }
+                } else if callee_name == "List.append" {
+                    // ADR 0042 phase 4.
+                    self.emit_list_append(args)?;
                 } else if callee_name == "print" || callee_name == "println" {
                     if let Some(first) = arg_vals.first() {
                         // `arg_vals` is `args.map(compile_value)`, so if
@@ -1071,11 +1401,13 @@ impl<'ctx> IRCodeGen<'ctx> {
                     // but only a literal gets a `list_lengths`
                     // entry). The old "cannot iterate list
                     // parameter" refusal is gone.
-                    let len_val: inkwell::values::IntValue<'ctx> = if let Some(static_len) =
-                        self.list_lengths.get(&arr_name).copied()
+                    // ADR 0042 phase 4. Descriptor first: it holds
+                    // the runtime length and is updated by
+                    // `.append`. `list_lengths` is a construction-
+                    // time hint, stale after any append.
+                    let len_val: inkwell::values::IntValue<'ctx> = if let Some(struct_alloca) =
+                        self.list_structs.get(&arr_name).copied()
                     {
-                        self.context.i64_type().const_int(static_len as u64, false)
-                    } else if let Some(struct_alloca) = self.list_structs.get(&arr_name).copied() {
                         let list_ty = self.var_types.get(&arr_name).cloned().ok_or_else(|| {
                             CompileError::simple(
                                 &format!(
@@ -1110,6 +1442,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                             )
                             .unwrap()
                             .into_int_value()
+                    } else if let Some(static_len) = self.list_lengths.get(&arr_name).copied() {
+                        self.context.i64_type().const_int(static_len as u64, false)
                     } else {
                         return Err(CompileError::unsupported_operation(
                             &format!(

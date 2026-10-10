@@ -861,10 +861,16 @@ proc main
 "#;
 
 #[test]
-fn llvm_rejects_list_append() {
+fn llvm_accepts_list_append() {
+    // ADR 0042 phase 4. Flipped from a rejection test: the LLVM
+    // backend now lowers `List.append` via `emit_list_append`.
     let program = build_ir(LIST_APPEND_SOURCE);
     let result = super::check_backend(&program, &super::BackendCapabilities::llvm());
-    assert!(result.is_err(), "LLVM should refuse List.append");
+    assert!(
+        result.is_ok(),
+        "LLVM should accept List.append, got: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -879,13 +885,15 @@ fn wasm_rejects_maps() {
 }
 
 #[test]
-fn wasm_rejects_list_append() {
+fn wasm_accepts_list_append() {
+    // ADR 0042 phase 4. Flipped from a rejection test: WASM shares
+    // IRCodeGen with LLVM, so `List.append` lowers identically.
     let program = build_ir(LIST_APPEND_SOURCE);
     let result = super::check_backend(&program, &super::BackendCapabilities::wasm());
     assert!(
-        result.is_err(),
-        "WASM should refuse List.append, got: {:?}",
-        result.ok()
+        result.is_ok(),
+        "WASM should accept List.append, got: {:?}",
+        result.err()
     );
 }
 

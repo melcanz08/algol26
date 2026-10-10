@@ -572,8 +572,8 @@ impl SemanticIRBuilder {
                         TypedIRValue::Call {
                             function,
                             args,
-                            return_type,
-                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            return_type: Type::Void,
+                        } => SemanticInstruction::Call {
                             func: function,
                             args,
                             result: None,
@@ -684,8 +684,8 @@ impl SemanticIRBuilder {
                         TypedIRValue::Call {
                             function,
                             args,
-                            return_type,
-                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            return_type: Type::Void,
+                        } => SemanticInstruction::Call {
                             func: function,
                             args,
                             result: None,
@@ -935,8 +935,8 @@ impl SemanticIRBuilder {
                         TypedIRValue::Call {
                             function,
                             args,
-                            return_type,
-                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            return_type: Type::Void,
+                        } => SemanticInstruction::Call {
                             func: function,
                             args,
                             result: None,
@@ -1072,8 +1072,8 @@ impl SemanticIRBuilder {
                         TypedIRValue::Call {
                             function,
                             args,
-                            return_type,
-                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            return_type: Type::Void,
+                        } => SemanticInstruction::Call {
                             func: function,
                             args,
                             result: None,

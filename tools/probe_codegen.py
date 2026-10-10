@@ -9,6 +9,7 @@ assertions.
 import subprocess
 import sys
 from collections import Counter, defaultdict
+import pathlib
 from pathlib import Path
 
 BIN = 'target/debug/algol26'
@@ -42,9 +43,20 @@ def classify(err):
     return 'other'
 
 def run(path, flags):
+    # Run from a temp cwd so the compiler's output executable lands
+    # in /tmp, not next to the .gol source. Without this, every
+    # probe run drops an extensionless binary into
+    # tests/codegen_probes/ — which `.gitignore` now catches, but
+    # which is cleaner to avoid in the first place.
+    import tempfile
     try:
-        p = subprocess.run([BIN, 'run', *flags, str(path)],
-                           capture_output=True, text=True, timeout=20)
+        with tempfile.TemporaryDirectory(prefix='algol26-probe-') as tmpdir:
+            # Absolute path to the source so the compiler can find
+            # it from the temp cwd.
+            src = str(path.resolve())
+            p = subprocess.run([str(pathlib.Path(BIN).resolve()), 'run', *flags, src],
+                               capture_output=True, text=True, timeout=20,
+                               cwd=tmpdir)
     except subprocess.TimeoutExpired:
         return ('TIMEOUT', '', 'timeout')
     out = (p.stdout or '').strip()

@@ -1397,6 +1397,29 @@ impl SemanticIRBuilder {
                     }
                     _ => {}
                 }
+                // ─── Container dispatch (ADR 0028, extended) ───
+                // `b.items.append(2)` — a `MethodCall` whose
+                // receiver is a `FieldAccess`, not a variable. The
+                // `FunctionCall` arm handles `xs.append(1)` via its
+                // own container block; this mirrors it for the
+                // complex-receiver shape. The analyzer already
+                // accepted the call; without this, the builder
+                // falls through to `resolve_method_call`, which
+                // finds no `List_append` and pushes a warning.
+                if let Type::List(_) = &receiver_type {
+                    if method == "append" {
+                        let mut call_args = vec![receiver_value];
+                        for arg in args {
+                            call_args.push(self.translate_expr(program, func, current_block, arg));
+                        }
+                        let return_type = self.type_of_expr(expr).unwrap_or(Type::Void);
+                        return TypedIRValue::Call {
+                            function: "List.append".to_string(),
+                            args: call_args,
+                            return_type,
+                        };
+                    }
+                }
                 if let Some(resolved_name) = self.resolve_method_call(&receiver_type, method) {
                     let wrapped = match self
                         .function_types

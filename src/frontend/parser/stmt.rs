@@ -465,6 +465,13 @@ impl Parser {
                 let member_name = self.expect_identifier("method or field name")?;
 
                 // `p.x(...)` → dotted method call (existing behavior).
+                //
+                // Continue the postfix chain so `b.items.append(2)`,
+                // `p.x(y).z()`, and `p.x(y).field` parse as a single
+                // expression statement. The `LParen` and `LBracket`
+                // branches above already do this; the Dot branch was
+                // the one that returned early, stranding anything
+                // after the first `member(...)`.
                 if matches!(self.peek(), Token::LParen) {
                     self.advance();
                     let mut args = Vec::new();
@@ -475,11 +482,13 @@ impl Parser {
                         }
                     }
                     self.expect_token(Token::RParen, "')'")?;
-                    return Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
+                    let call = Expr::new(ExprKind::FunctionCall {
                         name: format!("{}.{}", name, member_name),
                         args,
                         span: ident_span,
-                    })));
+                    });
+                    let expr = self.parse_postfix(call)?;
+                    return Ok(Stmt::Expression(expr));
                 }
 
                 // `p.x := v` → field assignment.
@@ -494,14 +503,29 @@ impl Parser {
                     });
                 }
 
-                // `p.show` (bare, no parens, no assign) → bare method call.
-                // Preserves the pre-record behavior for zero-arg method calls
-                // written without parentheses.
-                Ok(Stmt::Expression(Expr::new(ExprKind::FunctionCall {
-                    name: format!("{}.{}", name, member_name),
-                    args: Vec::new(),
+                // `p.x` (bare, no parens, no assign) in statement
+                // position — a record field read *or* a zero-arg
+                // method call written without parens. The parser
+                // cannot tell which; the analyzer resolves by type.
+                //
+                // Build a `FieldAccess` node, which the analyzer's
+                // `FieldAccess` arm already disambiguates (records
+                // use field lookup; every other receiver falls
+                // through to zero-arg method dispatch). The
+                // alternative — a `FunctionCall { name: "p.x" }` —
+                // forces the analyzer to guess "method" and fails
+                // for fields: `b.items.append(2)` reports
+                // "Type Bag does not have method 'items'".
+                //
+                // Then continue the postfix chain so `b.items.append(2)`
+                // sees the `.append` that follows.
+                let field_expr = Expr::new(ExprKind::FieldAccess {
+                    object: Expr::boxed(ExprKind::Var(name, ident_span)),
+                    field: member_name,
                     span: ident_span,
-                })))
+                });
+                let expr = self.parse_postfix(field_expr)?;
+                Ok(Stmt::Expression(expr))
             }
             Token::LBrace => {
                 // Record literal in statement position, e.g.

@@ -49,34 +49,149 @@ impl<'ctx> IRCodeGen<'ctx> {
                 ErrorCode::E0002,
             ));
         }
-        let receiver_name = match &args[0] {
-            TypedIRValue::Variable(n, _) => n.clone(),
+        // ADR 0052 phase 4. The receiver is either a variable
+        // (`xs.append(v)`) or a field access (`b.items.append(v)`).
+        // The variable path looks up the descriptor alloca in
+        // `list_structs`; the field path GEPs into the containing
+        // record's storage — same shape as `Instruction::FieldAssign`.
+        let (struct_alloca, list_ty) = match &args[0] {
+            TypedIRValue::Variable(n, _) => {
+                let ty = self.var_types.get(n).cloned().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "LLVM codegen: List.append on `{}` which has no recorded type",
+                            n
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let alloca = self.list_structs.get(n).copied().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "LLVM codegen: List.append on `{}` has no descriptor struct \
+                             — a producer registered the variable without populating \
+                             `list_structs`",
+                            n
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                (alloca, ty)
+            }
+            TypedIRValue::FieldAccess {
+                object,
+                field,
+                field_type,
+            } => {
+                // Auto-deref through references on the containing
+                // object — `self.items.append(x)` where `self:
+                // &Bag` has object type `Borrow<Bag>`.
+                let raw_obj_ty = object.type_of();
+                let obj_ty = match &raw_obj_ty {
+                    Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+                    other => other.clone(),
+                };
+                let record_name = match &obj_ty {
+                    Type::Record(name, _) => name.clone(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("List.append on field of non-record type {}", raw_obj_ty),
+                            "llvm",
+                        ));
+                    }
+                };
+                let rec_decl = self
+                    .record_decls
+                    .get(&record_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            &format!("LLVM codegen: unknown record '{}'", record_name),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0003,
+                        )
+                    })?;
+                let field_idx = rec_decl
+                    .fields
+                    .iter()
+                    .position(|(n, _, _)| n == field)
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            &format!(
+                                "LLVM codegen: record '{}' has no field '{}'",
+                                record_name, field
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
+                        )
+                    })?;
+                let record_struct_ty = match self.map_type(&obj_ty) {
+                    BasicTypeEnum::StructType(s) => s,
+                    _ => unreachable!(
+                        "map_type(Type::Record) returned a non-struct type for '{}'",
+                        record_name
+                    ),
+                };
+                let record_ptr = match object.as_ref() {
+                    TypedIRValue::Variable(name, _) => {
+                        self.variables.get(name).copied().ok_or_else(|| {
+                            CompileError::simple(
+                                &format!("LLVM codegen: unknown variable '{}'", name),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0003,
+                            )
+                        })?
+                    }
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "List.append on deeply nested field receiver \
+                             (only variable.field is supported)",
+                            "llvm",
+                        ));
+                    }
+                };
+                let field_ptr = unsafe {
+                    self.builder
+                        .build_gep(
+                            record_struct_ty,
+                            record_ptr,
+                            &[
+                                self.context.i32_type().const_zero(),
+                                self.context.i32_type().const_int(field_idx as u64, false),
+                            ],
+                            &format!("{}_{}_append_ptr", record_name, field),
+                        )
+                        .unwrap()
+                };
+                (field_ptr, field_type.clone())
+            }
             _ => {
                 return Err(CompileError::unsupported_operation(
-                    "List.append on non-variable receiver (IR builder emits Variable)",
+                    "List.append requires a variable or field receiver",
                     "llvm",
                 ));
             }
         };
-        let list_ty = self.var_types.get(&receiver_name).cloned().ok_or_else(|| {
-            CompileError::simple(
-                &format!(
-                    "LLVM codegen: List.append on `{}` which has no recorded type",
-                    receiver_name
-                ),
-                0,
-                0,
-                "",
-                ErrorCode::E0009,
-            )
-        })?;
+
         let elem_ty = match &list_ty {
             Type::List(inner) => (**inner).clone(),
             _ => {
                 return Err(CompileError::simple(
                     &format!(
-                        "LLVM codegen: List.append receiver `{}` is not a list (type {})",
-                        receiver_name, list_ty
+                        "LLVM codegen: List.append receiver is not a list (type {})",
+                        list_ty
                     ),
                     0,
                     0,
@@ -85,18 +200,6 @@ impl<'ctx> IRCodeGen<'ctx> {
                 ));
             }
         };
-        let struct_alloca = self.list_structs.get(&receiver_name).copied().ok_or_else(|| {
-            CompileError::simple(
-                &format!(
-                    "LLVM codegen: List.append on `{}` has no descriptor struct                      — a producer registered the variable without populating                      `list_structs`",
-                    receiver_name
-                ),
-                0,
-                0,
-                "",
-                ErrorCode::E0009,
-            )
-        })?;
 
         let struct_ty = match self.map_type(&list_ty) {
             BasicTypeEnum::StructType(st) => st,

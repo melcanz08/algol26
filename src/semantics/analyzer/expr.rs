@@ -1854,6 +1854,41 @@ impl SemanticAnalyzer {
                     }
                     _ => {}
                 }
+                // ─── Container dispatch (ADR 0028, extended) ───
+                // A field-access receiver like `b.items.append(2)`
+                // parses as `MethodCall { receiver: FieldAccess
+                // { .. }, method: "append" }` — not the
+                // `FunctionCall { name: "x.append" }` shape the
+                // FunctionCall arm handles. Mirror the container
+                // block from that arm for the complex-receiver
+                // form.
+                if let Type::List(elem_ty) = &receiver_type {
+                    if method == "append" {
+                        if args.len() != 1 {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!("List.append expects 1 argument, got {}", args.len()),
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        let arg_ty = self.analyze_expr_with_context(&args[0], Some(elem_ty))?;
+                        if !elem_ty.is_unknown()
+                            && !arg_ty.is_unknown()
+                            && !arg_ty.can_coerce_to(elem_ty)
+                        {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "List.append element type mismatch: \
+                                     expected {}, found {}",
+                                    elem_ty, arg_ty
+                                ),
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        return Ok(Type::Void);
+                    }
+                }
                 // ─── Inherent tier ───
                 let owner_name: Option<String> = match &receiver_type {
                     Type::Record(n, _) => Some(n.clone()),

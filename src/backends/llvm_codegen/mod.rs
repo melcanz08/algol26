@@ -28,7 +28,7 @@ use crate::ir::semantic_ir::{SemanticFunction, SemanticProgram};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
 use std::collections::HashMap;
@@ -483,13 +483,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                 self.var_types
                     .insert(param_name.clone(), param_type.clone());
             } else if let Type::List(inner) = param_type {
-                // ADR 0042 phase 1b. A list parameter arrives as a
-                // {buffer, length, capacity} struct value. Allocate a
-                // slot for it, store the struct, and extract the
-                // buffer pointer (field 0) into `list_arrays` so
-                // `xs[i]` and iteration can find it. No `list_lengths`
-                // entry is registered: the length now lives in the
-                // struct and is read at runtime in a later phase.
+                // ADR 0049. List parameters are by value. The
+                // incoming descriptor carries {buf, len, cap} from
+                // the caller; copy the buffer into a fresh heap
+                // allocation and rewrite the descriptor to
+                // {fresh_buf, len, len} so mutations inside the
+                // callee do not reach the caller's binding.
+                // `capacity = length` marks the fresh buffer as
+                // heap-owned, so a subsequent `.append` goes
+                // through the realloc path rather than the
+                // stack→heap conversion.
+                //
+                // The copy leaks until region / scope cleanup
+                // interacts with heap buffers (ADR 0050).
                 if !param.is_struct_value() {
                     return Err(CompileError::simple(
                         &format!(
@@ -515,18 +521,77 @@ impl<'ctx> IRCodeGen<'ctx> {
                     _ => unreachable!("map_type(Type::List) returned non-struct"),
                 };
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let i64_ty = self.context.i64_type();
                 let buf_slot = self
                     .builder
                     .build_struct_gep(struct_ty, alloca, 0, &format!("{}_buf_slot", param_name))
                     .unwrap();
-                let buf = self
+                let len_slot = self
                     .builder
-                    .build_load(ptr_ty, buf_slot, &format!("{}_buf", param_name))
+                    .build_struct_gep(struct_ty, alloca, 1, &format!("{}_len_slot", param_name))
+                    .unwrap();
+                let cap_slot = self
+                    .builder
+                    .build_struct_gep(struct_ty, alloca, 2, &format!("{}_cap_slot", param_name))
+                    .unwrap();
+                let in_buf = self
+                    .builder
+                    .build_load(ptr_ty, buf_slot, &format!("{}_in_buf", param_name))
                     .unwrap()
                     .into_pointer_value();
-                self.list_arrays.insert(param_name.clone(), buf);
+                let length = self
+                    .builder
+                    .build_load(i64_ty, len_slot, &format!("{}_in_len", param_name))
+                    .unwrap()
+                    .into_int_value();
 
                 let elem_llvm = self.map_type(inner);
+                let elem_size = elem_llvm.size_of().ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        "list parameter element type has no LLVM size \
+                         (variable-length element?)",
+                        "llvm",
+                    )
+                })?;
+                let elem_size_i64 = self
+                    .builder
+                    .build_int_z_extend(elem_size, i64_ty, "p_elem_size")
+                    .unwrap();
+                let byte_count = self
+                    .builder
+                    .build_int_mul(length, elem_size_i64, "p_byte_count")
+                    .unwrap();
+                let malloc_fn = self.module.get_function("malloc").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: malloc not registered in stdlib",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let fresh_call = self
+                    .builder
+                    .build_call(malloc_fn, &[byte_count.into()], "p_malloc")
+                    .unwrap();
+                let fresh = match fresh_call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    inkwell::values::ValueKind::Instruction(_) => {
+                        return Err(CompileError::unsupported_operation(
+                            "malloc returned no value (unexpected)",
+                            "llvm",
+                        ));
+                    }
+                };
+                self.builder
+                    .build_memcpy(fresh, 4, in_buf, 4, byte_count)
+                    .unwrap();
+
+                self.builder.build_store(buf_slot, fresh).unwrap();
+                self.builder.build_store(cap_slot, length).unwrap();
+
+                self.list_arrays.insert(param_name.clone(), fresh);
+
                 let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
                     BasicTypeEnum::IntType(t) => t.array_type(0).into(),
                     BasicTypeEnum::FloatType(t) => t.array_type(0).into(),

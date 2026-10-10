@@ -299,16 +299,25 @@ impl SemanticAnalyzer {
             ExprKind::Int(_, _) => Ok(Type::Int),
             ExprKind::String(_, _) => Ok(Type::String),
             ExprKind::Bool(_, _) => Ok(Type::Bool),
-            ExprKind::List(elements, _) => {
+            ExprKind::List(elements, span) => {
                 if elements.is_empty() {
-                    // An empty list has no elements to infer from. When the
-                    // expected type provides one — `var xs: List<Int> := []` —
-                    // bind to that. Falls back to `List<Unknown>` otherwise,
-                    // matching the behavior of an empty list with no context.
+                    // An empty list has no elements to infer from.
+                    // When the expected type provides one — `var xs:
+                    // List<Int> := []` — bind to that. Otherwise it
+                    // is a hard error: codegen cannot compute an
+                    // element size for `List<Unknown>`, and the
+                    // previous `List<Unknown>` fallback surfaced as
+                    // an `unreachable!()` panic in LLVM on the first
+                    // append.
                     if let Some(Type::List(inner)) = expected_type {
                         return Ok(Type::list((**inner).clone()));
                     }
-                    return Ok(Type::list(Type::Unknown));
+                    return Err(CompileError::at(
+                        *span,
+                        "empty list literal needs a type annotation",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion("Annotate the binding, e.g. `var xs: List<Int> := []`"));
                 }
                 let first_type = self.analyze_expr(&elements[0])?;
                 let mut list_type = first_type.clone();

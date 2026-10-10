@@ -347,112 +347,39 @@ impl<'ctx> IRCodeGen<'ctx> {
         // list-, and Option-returning functions as returning `f64`,
         // producing wrong call signatures. Now: explicit arms for
         // supported types, error for the rest.
-        let fn_type = match func.return_type {
-            Type::Void => self.context.void_type().fn_type(&param_types, is_variadic),
-            Type::Int => self.context.i64_type().fn_type(&param_types, is_variadic),
-            Type::Float => self.context.f64_type().fn_type(&param_types, is_variadic),
-            Type::Bool => self.context.bool_type().fn_type(&param_types, is_variadic),
-            // ADR 0030. An enum's runtime value is its ordinal, an
-            // i64 (`map_type(Type::Enum)`). A function returning an
-            // enum — `fn tier(self: &Student) -> Tier` — returns
-            // that i64.
-            Type::Enum { .. } => self.context.i64_type().fn_type(&param_types, is_variadic),
-            // ADR 0031. A subrange lowers to its base, an i64 for
-            // Int or enum bases.
-            Type::Subrange { .. } => self.context.i64_type().fn_type(&param_types, is_variadic),
-            // ADR 0029. A nominal type lowers to its base. The
-            // base's LLVM type is what the function returns.
-            Type::Distinct { ref base, .. } => match self.map_type(&**base) {
+        let fn_type = if matches!(func.return_type, Type::Void) {
+            // `Void` is the only type whose LLVM *function signature*
+            // differs from `map_type`. `map_type(Void)` returns `ptr`
+            // — a first-class value for downstream instructions — but
+            // a void-returning function must use LLVM's `void_type()`.
+            self.context.void_type().fn_type(&param_types, is_variadic)
+        } else {
+            // Every other return type derives its signature from
+            // `map_type`, the single source of truth for how an
+            // ALGOL26 type lowers. The previous shape enumerated
+            // every type in its own arm, and every new type was a
+            // chance to forget one — Option, Enum, Subrange, and
+            // Distinct each had a missing arm at some point. This
+            // shape cannot miss an arm: any type `map_type` accepts
+            // produces a `BasicTypeEnum`, and every variant of
+            // `BasicTypeEnum` has a `fn_type()`.
+            match self.map_type(&func.return_type) {
                 BasicTypeEnum::IntType(t) => t.fn_type(&param_types, is_variadic),
                 BasicTypeEnum::FloatType(t) => t.fn_type(&param_types, is_variadic),
                 BasicTypeEnum::PointerType(t) => t.fn_type(&param_types, is_variadic),
+                BasicTypeEnum::StructType(t) => t.fn_type(&param_types, is_variadic),
+                BasicTypeEnum::ArrayType(t) => t.fn_type(&param_types, is_variadic),
+                BasicTypeEnum::VectorType(t) => t.fn_type(&param_types, is_variadic),
                 other => {
                     return Err(CompileError::unsupported_operation(
                         &format!(
-                            "nominal return type `{}` lowers to {:?} \
-                                 which has no fn_type for `{}`",
-                            func.return_type, other, func.name
+                            "function `{}` has return type `{}` which maps to \
+                             LLVM {:?} with no function-signature form",
+                            func.name, func.return_type, other
                         ),
                         "llvm",
                     ));
                 }
-            },
-            // Pointer-represented types. Records are always passed
-            // and returned by pointer (see `TypedIRValue::Record`
-            // lowering); references are pointers by definition; raw
-            // pointers and channels are already `ptr` in LLVM's
-            // opaque-pointer mode. ADR 0036.
-            Type::String
-            | Type::Ptr
-            | Type::Pointer(_)
-            | Type::Borrow(_)
-            | Type::MutBorrow(_)
-            | Type::Channel(_) => self
-                .context
-                .ptr_type(AddressSpace::default())
-                .fn_type(&param_types, is_variadic),
-            // Records are returned by value as their LLVM struct
-            // type. Returning `ptr` to a function-local alloca (the
-            // previous behavior) produced a pointer to a dead stack
-            // slot. The body loads the struct out of its local
-            // alloca before returning; the caller stores the
-            // returned struct into its own alloca.
-            Type::Record(..) => match self.map_type(&func.return_type) {
-                BasicTypeEnum::StructType(st) => st.fn_type(&param_types, is_variadic),
-                _ => {
-                    return Err(CompileError::unsupported_operation(
-                        &format!(
-                            "record return type did not map to a struct for `{}`",
-                            func.name
-                        ),
-                        "llvm",
-                    ));
-                }
-            },
-            // ADR 0042 phase 1b (ext). A list return value is the
-            // {buffer, length, capacity} descriptor. When the buffer
-            // is stack-backed (`capacity == 0`), `compile_terminator`
-            // escapes it to the heap before the return instruction so
-            // the caller receives a descriptor whose buffer outlives
-            // the callee's frame.
-            Type::List(_) => match self.map_type(&func.return_type) {
-                BasicTypeEnum::StructType(st) => st.fn_type(&param_types, is_variadic),
-                _ => {
-                    return Err(CompileError::unsupported_operation(
-                        &format!(
-                            "list return type did not map to a struct for `{}`",
-                            func.name
-                        ),
-                        "llvm",
-                    ));
-                }
-            },
-            // Option<T> maps to `{ bool is_some, T payload }` in
-            // `map_type`. Values lower through the `Some`/`None`
-            // arms of `compile_value`, and `compile_option_switch`
-            // handles matches. Only the function ABI was missing:
-            // a `proc find() -> Option<Student>` had no LLVM
-            // declaration. Return the struct by value.
-            Type::Option(_) => match self.map_type(&func.return_type) {
-                BasicTypeEnum::StructType(st) => st.fn_type(&param_types, is_variadic),
-                _ => {
-                    return Err(CompileError::unsupported_operation(
-                        &format!(
-                            "Option return type did not map to a struct for `{}`",
-                            func.name
-                        ),
-                        "llvm",
-                    ));
-                }
-            },
-            ref other => {
-                return Err(CompileError::unsupported_operation(
-                    &format!(
-                        "function `{}` has return type `{}` which has no LLVM lowering",
-                        func.name, other
-                    ),
-                    "llvm",
-                ));
             }
         };
         let function = self.module.add_function(&llvm_name, fn_type, None);

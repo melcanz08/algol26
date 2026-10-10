@@ -489,7 +489,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // have left unpopulated (leading to E0004 "unknown
                 // list" at the first use of `b`).
                 if let TypedIRValue::Variable(src, _) = value {
-                    if matches!(self.var_types.get(src), Some(Type::List(_))) {
+                    // Only take the alias shortcut when the source
+                    // already has a registered array type. A Call
+                    // result registered by `Instruction::Call` sets
+                    // `list_structs` and `list_arrays` but not
+                    // `list_array_types` (the Call has no element
+                    // type). Falling through to the phase-4-ext
+                    // path below lets that path read the concrete
+                    // `type_` and register the array type correctly.
+                    if matches!(self.var_types.get(src), Some(Type::List(_)))
+                        && self.list_array_types.contains_key(src.as_str())
+                    {
                         let src_ptr = self.variables.get(src).copied().ok_or_else(|| {
                             CompileError::simple(
                                 &format!(
@@ -755,7 +765,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // safe; without it, `list_arrays[target]` is never
                 // populated and the next `target[i]` fails with E0004.
                 if let TypedIRValue::Variable(src, _) = value {
-                    if matches!(self.var_types.get(src), Some(Type::List(_))) {
+                    // Only take the alias shortcut when the source
+                    // already has a registered array type. A Call
+                    // result registered by `Instruction::Call` sets
+                    // `list_structs` and `list_arrays` but not
+                    // `list_array_types` (the Call has no element
+                    // type). Falling through to the phase-4-ext
+                    // path below lets that path read the concrete
+                    // `type_` and register the array type correctly.
+                    if matches!(self.var_types.get(src), Some(Type::List(_)))
+                        && self.list_array_types.contains_key(src.as_str())
+                    {
                         let src_ptr = self.variables.get(src).copied().ok_or_else(|| {
                             CompileError::simple(
                                 &format!(
@@ -1594,14 +1614,83 @@ impl<'ctx> IRCodeGen<'ctx> {
                     self.list_array_types.insert(iterator.clone(), array_ty);
                     self.list_lengths.insert(iterator.clone(), len);
                 } else {
-                    return Err(CompileError::unsupported_operation(
-                        &format!(
-                            "IteratorInit over iterable that is neither a variable \
-                             nor a list literal: {:?}",
-                            iterable
-                        ),
-                        "llvm",
-                    ));
+                    // ADR 0042 follow-up. Any other list-typed value —
+                    // a `FieldAccess` like `self.scores`, an
+                    // `ArrayAccess` on a `List<List<T>>`, a call
+                    // result. Compile it to the `{ptr, i64, i64}`
+                    // descriptor struct, extract the buffer and
+                    // length, and register the iterator. Same shape
+                    // as the variable path, but without the side
+                    // tables to consult — the descriptor is the
+                    // source of truth.
+                    let list_ty = iterable.type_of();
+                    let elem_ir_ty = match &list_ty {
+                        Type::List(inner) => (**inner).clone(),
+                        _ => {
+                            return Err(CompileError::unsupported_operation(
+                                &format!(
+                                    "IteratorInit over non-list-typed value: {:?} (type {})",
+                                    iterable, list_ty
+                                ),
+                                "llvm",
+                            ));
+                        }
+                    };
+                    let val = self.compile_value(iterable)?;
+                    let sv = match val {
+                        BasicValueEnum::StructValue(s) => s,
+                        _ => {
+                            return Err(CompileError::unsupported_operation(
+                                &format!(
+                                    "list-typed iterable did not lower to a struct \
+                                     (kind {:?})",
+                                    val
+                                ),
+                                "llvm",
+                            ));
+                        }
+                    };
+                    let arr_ptr = self
+                        .builder
+                        .build_extract_value(sv, 0, &format!("{}_buf", iterator))
+                        .unwrap()
+                        .into_pointer_value();
+                    let len_val = self
+                        .builder
+                        .build_extract_value(sv, 1, &format!("{}_len", iterator))
+                        .unwrap()
+                        .into_int_value();
+
+                    let elem_llvm = self.map_type(&elem_ir_ty);
+                    let arr_ty: BasicTypeEnum<'ctx> = match elem_llvm {
+                        BasicTypeEnum::IntType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::FloatType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::PointerType(t) => t.array_type(0).into(),
+                        BasicTypeEnum::StructType(t) => t.array_type(0).into(),
+                        other => {
+                            return Err(CompileError::unsupported_operation(
+                                &format!(
+                                    "iterator element type has no LLVM array \
+                                     lowering: {:?}",
+                                    other
+                                ),
+                                "llvm",
+                            ));
+                        }
+                    };
+
+                    self.iterator_arrays.insert(iterator.clone(), arr_ptr);
+                    self.iterator_array_types.insert(iterator.clone(), arr_ty);
+                    self.iterator_elem_types
+                        .insert(iterator.clone(), elem_ir_ty);
+                    self.iterator_lengths.insert(iterator.clone(), len_val);
+
+                    let idx_alloca =
+                        self.create_entry_alloca(&format!("{}_idx", iterator), &Type::Int);
+                    self.builder
+                        .build_store(idx_alloca, self.context.i64_type().const_zero())
+                        .unwrap();
+                    self.iterator_indices.insert(iterator.clone(), idx_alloca);
                 }
                 Ok(())
             }

@@ -589,35 +589,72 @@ impl<'ctx> IRCodeGen<'ctx> {
         args: &[TypedIRValue],
     ) -> Result<(BasicValueEnum<'ctx>, Type)> {
         match name {
-            "List.length" | "len" | "length" => match args.first() {
-                Some(TypedIRValue::Variable(var_name, _)) => {
-                    match self.list_lengths.get(var_name) {
-                        Some(len) => Ok((
-                            self.context.i64_type().const_int(*len as u64, false).into(),
-                            Type::Int,
-                        )),
-                        None => Err(CompileError::simple(
-                            &format!(
-                                "LLVM codegen: List.length called on unknown list '{}' \
+            "List.length" | "len" | "length" => {
+                let arg = args.first().ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: List.length requires exactly one argument",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0004,
+                    )
+                })?;
+                // ADR 0042 phase 2 + 4 follow-up. Two paths:
+                //
+                //   - Variable: read the descriptor's length field
+                //     via `list_length_value`, which prefers the
+                //     runtime source (correct after any `.append`)
+                //     and falls back to the static hint.
+                //
+                //   - Anything else (a `FieldAccess` like
+                //     `self.scores`, an `ArrayAccess`, a call
+                //     result): compile the value — it produces the
+                //     `{ptr, i64, i64}` descriptor struct — and
+                //     extract field 1 directly. The previous
+                //     "requires a variable argument" refusal
+                //     surfaced on any record field holding a list.
+                let len_val = match arg {
+                    TypedIRValue::Variable(var_name, _) => {
+                        self.list_length_value(var_name).ok_or_else(|| {
+                            CompileError::simple(
+                                &format!(
+                                    "LLVM codegen: List.length called on unknown list '{}' \
                                      (known lists: {:?})",
-                                var_name,
-                                self.list_lengths.keys().collect::<Vec<_>>()
-                            ),
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0004,
-                        )),
+                                    var_name,
+                                    self.list_lengths.keys().collect::<Vec<_>>()
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0004,
+                            )
+                        })?
                     }
-                }
-                _ => Err(CompileError::simple(
-                    "LLVM codegen: List.length requires a variable argument",
-                    0,
-                    0,
-                    "",
-                    ErrorCode::E0004,
-                )),
-            },
+                    other => {
+                        let val = self.compile_value(other)?;
+                        if !val.is_struct_value() {
+                            return Err(CompileError::simple(
+                                &format!(
+                                    "LLVM codegen: List.length argument lowered to \
+                                     non-struct LLVM value (kind {:?}); expected the \
+                                     list descriptor",
+                                    val
+                                ),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0004,
+                            ));
+                        }
+                        let sv = val.into_struct_value();
+                        self.builder
+                            .build_extract_value(sv, 1, "list_len")
+                            .unwrap()
+                            .into_int_value()
+                    }
+                };
+                Ok((len_val.into(), Type::Int))
+            }
             // Lowered to `algol26_strlen_utf8`, a UTF-8 codepoint
             // counter emitted by `register_stdlib`. Matches the
             // interpreter's `str::chars().count()` (Tier 0.2b).

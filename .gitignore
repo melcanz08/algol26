@@ -109,3 +109,8 @@ tests/corpus/**/*
 !tests/corpus/**/*.sh
 !tests/corpus/**/*.mdtests/fixtures/*/
 audit.json
+tests/codegen_probes/*
+!tests/codegen_probes/*.gol
+# Probe runner writes an executable next to each .gol source.
+tests/codegen_probes/*
+!tests/codegen_probes/*.gol

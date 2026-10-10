@@ -45,9 +45,22 @@ This ADR extends that machinery to list buffers.
 ## Decision
 
 A list variable whose descriptor has `capacity > 0` at
-`RegionExit` has its buffer freed. Lists declared outside any
-region and grown inside one are out of scope — general
-scope-exit cleanup is a larger design; see ADR 0007.
+`RegionExit` has its buffer freed.
+
+**Scope, stated plainly.** This ADR covers lists created
+*inside* a `region` block, and only when control reaches
+`RegionExit` or an early `return` from inside the region.
+Every other heap-backed list still leaks:
+
+- a list grown with no `region` anywhere (the common case);
+- a list declared outside a region and grown inside one;
+- a list-parameter copy (ADR 0049) in a callee whose body is
+  not itself inside a region;
+- a list returned from a `proc` (escape-to-heap).
+
+General scope-exit cleanup — treating every lexical block as
+an allocation scope, not just explicit `region` blocks — is
+ADR 0051.
 
 The mechanism mirrors `tracked_vars`:
 
@@ -73,14 +86,13 @@ The mechanism mirrors `tracked_vars`:
 
 - **List declared outside, grown inside.** The descriptor's
   alloca is outside the region; the buffer is inside. Neither
-  frame currently tracks it. Three options: (a) a list grown
-  inside a region whose descriptor is outside leaks and is
-  documented as such; (b) `RegionEnter` snapshots the
-  descriptor so exit can restore it and free the buffer
-  (leaks if the outer binding is still in use); (c) require
-  the outer binding to be dead (analyzer enforcement). Option
-  (a) is the smallest correct-by-silence answer; a follow-up
-  ADR can do better.
+  frame currently tracks it. Out of scope here; addressed by
+  ADR 0051's lexical-scope cleanup.
+- **`break` out of a region.** A `break` inside a `region`
+  block jumps to the loop exit and skips the `RegionExit`
+  instruction, so region-scoped lists are not freed. ADR 0051
+  closes this as a side effect — scope-exit cleanup frees what
+  `RegionExit` would have freed, through the same helper.
 - **List grown through a parameter inside a region.** The
   callee's descriptor is a copy (ADR 0049), so the caller's
   descriptor is unchanged. The callee's own `tracked_lists`

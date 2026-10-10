@@ -560,9 +560,44 @@ impl SemanticIRBuilder {
                 self.safe_push_instruction(
                     func,
                     bid,
-                    SemanticInstruction::Assign {
-                        target: result_name.clone(),
-                        value: te_val,
+                    match te_val {
+                        // A void callee in trailing position — e.g.
+                        // `show(p)` as the last statement in a loop
+                        // body — is a statement, not a value. The
+                        // value form of a call refuses void returns;
+                        // route it through `Instruction::Call` with
+                        // no result instead. The `Assign` the old
+                        // code built was overwritten on the next
+                        // iteration anyway, so nothing is lost.
+                        TypedIRValue::Call {
+                            function,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            func: function,
+                            args,
+                            result: None,
+                        },
+                        TypedIRValue::VirtualCall {
+                            receiver,
+                            method_name,
+                            slot,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => {
+                            SemanticInstruction::VirtualCall {
+                                receiver: *receiver,
+                                method_name,
+                                slot,
+                                args,
+                                result: None,
+                                return_type,
+                            }
+                        }
+                        other => SemanticInstruction::Assign {
+                            target: result_name.clone(),
+                            value: other,
+                        },
                     },
                 );
             }
@@ -642,9 +677,39 @@ impl SemanticIRBuilder {
                 self.safe_push_instruction(
                     func,
                     id,
-                    SemanticInstruction::Assign {
-                        target: target_name.to_string(),
-                        value: te_val,
+                    match te_val {
+                        // Same as the `result_name` sites above:
+                        // a void call in trailing position is a
+                        // statement, not a value.
+                        TypedIRValue::Call {
+                            function,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            func: function,
+                            args,
+                            result: None,
+                        },
+                        TypedIRValue::VirtualCall {
+                            receiver,
+                            method_name,
+                            slot,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => {
+                            SemanticInstruction::VirtualCall {
+                                receiver: *receiver,
+                                method_name,
+                                slot,
+                                args,
+                                result: None,
+                                return_type,
+                            }
+                        }
+                        other => SemanticInstruction::Assign {
+                            target: target_name.to_string(),
+                            value: other,
+                        },
                     },
                 );
             }
@@ -858,9 +923,44 @@ impl SemanticIRBuilder {
                 self.safe_push_instruction(
                     func,
                     id,
-                    SemanticInstruction::Assign {
-                        target: result_name.clone(),
-                        value: te_val,
+                    match te_val {
+                        // A void callee in trailing position — e.g.
+                        // `show(p)` as the last statement in a loop
+                        // body — is a statement, not a value. The
+                        // value form of a call refuses void returns;
+                        // route it through `Instruction::Call` with
+                        // no result instead. The `Assign` the old
+                        // code built was overwritten on the next
+                        // iteration anyway, so nothing is lost.
+                        TypedIRValue::Call {
+                            function,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            func: function,
+                            args,
+                            result: None,
+                        },
+                        TypedIRValue::VirtualCall {
+                            receiver,
+                            method_name,
+                            slot,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => {
+                            SemanticInstruction::VirtualCall {
+                                receiver: *receiver,
+                                method_name,
+                                slot,
+                                args,
+                                result: None,
+                                return_type,
+                            }
+                        }
+                        other => SemanticInstruction::Assign {
+                            target: result_name.clone(),
+                            value: other,
+                        },
                     },
                 );
             }
@@ -965,9 +1065,39 @@ impl SemanticIRBuilder {
                 self.safe_push_instruction(
                     func,
                     id,
-                    SemanticInstruction::Assign {
-                        target: target_name.to_string(),
-                        value: te_val,
+                    match te_val {
+                        // Same as the `result_name` sites above:
+                        // a void call in trailing position is a
+                        // statement, not a value.
+                        TypedIRValue::Call {
+                            function,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => SemanticInstruction::Call {
+                            func: function,
+                            args,
+                            result: None,
+                        },
+                        TypedIRValue::VirtualCall {
+                            receiver,
+                            method_name,
+                            slot,
+                            args,
+                            return_type,
+                        } if matches!(return_type, Type::Void) => {
+                            SemanticInstruction::VirtualCall {
+                                receiver: *receiver,
+                                method_name,
+                                slot,
+                                args,
+                                result: None,
+                                return_type,
+                            }
+                        }
+                        other => SemanticInstruction::Assign {
+                            target: target_name.to_string(),
+                            value: other,
+                        },
                     },
                 );
             }

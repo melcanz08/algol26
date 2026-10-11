@@ -181,6 +181,15 @@ pub enum RegionState {
     MaybeFreed,
 }
 
+/// Tracks which places a value has escaped into (return, spawn,
+/// channel send, stored into a struct/list field). Populated by the
+/// analyzer, consumed by the verifier.
+///
+/// ADR 0046 status: infrastructure only. As of this commit, nothing
+/// in `src/semantics/analyzer/` calls `mark_escape`, and no consumer
+/// reads `escapes`. The join path in `SemanticState::join` does
+/// union the maps correctly, so when callers are added the results
+/// will survive control-flow merges.
 #[derive(Debug, Clone, Default)]
 pub struct EscapeSet {
     pub escapes: HashMap<String, HashSet<String>>,
@@ -458,13 +467,30 @@ impl SemanticState {
                 if (storage_reg == name || self.is_ancestor(name, storage_reg))
                     && borrow_lifetime.outlives_region(&storage_lifetime, self)
                 {
+                    // ADR 0045: name the *storage* region, not the
+                    // region whose exit triggered the check. When an
+                    // outer region is freed and its descendant region
+                    // already freed earlier, the descendant's storage
+                    // is what actually dangles. Naming the exiting
+                    // region produced "storage in outer freed" for a
+                    // variable that was never in `outer`.
                     outliving.push(format!(
                         "{} (borrowed by {} lives in {:?} but storage in {} freed)",
-                        bstate.place, borrower, borrow_lifetime, name
+                        bstate.place, borrower, borrow_lifetime, storage_reg
                     ));
                 }
             }
         }
+
+        // ADR 0045: purge `var_region` entries attributed to the
+        // region being freed. Without this, a variable declared in
+        // an inner region stays attributed to that (now dead) region,
+        // and every enclosing-region exit re-reports the same escape.
+        // The test
+        // `tests/adr_examples/0045_regions/fail_outer_ref_to_inner_storage.gol`
+        // emitted two E-REGION-001 diagnostics before this fix; after,
+        // it emits one, naming `inner` as the freed storage region.
+        self.var_region.retain(|_, region| region != name);
 
         outliving
     }

@@ -1,0 +1,14 @@
+// ADR 0045 — outer-region reference to inner-region storage.
+//
+// `r` lives in `outer`. It is reassigned to point at `x`, which
+// lives in `inner`. When `inner` exits, `x` is freed but `r` still
+// points at it. Expected: REJECTED with E-REGION-001 at the inner
+// region's exit (src/ir/cfg/dataflow.rs:310).
+proc main
+    region outer
+        var seed := 0
+        var r := &seed
+        region inner
+            var x := 1
+            r := &x
+        print(*r)

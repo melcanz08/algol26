@@ -8,6 +8,22 @@ mod collect;
 #[cfg(test)]
 mod tests;
 
+/// ADR 0047 status: **syntactic race linter only**. This module
+/// implements per-function, name-based conflict detection between
+/// the main thread and each `spawn`/`parallel` block. It does NOT
+/// implement a happens-before memory model, does not follow
+/// accesses through function calls, and does not distinguish
+/// fields of a record (`b.v` vs `b.w`) — that is deferred to ADR
+/// 0044 place-based borrows.
+///
+/// The detector is deliberately conservative in one direction: a
+/// `var` binding visible to both main and a spawn is flagged even
+/// when both sides only read it, because the linter cannot prove
+/// no indirect mutation exists. `val` bindings are exempt.
+///
+/// Do not present this as the ADR 0047 memory model. ADR 0047
+/// proper (happens-before, channel synchronization, spawn-join
+/// edges) is not implemented.
 #[derive(Debug, Clone)]
 pub struct RaceDetector {
     // Track variables accessed in spawned blocks
@@ -122,7 +138,11 @@ impl RaceDetector {
                     && !flagged_vars.contains(var)
                 {
                     races.push(format!(
-                        "variable '{}' is a `var` binding shared between main                          and a spawn. The race detector cannot prove that no                          concurrent mutation reaches it — it does not follow                          writes through function calls. Change the binding to                          `val` if it is not reassigned, or restructure to                          avoid sharing a mutable binding across a spawn.",
+                        "variable '{}' is a `var` binding shared between main and a spawn. \
+                         The race detector cannot prove that no concurrent mutation reaches it \
+                         — it does not follow writes through function calls. Change the binding \
+                         to `val` if it is not reassigned, or restructure to avoid sharing a \
+                         mutable binding across a spawn.",
                         var
                     ));
                 }
@@ -136,6 +156,13 @@ impl RaceDetector {
         // - Both are writing (write-write conflict)
         // - One is writing and other is reading (read-write conflict)
         // - Both are read-write
+        //
+        // Note: this predicate is deliberately mutability-blind. The
+        // "only if mutable" restriction is enforced one level up, by
+        // the conservative pass in `analyze()` that consults
+        // `variable_mutability`. Keeping the predicate purely
+        // syntactic makes the pairwise loops below cheap and keeps
+        // the mutability policy in one place.
         let writes1 = matches!(access1, AccessType::Write | AccessType::ReadWrite);
         let writes2 = matches!(access2, AccessType::Write | AccessType::ReadWrite);
         let reads1 = matches!(access1, AccessType::Read | AccessType::ReadWrite);

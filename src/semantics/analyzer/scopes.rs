@@ -48,7 +48,20 @@ impl SemanticAnalyzer {
                     self.state.vars.remove(v);
                 }
             }
-            let _outliving = self.state.exit_region(&region);
+            // ADR 0045 status: `exit_region` computes the set of
+            // borrows that outlive the region being popped, but the
+            // result is not yet propagated to the caller as an
+            // error. Until it is, this assertion catches cases that
+            // *would* be rejected once ADR 0045 is enforced, so we
+            // can measure the blast radius without breaking the
+            // build. Replace with a `Result` propagation when the
+            // enforcement lands.
+            let outliving = self.state.exit_region(&region);
+            debug_assert!(
+                outliving.is_empty(),
+                "region escape detected (ADR 0045 not yet enforced): {:?}",
+                outliving
+            );
         }
     }
     pub(super) fn declare_variable(

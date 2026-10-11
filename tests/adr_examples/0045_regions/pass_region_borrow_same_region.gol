@@ -1,0 +1,10 @@
+// ADR 0045 — same-region borrow does not escape.
+//
+// Now:   ACCEPTED. `exit_region("outer")` returns an empty list;
+//        no E-REGION-001 is emitted.
+// After: ACCEPTED (unchanged).
+proc main
+    region outer
+        var x := 1
+        val r := &x
+        print(*r)

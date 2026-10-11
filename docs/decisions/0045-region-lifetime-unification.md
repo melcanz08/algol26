@@ -1,3 +1,24 @@
+> **Status: Implemented.**
+>
+> Enforcement lives in two places, both reached on the canonical
+> pipeline path (`src/compiler/passes/verify_ir.rs:36`):
+>
+>   * `SemanticState::exit_region` in `src/semantics/state/mod.rs`
+>     computes the set of borrows that outlive the region being
+>     freed, names the *storage* region (not the exiting one), and
+>     purges `var_region` entries attributed to the freed region so
+>     an enclosing region's exit does not re-report the same escape.
+>   * `OwnershipTransfer::transfer`'s `CfgInstruction::RegionExit`
+>     arm in `src/ir/cfg/dataflow.rs:310` promotes each entry in the
+>     returned set to a hard `E-REGION-001` diagnostic.
+>
+> Regression examples:
+>
+>   * `tests/adr_examples/0045_regions/pass_region_borrow_same_region.gol`
+>   * `tests/adr_examples/0045_regions/fail_outer_ref_to_inner_storage.gol`
+>
+> Invariant test: `tests/pipeline_contract.rs::dataflow_enforces_region_outlives`.
+
 # ADR 0045: Unify region lifetimes with borrow lifetimes
 
 Status: Proposed (design)

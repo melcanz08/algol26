@@ -12,12 +12,27 @@ Status: In progress.
   `&p.x` and `&xs[0]` register as places instead of falling
   through to the value path. `pop_scope` releases shared borrows
   whose base variable exits, closing the synthetic-id leak.
-- **Remaining.** The `MutBorrow` arm is still name-keyed;
-  `Stmt::FieldAssign` and `Stmt::ArrayAssign` do not yet check
-  for a live borrow on their target place. The codegen probe
-  `tests/codegen_probes/g1_borrow_field.gol` stays `DIVERGE` on
-  the interpreter until writes-through-places land (see ADR
-  0053).
+- **Stage 2 complete on the analyzer side**
+  (2026-10-12, commits `8db4559`, `44076dc`, `377bfeb`, `21bad18`).
+  - `MutBorrow` resolves its operand through `place_of_expr`;
+    `check_borrow_rules_place` honors its `mutable` parameter;
+    `register_mutable_borrow` takes a `Place`.
+  - `Stmt::FieldAssign` rejects writes to a field whose place
+    overlaps a live borrow; releases only borrows whose place
+    overlaps the written place.
+  - `Stmt::ArrayAssign` does the same for list elements.
+    Non-literal indices fall back to the conservative "any
+    borrow of the base array conflicts" policy.
+  - Four regression tests in
+    `tests/semantics/borrow_checker_extra_test.rs` pin the
+    reject-for-same-place and accept-for-disjoint-place
+    behavior on both fields and elements.
+- **Remaining.** Interpreter reference semantics (ADR 0053).
+  The analyzer rejects the motivating programs at compile time,
+  but the interpreter's runtime does not model places — `&p.x`
+  is a value snapshot. ADR 0053 replaces this with a
+  `RuntimeValue::Reference(Place)` that reads through the
+  current storage.
 
 ### Shipped shape vs. original sketch
 

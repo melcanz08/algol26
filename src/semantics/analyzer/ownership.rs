@@ -14,7 +14,7 @@ impl SemanticAnalyzer {
         let reference = format!("__tmp_call_{}", call_id.0);
         self.state.borrow(
             reference,
-            source.to_string(),
+            crate::semantics::state::Place::simple(source),
             BorrowKind::Mutable,
             BorrowLifetime::Temporary(call_id),
         );
@@ -99,8 +99,12 @@ impl SemanticAnalyzer {
         } else {
             BorrowLifetime::Local(borrower.clone())
         };
-        self.state
-            .borrow(borrower, name.to_string(), BorrowKind::Shared, lt);
+        self.state.borrow(
+            borrower,
+            crate::semantics::state::Place::simple(name),
+            BorrowKind::Shared,
+            lt,
+        );
     }
 
     pub(super) fn is_mutably_borrowed(&self, name: &str) -> bool {
@@ -162,7 +166,7 @@ impl SemanticAnalyzer {
         };
         self.state.borrow(
             reference.to_string(),
-            source.to_string(),
+            crate::semantics::state::Place::simple(source),
             BorrowKind::Mutable,
             lt,
         );

@@ -166,9 +166,64 @@ pub enum StorageLifetime {
     Static,
 }
 
+/// ADR 0044. A place is a base variable plus a sequence of
+/// projections that reach into its value. `p` is `Place { base: "p",
+/// projections: [] }`; `p.x` is `Place { base: "p", projections:
+/// [Field("x")] }`.
+///
+/// Two places overlap when their bases are equal and one's
+/// projections are a prefix of the other's. `p.x` and `p` overlap;
+/// `p.x` and `p.y` do not; `p.x` and `q.x` do not (different bases).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    pub base: String,
+    pub projections: Vec<Projection>,
+}
+
+#[allow(dead_code)] // Stage 2 constructs these; Stage 1 only reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Projection {
+    Field(String),
+    Index(usize),
+}
+
+impl Place {
+    /// The trivial place for a variable: base = `name`, no
+    /// projections.
+    pub fn simple(name: impl Into<String>) -> Self {
+        Place {
+            base: name.into(),
+            projections: Vec::new(),
+        }
+    }
+
+    /// True if `self` and `other` refer to overlapping storage.
+    /// See the type-level doc comment.
+    pub fn overlaps(&self, other: &Place) -> bool {
+        if self.base != other.base {
+            return false;
+        }
+        let n = self.projections.len().min(other.projections.len());
+        self.projections[..n] == other.projections[..n]
+    }
+}
+
+impl std::fmt::Display for Place {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.base)?;
+        for p in &self.projections {
+            match p {
+                Projection::Field(name) => write!(f, ".{}", name)?,
+                Projection::Index(i) => write!(f, "[{}]", i)?,
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BorrowState {
-    pub place: String,
+    pub place: Place,
     pub kind: BorrowKind,
     pub lifetime: BorrowLifetime,
     pub created_at: NodeId,
@@ -390,7 +445,7 @@ impl SemanticState {
     pub fn move_out(&mut self, name: &str, span: Span) {
         self.vars
             .insert(name.to_string(), VarState::moved_from(span));
-        self.borrows.retain(|_, b| b.place != name);
+        self.borrows.retain(|_, b| b.place.base != name);
     }
 
     /// Record that `borrower` holds a borrow of `place`.
@@ -404,7 +459,7 @@ impl SemanticState {
     pub fn borrow(
         &mut self,
         borrower: String,
-        place: String,
+        place: Place,
         kind: BorrowKind,
         lifetime: BorrowLifetime,
     ) {
@@ -459,7 +514,7 @@ impl SemanticState {
 
         // Check borrows that outlive the freed region
         for (borrower, bstate) in &self.borrows {
-            let storage_lifetime = self.storage_lifetime_of(&bstate.place);
+            let storage_lifetime = self.storage_lifetime_of(&bstate.place.base);
             let borrow_lifetime = &bstate.lifetime;
 
             // If storage is in the region being freed and borrow lives longer -> error
@@ -503,14 +558,16 @@ impl SemanticState {
         }
     }
 
-    pub fn is_borrowed(&self, place: &str) -> bool {
-        self.borrows.values().any(|b| b.place == place)
+    pub fn is_borrowed(&self, name: &str) -> bool {
+        let probe = Place::simple(name);
+        self.borrows.values().any(|b| b.place.overlaps(&probe))
     }
 
-    pub fn is_mutably_borrowed(&self, place: &str) -> bool {
+    pub fn is_mutably_borrowed(&self, name: &str) -> bool {
+        let probe = Place::simple(name);
         self.borrows
             .values()
-            .any(|b| b.place == place && b.kind == BorrowKind::Mutable)
+            .any(|b| b.place.overlaps(&probe) && b.kind == BorrowKind::Mutable)
     }
 
     pub fn mark_escape(&mut self, from: String, to: String) {
@@ -650,7 +707,7 @@ mod tests {
         s.declare("x".into(), VarState::available());
         s.borrow(
             "r".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("r".into()),
         );
@@ -682,7 +739,7 @@ mod tests {
                                                       // r borrows x, but r lives in outer, x in inner
         s.borrow(
             "r".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Region("outer".into()),
         );
@@ -703,7 +760,7 @@ mod tests {
         s.declare("r".into(), VarState::available());
         s.borrow(
             "r".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Region("r1".into()),
         );
@@ -732,7 +789,7 @@ mod tests {
         s.declare("x".into(), VarState::available()); // x inside
         s.borrow(
             "r".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Local("r".into()),
         );
@@ -751,7 +808,7 @@ mod tests {
         a.declare("p".into(), VarState::available());
         a.borrow(
             "p".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Local("p".into()),
         );
@@ -777,7 +834,7 @@ mod tests {
         b.declare("x".into(), VarState::available());
         b.borrow(
             "r".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("r".into()),
         );
@@ -795,7 +852,7 @@ mod tests {
         a.declare("x".into(), VarState::available());
         a.borrow(
             "p".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("p".into()),
         );
@@ -804,7 +861,7 @@ mod tests {
         b.declare("x".into(), VarState::available());
         b.borrow(
             "p".into(),
-            "x".into(),
+            Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("p".into()),
         );

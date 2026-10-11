@@ -286,7 +286,12 @@ impl Transfer for OwnershipTransfer {
                     } else {
                         crate::semantics::state::BorrowLifetime::Local(borrower.clone())
                     };
-                    incoming.borrow(borrower.clone(), place.clone(), kind, lt);
+                    incoming.borrow(
+                        borrower.clone(),
+                        crate::semantics::state::Place::simple(place.clone()),
+                        kind,
+                        lt,
+                    );
                 }
                 CfgInstruction::Call { name: _, args } => {
                     let mut to_end = Vec::new();
@@ -294,7 +299,12 @@ impl Transfer for OwnershipTransfer {
                         if let crate::semantics::state::BorrowLifetime::Temporary(id) =
                             b_state.lifetime
                         {
-                            if args.contains(&b_state.place) {
+                            // ADR 0044 Stage 1: no place carries
+                            // projections yet, so comparing base
+                            // names is exact. Stage 2 will widen this
+                            // to `args.iter().any(|a| Place::simple(a).overlaps(&b_state.place))`
+                            // when projections exist.
+                            if args.contains(&b_state.place.base) {
                                 to_end.push(id);
                             }
                         }

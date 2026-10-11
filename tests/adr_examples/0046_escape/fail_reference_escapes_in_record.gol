@@ -1,0 +1,17 @@
+// ADR 0046 — reference smuggled out through a record field.
+//
+// `x` is local to `make`. `bag.inner` holds a reference to it.
+// Returning `bag` moves the record out of `make`, so the reference
+// escapes the function it was created in. Expected: REJECTED with
+// E-ESCAPE-001 at the `return bag` site.
+rec Bag
+    inner: &Int
+
+proc make() -> Bag
+    var x := 1
+    val bag := Bag { inner: &x }
+    return bag
+
+proc main
+    val b := make()
+    print(*(b.inner))

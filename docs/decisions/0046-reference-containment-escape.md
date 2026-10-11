@@ -1,3 +1,35 @@
+> **Status: Implemented (conservative over-approximation).**
+>
+> Enforcement chain:
+>
+>   * `compute_reference_bearing_vars` in `src/ir/cfg/builder.rs`
+>     performs a flow-insensitive fixed point over each function's
+>     instructions, tracking which locals ever hold a value
+>     containing a reference. Also `collect_reference_places`,
+>     which walks composite values (records, lists, arrays,
+>     Option, Result) for embedded `BorrowShared` / `BorrowMutable`
+>     leaves.
+>   * `Terminator::Return` emits `CfgInstruction::ReturnRef` for
+>     both direct borrows (`return &x`) and reference-bearing
+>     locals (`return bag` where `bag` contains a reference).
+>   * `OwnershipTransfer::transfer` in `src/ir/cfg/dataflow.rs:322`
+>     promotes each `ReturnRef` to a hard `E-ESCAPE-001`.
+>
+> Regression example:
+>   * `tests/adr_examples/0046_escape/fail_reference_escapes_in_record.gol`
+>
+> Known limitations:
+>
+>   * The analysis is flow-insensitive and conservative. A local
+>     that holds a reference on one path and a plain value on
+>     another is treated as reference-bearing throughout. Valid
+>     returns are possible in principle that this rejects — none
+>     are in the current test suite.
+>   * The `E-ESCAPE-001` message names the returned variable, not
+>     the reference it contains. Consider rewording to
+>     "value '<name>' (which contains a reference) escapes via
+>     return" if the wording causes confusion.
+
 # ADR 0046: Reference containment in escape analysis
 
 Status: Proposed (design)

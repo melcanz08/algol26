@@ -10,6 +10,7 @@
 
 use super::dataflow::{Cfg, CfgBlock, CfgInstruction, FunctionCfg};
 use crate::ir::semantic_ir::{SemanticProgram, Terminator, TypedIRValue};
+use std::collections::HashSet;
 
 fn extract_var_name(v: &TypedIRValue) -> Option<String> {
     match v {
@@ -53,6 +54,45 @@ fn collect_all_vars(v: &TypedIRValue, out: &mut Vec<String>) {
     }
 }
 
+/// ADR 0046. Recursively collect the names of every variable that
+/// is bound to a reference at *some* depth inside `v`. A direct
+/// `&x` produces `["x"]`; a record `Bag { inner: &x }` produces
+/// `["x"]` too. Used by the `Terminator::Return` arm to emit
+/// `ReturnRef` for references that would otherwise escape
+/// unnoticed because they are buried inside a composite value.
+///
+/// The walker stops at non-reference leaves. A `Record` with a
+/// plain `Int` field contributes nothing; only reference-typed
+/// values contribute. Nested records and list elements recurse.
+fn collect_reference_places(v: &TypedIRValue, out: &mut Vec<String>) {
+    match v {
+        TypedIRValue::BorrowShared { expr, .. } | TypedIRValue::BorrowMutable { expr, .. } => {
+            if let Some(name) = extract_var_name(expr) {
+                out.push(name);
+            }
+        }
+        TypedIRValue::Record { fields, .. } => {
+            for (_, fv) in fields {
+                collect_reference_places(fv, out);
+            }
+        }
+        TypedIRValue::List(items, _) | TypedIRValue::Array(items, _, _) => {
+            for item in items {
+                collect_reference_places(item, out);
+            }
+        }
+        TypedIRValue::Some(inner) => collect_reference_places(inner, out),
+        TypedIRValue::Ok { value, .. } | TypedIRValue::Error { value, .. } => {
+            collect_reference_places(value, out);
+        }
+        // All other variants carry non-reference payloads at the
+        // language level (Int, Float, String, Bool, Void, Map with
+        // non-reference keys/values, etc.). None can hold a
+        // reference that escapes.
+        _ => {}
+    }
+}
+
 fn is_borrow(v: &TypedIRValue) -> Option<(String, bool)> {
     match v {
         TypedIRValue::BorrowShared { expr, .. } => {
@@ -69,6 +109,54 @@ fn is_borrow(v: &TypedIRValue) -> Option<(String, bool)> {
 /// function's blocks keep their `SemanticProgram`-local IDs and its
 /// declared entry block. Block IDs are unique within a program, so
 /// no renumbering is needed.
+/// ADR 0046. Compute the set of local variable names in a function
+/// whose current value is, or contains, a reference. Runs a
+/// flow-insensitive fixed point: a variable is reference-bearing
+/// if it is ever assigned a value containing a reference, or is
+/// ever assigned another reference-bearing variable.
+///
+/// A conservative over-approximation — a variable that holds a
+/// reference on one path and a plain int on another is still
+/// treated as reference-bearing. For an escape check that is the
+/// correct direction: over-report, never miss.
+///
+/// Exists because `Terminator::Return { Variable(n) }` cannot see
+/// inside `n`'s value at CFG-build time. Without this pre-pass, a
+/// reference stored into a local record and returned by the
+/// record's name reaches codegen unchecked.
+fn compute_reference_bearing_vars(
+    func: &crate::ir::semantic_ir::SemanticFunction,
+) -> HashSet<String> {
+    use crate::ir::semantic_ir::Instruction as I;
+
+    let mut ref_bearing: HashSet<String> = HashSet::new();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for sblock in &func.blocks {
+            for instr in &sblock.instructions {
+                let (name, value) = match instr {
+                    I::Declare { name, value, .. } => (name.clone(), value),
+                    I::Assign { target, value } => (target.clone(), value),
+                    _ => continue,
+                };
+                let mut places = Vec::new();
+                collect_reference_places(value, &mut places);
+                if !places.is_empty() && ref_bearing.insert(name.clone()) {
+                    changed = true;
+                    continue;
+                }
+                if let Some(src) = extract_var_name(value) {
+                    if ref_bearing.contains(&src) && ref_bearing.insert(name.clone()) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    ref_bearing
+}
+
 pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<FunctionCfg> {
     let mut out = Vec::new();
 
@@ -76,6 +164,9 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
         if func.is_extern {
             continue;
         }
+
+        // ADR 0046: which locals hold references (see the helper).
+        let ref_bearing = compute_reference_bearing_vars(func);
 
         let mut cfg = Cfg::new(func.entry_block);
 
@@ -325,16 +416,47 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
             if let Some(term) = &sblock.terminator {
                 match term {
                     Terminator::Return { value: Some(v), .. } => {
+                        // Direct top-level borrow: `return &x`.
                         if let Some((place, _)) = is_borrow(v) {
                             instrs.push(CfgInstruction::ReturnRef { place });
-                        } else if let Some(var_name) = extract_var_name(v) {
-                            instrs.push(CfgInstruction::Use { name: var_name });
                         } else {
-                            let mut vars = Vec::new();
-                            collect_all_vars(v, &mut vars);
-                            for var_name in vars {
-                                instrs.push(CfgInstruction::Use { name: var_name });
+                            // ADR 0046: walk the returned value for
+                            // references at any depth. A record
+                            // literal containing `&x` produces the
+                            // same `ReturnRef` a direct `return &x`
+                            // produces.
+                            let mut places = Vec::new();
+                            collect_reference_places(v, &mut places);
+                            for place in places {
+                                instrs.push(CfgInstruction::ReturnRef {
+                                    place: place.clone(),
+                                });
                             }
+                            // If the returned value is a bare
+                            // variable we determined to be
+                            // reference-bearing earlier in the
+                            // function, flag it too. The literal
+                            // walker above cannot see inside a
+                            // variable's current value — this
+                            // closes the gap for
+                            // `val bag := Bag { inner: &x }; return bag`.
+                            if let Some(var_name) = extract_var_name(v) {
+                                if ref_bearing.contains(&var_name) {
+                                    instrs.push(CfgInstruction::ReturnRef { place: var_name });
+                                }
+                            }
+                        }
+                        // Independently, mark every variable the
+                        // return value mentions as used. This
+                        // subsumes the old `extract_var_name` and
+                        // `collect_all_vars` fallbacks: the walker
+                        // handles the bare-Variable case (it is a
+                        // `Variable` arm in `collect_all_vars`) as
+                        // well as the record/list case.
+                        let mut vars = Vec::new();
+                        collect_all_vars(v, &mut vars);
+                        for name in vars {
+                            instrs.push(CfgInstruction::Use { name });
                         }
                     }
                     Terminator::Branch { condition, .. } => {

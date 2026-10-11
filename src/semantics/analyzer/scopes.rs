@@ -34,12 +34,29 @@ impl SemanticAnalyzer {
 
         if let Some(region) = exiting_region {
             self.state.borrows.retain(|borrower, b_state| {
+                // A borrow is released when any of three conditions
+                // hold:
+                //
+                //  1. Its map key names an exiting variable. This is
+                //     the shape for mutable borrows, whose key is the
+                //     reference binding's name (`y` for `var y :=
+                //     &mut x`).
+                //  2. Its place's base names an exiting variable. A
+                //     shared borrow's key is a synthetic id
+                //     (`__shared_p_1_42`), so key-matching never
+                //     fires for it — but its place's base is the
+                //     borrowed variable (`p`), which is what we need
+                //     to compare against the exiting scope.
+                //  3. Its lifetime is the region being popped. This
+                //     catches borrows that outlive their declaration
+                //     scope but are region-scoped.
                 let borrower_exits = exiting_vars.contains(borrower);
+                let place_base_exits = exiting_vars.contains(&b_state.place.base);
                 let lifetime_exits = matches!(
                     &b_state.lifetime,
                     crate::semantics::state::BorrowLifetime::Region(r) if r == &region
                 );
-                !(borrower_exits || lifetime_exits)
+                !(borrower_exits || place_base_exits || lifetime_exits)
             });
             for v in &exiting_vars {
                 self.state.var_region.remove(v);

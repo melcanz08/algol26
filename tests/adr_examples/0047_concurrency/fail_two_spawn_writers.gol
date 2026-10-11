@@ -1,0 +1,12 @@
+// ADR 0047 — two spawns writing the same var, no synchronization.
+//
+// Now:   REJECTED. The pairwise loop in `RaceDetector::analyze`
+//        detects spawn1.Write vs spawn2.Write.
+// After: REJECTED (unchanged). This case must stay rejected.
+proc main
+    var x := 0
+    spawn
+        x := 1
+    spawn
+        x := 2
+    print(x)

@@ -102,6 +102,108 @@ impl<'ctx> IRCodeGen<'ctx> {
                 };
                 Ok(ptr.into())
             }
+            // Reference-to-field: GEP to the field's address, no
+            // load. Mirrors the read arm's auto-deref + record
+            // lookup, but stops at the pointer.
+            //
+            // Without this arm, `&p.x` fell through to the value
+            // fallback below: `compile_value(FieldAccess)` returns
+            // the *loaded field value*, not its address. Downstream
+            // `ReadReference` then treated the i64 as a pointer and
+            // dereferenced it, producing a segfault. The same bug
+            // shape as the interpreter's `&p.x` returning a
+            // snapshot rather than a live reference.
+            TypedIRValue::FieldAccess { object, field, .. } => {
+                let raw_object_type = object.type_of();
+                let object_type = match &raw_object_type {
+                    Type::Borrow(inner) | Type::MutBorrow(inner) => (**inner).clone(),
+                    other => other.clone(),
+                };
+                let record_name = match &object_type {
+                    Type::Record(name, _) => name.clone(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!(
+                                "reference to field of non-record type {:?}",
+                                raw_object_type
+                            ),
+                            "llvm",
+                        ));
+                    }
+                };
+                let rec_decl = self
+                    .record_decls
+                    .get(&record_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            &format!("LLVM codegen: unknown record '{}'", record_name),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0003,
+                        )
+                    })?;
+                let field_idx = rec_decl
+                    .fields
+                    .iter()
+                    .position(|(n, _, _)| n == field)
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            &format!(
+                                "LLVM codegen: record '{}' has no field '{}'",
+                                record_name, field
+                            ),
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0004,
+                        )
+                    })?;
+                let struct_ty = match self.map_type(&object_type) {
+                    BasicTypeEnum::StructType(s) => s,
+                    _ => unreachable!(
+                        "map_type(Type::Record) returned a non-struct type for '{}'",
+                        record_name
+                    ),
+                };
+                // Resolve the containing object's storage. A
+                // Variable receiver's `variables[name]` slot holds
+                // the record's struct alloca (Declare's record arm)
+                // or an incoming reference pointer (reference-param
+                // path) — both are the record's address. Nested
+                // field access recurses. ArrayAccess resolves
+                // through `compile_reference`'s own arm.
+                let obj_ptr = match object.as_ref() {
+                    TypedIRValue::Variable(name, _) => {
+                        self.variables.get(name).copied().ok_or_else(|| {
+                            CompileError::simple(
+                                &format!("LLVM codegen: unknown variable '{}'", name),
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0003,
+                            )
+                        })?
+                    }
+                    other => self.compile_reference(other)?.into_pointer_value(),
+                };
+
+                let field_ptr = unsafe {
+                    self.builder
+                        .build_gep(
+                            struct_ty,
+                            obj_ptr,
+                            &[
+                                self.context.i32_type().const_zero(),
+                                self.context.i32_type().const_int(field_idx as u64, false),
+                            ],
+                            &format!("{}_{}_ref", record_name, field),
+                        )
+                        .unwrap()
+                };
+                Ok(field_ptr.into())
+            }
             // Anything else falls back to producing a value; the caller
             // (or verifier) is responsible for ensuring it's used as a
             // reference only when the inner form is addressable.

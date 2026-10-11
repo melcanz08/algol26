@@ -141,12 +141,33 @@ impl SemanticAnalyzer {
     ) -> Result<Type> {
         match &expr.kind {
             ExprKind::Borrow { expr, .. } => {
-                let inner_type = if let ExprKind::Var(name, _) = &expr.as_ref().kind {
-                    self.check_borrow_rules(name, false)?;
-                    self.mark_borrowed(name);
+                // ADR 0044 stage 2. Track the borrow on a `Place`,
+                // not on a bare name — `&p.x` is a borrow of the
+                // place `p.x`, which the analyzer must be able to
+                // compare against later writes (`p.x := ...`). A
+                // bare variable is the trivial place.
+                //
+                // When the inner expression isn't a place — an
+                // arithmetic expression, a literal, a nested
+                // function call — there is nothing to borrow. The
+                // analyzer reports "cannot borrow a temporary."
+                let place = self.place_of_expr(expr);
+                let inner_type = if let Some(place) = place {
+                    self.check_borrow_rules_place(&place, false)?;
+                    self.mark_borrowed(&place);
                     self.analyze_expr(expr)?
                 } else {
-                    self.analyze_expr(expr)?
+                    return Err(CompileError::at(
+                        self.current_span,
+                        "Cannot borrow this expression: borrows require an \
+                         addressable place (a variable, a field, or a list \
+                         element with a literal index)",
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(
+                        "Bind the value to a variable first, then borrow the \
+                         variable",
+                    ));
                 };
                 // ADR 0038. When the surrounding context expects
                 // `&dyn Trait` and the concrete type implements that
@@ -173,15 +194,16 @@ impl SemanticAnalyzer {
                 Ok(Type::borrow(inner_type))
             }
             ExprKind::MutBorrow { expr, .. } => {
+                // ADR 0044 stage 2, mutable arm: deferred. Mutable
+                // borrows still go through the name-keyed
+                // `register_mutable_borrow` path (which the enclosing
+                // `VarDecl`/`ValDecl` calls). Moving them to places
+                // needs the ADR to settle how a mutable borrow's
+                // borrower-key relates to a place — the shared arm
+                // uses a synthetic key, but a mutable borrow needs
+                // to be releasable at the binding's scope exit.
                 let inner_type = if let ExprKind::Var(name, _) = &expr.as_ref().kind {
-                    // Do NOT release existing borrows here — that would undo
-                    // the very borrow we just registered. `check_borrow_rules`
-                    // will correctly reject a second mut-borrow of the same source.
                     self.check_borrow_rules(name, true)?;
-                    // Mirror the Borrow arm: analyze the inner expression so its
-                    // type lands in the ExprId-keyed table. Returning a looked-up
-                    // type directly skips the table write and leaves `x` untyped
-                    // in `&mut x`, which the completeness check now rejects.
                     self.analyze_expr(expr)?
                 } else {
                     self.analyze_expr(expr)?
@@ -878,7 +900,9 @@ impl SemanticAnalyzer {
                     }
                     return Err(err);
                 }
-                if self.is_mutably_borrowed(name) && !self.in_mut_borrow {
+                if self.is_mutably_borrowed(&crate::semantics::state::Place::simple(name.clone()))
+                    && !self.in_mut_borrow
+                {
                     return Err(CompileError::at(
                         *span,
                         &format!("Cannot read '{}' while it is mutably borrowed", name),

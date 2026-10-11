@@ -1,0 +1,16 @@
+// ADR 0047 — a mutable `var` shared with a spawn is conservatively
+// flagged (name-based linter, no happens-before analysis yet).
+//
+// Now:   REJECTED by the conservative pass in
+//        `src/semantics/race/mod.rs`. Matches
+//        `test_var_sharing_with_spawn_is_conservatively_flagged`.
+// After: This specific case may remain rejected under ADR 0047's
+//        real memory model — the spawn has no synchronization with
+//        `print(x)` in main, so a data race is genuinely possible.
+//        The point of ADR 0047 is to accept cases like
+//        `spawn { x := 1 }; join; print(x)` where HB is provable.
+proc main
+    var x := 42
+    spawn
+        print(x)
+    print(x)

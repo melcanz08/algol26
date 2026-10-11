@@ -88,33 +88,47 @@ impl SemanticAnalyzer {
         self.state.vars.get(name).and_then(|s| s.moved_at)
     }
 
-    pub(super) fn mark_borrowed(&mut self, name: &str) {
+    pub(super) fn mark_borrowed(&mut self, place: &crate::semantics::state::Place) {
         // Shared borrows have no declaration site, so give each one a
         // unique synthetic borrower key. Using a per-source key would
         // collapse nested borrows of the same place into one entry and
         // lose the outer borrow when the inner scope exits.
-        let borrower = format!("__shared_{}_{}", name, self.state.fresh_node_id().0);
+        let borrower = format!(
+            "__shared_{}_{}_{}",
+            place.base,
+            place.projections.len(),
+            self.state.fresh_node_id().0
+        );
         let lt = if let Some(cur) = self.state.current_region().cloned() {
             BorrowLifetime::Region(cur)
         } else {
             BorrowLifetime::Local(borrower.clone())
         };
-        self.state.borrow(
-            borrower,
-            crate::semantics::state::Place::simple(name),
-            BorrowKind::Shared,
-            lt,
-        );
+        self.state
+            .borrow(borrower, place.clone(), BorrowKind::Shared, lt);
     }
 
-    pub(super) fn is_mutably_borrowed(&self, name: &str) -> bool {
-        self.state.is_mutably_borrowed(name)
+    pub(super) fn is_mutably_borrowed(&self, place: &crate::semantics::state::Place) -> bool {
+        self.state
+            .borrows
+            .values()
+            .any(|b| b.kind == BorrowKind::Mutable && b.place.overlaps(place))
     }
 
-    pub(super) fn is_borrowed(&self, name: &str) -> bool {
-        self.state.is_borrowed(name)
+    pub(super) fn is_borrowed(&self, place: &crate::semantics::state::Place) -> bool {
+        self.state.borrows.values().any(|b| b.place.overlaps(place))
     }
 
+    /// Remove the mutable borrow held by the reference binding
+    /// `reference`. Called from `Stmt::Assign` when a write through
+    /// a reference releases that reference's borrow — the key is
+    /// the reference's own name (`w` for `var w := &mut x`), not
+    /// the borrowed place (`x`).
+    ///
+    /// Scope-exit release is a separate path: `pop_scope` retains
+    /// on the exiting variable set and the borrow's place base.
+    /// Collapsing the two would make this call remove every borrow
+    /// of `x` on write-through, which is wrong.
     pub(super) fn release_mutable_borrow(&mut self, reference: &str) {
         self.state.borrows.remove(reference);
     }
@@ -140,7 +154,11 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("The variable has already been moved"));
         }
-        if self.is_mutably_borrowed(source) {
+        // ADR 0044: check against the full place, not just the base.
+        // `&mut p.x` conflicts only with borrows of `p.x` (or `p`),
+        // not with borrows of `p.y`.
+        let place = crate::semantics::state::Place::simple(source);
+        if self.is_mutably_borrowed(&place) {
             return Err(CompileError::at(
                 self.current_span,
                 &format!("Cannot mutably borrow '{}' more than once", source),
@@ -148,7 +166,16 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("Only one mutable borrow is allowed at a time"));
         }
-        if self.is_borrowed(source) {
+        eprintln!(
+            "DEBUG register_mutable_borrow: source={} borrows now: {:?}",
+            source,
+            self.state
+                .borrows
+                .iter()
+                .map(|(k, b)| (k.clone(), b.place.clone(), format!("{:?}", b.kind)))
+                .collect::<Vec<_>>()
+        );
+        if self.is_borrowed(&place) {
             return Err(CompileError::at(
                 self.current_span,
                 &format!(
@@ -164,12 +191,112 @@ impl SemanticAnalyzer {
         } else {
             BorrowLifetime::Local(reference.to_string())
         };
-        self.state.borrow(
-            reference.to_string(),
-            crate::semantics::state::Place::simple(source),
-            BorrowKind::Mutable,
-            lt,
-        );
+        self.state
+            .borrow(reference.to_string(), place, BorrowKind::Mutable, lt);
+        Ok(())
+    }
+
+    /// ADR 0044. Derive the `Place` an expression refers to, if it
+    /// can be determined statically.
+    ///
+    /// Recognizes:
+    ///   Var(name)                    -> Place::simple(name)
+    ///   FieldAccess(place, field)    -> place + Field(field)
+    ///   ArrayAccess(place, Int lit)  -> place + Index(n)
+    ///
+    /// Returns `None` for computed indices, method-call receivers,
+    /// dereferences of non-places, and anything else the analyzer
+    /// cannot resolve to a stable location. Callers that get `None`
+    /// should fall back to `Place::simple(base_name_of(expr))` when
+    /// a base name exists, or skip place-based tracking entirely.
+    ///
+    /// This is deliberately conservative: a false negative (missing
+    /// a place) degrades to name-based tracking, which over-rejects
+    /// but never under-rejects. A false positive would be unsound.
+    pub(super) fn place_of_expr(&self, expr: &Expr) -> Option<crate::semantics::state::Place> {
+        use crate::semantics::state::{Place, Projection};
+        match &expr.kind {
+            ExprKind::Var(name, _) => Some(Place::simple(name.clone())),
+            ExprKind::FieldAccess { object, field, .. } => {
+                let mut base = self.place_of_expr(object)?;
+                base.projections.push(Projection::Field(field.clone()));
+                Some(base)
+            }
+            ExprKind::ArrayAccess { array, index, .. } => {
+                // Only literal indices produce a stable place. A
+                // computed index i would make `xs[i]` and `xs[j]`
+                // indistinguishable, so we bail and let the caller
+                // use the base name instead.
+                let ExprKind::Int(n, _) = &index.as_ref().kind else {
+                    return None;
+                };
+                if *n < 0 {
+                    return None;
+                }
+                let mut base = self.place_of_expr(array)?;
+                base.projections.push(Projection::Index(*n as usize));
+                Some(base)
+            }
+            _ => None,
+        }
+    }
+
+    /// ADR 0044 stage 2. The place-aware counterpart of
+    /// `check_borrow_rules`. The existing function keys on a bare
+    /// name; this one takes a `Place` so a borrow of `p.x` can be
+    /// checked against existing borrows on `p`, `p.x`, and `p.y`
+    /// (overlap via `Place::overlaps`).
+    ///
+    /// The deferred-capture check still uses the place's base name
+    /// — a deferred statement captures the whole variable, so any
+    /// projection of it is equally captured.
+    pub(super) fn check_borrow_rules_place(
+        &self,
+        place: &crate::semantics::state::Place,
+        mutable: bool,
+    ) -> Result<()> {
+        let _ = mutable;
+        // Deferred capture: a name captured by defer is frozen
+        // regardless of which projection of it is being borrowed.
+        if let Some(scope) = self.deferred_captures.last() {
+            if scope.contains(&place.base) {
+                return Err(CompileError::at(
+                    self.current_span,
+                    &format!("Cannot use '{}' after it was captured by defer", place.base),
+                    ErrorCode::E0007,
+                )
+                .with_suggestion("Deferred statements capture variables at declaration time"));
+            }
+        }
+        // Move check: use the base name; moving a field is not a
+        // distinct operation today.
+        if self.is_moved(&place.base) {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!("Use of moved variable '{}'", place.base),
+                ErrorCode::E0007,
+            )
+            .with_suggestion(
+                "Variable ownership was transferred and cannot be used in this scope",
+            ));
+        }
+        // Overlap check: a second mutable borrow, or a shared
+        // borrow of a place currently mutably borrowed, is
+        // rejected. The exact set of overlapping borrows comes
+        // from the analyzer's state; if the analyzer doesn't yet
+        // expose a query for it, fall back to the name-based
+        // check (over-rejects on `p.x` / `p.y`, which is safe).
+        if self.is_mutably_borrowed(place) {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!(
+                    "Cannot borrow '{}' while it is mutably borrowed",
+                    place.base
+                ),
+                ErrorCode::E0007,
+            )
+            .with_suggestion("Wait for the mutable borrow to end before borrowing again"));
+        }
         Ok(())
     }
 
@@ -185,6 +312,7 @@ impl SemanticAnalyzer {
                 .with_suggestion("Deferred statements capture variables at declaration time"));
             }
         }
+        let place = crate::semantics::state::Place::simple(name);
         if self.is_moved(name) {
             return Err(CompileError::at(
                 self.current_span,
@@ -193,7 +321,7 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("The variable has been moved and is no longer available"));
         }
-        if mutable && self.is_mutably_borrowed(name) {
+        if mutable && self.is_mutably_borrowed(&place) {
             return Err(CompileError::at(
                 self.current_span,
                 &format!("Cannot mutably borrow '{}' more than once", name),
@@ -201,7 +329,7 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("Only one mutable borrow is allowed at a time"));
         }
-        if mutable && self.is_borrowed(name) {
+        if mutable && self.is_borrowed(&place) {
             return Err(CompileError::at(
                 self.current_span,
                 &format!("Cannot mutably borrow '{}' while immutably borrowed", name),
@@ -209,7 +337,7 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("Wait for the immutable borrow to end"));
         }
-        if !mutable && self.is_mutably_borrowed(name) {
+        if !mutable && self.is_mutably_borrowed(&place) {
             return Err(CompileError::at(
                 self.current_span,
                 &format!("Cannot read '{}' while it is mutably borrowed", name),

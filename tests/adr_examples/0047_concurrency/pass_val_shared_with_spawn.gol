@@ -1,0 +1,10 @@
+// ADR 0047 — sharing an immutable `val` with a spawn is fine.
+//
+// Now:   ACCEPTED. This is exactly what
+//        `test_val_sharing_is_not_a_race` asserts.
+// After: ACCEPTED (unchanged).
+proc main
+    val x := 42
+    spawn
+        print(x)
+    print(x)

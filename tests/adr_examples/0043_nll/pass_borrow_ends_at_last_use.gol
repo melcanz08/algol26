@@ -1,0 +1,12 @@
+// ADR 0043 — NLL: a borrow ends at its last use, not at scope exit.
+//
+// Now:   REJECTED. The borrow `r` lives until the end of `main`, and
+//        `x := 2` sees `x` as still mutably borrowed.
+// After: ACCEPTED. The last use of `r` is `print(*r)`. Everything
+//        after that is a valid mutation of `x`.
+proc main
+    var x := 1
+    val r := &x
+    print(*r)
+    x := 2
+    print(x)

@@ -1,0 +1,12 @@
+// ADR 0044 — place-based borrows: same field, borrow + write.
+//
+// Now:   REJECTED (over-broadly — any write to `p` triggers).
+// After: REJECTED (precisely — `p.x` is borrowed, `p.x := ...`
+//        conflicts; `p.y := ...` would not).
+rec Point { x: Int, y: Int }
+
+proc main
+    var p := Point { x: 1, y: 2 }
+    val rx := &p.x
+    p.x := 99
+    print(*rx)

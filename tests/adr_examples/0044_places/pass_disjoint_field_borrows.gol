@@ -1,0 +1,16 @@
+// ADR 0044 — place-based borrows: borrow `p.x`, mutate `p.y`.
+//
+// Now:   REJECTED. `is_borrowed("p")` is true; the analyzer tracks by
+//        variable name, not by place.
+// After: ACCEPTED. `&p.x` and `p.y := ...` are disjoint places.
+//
+// Requires: `borrow: Borrow<T>` records a Place { base: "p",
+// projections: [Field("x")] } instead of a String.
+rec Point { x: Int, y: Int }
+
+proc main
+    var p := Point { x: 1, y: 2 }
+    val rx := &p.x
+    p.y := 99
+    print(*rx)
+    print(p.y)

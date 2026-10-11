@@ -1,0 +1,12 @@
+// probe: g1_borrow_field
+// exercises: borrow of a non-variable place
+
+rec Point
+    x: Int
+
+proc main
+    var p := Point { x: 10 }
+    val r := &p.x
+    p.x := 20
+    print(*r)
+    print(p.x)

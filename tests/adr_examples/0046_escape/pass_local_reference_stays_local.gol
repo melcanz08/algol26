@@ -1,0 +1,10 @@
+// ADR 0046 — reference never escapes its function or region.
+//
+// Now:   ACCEPTED. `EscapeSet` is populated by dataflow's
+//        `ReturnRef` and `Escape` instructions, but this program has
+//        neither.
+// After: ACCEPTED (unchanged).
+proc main
+    var x := 1
+    val r := &x
+    print(*r)

@@ -1,6 +1,45 @@
 # ADR 0044: Place-based borrow tracking
 
-Status: Proposed (design)
+Status: In progress.
+
+- **Stage 1** (2026-10-11, commit `50d9e80`). `Place` and
+  `Projection` introduced; `BorrowState.place` changed from
+  `String` to `Place`. Every constructor site wraps in
+  `Place::simple(name)` — no behavior change, all 437 lib tests
+  pass.
+- **Stage 2 partial** (2026-10-11, commit `3cc0af9`). Shared
+  borrows (`ExprKind::Borrow`) resolve through `place_of_expr`, so
+  `&p.x` and `&xs[0]` register as places instead of falling
+  through to the value path. `pop_scope` releases shared borrows
+  whose base variable exits, closing the synthetic-id leak.
+- **Remaining.** The `MutBorrow` arm is still name-keyed;
+  `Stmt::FieldAssign` and `Stmt::ArrayAssign` do not yet check
+  for a live borrow on their target place. The codegen probe
+  `tests/codegen_probes/g1_borrow_field.gol` stays `DIVERGE` on
+  the interpreter until writes-through-places land (see ADR
+  0053).
+
+### Shipped shape vs. original sketch
+
+The implementation converged on a simpler form than the
+implementation sketch below proposed:
+
+- **`Place` is `{ base: String, projections: Vec<Projection> }`**,
+  not a recursive enum (`Var | Field | Index | Deref | Ref`).
+  Vec-of-projections makes prefix checking for overlap a slice
+  comparison rather than recursive tree-walking, and `Deref`/`Ref`
+  drop out of the grammar because a dereference produces no
+  projection — `*r` is `Place::simple("r")`.
+- **`borrows` stays `HashMap<String, BorrowState>`**, keyed on
+  the *borrower* (a synthetic id for shared borrows, the
+  variable name for mutable borrows). `Place` lives inside
+  `BorrowState`, not in the map key. Places are not unique
+  identifiers — two `&x` from different scopes need distinct
+  entries with the same place — so the key must remain the
+  borrower.
+
+The sketch below is preserved as the design intent. The shipped
+form is what the code actually does.
 
 ## Context
 
@@ -106,15 +145,13 @@ when it can (e.g. distinct literal field names).
    than `String`. Update every site that reads it — most of them
    are in `ownership.rs` and `expr.rs`.
 
-5. **Function call summaries.** When a function is called with a
-   `&mut place`, the callee's `modify` body must be analyzed
-   under that place binding. In practice this means the analyzer
-   runs per-call-site on generic `&mut` parameters (or the
-   analysis carries a substitution table).
-
-6. **Test migration.** The soundness suite gains new positive
+5. **Test migration.** The soundness suite gains new positive
    cases (disjoint-field borrows, disjoint-index borrows) and
    keeps all existing negative cases.
+
+   (Interprocedural summaries — carrying a `&mut place` argument
+   into the callee's body — are **out of scope** for this ADR;
+   see "What is deliberately out of scope" below.)
 
 ## What is deliberately out of scope
 
@@ -126,6 +163,16 @@ when it can (e.g. distinct literal field names).
 - **Full alias analysis.** Overlap through pointers is a "may
   alias" problem in the general case. This ADR's proposal is a
   place-based approximation, not a full points-to analysis.
+
+- **Interprocedural place resolution.** Carrying a `&mut place`
+  argument into the callee's body (so that `modify(&mut p.y)`
+  analyses `modify`'s body under the specific place `p.y` rather
+  than as a symbolic parameter) requires a call-graph analysis
+  and summary caching. The current analyzer is local — a call
+  `f(&mut place)` is treated as a use of that place, and
+  conflicts are checked against the caller's borrow state at the
+  call site. That is sound and cheap; interprocedural refinement
+  is deferred to a future ADR on function summaries.
 
 ## Alternatives considered
 
@@ -151,6 +198,9 @@ user is reasoning about.
 
 - ADR 0043 — non-lexical lifetimes
 - ADR 0045 — region lifetime unification
+- ADR 0053 — interpreter reference semantics (proposed; three
+  sessions; needed before `g1_borrow_field` flips green on the
+  interpreter)
 - `docs/decisions/0005-ownership-model.md` — original borrow rules
 - `src/semantics/analyzer/ownership.rs` — current variable-name
   tracking

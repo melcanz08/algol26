@@ -18,6 +18,33 @@ fn analyze(source: &str) -> Result<(), String> {
         .map_err(|e| e.message.to_string())
 }
 
+/// Same as `analyze`, but threads the surrounding declarations
+/// (records, traits, impls, nominal/enum/subrange types) into the
+/// analyzer. `analyze` alone takes only functions, so a program
+/// that declares or references a `rec` fails with "Unknown record"
+/// before any borrow rule runs.
+fn analyze_full(source: &str) -> Result<(), String> {
+    let lexer = Lexer::new(source.to_string()).map_err(|e| e.message.to_string())?;
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().map_err(|e| e.message.to_string())?;
+
+    let mut functions = program.functions;
+    algol26::compiler::assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer
+        .analyze_with_spans(
+            &functions,
+            &program.traits,
+            &program.impls,
+            &program.records,
+            &program.distinct_decls,
+            &program.enum_decls,
+            &program.subrange_decls,
+        )
+        .map_err(|e| e.message.to_string())
+}
+
 #[test]
 fn test_borrow_across_loop_continue() {
     let source = r#"
@@ -330,6 +357,51 @@ proc main
     assert!(
         r.is_ok(),
         "Reading x after a mut-borrow argument in a prior statement should be ok: {:?}",
+        r
+    );
+}
+
+// ─── ADR 0044 stage 2c: write-site place checks ───
+
+#[test]
+fn test_field_assign_while_field_borrowed_is_rejected() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+proc main
+    var p := Point { x: 1, y: 2 }
+    val r := &p.x
+    p.x := 99
+    print(*r)
+"#;
+    let r = analyze_full(source);
+    let msg = r.expect_err("write to a borrowed field must be rejected after stage 2c");
+    assert!(
+        msg.contains("p.x") && msg.contains("borrowed"),
+        "expected a place-based borrow diagnostic naming p.x, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_field_assign_of_disjoint_field_is_accepted() {
+    let source = r#"
+rec Point
+    x: Int
+    y: Int
+
+proc main
+    var p := Point { x: 1, y: 2 }
+    val r := &p.x
+    p.y := 99
+    print(*r)
+"#;
+    let r = analyze_full(source);
+    assert!(
+        r.is_ok(),
+        "write to a disjoint field must be accepted; got: {:?}",
         r
     );
 }

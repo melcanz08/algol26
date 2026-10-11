@@ -95,7 +95,13 @@ impl Interpreter {
                 RuntimeValue::List(out)
             }
             TypedIRValue::ArrayAccess { array, index, .. } => {
-                let arr = self.eval_value(array)?;
+                let mut arr = self.eval_value(array)?;
+                // ADR 0053: if the array itself is a reference (e.g.
+                // `r[0]` where `r: &List<Int>`), dereference to get
+                // the actual list before indexing.
+                if let RuntimeValue::Reference(place) = &arr {
+                    arr = self.resolve_place(place)?;
+                }
                 let idx = self.eval_value(index)?;
                 let idx_usize = match idx {
                     RuntimeValue::Int(i) if i < 0 => {
@@ -169,13 +175,35 @@ impl Interpreter {
             },
             TypedIRValue::PtrLiteral(n) => RuntimeValue::Int(*n as i64),
             TypedIRValue::NullPtr => RuntimeValue::Int(0),
-            // The interpreter does not model references or regions.
-            // Refuse loudly; the capability matrix should have caught
-            // this before the interpreter ran.
+            // ADR 0053. A reference-valued expression produces a
+            // `RuntimeValue::Reference(Place)`. The place is derived
+            // from the inner IR value — a Variable, a FieldAccess, or
+            // an ArrayAccess with a literal index. Reads through the
+            // reference (`*r`) resolve the place against the current
+            // `variables` map, so the value seen is what the place
+            // holds *now*, not what it held when the reference was
+            // made.
             TypedIRValue::BorrowShared { expr, .. }
             | TypedIRValue::BorrowMutable { expr, .. }
-            | TypedIRValue::ReadReference { expr, .. }
-            | TypedIRValue::AddrOf { expr, .. } => self.eval_value(expr)?,
+            | TypedIRValue::AddrOf { expr, .. } => {
+                let place = self.place_of_ir_value(expr).ok_or(EvalError::Unsupported {
+                    construct: "reference to non-addressable expression",
+                    hint: "the analyzer should have rejected this shape",
+                })?;
+                RuntimeValue::Reference(place)
+            }
+            TypedIRValue::ReadReference { expr, .. } => {
+                let inner = self.eval_value(expr)?;
+                match inner {
+                    RuntimeValue::Reference(place) => self.resolve_place(&place)?,
+                    // Legacy: a reference that was not produced as a
+                    // `Reference` — pass through. After ADR 0053 the
+                    // producing arms above always yield a Reference;
+                    // this branch exists for robustness in case some
+                    // future IR path bypasses them.
+                    other => other,
+                }
+            }
 
             // ADR 0038 D4b. The interpreter preserves the fat
             // pointer as a `RuntimeValue::DynTrait` so that method
@@ -256,7 +284,17 @@ impl Interpreter {
             }
 
             TypedIRValue::FieldAccess { object, field, .. } => {
-                let obj = self.eval_value(object)?;
+                let mut obj = self.eval_value(object)?;
+                // ADR 0053: if the object is a reference (e.g.
+                // `self.x` inside a method whose receiver is
+                // `self: &Point`), dereference to get the record
+                // before looking up the field. Without this, the
+                // match below falls to the `other` arm and reports a
+                // type mismatch — but the mismatch is between a
+                // Reference and a Record, not the caller's fault.
+                if let RuntimeValue::Reference(place) = &obj {
+                    obj = self.resolve_place(place)?;
+                }
                 match obj {
                     RuntimeValue::Record { fields, .. } => fields
                         .into_iter()
@@ -315,6 +353,92 @@ impl Interpreter {
             }
         })
     }
+    /// ADR 0053. Derive the `Place` an IR value refers to, if it
+    /// can be determined statically. Mirrors the analyzer's
+    /// `place_of_expr` at the IR level: Variable -> base place,
+    /// FieldAccess -> place + Field, ArrayAccess with a literal Int
+    /// index -> place + Index. Returns `None` for anything else.
+    ///
+    /// The caller (the reference-producing arms in `eval_value`)
+    /// converts `None` into `EvalError::Unsupported` — a reference
+    /// to a non-place is a shape the analyzer should have rejected.
+    pub(super) fn place_of_ir_value(
+        &self,
+        v: &TypedIRValue,
+    ) -> Option<crate::semantics::state::Place> {
+        use crate::semantics::state::{Place, Projection};
+        match v {
+            TypedIRValue::Variable(name, _) => Some(Place::simple(name.clone())),
+            TypedIRValue::FieldAccess { object, field, .. } => {
+                let mut base = self.place_of_ir_value(object)?;
+                base.projections.push(Projection::Field(field.clone()));
+                Some(base)
+            }
+            TypedIRValue::ArrayAccess { array, index, .. } => {
+                let idx = match index.as_ref() {
+                    TypedIRValue::Int(n) => *n,
+                    _ => return None,
+                };
+                if idx < 0 {
+                    return None;
+                }
+                let mut base = self.place_of_ir_value(array)?;
+                base.projections.push(Projection::Index(idx as usize));
+                Some(base)
+            }
+            _ => None,
+        }
+    }
+
+    /// ADR 0053. Resolve a place to the value currently held there.
+    /// Walks the base variable's value through each projection:
+    /// `Field` looks up a record field, `Index` looks up a list
+    /// element. Values are cloned at each step; the interpreter is
+    /// a tree-walker with owned values, so aliasing is not a
+    /// concern.
+    pub(super) fn resolve_place(
+        &self,
+        place: &crate::semantics::state::Place,
+    ) -> Result<RuntimeValue, EvalError> {
+        use crate::semantics::state::Projection;
+        let mut cur = self.variables.get(&place.base).cloned().ok_or_else(|| {
+            EvalError::Runtime(format!(
+                "reference to `{}`: base variable not in scope",
+                place.base
+            ))
+        })?;
+        for proj in &place.projections {
+            cur = match (proj, cur) {
+                (Projection::Field(f), RuntimeValue::Record { fields, .. }) => fields
+                    .into_iter()
+                    .find(|(n, _)| n == f)
+                    .map(|(_, v)| v)
+                    .ok_or_else(|| {
+                        EvalError::Runtime(format!(
+                            "reference to `{}`: field `{}` not found",
+                            place, f
+                        ))
+                    })?,
+                (Projection::Index(i), RuntimeValue::List(items)) => {
+                    items.into_iter().nth(*i).ok_or_else(|| {
+                        EvalError::Runtime(format!(
+                            "reference to `{}`: index {} out of bounds",
+                            place, i
+                        ))
+                    })?
+                }
+                (_, other) => {
+                    return Err(EvalError::TypeMismatch {
+                        op: "resolve_place",
+                        left: runtime_kind(&other),
+                        right: "Record or List",
+                    });
+                }
+            };
+        }
+        Ok(cur)
+    }
+
     pub(super) fn eval_binop(
         op: &SemanticBinOp,
         l: RuntimeValue,
@@ -1161,9 +1285,26 @@ impl Interpreter {
                 })
                 .collect();
 
+            // ADR 0053: resolve reference arguments to their values
+            // *before* the caller's frame is swapped out. A
+            // `Reference(Place { base: "p" })` argument would be
+            // unresolvable once the callee's `variables` map is
+            // installed — the base is in the caller's frame.
+            //
+            // The trade-off is snapshot semantics across function
+            // boundaries: a reference passed as a parameter does not
+            // observe later mutations to the base. That is
+            // unobservable today (writes through references are not
+            // parseable), and it is the conservative choice until a
+            // future ADR introduces a scope-stack `variables` model
+            // that keeps the caller's frame alive during the callee.
             let mut arg_vals = Vec::with_capacity(args.len());
             for a in args {
-                arg_vals.push(self.eval_value(a)?);
+                let mut v = self.eval_value(a)?;
+                if let RuntimeValue::Reference(place) = &v {
+                    v = self.resolve_place(place)?;
+                }
+                arg_vals.push(v);
             }
 
             let saved_vars = std::mem::take(&mut self.variables);
@@ -1251,6 +1392,22 @@ impl Interpreter {
                 callee_name
             )));
         };
+
+        // ADR 0053: same treatment as `eval_call` — resolve any
+        // reference arguments to their values while the caller's
+        // frame is still installed. See the comment in `eval_call`
+        // for the trade-off.
+        let arg_vals: Vec<RuntimeValue> = arg_vals
+            .into_iter()
+            .map(|v| {
+                if let RuntimeValue::Reference(place) = &v {
+                    if let Ok(resolved) = self.resolve_place(place) {
+                        return resolved;
+                    }
+                }
+                v
+            })
+            .collect();
 
         let saved_vars = std::mem::take(&mut self.variables);
         let saved_ret = self.return_value.take();

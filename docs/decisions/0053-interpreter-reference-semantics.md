@@ -24,12 +24,22 @@ backends disagreed.
 
 The analyzer now rejects the motivating program at the borrow
 check (ADR 0044 stages 2b-2d). So the divergence is not
-observable for the shapes now covered. But it remains for
-programs the analyzer does not reject — `val r := &x` then `r`
-passed to a function that mutates it, `*r := ...` through a
-reference, references inside records, etc. Those shapes still
-reach both backends, and the interpreter still returns
-snapshots.
+observable for the shapes now covered.
+
+**What actually reaches the interpreter** is narrower than an
+earlier draft of this ADR claimed. A probe of `*r := *r + 1`
+inside a `proc` taking `r: &mut Int` fails at *parse* time:
+`Stmt::Assign`'s left-hand side is a `String` name, not an
+`Expr`, so `*r := ...` is not a grammar production. `Instruction::
+WriteReference` exists in the IR and the LLVM backend lowers it,
+but no source program currently produces it. Writes through
+references are therefore out of scope for this ADR.
+
+The shapes that do reach the interpreter with references are:
+reads through references (`*r` where `r: Borrow<T>`), references
+inside records and other composites, `&field`/`&element` borrows
+in method receivers. On all of these, the interpreter returns a
+snapshot rather than a live view.
 
 **The interpreter is the language's reference semantics.** Every
 differential test treats its output as ground truth. ADR 0049
@@ -54,24 +64,31 @@ seen by `*r` is whatever `p.x` holds now, not what it held when
 
 ## Scope
 
-Three sessions, staged to keep each commit small and reviewable.
-
-**Session 1 — reads.** Add `RuntimeValue::Reference(Place)`.
+One session. Add `RuntimeValue::Reference(Place)`.
 `BorrowShared` / `BorrowMutable` / `AddrOf` produce it.
-`ReadReference` resolves it. `place_of_ir_value` helper mirrors
-the analyzer's `place_of_expr`. Reads through references become
-live. Writes through references still wrong.
+`ReadReference` resolves it through a `resolve_place` helper
+that walks the current `variables` map. A `place_of_ir_value`
+helper mirrors the analyzer's `place_of_expr` at the IR level.
+Reads through references become live.
 
-**Session 2 — writes.** Add a `write_place(base, projections,
-value)` helper. Route `Assign`, `FieldAssign`, `ArrayAssign`,
-`WriteReference` through it. Writes through references become
-live.
+**Out of scope, deliberately:**
 
-**Session 3 — fallout.** Run the probe suite; fix what a richer
-reference model shakes loose (`Borrow<Record>` in method
-receivers, `&self` inside `impl`, `Borrow` inside `Option`,
-references in `match` patterns). `g1_borrow_field` flips green
-in this session.
+- **Writes through references.** `*r := ...` is not a grammar
+  production; the parser rejects it. Making writes work requires
+  AST changes (`Stmt::Assign`'s target from `String` to `Expr`),
+  parser changes, type-checker changes, and interpreter changes.
+  That is a separate ADR — "reference writes" or equivalent.
+
+- **Storage-level aliasing.** A future ADR may replace
+  `HashMap<String, RuntimeValue>` with
+  `HashMap<String, Rc<RefCell<RuntimeValue>>>`; see Alternatives
+  below.
+
+- **Region-lifetime interaction.** References with region
+  lifetimes are gated by ADR 0045's `E-REGION-001` at the CFG
+  dataflow layer, which runs before either backend. This ADR
+  makes the interpreter's *runtime representation* of references
+  correct; it does not change which programs are accepted.
 
 ## Consequences
 

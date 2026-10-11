@@ -113,6 +113,12 @@ pub enum RuntimeValue {
         trait_name: String,
         concrete_type: String,
     },
+    /// ADR 0053. A reference to a place, stored as the place itself
+    /// rather than a resolved value. Reads through this reference
+    /// (`*r`) resolve the place against the interpreter's current
+    /// `variables` map, giving live-view semantics. Same `Place`
+    /// type the analyzer and the CFG use.
+    Reference(crate::semantics::state::Place),
     Void,
 }
 
@@ -133,6 +139,9 @@ impl RuntimeValue {
             // A fat pointer is truthy: the language has no null
             // trait objects in v1.
             RuntimeValue::DynTrait { .. } => true,
+            // ADR 0053. A reference is truthy: the language has no
+            // null references.
+            RuntimeValue::Reference(_) => true,
         }
     }
 
@@ -175,6 +184,12 @@ impl RuntimeValue {
                 trait_name,
                 concrete_type,
             } => format!("dyn {} ({}: {})", trait_name, concrete_type, data.display()),
+            // ADR 0053. References print as their place, not the
+            // value they resolve to. `&p.x` in source shows as
+            // `ref(p.x)`. Resolving at display time would be wrong:
+            // the value can change between when the reference was
+            // made and when it is printed.
+            RuntimeValue::Reference(place) => format!("ref({})", place),
         }
     }
 
@@ -249,6 +264,12 @@ impl RuntimeValue {
                     concrete_type: c2,
                 },
             ) => t1 == t2 && c1 == c2 && a.runtime_eq(b),
+            // ADR 0053. Two references are equal iff they point at
+            // the same place. Structural identity, not value
+            // identity. The language does not expose reference
+            // equality today; this arm exists so a future `==` on
+            // references has a defined meaning instead of a panic.
+            (Reference(p), Reference(q)) => p == q,
             _ => false,
         }
     }
@@ -269,5 +290,6 @@ pub(super) fn runtime_kind(v: &RuntimeValue) -> &'static str {
         RuntimeValue::Void => "Void",
         RuntimeValue::Map(_) => "Map",
         RuntimeValue::DynTrait { .. } => "DynTrait",
+        RuntimeValue::Reference(_) => "Reference",
     }
 }

@@ -1,3 +1,34 @@
+> **Status: Not applicable yet — deferred until a concurrent runtime exists.**
+>
+> No backend currently executes code concurrently:
+>
+>   * The interpreter (`src/backends/interpreter/mod.rs`) treats
+>     `Terminator::Spawn { entry_block }` as a plain jump into the
+>     block and returns when its body finishes. `Terminator::Fork`
+>     runs each branch to completion in sequence, sharing the same
+>     `variables` map, heap, and region stack across branches. The
+>     module doc calls this "sequential"; in effect it is
+>     sequential *and* state-bleeding.
+>   * The LLVM backend refuses `spawn` and `parallel` via the
+>     capability matrix (`llvm_rejects_spawn`, `llvm_rejects_parallel`
+>     tests).
+>   * The WASM backend refuses them likewise.
+>
+> A happens-before memory model is a specification of what a
+> concurrent execution is allowed to observe. With no concurrent
+> execution, there is nothing to specify.
+>
+> The only mechanism currently guarding against concurrency bugs is
+> the **syntactic race linter** in `src/semantics/race/`. It is a
+> conservative, name-based, per-function AST check. It is *not* the
+> ADR 0047 memory model — see the module-level doc comment in
+> `src/semantics/race/mod.rs` for its scope.
+>
+> This ADR becomes actionable when a runtime with actual concurrency
+> lands (interpreter threads, LLVM `std::thread`, WASM shared
+> memory). At that point the memory model spec, the runtime, and the
+> linter should be revised together.
+
 # ADR 0047: Concurrency memory model
 
 Status: Accepted (design)

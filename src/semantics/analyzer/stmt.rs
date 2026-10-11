@@ -545,6 +545,33 @@ impl SemanticAnalyzer {
                     )));
                 }
 
+                // ADR 0044 stage 2c. Reject the write if `target.field`
+                // is currently borrowed. Same place-overlap rule the
+                // borrow arms use: `p.x := ...` conflicts with a live
+                // borrow of `p.x` or `p` but not with `p.y`.
+                //
+                // The check runs *before* the record resolution below
+                // so a program with a borrowed field reports the
+                // borrow conflict, not whatever type error the RHS
+                // might also have.
+                let target_place = {
+                    use crate::semantics::state::{Place, Projection};
+                    let mut place = Place::simple(target.clone());
+                    place.projections.push(Projection::Field(field.clone()));
+                    place
+                };
+                if self.is_borrowed(&target_place) {
+                    return Err(CompileError::at(
+                        *span,
+                        &format!("Cannot assign to '{}' while it is borrowed", target_place),
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(
+                        "Wait for the borrow to end, or bind the write to a \
+                         separate place",
+                    ));
+                }
+
                 // Unwrap a mutable-borrow receiver: `r.x := v` where `r: &mut Point`
                 // is a legal write through the reference.
                 let effective_type = match &target_type {
@@ -611,11 +638,23 @@ impl SemanticAnalyzer {
                     ));
                 }
 
-                // Mirror `Stmt::Assign`: writing through a stale mutable borrow
-                // releases it, so a later read isn't spuriously rejected.
-                if self.state.borrows.contains_key(target) {
-                    self.release_mutable_borrow(target);
-                }
+                // Mirror `Stmt::Assign`: writing through a stale
+                // mutable borrow releases it, so a later read isn't
+                // spuriously rejected. After ADR 0044 the release
+                // matches on the *overlapping place*, not on the
+                // target's name — `r.x := 0` where `r = &mut p.x`
+                // releases `r`'s borrow of `p.x`, while `r := &mut
+                // p.y` elsewhere in the same scope does not release
+                // it.
+                //
+                // `release_mutable_borrow(name)` is the old key-based
+                // path, still used by `Stmt::Assign` for plain `x :=
+                // ...` writes. For `FieldAssign` the right operation
+                // is: retain only borrows whose place does not
+                // overlap `target_place`.
+                self.state
+                    .borrows
+                    .retain(|_, b| !b.place.overlaps(&target_place));
             }
         }
         Ok(())

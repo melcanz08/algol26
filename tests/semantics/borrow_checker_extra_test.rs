@@ -405,3 +405,40 @@ proc main
         r
     );
 }
+
+// ADR 0044 stage 2d: writes through a borrowed element are rejected;
+// writes to a disjoint element are not.
+#[test]
+fn test_array_assign_while_element_borrowed_is_rejected() {
+    let source = r#"
+proc main
+    var xs := [1, 2, 3]
+    val r := &xs[0]
+    xs[0] := 99
+    print(*r)
+"#;
+    let r = analyze_full(source);
+    let msg = r.expect_err("write to a borrowed element must be rejected after stage 2d");
+    assert!(
+        msg.contains("xs") && msg.contains("borrowed"),
+        "expected a place-based borrow diagnostic naming xs, got: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_array_assign_of_disjoint_element_is_accepted() {
+    let source = r#"
+proc main
+    var xs := [1, 2, 3]
+    val r := &xs[0]
+    xs[1] := 99
+    print(*r)
+"#;
+    let r = analyze_full(source);
+    assert!(
+        r.is_ok(),
+        "write to a disjoint element must be accepted; got: {:?}",
+        r
+    );
+}

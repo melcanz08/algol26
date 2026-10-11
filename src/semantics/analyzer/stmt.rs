@@ -500,6 +500,47 @@ impl SemanticAnalyzer {
                     }
                 }
 
+                // ADR 0044 stage 2d. Reject the write if the element
+                // being written is currently borrowed. Same overlap
+                // rule as `FieldAssign`:
+                //
+                //   arr[0] := ... conflicts with a live borrow of
+                //     arr[0] or arr, but not with arr[1].
+                //
+                // When the index is not a literal, we cannot know
+                // which element is being written, so any live borrow
+                // of `arr` is treated as overlapping. That is the
+                // same conservative fallback `place_of_expr` uses;
+                // it over-rejects rather than under-rejects.
+                let target_place = {
+                    use crate::semantics::state::{Place, Projection};
+                    let mut place = Place::simple(array.clone());
+                    if let Some(idx) = literal_index {
+                        if idx >= 0 {
+                            place.projections.push(Projection::Index(idx as usize));
+                        }
+                    }
+                    place
+                };
+                let conflict = if literal_index.is_some() {
+                    self.is_borrowed(&target_place)
+                } else {
+                    // Non-literal index: fall back to "any borrow of
+                    // the base array is a conflict."
+                    self.is_borrowed(&crate::semantics::state::Place::simple(array.clone()))
+                };
+                if conflict {
+                    return Err(CompileError::at(
+                        self.current_span,
+                        &format!("Cannot assign to '{}' while it is borrowed", target_place),
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(
+                        "Wait for the borrow to end, or write to a \
+                         different element",
+                    ));
+                }
+
                 // Value type must be assignable to the element type.
                 let value_type = self.analyze_expr(value)?;
                 if element_type != Type::Unknown

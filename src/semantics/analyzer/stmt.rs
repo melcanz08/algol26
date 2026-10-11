@@ -19,20 +19,19 @@ impl SemanticAnalyzer {
                 mutable,
                 ..
             } => {
-                // Detect mut-borrow before analyzing so we can set the "allow
-                // read during this declaration" flag.
-                let mut_borrow_source: Option<String> =
+                // Detect mut-borrow before analyzing so we can set
+                // the "allow read during this declaration" flag and
+                // compute the borrowed place. The place flows into
+                // `register_mutable_borrow` after the value has been
+                // analyzed.
+                let mut_borrow_place: Option<crate::semantics::state::Place> =
                     if let ExprKind::MutBorrow { expr, .. } = &value.kind {
-                        if let ExprKind::Var(source_name, _) = &expr.as_ref().kind {
-                            Some(source_name.clone())
-                        } else {
-                            None
-                        }
+                        self.place_of_expr(expr)
                     } else {
                         None
                     };
 
-                if mut_borrow_source.is_some() {
+                if mut_borrow_place.is_some() {
                     self.in_mut_borrow = true;
                 }
 
@@ -61,8 +60,8 @@ impl SemanticAnalyzer {
                 // NOW register the borrow. Doing this after analysis means
                 // the first declaration of `&mut x` sets the flag; the second
                 // declaration sees the flag and errors out.
-                if let Some(source) = &mut_borrow_source {
-                    self.register_mutable_borrow(name, source)?;
+                if let Some(place) = mut_borrow_place {
+                    self.register_mutable_borrow(name, place)?;
                 }
 
                 let binding_type = if let Some(annotated) = type_annotation {

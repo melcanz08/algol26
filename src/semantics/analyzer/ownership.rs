@@ -133,7 +133,18 @@ impl SemanticAnalyzer {
         self.state.borrows.remove(reference);
     }
 
-    pub(super) fn register_mutable_borrow(&mut self, reference: &str, source: &str) -> Result<()> {
+    /// ADR 0044 stage 2. Install a mutable borrow keyed on
+    /// `reference` (the binding name), storing the borrowed `place`
+    /// inside the `BorrowState`. Two mutable borrows of disjoint
+    /// fields have distinct binding names, so the key distinguishes
+    /// them without a synthetic id. Overlap checks use the full
+    /// place, so `p.x` and `p.y` are non-overlapping.
+    pub(super) fn register_mutable_borrow(
+        &mut self,
+        reference: &str,
+        place: crate::semantics::state::Place,
+    ) -> Result<()> {
+        let source = &place.base;
         match self.lookup_variable(source) {
             Some((_, false)) => {
                 return Err(CompileError::at(
@@ -154,10 +165,8 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("The variable has already been moved"));
         }
-        // ADR 0044: check against the full place, not just the base.
-        // `&mut p.x` conflicts only with borrows of `p.x` (or `p`),
-        // not with borrows of `p.y`.
-        let place = crate::semantics::state::Place::simple(source);
+        // Overlap checks run against the full place; `p.x` and
+        // `p.y` are non-overlapping by `Place::overlaps`.
         if self.is_mutably_borrowed(&place) {
             return Err(CompileError::at(
                 self.current_span,
@@ -166,15 +175,6 @@ impl SemanticAnalyzer {
             )
             .with_suggestion("Only one mutable borrow is allowed at a time"));
         }
-        eprintln!(
-            "DEBUG register_mutable_borrow: source={} borrows now: {:?}",
-            source,
-            self.state
-                .borrows
-                .iter()
-                .map(|(k, b)| (k.clone(), b.place.clone(), format!("{:?}", b.kind)))
-                .collect::<Vec<_>>()
-        );
         if self.is_borrowed(&place) {
             return Err(CompileError::at(
                 self.current_span,
@@ -255,7 +255,6 @@ impl SemanticAnalyzer {
         place: &crate::semantics::state::Place,
         mutable: bool,
     ) -> Result<()> {
-        let _ = mutable;
         // Deferred capture: a name captured by defer is frozen
         // regardless of which projection of it is being borrowed.
         if let Some(scope) = self.deferred_captures.last() {
@@ -286,13 +285,32 @@ impl SemanticAnalyzer {
         // from the analyzer's state; if the analyzer doesn't yet
         // expose a query for it, fall back to the name-based
         // check (over-rejects on `p.x` / `p.y`, which is safe).
-        if self.is_mutably_borrowed(place) {
+        if mutable && self.is_mutably_borrowed(place) {
             return Err(CompileError::at(
                 self.current_span,
                 &format!(
-                    "Cannot borrow '{}' while it is mutably borrowed",
-                    place.base
+                    "Cannot mutably borrow '{}' while it is mutably borrowed",
+                    place
                 ),
+                ErrorCode::E0007,
+            )
+            .with_suggestion("Only one mutable borrow is allowed at a time"));
+        }
+        if mutable && self.is_borrowed(place) {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!(
+                    "Cannot mutably borrow '{}' while it is immutably borrowed",
+                    place
+                ),
+                ErrorCode::E0007,
+            )
+            .with_suggestion("Wait for the immutable borrow to end"));
+        }
+        if !mutable && self.is_mutably_borrowed(place) {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!("Cannot borrow '{}' while it is mutably borrowed", place),
                 ErrorCode::E0007,
             )
             .with_suggestion("Wait for the mutable borrow to end before borrowing again"));

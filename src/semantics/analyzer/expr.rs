@@ -194,19 +194,35 @@ impl SemanticAnalyzer {
                 Ok(Type::borrow(inner_type))
             }
             ExprKind::MutBorrow { expr, .. } => {
-                // ADR 0044 stage 2, mutable arm: deferred. Mutable
-                // borrows still go through the name-keyed
-                // `register_mutable_borrow` path (which the enclosing
-                // `VarDecl`/`ValDecl` calls). Moving them to places
-                // needs the ADR to settle how a mutable borrow's
-                // borrower-key relates to a place — the shared arm
-                // uses a synthetic key, but a mutable borrow needs
-                // to be releasable at the binding's scope exit.
-                let inner_type = if let ExprKind::Var(name, _) = &expr.as_ref().kind {
-                    self.check_borrow_rules(name, true)?;
+                // ADR 0044 stage 2, mutable arm. Mirrors the shared
+                // arm above: the borrow is keyed on the place, not on
+                // a bare variable name. `&mut p.x` and `&mut p.y` are
+                // distinguishable places; a second `&mut p.x` while
+                // the first is live is rejected by
+                // `check_borrow_rules_place`.
+                //
+                // Registration happens at the enclosing `VarDecl` /
+                // `Assign` site — this arm only checks. That keeps
+                // the read-during-declaration `in_mut_borrow` flag
+                // (set by `Stmt::VarDecl` before analysis) working
+                // unchanged.
+                let place = self.place_of_expr(expr);
+                let inner_type = if let Some(place) = place {
+                    self.check_borrow_rules_place(&place, true)?;
                     self.analyze_expr(expr)?
                 } else {
-                    self.analyze_expr(expr)?
+                    return Err(CompileError::at(
+                        self.current_span,
+                        "Cannot take a mutable borrow of this expression: \
+                         mutable borrows require an addressable place \
+                         (a variable, a field, or a list element with a \
+                         literal index)",
+                        ErrorCode::E0007,
+                    )
+                    .with_suggestion(
+                        "Bind the value to a variable first, then borrow the \
+                         variable",
+                    ));
                 };
                 // ADR 0038. Symmetric to the `Borrow` arm above:
                 // `&mut T` -> `&mut dyn Trait` when the expected type

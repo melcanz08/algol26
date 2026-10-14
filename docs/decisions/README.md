@@ -15,6 +15,20 @@ Do not edit an ADR's body to reflect new decisions. Either:
 - Add a status note (implementation drift, no decision change), or
 - Write a new ADR that supersedes it (decision change).
 
+## Status vocabulary
+
+- **Current** — decision holds, implementation matches the ADR.
+- **Drifted** — decision holds, implementation has moved; the ADR's
+  body has a status note describing the drift.
+- **Accepted** — the decision is settled but the implementation is
+  partial or in progress.
+- **Proposed** — decision not yet finalized.
+- **Superseded** — a later ADR replaces this one; the replacement is
+  named in the status column.
+- **Deferred** — decision made (often 'do not implement yet'), but
+  no implementation is planned until a stated precondition holds.
+- **Not started** — accepted as the direction, no code yet.
+
 ## Index
 
 | ADR | Title | Status |
@@ -28,21 +42,61 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0007](0007-region-memory.md) | Region Memory | Drifted (see status note) |
 | [0008](0008-concurrency-model.md) | Concurrency Model | Drifted (see status note) |
 | [0009](0009-unsafe.md) | Unsafe Boundary | Drifted (see status note) |
+| [0010](0010-canonical-ir.md) | Canonical IR | Current |
+| [0011](0011-phase4-task-model.md) | Phase 4 Task Model | Current |
+| [0012](0012-implicit-deref-convention.md) | Implicit Deref Convention | Current |
+| [0013](0013-executable-ir-generic-invariant.md) | Executable IR Generic Invariant | Current |
+| [0014](0014-verifier-invariants.md) | Verifier Invariants | Current |
+| [0015](0015-unsafe-enforcement.md) | Unsafe Enforcement | Current |
+| [0016](0016-per-function-cfg.md) | Per-Function CFG | Current |
+| [0017](0017-verified-ir-typestate.md) | Verified IR Typestate | Current |
+| [0018](0018-canonical-pipeline.md) | Canonical Pipeline | Current |
+| [0022](0022-affirm.md) | `affirm` | Current |
+| [0023](0023-args.md) | `args()` | Current |
+| [0024](0024-record.md) | Records | Current |
+| [0025](0025-trait-bounds-status.md) | Trait Bounds | Accepted |
+| [0026](0026-structural-copy.md) | Structural `Copy` | Current |
+| [0027](0027-map.md) | `Map<K, V>` | Current |
+| [0028](0028-list-append.md) | `List.append` | Current |
+| [0029](0029-nominal-types.md) | Nominal Types | Current |
+| [0030](0030-enum-types.md) | Enum Types | Current |
+| [0031](0031-subrange-types.md) | Subrange Types | Current |
+| [0032](0032-set-types.md) | Set Types | Current |
 | [0033](0033-methods-and-self.md) | Methods, Receivers, and the OOP Direction | Accepted |
 | [0034](0034-generic-impls.md) | Generic Impls | Accepted |
-| [0035](0035-interpreter-aliasing.md) | Interpreter Write-Through for &mut self Receivers | Accepted |
+| [0035](0035-interpreter-aliasing.md) | Interpreter Write-Through for `&mut self` Receivers | Accepted |
 | [0036](0036-llvm-records.md) | LLVM Record Support | Proposed |
 | [0037](0037-wasm-records-references.md) | WASM Records and References | Superseded by 0036 |
 | [0038](0038-dynamic-dispatch.md) | Dynamic Dispatch (`dyn Trait`) | Proposed |
 | [0039](0039-visibility.md) | Visibility Modifiers | Proposed |
-| [0040](0040-function-value-surface.md) | Function-Value Surface: Defaults, Function Types, Closures | Proposed |
+| [0040](0040-function-value-surface.md) | Function-Value Surface | Proposed |
 | [0041](0041-associated-types.md) | Associated Types | Proposed |
+| [0042](0042-llvm-dynamic-lists.md) | LLVM Dynamic Lists | Accepted |
+| [0043](0043-nll-borrow-lifetimes.md) | Non-Lexical Lifetimes | Not started |
+| [0044](0044-place-based-borrows.md) | Place-Based Borrows | Analyzer done; interpreter side pending via 0053 |
+| [0045](0045-region-lifetime-unification.md) | Region Lifetime Unification | Current |
+| [0046](0046-reference-containment-escape.md) | Reference Containment / Escape | Reject-only |
+| [0047](0047-concurrency-memory-model.md) | Concurrency Memory Model | Deferred (no concurrent runtime) |
+| [0048](0048-procedure-function-split.md) | Procedure / Function Split | Current |
+| [0049](0049-list-parameter-semantics.md) | List Parameter Semantics | Current |
+| [0050](0050-region-cleanup-heap-lists.md) | Region Cleanup for Heap Lists | Current |
+| [0051](0051-scope-exit-list-cleanup.md) | Scope-Exit List Cleanup | Current |
+| [0052](0052-llvm-codegen-architecture.md) | LLVM Codegen Architecture | Current |
+| [0053](0053-interpreter-reference-semantics.md) | Interpreter Reference Semantics | Session 1 of 3 done |
+| [0054](0054-alternate-brace-block-syntax.md) | Alternate Brace Block Syntax | Current (formatter deferred) |
+
+## Numbering notes
+
+- **0019–0021** are unused. No ADRs were written under those
+  numbers; the sequence skips from 0018 to 0022.
+- **0055+** are reserved for: reference writes (planned; the
+  parser needs `*r := ...` before ADR 0053 Session 2 can start)
+  and `algol26 fmt` (deferred from 0054).
 
 ## Current state
 
 For what is actually implemented today, see
-[`STATUS.md`](../STATUS.md) — the
-corpus-verified feature matrix.
+[`STATUS.md`](../STATUS.md) — the corpus-verified feature matrix.
 
 ## Naming
 

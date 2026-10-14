@@ -115,6 +115,19 @@ impl Lexer {
                     tokens.push(Token::Ampersand);
                     char_offsets.push((offset, offset + 1));
                 }
+                // ADR 0054. `{` and `}` in a declaration signature are
+                // the brace-form body delimiters. Before this arm
+                // existed, they fell into the `_` catch-all and were
+                // silently dropped — `proc main {` produced no LBrace,
+                // and the parser saw only the indentation-form body.
+                '{' => {
+                    tokens.push(Token::LBrace);
+                    char_offsets.push((offset, offset + 1));
+                }
+                '}' => {
+                    tokens.push(Token::RBrace);
+                    char_offsets.push((offset, offset + 1));
+                }
                 '-' => {
                     if matches!(chars.peek(), Some(&(_, '>'))) {
                         chars.next(); // consume '>'

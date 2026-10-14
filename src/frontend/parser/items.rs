@@ -179,13 +179,24 @@ impl Parser {
         let name = self.expect_identifier("enum name")?;
 
         let mut variants = Vec::new();
-        if let Token::Indent = self.peek() {
+        let closes_with_brace = matches!(self.peek(), Token::LBrace);
+        if matches!(self.peek(), Token::Indent) || closes_with_brace {
             self.advance();
-            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+            let closer = if closes_with_brace {
+                Token::RBrace
+            } else {
+                Token::Dedent
+            };
+            if closes_with_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            while !matches!(self.peek(), t if *t == closer) && !matches!(self.peek(), Token::Eof) {
                 let variant = self.expect_identifier("variant name")?;
                 variants.push(variant);
             }
-            if let Token::Dedent = self.peek() {
+            if matches!(self.peek(), t if *t == closer) {
                 self.advance();
             }
         }
@@ -409,28 +420,42 @@ impl Parser {
         let body = if is_extern {
             Vec::new()
         } else if is_fn {
-            // ADR 0048. An `fn` body is a single indented expression;
-            // its value is the return value.
+            // ADR 0048 + ADR 0054. An `fn` body is a single
+            // expression; its value is the return value. The
+            // expression may be indented (canonical) or wrapped in a
+            // brace block `{ expr }`.
             //
             // Parse the expression directly with `parse_expr`, not
             // through `parse_block`. Statement position is more
             // restrictive than expression position: a bare binary
-            // expression like `x * x` is not a legal statement, so
-            // `parse_block` rejects it before this check ever runs
-            // (first phase-1 smoke run: "Unexpected expression: Plus").
-            // `parse_expr` handles binary operators, calls, `if`,
-            // `match`, and every other expression form uniformly.
-            if !matches!(self.peek(), Token::Indent) {
-                return Err(self.error("`fn` body must be an indented expression on the next line"));
-            }
+            // expression like `x * x` is not a legal statement.
+            let (open_brace, start_token) = if matches!(self.peek(), Token::LBrace) {
+                (true, Token::RBrace)
+            } else if matches!(self.peek(), Token::Indent) {
+                (false, Token::Dedent)
+            } else {
+                return Err(
+                    self.error("`fn` body must be an indented expression or a `{ ... }` block")
+                );
+            };
             self.advance();
+            if open_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
             if matches!(self.peek(), Token::Return) {
                 return Err(self.error(
                     "`fn` bodies have no `return` keyword; the body expression is the return value",
                 ));
             }
             let e = self.parse_expr()?;
-            if !matches!(self.peek(), Token::Dedent) {
+            if open_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            if !matches!(self.peek(), t if *t == start_token) {
                 return Err(self.error(
                     "`fn` body must be a single expression; use `proc` for a statement body",
                 ));
@@ -466,9 +491,20 @@ impl Parser {
         let mut methods = Vec::new();
         let mut constants = Vec::new();
         let mut associated_types: Vec<String> = Vec::new();
-        if let Token::Indent = self.peek() {
+        let closes_with_brace = matches!(self.peek(), Token::LBrace);
+        if matches!(self.peek(), Token::Indent) || closes_with_brace {
             self.advance();
-            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+            let closer = if closes_with_brace {
+                Token::RBrace
+            } else {
+                Token::Dedent
+            };
+            if closes_with_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            while !matches!(self.peek(), t if *t == closer) && !matches!(self.peek(), Token::Eof) {
                 // ADR 0039. Trait methods are public by definition.
                 // A redundant `pub` is rejected so the source matches
                 // the model.
@@ -540,7 +576,7 @@ impl Parser {
                     return_type,
                 });
             }
-            if let Token::Dedent = self.peek() {
+            if matches!(self.peek(), t if *t == closer) {
                 self.advance();
             }
         }
@@ -619,9 +655,20 @@ impl Parser {
         let mut methods = Vec::new();
         let mut constants = Vec::new();
         let mut associated_types: Vec<(String, TypeSyntax)> = Vec::new();
-        if let Token::Indent = self.peek() {
+        let closes_with_brace = matches!(self.peek(), Token::LBrace);
+        if matches!(self.peek(), Token::Indent) || closes_with_brace {
             self.advance();
-            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+            let closer = if closes_with_brace {
+                Token::RBrace
+            } else {
+                Token::Dedent
+            };
+            if closes_with_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            while !matches!(self.peek(), t if *t == closer) && !matches!(self.peek(), Token::Eof) {
                 // ADR 0041. Associated type definition:
                 // `type Name := ConcreteType`. The ADR's syntax
                 // summary writes `=`, but a bare `=` is not a
@@ -667,7 +714,7 @@ impl Parser {
                 }
                 methods.push(method);
             }
-            if let Token::Dedent = self.peek() {
+            if matches!(self.peek(), t if *t == closer) {
                 self.advance();
             }
         }
@@ -722,11 +769,23 @@ impl Parser {
             self.expect_token(Token::Gt, "'>'")?;
         }
 
-        // Body: indented `field: Type` lines. Same shape as `parse_trait`.
+        // Body: either indented `field: Type` lines, or a `{ ... }`
+        // block of the same. ADR 0054.
         let mut fields = Vec::new();
-        if let Token::Indent = self.peek() {
+        let closes_with_brace = matches!(self.peek(), Token::LBrace);
+        if matches!(self.peek(), Token::Indent) || closes_with_brace {
             self.advance();
-            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+            let closer = if closes_with_brace {
+                Token::RBrace
+            } else {
+                Token::Dedent
+            };
+            if closes_with_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            while !matches!(self.peek(), t if *t == closer) && !matches!(self.peek(), Token::Eof) {
                 // ADR 0039. Per-field `pub`; default private.
                 let field_vis = self.try_parse_visibility();
                 let field_name = self.expect_identifier("field name")?;
@@ -734,7 +793,7 @@ impl Parser {
                 let field_type = self.parse_type_syntax()?;
                 fields.push((field_name, field_type, field_vis));
             }
-            if let Token::Dedent = self.peek() {
+            if matches!(self.peek(), t if *t == closer) {
                 self.advance();
             }
         }

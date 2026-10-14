@@ -108,66 +108,109 @@ impl Parser {
         }
     }
 
-    pub(super) fn parse_block(&mut self) -> Result<Vec<Stmt>> {
-        let block_expr = self.parse_block_expr()?;
-        if let ExprKind::Block {
-            mut statements,
-            trailing_expr,
-            ..
-        } = block_expr.kind
-        {
-            if let Some(expr) = trailing_expr {
-                statements.push(Stmt::Expression(*expr));
-            }
-            Ok(statements)
-        } else {
-            Ok(vec![])
-        }
-    }
+    /// ADR 0054. Parse a block body in either notation:
+    ///
+    ///   * **Indentation form** — `Indent stmts... Dedent` (with an
+    ///     optional trailing `End` for constructs that carry one).
+    ///   * **Brace form** — `{ stmts... }`.
+    ///   * **Single-statement form** — a lone statement, as in
+    ///     `if cond then x` on one line.
+    ///
+    /// `allow_trailing` controls whether the last statement, if it
+    /// is an expression of a form whose value can be the block's,
+    /// is extracted as the trailing expression. `parse_block` (used
+    /// by statement-position constructs like `for` and `unsafe`)
+    /// passes `false`; `parse_block_expr` and `parse_loop_body`
+    /// pass `true`.
+    pub(super) fn parse_body_statements(
+        &mut self,
+        allow_trailing: bool,
+    ) -> Result<(Vec<Stmt>, Option<Box<Expr>>)> {
+        let mut statements = Vec::new();
 
-    pub(super) fn parse_loop_body(&mut self) -> Result<(Vec<Stmt>, Option<Box<Expr>>)> {
         if matches!(self.peek(), Token::Indent) {
             self.advance();
-            let mut statements = Vec::new();
             while !matches!(self.peek(), Token::Dedent | Token::End | Token::Eof) {
                 statements.push(self.parse_stmt()?);
             }
-
-            let trailing_expr = match statements.last() {
-                Some(Stmt::Expression(expr))
-                    if !matches!(
-                        &expr.kind,
-                        ExprKind::Block { .. }
-                            | ExprKind::If { .. }
-                            | ExprKind::Match { .. }
-                            | ExprKind::For { .. }
-                            | ExprKind::While { .. }
-                            | ExprKind::TryCatch { .. }
-                    ) =>
-                {
-                    match statements.pop() {
-                        Some(Stmt::Expression(expr)) => Some(Box::new(expr)),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-
             if matches!(self.peek(), Token::Dedent) {
                 self.advance();
             }
             if matches!(self.peek(), Token::End) {
                 self.advance();
             }
-
-            Ok((statements, trailing_expr))
+        } else if matches!(self.peek(), Token::LBrace) {
+            // ADR 0054: brace-form body. `{ stmts... }`.
+            //
+            // The lexer still emits `Indent`/`Dedent` for indented
+            // lines inside braces, because it does not track brace
+            // depth. Skip them here — inside a brace block, the
+            // delimiters carry the structure and indentation is
+            // cosmetic. Mixed forms (a brace block containing an
+            // indentation block) still work because the inner
+            // construct's own `Indent`/`Dedent` are consumed by that
+            // construct's parser before control returns here.
+            self.advance();
+            while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                self.advance();
+            }
+            while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                statements.push(self.parse_stmt()?);
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            self.expect_token(Token::RBrace, "'}'")?;
         } else if matches!(self.peek(), Token::End) {
             self.advance();
-            Ok((Vec::new(), None))
-        } else {
-            let expr = self.parse_expr()?;
-            Ok((Vec::new(), Some(Box::new(expr))))
+        } else if !matches!(self.peek(), Token::Eof | Token::Dedent | Token::End) {
+            // Single-statement body: `if cond then x`.
+            statements.push(self.parse_stmt()?);
         }
+
+        let mut trailing_expr: Option<Box<Expr>> = None;
+        if allow_trailing {
+            let can_be_trailing = matches!(
+                statements.last(),
+                Some(Stmt::Expression(expr)) if !matches!(
+                    &expr.kind,
+                    ExprKind::Block { .. }
+                        | ExprKind::If { .. }
+                        | ExprKind::Match { .. }
+                        | ExprKind::For { .. }
+                        | ExprKind::While { .. }
+                        | ExprKind::TryCatch { .. }
+                )
+            );
+            if can_be_trailing {
+                if let Some(Stmt::Expression(expr)) = statements.pop() {
+                    trailing_expr = Some(Box::new(expr));
+                }
+            }
+        }
+
+        Ok((statements, trailing_expr))
+    }
+
+    pub(super) fn parse_block(&mut self) -> Result<Vec<Stmt>> {
+        let (statements, _) = self.parse_body_statements(false)?;
+        Ok(statements)
+    }
+
+    pub(super) fn parse_loop_body(&mut self) -> Result<(Vec<Stmt>, Option<Box<Expr>>)> {
+        // ADR 0054. Same block grammar as `parse_body_statements`,
+        // but the "single-statement" branch parses an expression,
+        // not a statement, so `while cond do i := i + 1` produces a
+        // trailing expression.
+        if matches!(self.peek(), Token::Indent) || matches!(self.peek(), Token::LBrace) {
+            return self.parse_body_statements(true);
+        }
+        if matches!(self.peek(), Token::End) {
+            self.advance();
+            return Ok((Vec::new(), None));
+        }
+        let expr = self.parse_expr()?;
+        Ok((Vec::new(), Some(Box::new(expr))))
     }
 
     pub(super) fn parse_var_decl(&mut self) -> Result<Stmt> {
@@ -295,21 +338,71 @@ impl Parser {
 
     pub(super) fn parse_match_expr(&mut self) -> Result<Expr> {
         let start_span = self.last_span();
-        let value = self.parse_expr()?;
+        // ADR 0054: suppress record-literal interpretation of a
+        // trailing `{` after the matched value. `match d {` opens
+        // the arm list, not a literal.
+        let saved = self.suppress_brace_literal;
+        self.suppress_brace_literal = true;
+        let value_result = self.parse_expr();
+        self.suppress_brace_literal = saved;
+        let value = value_result?;
 
         let mut cases = Vec::new();
 
-        if let Token::Indent = self.peek() {
+        // ADR 0054. The arm list accepts either an indented block or
+        // a `{ ... }` block. `closes_with_brace` tracks which one so
+        // the closer is the right token.
+        let closes_with_brace = matches!(self.peek(), Token::LBrace);
+
+        if matches!(self.peek(), Token::Indent) || closes_with_brace {
             self.advance();
 
-            while !matches!(self.peek(), Token::Dedent | Token::Eof) {
+            let arm_terminator = if closes_with_brace {
+                Token::RBrace
+            } else {
+                Token::Dedent
+            };
+
+            if closes_with_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+
+            while !matches!(self.peek(), t if *t == arm_terminator)
+                && !matches!(self.peek(), Token::Eof)
+            {
                 if !matches!(self.peek(), Token::Case) {
                     return Err(self.error("Expected 'case' in match arm"));
                 }
                 let case_span = self.current_span();
                 self.advance();
 
-                let mut pattern = self.parse_pattern()?;
+                // ADR 0054. When the arm is brace-delimited, the
+                // pattern is followed by `then` before the body's `{`:
+                //
+                //     match d {
+                //         case A then { 1 }
+                //         case Point { x, y } then { x + y }
+                //     }
+                //
+                // Without `then`, `case A {` is ambiguous: the
+                // pattern parser takes `A {` as a `Pattern::Record`.
+                // With `then`, the pattern and the body are cleanly
+                // separated, matching `if cond then { ... }`.
+                //
+                // In the indentation form, `then` is not required —
+                // the body is on the following indented line, and
+                // the pattern ends at the newline.
+                //
+                // `then` is currently lexed as an identifier (see
+                // `skip_keyword`), not a reserved token, so we skip
+                // it by name.
+                let saved = self.suppress_brace_literal;
+                self.suppress_brace_literal = true;
+                let pattern_result = self.parse_pattern();
+                self.suppress_brace_literal = saved;
+                let mut pattern = pattern_result?;
 
                 if matches!(self.peek(), Token::If) {
                     self.advance();
@@ -319,6 +412,13 @@ impl Parser {
                         condition: Box::new(condition),
                     };
                 }
+
+                // Consume `then` if present. In brace form it is
+                // required; in indentation form it is optional (the
+                // lexer would have turned `then` at end-of-line into
+                // an identifier, and `skip_keyword` looks it up by
+                // name).
+                self.skip_keyword("then");
 
                 let body = self.parse_block_expr()?;
 
@@ -343,9 +443,15 @@ impl Parser {
                 };
 
                 cases.push(MatchCaseExpr { pattern, body });
+
+                if closes_with_brace {
+                    while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                        self.advance();
+                    }
+                }
             }
 
-            if let Token::Dedent = self.peek() {
+            if matches!(self.peek(), t if *t == arm_terminator) {
                 self.advance();
             }
         }

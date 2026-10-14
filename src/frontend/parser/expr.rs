@@ -351,7 +351,15 @@ impl Parser {
                 }))
             }
             Token::LParen => {
-                let expr = self.parse_expr()?;
+                // ADR 0054: inside parentheses, `X { ... }` is a
+                // record literal regardless of the surrounding
+                // block-openable position. Clear the suppression for
+                // the inner expression and restore it after.
+                let saved = self.suppress_brace_literal;
+                self.suppress_brace_literal = false;
+                let result = self.parse_expr();
+                self.suppress_brace_literal = saved;
+                let expr = result?;
                 self.expect_token(Token::RParen, "')'")?;
                 Ok(expr)
             }
@@ -399,13 +407,22 @@ impl Parser {
                 }))
             }
             Token::LBracket => {
+                // ADR 0054: inside `[ ... ]`, a `{` after an
+                // identifier is unambiguously a record literal.
+                let saved = self.suppress_brace_literal;
+                self.suppress_brace_literal = false;
                 let mut elements = Vec::new();
-                while !matches!(self.peek(), Token::RBracket | Token::Eof) {
-                    elements.push(self.parse_expr()?);
-                    if matches!(self.peek(), Token::Comma) {
-                        self.advance();
+                let result: Result<()> = (|| {
+                    while !matches!(self.peek(), Token::RBracket | Token::Eof) {
+                        elements.push(self.parse_expr()?);
+                        if matches!(self.peek(), Token::Comma) {
+                            self.advance();
+                        }
                     }
-                }
+                    Ok(())
+                })();
+                self.suppress_brace_literal = saved;
+                result?;
                 self.expect_token(Token::RBracket, "']'")?;
                 Ok(Expr::new(ExprKind::List(
                     elements,
@@ -497,11 +514,15 @@ impl Parser {
             // `Pair < Int` (comparison) never falls into this arm.
             let type_args = self.parse_type_args()?;
             self.parse_record_literal(name, type_args, ident_span)
-        } else if matches!(self.peek(), Token::LBrace) {
+        } else if matches!(self.peek(), Token::LBrace) && !self.suppress_brace_literal {
             // Non-generic record literal: `User { name: "Alice" }`.
             // Must come AFTER the Set and generic-literal branches:
             // `Set<Day> { ... }` and `Pair<Int> { ... }` are otherwise
             // claimed by this general brace-literal path.
+            //
+            // ADR 0054: suppressed in block-openable positions. In
+            // `match d {`, the `{` opens the match arm list, not a
+            // record literal of `d`.
             self.parse_record_literal(name, Vec::new(), ident_span)
         } else if matches!(self.peek(), Token::Dot) {
             self.advance();
@@ -538,7 +559,14 @@ impl Parser {
 
     pub(super) fn parse_if_expr(&mut self) -> Result<Expr> {
         let start_span = self.last_span();
-        let condition = Box::new(self.parse_expr()?);
+        // ADR 0054: suppress record-literal interpretation of a
+        // trailing `{` after the condition. `if x > 0 {` opens a
+        // block, not a literal.
+        let saved = self.suppress_brace_literal;
+        self.suppress_brace_literal = true;
+        let condition_result = self.parse_expr();
+        self.suppress_brace_literal = saved;
+        let condition = Box::new(condition_result?);
 
         self.skip_keyword("then");
 
@@ -620,7 +648,12 @@ impl Parser {
         let start_span = self.last_span();
         let var = self.expect_identifier("iterator variable")?;
         self.expect_token(Token::In, "'in'")?;
-        let iterable = Box::new(self.parse_expr()?);
+        // ADR 0054: same suppression as parse_if_expr.
+        let saved = self.suppress_brace_literal;
+        self.suppress_brace_literal = true;
+        let iterable_result = self.parse_expr();
+        self.suppress_brace_literal = saved;
+        let iterable = Box::new(iterable_result?);
         self.skip_optional_do();
         let (body, trailing_expr) = self.parse_loop_body()?;
         Ok(Expr::new(ExprKind::For {
@@ -634,7 +667,12 @@ impl Parser {
 
     pub(super) fn parse_while_expr(&mut self) -> Result<Expr> {
         let start_span = self.last_span();
-        let condition = Box::new(self.parse_expr()?);
+        // ADR 0054: same suppression as parse_if_expr.
+        let saved = self.suppress_brace_literal;
+        self.suppress_brace_literal = true;
+        let condition_result = self.parse_expr();
+        self.suppress_brace_literal = saved;
+        let condition = Box::new(condition_result?);
         self.skip_optional_do();
         let (body, trailing_expr) = self.parse_loop_body()?;
         Ok(Expr::new(ExprKind::While {
@@ -684,48 +722,7 @@ impl Parser {
 
     pub(super) fn parse_block_expr(&mut self) -> Result<Expr> {
         let start_span = self.current_span();
-        let mut statements = Vec::new();
-        let mut trailing_expr = None;
-
-        if let Token::Indent = self.peek() {
-            self.advance();
-            while !matches!(self.peek(), Token::Dedent | Token::Eof | Token::End) {
-                statements.push(self.parse_stmt()?);
-            }
-            if let Token::Dedent = self.peek() {
-                self.advance();
-            }
-            if let Token::End = self.peek() {
-                self.advance();
-            }
-        } else if let Token::End = self.peek() {
-            self.advance();
-        } else {
-            if !matches!(self.peek(), Token::Eof | Token::Dedent | Token::End) {
-                statements.push(self.parse_stmt()?);
-            }
-        }
-
-        if let Some(last) = statements.last() {
-            let can_be_trailing = match last {
-                Stmt::Expression(expr) => !matches!(
-                    &expr.kind,
-                    ExprKind::Block { .. }
-                        | ExprKind::If { .. }
-                        | ExprKind::Match { .. }
-                        | ExprKind::For { .. }
-                        | ExprKind::While { .. }
-                        | ExprKind::TryCatch { .. }
-                ),
-                _ => false,
-            };
-            if can_be_trailing {
-                if let Some(Stmt::Expression(expr)) = statements.pop() {
-                    trailing_expr = Some(Box::new(expr));
-                }
-            }
-        }
-
+        let (statements, trailing_expr) = self.parse_body_statements(true)?;
         Ok(Expr::new(ExprKind::Block {
             statements,
             trailing_expr,

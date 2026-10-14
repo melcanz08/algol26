@@ -31,6 +31,14 @@ pub struct Parser {
     /// Used by PR-4 to construct compound node spans. Defaults to
     /// `Span::default()` before any token is consumed.
     last_span: Span,
+    /// ADR 0054. When `true`, the parser will NOT treat
+    /// `Identifier {` as the start of a record literal. Set around
+    /// the leading expression of block-openable positions
+    /// (`match` value, `if` condition, `for` iterable, `while`
+    /// condition), where a `{` after an identifier opens the block,
+    /// not a literal. Reset inside `(...)` and `[...]`, where a
+    /// `{` is unambiguously a literal.
+    pub(super) suppress_brace_literal: bool,
 }
 
 impl Parser {
@@ -47,6 +55,7 @@ impl Parser {
             tokens: token_infos,
             pos: 0,
             last_span: Span::default(),
+            suppress_brace_literal: false,
         }
     }
 

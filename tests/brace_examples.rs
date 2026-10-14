@@ -95,6 +95,12 @@ const PAIRS: &[Pair] = &[
         indent: "examples/showcase/02_defer_order.gol",
         brace: "examples/braces/defer_order.gol",
     },
+    // The full-program showcase. 176 lines exercising records,
+    // enums, methods, match, if-chains, and the fn/proc split.
+    Pair {
+        indent: "examples/gradebook.gol",
+        brace: "examples/braces/gradebook.gol",
+    },
 ];
 
 #[test]

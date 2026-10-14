@@ -572,6 +572,24 @@ impl Parser {
 
         let then_branch = Box::new(self.parse_block_expr()?);
 
+        // ADR 0054. In brace form, `if cond { a } else { b }` is
+        // often written with the `else` on its own line:
+        //
+        //     if cond {
+        //         a
+        //     } else {
+        //         b
+        //     }
+        //
+        // The newline before `else` produces an Indent/Dedent
+        // pair from the lexer. Skip past them before checking for
+        // `Else`; if `Else` is not there, restore the position so
+        // those tokens remain visible to the caller.
+        let saved_pos = self.pos;
+        while matches!(self.peek(), Token::Indent | Token::Dedent) {
+            self.advance();
+        }
+
         let else_branch = if matches!(self.peek(), Token::Else) {
             self.advance();
             if matches!(self.peek(), Token::If) {
@@ -628,6 +646,9 @@ impl Parser {
                 Some(Box::new(self.parse_block_expr()?))
             }
         } else {
+            // No `else` — restore position so the Indent/Dedent we
+            // skipped are still there for the caller.
+            self.pos = saved_pos;
             None
         };
 

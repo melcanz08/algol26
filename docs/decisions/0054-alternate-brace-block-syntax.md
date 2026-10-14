@@ -45,10 +45,19 @@ entirely a lexer and parser concern.
   `region`, `unsafe`, `defer`.
 - A block is closed by a dedent (indentation form) or by `}`
   (brace form).
-- **`then` becomes optional.** In indentation form, `if cond
-  then` — `then` marks where the condition ends. In brace form,
-  `if cond {` — the `{` does that job. `then` is required in the
-  indentation form and absent in the brace form.
+- **`then` becomes optional in `if`.** In indentation form,
+  `if cond then` — `then` marks where the condition ends. In
+  brace form, `if cond {` — the `{` does that job. `then` is
+  required in the indentation form and absent in the brace form.
+- **`then` becomes required in brace-form `match` arms.** The
+  arm `case A { ... }` is ambiguous: `A { ... }` reads as a
+  `Pattern::Record` destructure. Writing `case A then { ... }`
+  separates the pattern from the block body unambiguously, and
+  matches the `if cond then { ... }` convention. Record
+  patterns still parse: `case Point { x, y } then { x + y }`
+  — the `then` comes after the record pattern. The indentation
+  form is unchanged: `case A` on its own line, body on the next
+  indented line, no `then`.
 - **Semicolons remain optional** in both forms. Newlines terminate
   statements unless the parser is mid-expression. A `;` may be
   used to put two statements on one line.
@@ -124,27 +133,31 @@ fewer contextual keywords).
 
 ## Implementation plan
 
-Four sessions, each a self-contained commit.
+Three sessions.
 
-**Session 1 — parser accepts brace blocks.** The lexer already
-emits `LBrace`/`RBrace` for record literals. The parser is
-extended so every block-accepting site (`parse_block`, the body
-of `if`, `for`, `while`, `match`, `impl`, `rec`, `enum`, `trait`,
-`region`, `unsafe`, `defer`, `proc`, `fn`) accepts a `{`-opened
-body as an alternative. `then` becomes optional after `if`
-conditions. New tests verify that brace form and indentation
-form parse to identical ASTs for a small set of programs.
+**Session 1 — parser accepts brace blocks.** ✅ Landed at
+commit `7f89f1c`. Every block-accepting site accepts a
+`{`-opened body as an alternative. `then` becomes optional after
+`if` conditions and required between pattern and body in
+brace-form `match` arms. `tests/paired.rs` asserts identical
+ASTs for seven paired programs.
 
-**Session 2 — formatter.** `algol26 fmt` normalizes blocks to
-whichever form the file uses for its first block. Idempotent.
-
-**Session 3 — user-facing documentation.** `docs/guide/blocks.md`
+**Session 2 — user-facing documentation.** `docs/guide/blocks.md`
 describing both forms, when to use which, and the "one form per
 file" convention. README updated.
 
-**Session 4 — corpus coverage.** Add `examples/braces/*.gol` —
+**Session 3 — corpus coverage.** Add `examples/braces/*.gol` —
 the same programs as `examples/*.gol`, written in brace form,
 with a test asserting identical compilation.
+
+### Deferred: `algol26 fmt`
+
+A formatter that normalizes block form ("one form per file,
+matching the file's first block") is desirable but out of scope
+for this ADR. No formatter exists in the repo today; writing one
+is a project on the scale of ADR 0053, not a session. When a
+formatter lands, its default block-form policy should follow the
+convention documented in Session 2.
 
 ## See also
 

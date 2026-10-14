@@ -1,0 +1,12 @@
+// Brace-form translation of examples/showcase/07_match_with_bindings.gol.
+proc main {
+    val x := Some(42)
+    match x {
+        case Some(v) then {
+            print(Int.to_string(v))
+        }
+        case None then {
+            print("none")
+        }
+    }
+}

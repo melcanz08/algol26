@@ -1,0 +1,12 @@
+// Brace-form translation of examples/basic/test.gol.
+// Same program, `{}`-delimited blocks instead of indentation.
+// The two forms compile to the same AST and produce the same output.
+proc main {
+    val arr := [1.0, 2.0, 3.0, 4.0, 5.0]
+    var sum := 0.0
+    for item in arr {
+        sum := sum + item
+    }
+    print(sum)
+    print("done")
+}

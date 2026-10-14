@@ -1,0 +1,21 @@
+// Brace-form translation of examples/showcase/10_records_basic.gol.
+rec Point {
+    x: Int
+    y: Int
+}
+
+impl Point {
+    fn sum(self: &Point) -> Int {
+        self.x + self.y
+    }
+    proc translate(self: &mut Point, dx: Int) {
+        self.x := self.x + dx
+    }
+}
+
+proc main {
+    var p := Point { x: 3, y: 4 }
+    print(Int.to_string(p.sum()))
+    p.translate(10)
+    print(Int.to_string(p.x))
+}

@@ -1,0 +1,29 @@
+// Brace-form translation of examples/showcase/06_match_enum_variant.gol.
+// Note the `then` between pattern and body in each `case`, required
+// by the grammar in brace form to disambiguate `case Red { ... }`
+// from a record pattern.
+enum Color {
+    Red
+    Green
+    Blue
+}
+
+fn name(c: Color) -> String {
+    match c {
+        case Red then {
+            "red"
+        }
+        case Green then {
+            "green"
+        }
+        case Blue then {
+            "blue"
+        }
+    }
+}
+
+proc main {
+    print(name(Color.Red))
+    print(name(Color.Green))
+    print(name(Color.Blue))
+}

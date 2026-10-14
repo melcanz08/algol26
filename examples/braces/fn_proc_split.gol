@@ -1,0 +1,65 @@
+// Brace-form translation of examples/showcase/12_fn_proc_split.gol.
+rec Student {
+    name: String
+    score: Int
+}
+
+impl Student {
+    fn passed(self: &Student) -> Bool {
+        self.score >= 60
+    }
+
+    fn curved(self: &Student) -> Int {
+        self.score + 5
+    }
+
+    fn honors(self: &Student) -> Bool {
+        self.score >= 90
+    }
+}
+
+fn highest(a: Int, b: Int) -> Int {
+    if a > b { a } else { b }
+}
+
+fn lowest(a: Int, b: Int) -> Int {
+    if a < b { a } else { b }
+}
+
+fn average(a: Int, b: Int) -> Int {
+    (a + b) / 2
+}
+
+fn band(score: Int) -> String {
+    if score >= 90 { "A" } else { band_lower(score) }
+}
+
+fn band_lower(score: Int) -> String {
+    if score >= 70 { "B" } else { "C" }
+}
+
+proc report(s: Student) {
+    print(s.name)
+    print(s.score)
+    print(s.passed())
+    print(s.honors())
+    print(band(s.score))
+}
+
+proc main {
+    val alice := Student { name: "Alice", score: 92 }
+    val bob := Student { name: "Bob", score: 78 }
+    val carol := Student { name: "Carol", score: 55 }
+
+    val a := alice.score
+    val b := bob.score
+    val c := carol.score
+
+    report(alice)
+    report(bob)
+    report(carol)
+
+    val best := highest(a, b)
+    val worst := lowest(b, c)
+    print(average(best, worst))
+}

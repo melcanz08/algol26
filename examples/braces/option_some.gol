@@ -1,0 +1,6 @@
+// Brace-form translation of examples/showcase/09_option_some.gol.
+proc main {
+    val x := Some(42)
+    val y := None
+    print("ok")
+}

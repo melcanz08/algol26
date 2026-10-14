@@ -1,0 +1,10 @@
+// Brace-form translation of examples/showcase/02_defer_order.gol.
+// `defer` with a single statement is not brace-delimited even in
+// brace form — it defers one statement, not a block. Only the
+// containing `proc main` uses braces here.
+proc main {
+    defer print("third")
+    defer print("second")
+    defer print("first")
+    print("body")
+}

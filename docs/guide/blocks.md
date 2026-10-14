@@ -82,9 +82,8 @@ match d
 
 ### Semicolons
 
-None. Statements end at the newline. A `;` is available if you
-want two statements on one line, but is not required anywhere
-else.
+None. Statements end at the newline. There is no way to put two
+statements on one line; write each statement on its own line.
 
 ### Trailing expressions
 

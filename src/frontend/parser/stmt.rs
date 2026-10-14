@@ -249,7 +249,21 @@ impl Parser {
         // not a statement, so `while cond do i := i + 1` produces a
         // trailing expression.
         if matches!(self.peek(), Token::Indent) || matches!(self.peek(), Token::LBrace) {
-            return self.parse_body_statements(true);
+            let (body, trailing) = self.parse_body_statements(true)?;
+            // ADR 0054. A brace-form loop body whose content is a
+            // single expression — `for x in xs { return x }`,
+            // `while c { f() }` — is parsed by
+            // `parse_body_statements` as a trailing expression with
+            // no statements. For a loop body the content is a
+            // statement that runs each iteration, not the loop's
+            // value. Move it back into the body so the loop desugar
+            // and IR builder see a non-empty body.
+            if body.is_empty() {
+                if let Some(expr) = trailing {
+                    return Ok((vec![Stmt::Expression(*expr)], None));
+                }
+            }
+            return Ok((body, trailing));
         }
         if matches!(self.peek(), Token::End) {
             self.advance();

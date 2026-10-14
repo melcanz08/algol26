@@ -81,16 +81,16 @@ fn letter(score: Int) -> String {
 
 fn tier_name(t: Tier) -> String {
     match t {
-        case Gold {
+        case Gold then {
             "Gold"
         }
-        case Silver {
+        case Silver then {
             "Silver"
         }
-        case Bronze {
+        case Bronze then {
             "Bronze"
         }
-        case AtRisk {
+        case AtRisk then {
             "At Risk"
         }
     }
@@ -166,7 +166,7 @@ proc main {
         case Some(s) {
             print(String.concat("Found: ", s.name))
         }
-        case None {
+        case None then {
             print("Not found")
         }
     }

@@ -530,7 +530,12 @@ impl Parser {
     pub(super) fn parse_return(&mut self) -> Result<Stmt> {
         let start_span = self.current_span();
         self.advance();
-        let value = if matches!(self.peek(), Token::Eof | Token::Dedent) {
+        // ADR 0054. A bare `return` is followed by `Dedent` in
+        // indentation form and by `RBrace` in brace form. Both mean
+        // "no return value". Before this check included `RBrace`,
+        // the brace-form bare return tried to parse `}` as an
+        // expression and errored at the closing brace.
+        let value = if matches!(self.peek(), Token::Eof | Token::Dedent | Token::RBrace) {
             None
         } else {
             Some(self.parse_expr()?)

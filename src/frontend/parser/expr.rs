@@ -257,6 +257,13 @@ impl Parser {
 
     pub(super) fn parse_primary(&mut self) -> Result<Expr> {
         let start_span = self.current_span();
+        // ADR 0054: a bare `{ ... }` in expression position is a
+        // brace-form block. Route to `parse_block_expr` before
+        // consuming the `{`, so the block parser sees it and takes
+        // the brace-form path.
+        if matches!(self.peek(), Token::LBrace) {
+            return self.parse_block_expr();
+        }
         match self.advance() {
             Token::If => self.parse_if_expr(),
             Token::For => self.parse_for_expr(),

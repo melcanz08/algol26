@@ -139,6 +139,14 @@ impl Parser {
             if matches!(self.peek(), Token::End) {
                 self.advance();
             }
+            // ADR 0054: a brace-form block whose body is indented
+            // emits `Indent ... Dedent }`. The Indent branch has
+            // consumed up to and including Dedent; consume the
+            // closing `}` too so the helper is symmetric with the
+            // LBrace branch below.
+            if matches!(self.peek(), Token::RBrace) {
+                self.advance();
+            }
         } else if matches!(self.peek(), Token::LBrace) {
             // ADR 0054: brace-form body. `{ stmts... }`.
             //
@@ -146,14 +154,52 @@ impl Parser {
             // lines inside braces, because it does not track brace
             // depth. Skip them here — inside a brace block, the
             // delimiters carry the structure and indentation is
-            // cosmetic. Mixed forms (a brace block containing an
-            // indentation block) still work because the inner
-            // construct's own `Indent`/`Dedent` are consumed by that
-            // construct's parser before control returns here.
+            // cosmetic.
             self.advance();
             while matches!(self.peek(), Token::Indent | Token::Dedent) {
                 self.advance();
             }
+
+            // Try to parse the whole brace content as a single
+            // expression. If `parse_expr` consumes everything up
+            // to the closing `}`, the block is an expression whose
+            // value is that expression — `{ x + 1 }`,
+            // `{ self.total() / self.count() }`,
+            // `{ if c { a } else { b } }`.
+            //
+            // Without this try-parse, `parse_stmt` on `self.total()
+            // / self.count()` parses `self.total()` as one
+            // statement, leaves `/` dangling, and `parse_stmt` on
+            // the next iteration fails on `/`.
+            //
+            // Backtracking is safe here: `parse_expr` only fails
+            // fast (on the first token if it is not a primary), or
+            // succeeds and consumes to `}`. No side effects, no
+            // state to undo beyond `self.pos`.
+            let snapshot = self.pos;
+            let try_result = self.parse_expr();
+            // If the expression parsed, we may be looking at an
+            // Indent/Dedent pair emitted for the block content's
+            // indentation, then `}`. Skip them before checking.
+            if try_result.is_ok() {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            match try_result {
+                Ok(expr) if matches!(self.peek(), Token::RBrace) => {
+                    // Consumed everything up to the closing brace.
+                    self.advance();
+                    return Ok((vec![], Some(Box::new(expr))));
+                }
+                _ => {
+                    // Not a single expression. Rewind and parse
+                    // statements.
+                    self.pos = snapshot;
+                }
+            }
+
+            // Fall back to statement-by-statement parsing.
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
                 statements.push(self.parse_stmt()?);
                 while matches!(self.peek(), Token::Indent | Token::Dedent) {

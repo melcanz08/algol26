@@ -176,26 +176,30 @@ impl Parser {
             // fast (on the first token if it is not a primary), or
             // succeeds and consumes to `}`. No side effects, no
             // state to undo beyond `self.pos`.
-            let snapshot = self.pos;
-            let try_result = self.parse_expr();
-            // If the expression parsed, we may be looking at an
-            // Indent/Dedent pair emitted for the block content's
-            // indentation, then `}`. Skip them before checking.
-            if try_result.is_ok() {
-                while matches!(self.peek(), Token::Indent | Token::Dedent) {
-                    self.advance();
+            // Try to parse the block's content as a single
+            // trailing expression — but only when the caller wants
+            // a trailing expression. `parse_block` (used by `proc`
+            // and `fn` bodies where the result is discarded) passes
+            // `allow_trailing = false` and must not have its whole
+            // body silently collapsed into a discarded trailing
+            // expression.
+            if allow_trailing {
+                let snapshot = self.pos;
+                let try_result = self.parse_expr();
+                if try_result.is_ok() {
+                    while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                        self.advance();
+                    }
                 }
-            }
-            match try_result {
-                Ok(expr) if matches!(self.peek(), Token::RBrace) => {
-                    // Consumed everything up to the closing brace.
-                    self.advance();
-                    return Ok((vec![], Some(Box::new(expr))));
-                }
-                _ => {
-                    // Not a single expression. Rewind and parse
-                    // statements.
-                    self.pos = snapshot;
+                match try_result {
+                    Ok(expr) if matches!(self.peek(), Token::RBrace) => {
+                        // Consumed everything up to the closing brace.
+                        self.advance();
+                        return Ok((vec![], Some(Box::new(expr))));
+                    }
+                    _ => {
+                        self.pos = snapshot;
+                    }
                 }
             }
 

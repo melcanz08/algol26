@@ -101,6 +101,13 @@ const PAIRS: &[Pair] = &[
         indent: "examples/gradebook.gol",
         brace: "examples/braces/gradebook.gol",
     },
+    // A CSV aggregator: parse rows, group by zone, sort by total,
+    // print a report. Exercises Map, records, Option, nested
+    // while, String.split / String.to_int / Int.to_string.
+    Pair {
+        indent: "examples/csv_report.gol",
+        brace: "examples/braces/csv_report.gol",
+    },
 ];
 
 #[test]

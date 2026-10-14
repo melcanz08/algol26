@@ -1085,10 +1085,20 @@ that would fail if the guarantee were broken.
   form `Pair<Int> { first: 1 }` is not supported by the parser.
 - **Sum types.** The language has no variants or tagged unions;
   recursive structured data (a JSON tree, an AST) is not
-  expressible. No ADR yet.
+  expressible. See ADR 0055.
+- **String ordering.** There is no `<`, `>`, `<=`, `>=`, or
+  `String.compare` operator for strings. Strings can be compared
+  for equality with `=` and `!=`, but not ordered. Sorting strings
+  would require iterating codepoints and comparing single
+  characters, which in turn needs a character-comparison primitive
+  that does not exist. Programs that need ordered string keys must
+  either sort on an associated numeric value, or maintain an
+  external ordering.
 - **Reserved-word collisions.** `end`, `from`, `in`, `do`, `as`,
-  and the rest of the keyword set cannot be used as field names.
-  `rec Segment { start, end }` fails to parse.
+  `region`, and the rest of the keyword set cannot be used as field
+  names. `rec Segment { start, end }` fails to parse;
+  `rec Row { region: String }` fails the same way, because the
+  parser reads `region` as the start of a region block.
 
 ### Backend-level
 

@@ -104,33 +104,8 @@ impl SemanticIRBuilder {
                 continue;
             };
             let subst = spec.bindings();
-            let params: Vec<(String, Type)> = func
-                .params
-                .iter()
-                .map(|(n, t)| {
-                    let raw = match t {
-                        Some(s) => self.resolve_type_syntax(s),
-                        None => Type::Unknown,
-                    };
-                    (n.clone(), raw.substitute(&subst))
-                })
-                .collect();
-            // ADR 0041. Prefer the analyzer's resolved return type.
-            // The AST path resolves a `Projection` to `Unknown`
-            // because the builder has no bound-trait context; the
-            // analyzer's map holds the concrete form which
-            // `substitute + normalize_assoc` reduces further.
-            let raw_ret = self
-                .function_returns
-                .get(&func.name)
-                .cloned()
-                .unwrap_or_else(|| {
-                    func.return_type
-                        .as_ref()
-                        .map(|t| self.resolve_type_syntax(t))
-                        .unwrap_or(Type::Void)
-                });
-            let return_type = self.normalize_assoc(&raw_ret.substitute(&subst));
+            let params = self.resolve_params(func, &subst);
+            let return_type = self.resolve_return(func, &subst);
             self.function_types.insert(
                 spec.mangled_name.clone(),
                 FunctionSignature {
@@ -139,6 +114,47 @@ impl SemanticIRBuilder {
                 },
             );
         }
+    }
+
+    /// Resolve a function's parameter list under `subst`, returning
+    /// `(name, substituted_type)` pairs. Pure — no side effects on
+    /// `self`. Callers that need to declare variables or check for
+    /// duplicates do so on the returned vector.
+    fn resolve_params(
+        &self,
+        func: &FunctionDecl,
+        subst: &HashMap<String, Type>,
+    ) -> Vec<(String, Type)> {
+        func.params
+            .iter()
+            .map(|(n, t)| {
+                let raw = match t {
+                    Some(s) => self.resolve_type_syntax(s),
+                    None => Type::Unknown,
+                };
+                (n.clone(), raw.substitute(subst))
+            })
+            .collect()
+    }
+
+    /// Resolve a function's return type under `subst`. Prefers the
+    /// analyzer's recorded return type (ADR 0041) — the AST path
+    /// resolves a `Projection` to `Unknown` because the builder has
+    /// no bound-trait context; the analyzer's map holds the concrete
+    /// form. Falls back to AST re-resolution for builtins and
+    /// non-analyzed functions.
+    fn resolve_return(&self, func: &FunctionDecl, subst: &HashMap<String, Type>) -> Type {
+        let raw_ret = self
+            .function_returns
+            .get(&func.name)
+            .cloned()
+            .unwrap_or_else(|| {
+                func.return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type_syntax(t))
+                    .unwrap_or(Type::Void)
+            });
+        self.normalize_assoc(&raw_ret.substitute(subst))
     }
 
     /// Emit one `SemanticFunction` from `func`'s body, under the
@@ -156,51 +172,30 @@ impl SemanticIRBuilder {
     ) {
         let saved_subst = std::mem::replace(&mut self.current_subst, subst);
 
+        // Resolve parameter and return types once, under the
+        // current substitution. The helpers are shared with
+        // `register_specialization_signatures` — one place where a
+        // signature's types get resolved, so a change to resolution
+        // order or the `function_returns` preference applies to both.
+        let resolved_params = self.resolve_params(func, &self.current_subst);
+        let emitted_return = self.resolve_return(func, &self.current_subst);
+
+        // Declare each parameter in the current scope, checking for
+        // duplicates.
         self.push_scope();
-        for (name, type_str) in &func.params {
-            let raw = match type_str {
-                Some(s) => self.resolve_type_syntax(s),
-                None => Type::Unknown,
-            };
-            let param_type = raw.substitute(&self.current_subst);
+        for (name, param_type) in &resolved_params {
             if self.scopes.last().is_some_and(|s| s.contains_key(name)) {
                 self.diagnostics.push(format!(
                     "Duplicate parameter '{}' in function '{}'",
                     name, emitted_name
                 ));
             } else {
-                self.declare_var(name, param_type, true);
+                self.declare_var(name, param_type.clone(), true);
             }
         }
 
         let entry_id = program.new_block_id();
-
-        let emitted_params: Vec<(String, Type)> = func
-            .params
-            .iter()
-            .map(|(n, t)| {
-                let raw = match t {
-                    Some(s) => self.resolve_type_syntax(s),
-                    None => Type::Unknown,
-                };
-                (n.clone(), raw.substitute(&self.current_subst))
-            })
-            .collect();
-        // ADR 0041. Prefer the analyzer's resolved return type so a
-        // projection in a generic signature normalizes correctly.
-        // Fall back to AST re-resolution for builtins and
-        // non-analyzed functions.
-        let raw_ret = self
-            .function_returns
-            .get(&func.name)
-            .cloned()
-            .unwrap_or_else(|| {
-                func.return_type
-                    .as_ref()
-                    .map(|t| self.resolve_type_syntax(t))
-                    .unwrap_or(Type::Void)
-            });
-        let emitted_return = self.normalize_assoc(&raw_ret.substitute(&self.current_subst));
+        let emitted_params = resolved_params;
 
         let mut semantic_func = SemanticFunction {
             name: emitted_name.clone(),

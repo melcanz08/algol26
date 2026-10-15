@@ -1,0 +1,72 @@
+// wordcount.gol
+//
+// A word-frequency counter. Exercises:
+//   - String.split, String.trim, String.length
+//   - List.append, List iteration
+//   - Map<String, Int> construction, insert, get, contains, keys, values, length
+//   - Option match
+//   - nested loops
+//   - continue
+//
+// Expected output (verified: keys are iterated in sorted order):
+//   Lines: 3
+//   Words: 12
+//   Unique: 8
+//   brown 1
+//   dog 1
+//   fox 2
+//   jumps 2
+//   lazy 1
+//   over 1
+//   quick 1
+//   the 3
+
+proc count_words(text: String) -> Map<String, Int>
+    var counts: Map<String, Int> := Map {}
+    val lines := String.split(text, "\n")
+    for line in lines
+        val trimmed := String.trim(line)
+        if String.length(trimmed) = 0
+            continue
+        val words := String.split(trimmed, " ")
+        for w in words
+            val word := String.trim(w)
+            if String.length(word) = 0
+                continue
+            if counts.contains(word)
+                match counts.get(word)
+                    case Some(n)
+                        counts.insert(word, n + 1)
+                    case None
+                        counts.insert(word, 1)
+            else
+                counts.insert(word, 1)
+    return counts
+
+proc main
+    val sample := "the quick brown fox\njumps over the lazy dog\nthe fox jumps"
+    val lines := String.split(sample, "\n")
+    print("Lines: " + Int.to_string(List.length(lines)))
+
+    var total_words := 0
+    for line in lines
+        val trimmed := String.trim(line)
+        if String.length(trimmed) = 0
+            continue
+        val words := String.split(trimmed, " ")
+        for w in words
+            val word := String.trim(w)
+            if String.length(word) > 0
+                total_words := total_words + 1
+    print("Words: " + Int.to_string(total_words))
+
+    val counts := count_words(sample)
+    print("Unique: " + Int.to_string(counts.length()))
+
+    val keys := counts.keys()
+    for k in keys
+        match counts.get(k)
+            case Some(n)
+                print(k + " " + Int.to_string(n))
+            case None
+                print(k + " ?")

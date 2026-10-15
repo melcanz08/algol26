@@ -49,7 +49,7 @@ introducing statement.
 ### 1.5 Keywords
 
 ```
-proc   function    return
+proc   fn          return
 var         val         if
 else        for         while
 in          do          true
@@ -63,9 +63,11 @@ region      unsafe      extern
 from        as          static
 dynamic     alloc       free
 trait       impl        Self
+const       mut         enum
 where       end         null
 Some        None        Ok
 Error       print       rec
+type        distinct
 ```
 
 ### 1.6 Operators and Punctuation
@@ -274,7 +276,7 @@ val b := &x          // OK
 ```
 var x := 5.0
 val p := &mut x      // p : MutBorrow<Float>
-*p := 10.0           // write through the reference
+val y := *p          // y : Float (read through the borrow)
 ```
 
 Only one mutable borrow may be active at a time. A mutable borrow
@@ -295,6 +297,14 @@ var x := 5.0
 val p := &mut x
 print(x)             // error: cannot read 'x' while it is mutably borrowed
 ```
+
+**Writing through a mutable borrow is not yet expressible.**
+`*p := v` is not a grammar production — the parser rejects it
+with `E0001: Unexpected expression: Assign`. The analyzer tracks
+mutable borrows and enforces exclusivity, and reads through a
+`&mut` work on the interpreter, but no surface syntax writes
+through one. Adding `*p := v` (or an alternative) is deferred
+to ADR 0056 ("reference writes").
 
 ### 4.5 Reference Escape
 
@@ -417,43 +427,58 @@ runtime behavior matches the language semantics.
 ### 6.1 Declaration
 
 ```
-function add(x: Float, y: Float) -> Float
+proc add(x: Float, y: Float) -> Float
     return x + y
 
 proc main
     print(add(1.0, 2.0))
 ```
 
-`procedure` is sugar for `function name() -> Void`. The short form
-`proc` is accepted as a lexer alias for `procedure`.
+Two declaration keywords exist:
+
+- **`proc`** — statement body, optional `-> T`. A `return` produces
+  the value; if the return type is `Void`, control falls off the end.
+- **`fn`** — single-expression body; the expression is the return
+  value. `-> T` is required. No `return` keyword inside an `fn`.
+
+Use `proc` when the body is a sequence of steps. Use `fn` when the
+body is one expression. See ADR 0048 for the rationale.
 
 ### 6.2 Optional Syntax
 
 - Parameters: parentheses are required if any parameters exist.
-  Empty parentheses are optional: `procedure main` and
-  `procedure main()` are equivalent.
+  Empty parentheses are optional: `proc main` and `proc main()`
+  are equivalent.
 - Return type: `-> T` and `: T` are equivalent.
 - Return value: `return` with no value in a `Void` function is
   allowed.
 
 ### 6.3 Expression-Bodied Functions
 
-Any expression can be a function body:
+An `fn` body is a single expression. The expression's value is
+the return value — no `return` keyword:
 
 ```
-function square(x: Float) -> Float
+fn square(x: Float) -> Float
     x * x
 ```
 
-The last expression is the return value.
+`proc` bodies may also end in a trailing expression; its value is
+returned. This is what makes `else if` chains and short helper
+functions ergonomic in `proc` form:
+
+```
+proc square_proc(x: Float) -> Float
+    x * x
+```
 
 ### 6.4 Generics
 
 ```
-function identity<T>(x: T) -> T
-    return x
+fn identity<T>(x: T) -> T
+    x
 
-function first<T>(xs: List<T>) -> Option<T>
+proc first<T>(xs: List<T>) -> Option<T>
     if List.length(xs) = 0
         return None
     return Some(xs[0])
@@ -471,8 +496,8 @@ only form. See `docs/features/generic.md` for the full contract.
 ### 6.5 Trait Bounds
 
 ```
-function max_of<T>(a: T, b: T) -> T where T: Comparable
-    ...
+fn max_of<T>(a: T, b: T) -> T where T: Comparable
+    if a.compare(b) > 0 then a else b
 ```
 
 The `where` clause restricts `T` to types implementing the named
@@ -484,7 +509,7 @@ ADR 0025.
 ### 6.6 `extern` (FFI)
 
 ```
-extern "C" function puts(s: String) -> Int from "libc"
+extern "C" proc puts(s: String) -> Int from "libc"
 ```
 
 Extern declarations have no body and are lowered to foreign calls.
@@ -513,7 +538,7 @@ match some_val
 ### 7.2 Result
 
 ```
-function safe_divide(a: Float, b: Float) -> Result<Float, String>
+proc safe_divide(a: Float, b: Float) -> Result<Float, String>
     if b = 0.0 then
         return Error("division by zero")
     return Ok(a / b)
@@ -610,7 +635,7 @@ returns. Defers run in LIFO order: the most recently registered
 runs first.
 
 ```
-function compute() -> Int
+proc compute() -> Int
     defer
         print("first to run")
     defer
@@ -725,7 +750,7 @@ catches the common patterns but is not a proof of race freedom.
 
 ```
 trait Comparable
-    function compare(other: Self) -> Int
+    fn compare(other: Self) -> Int
 ```
 
 The trait method list declares signatures. The receiver is not
@@ -735,7 +760,7 @@ written — `self` is bound at the `impl` site.
 
 ```
 impl Comparable for Int
-    function compare(other: Int) -> Int
+    proc compare(other: Int) -> Int
         if self < other then return -1
         if self > other then return 1
         return 0
@@ -754,8 +779,8 @@ rec Point
     y: Int
 
 impl Show for Point
-    function show() -> String
-        return "(" + Int.to_string(self.x) + ", " + Int.to_string(self.y) + ")"
+    fn show() -> String
+        "(" + Int.to_string(self.x) + ", " + Int.to_string(self.y) + ")"
 ```
 
 ### 12.3 Method Call
@@ -770,9 +795,13 @@ and through `resolve_method_call` in the IR builder at lowering
 time. For records, the builder tries the impl-mangled form
 (`Point_show`) before the builtin path.
 
-**Chained method calls are not supported.** `x.field.method()`
-does not parse — the parser rejects method calls on complex
-receiver expressions. Bind the field to a local first:
+**Chained method calls on field accesses.** `x.field.method()`
+parses and runs on the interpreter. It fails on LLVM: the codegen
+emits malformed IR for the field-access receiver shape and returns
+an `E0002` "Call parameter type" error. Index receivers
+(`arr[0].method()`) and method-then-field chains (`x.m().field`)
+work on both backends. Workaround for the LLVM path: bind the
+field to a local first.
 
 ```
 val tmp := p.x
@@ -810,7 +839,7 @@ not a keyword-delimited region.
 
 ## 14. Modules
 
-Imports may be declared at file top level or inside a `procedure`:
+Imports may be declared at file top level or inside a `proc`:
 
 ```
 import "utils.gol"
@@ -1076,8 +1105,11 @@ that would fail if the guarantee were broken.
 
 ### Language-level
 
-- **Chained method calls on field accesses.** `x.field.method()`
-  does not parse; bind the field to a local first.
+- **Chained method calls on field accesses (LLVM only).**
+  `x.field.method()` parses and runs on the interpreter. LLVM
+  refuses the shape with an `E0002` "Call parameter type" error.
+  Workaround: bind the field to a local first (`val tmp := x.field;`
+  then `tmp.method()`).
 - **Method calls on complex receivers.** `"hello".to_upper()` and
   `m.values().length()` do not parse; the parser requires a bare
   identifier as the receiver.

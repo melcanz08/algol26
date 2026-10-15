@@ -1,0 +1,36 @@
+// BACKEND: interpreter
+// OUTPUT: caught: boom
+// OUTPUT: 0
+// OUTPUT: 42
+//
+// Regression test for the verifier bug fixed in commit 1cf0896.
+//
+// The TryCatch lowering emits a Switch whose Error case and
+// default_block both target the err block. The verifier used to
+// push both as successor entries, and its env join dropped the
+// `err` binding — present in the case's env, absent in the
+// default's. The catch body's use of `err` then failed verification
+// with "Use of undefined variable 'err' in verified IR".
+//
+// This program uses a named catch binding and prints it. If the
+// fix regresses, the compile fails; if it works, the printed
+// message matches the expected output above.
+proc might_fail(fail: Bool) -> Result<Int, String>
+    if fail
+        return Error("boom")
+    return Ok(42)
+
+proc main
+    val r1: Int := try
+        might_fail(true)
+    catch err
+        print("caught: " + err)
+        0
+    print(Int.to_string(r1))
+
+    val r2: Int := try
+        might_fail(false)
+    catch err
+        print("caught: " + err)
+        0
+    print(Int.to_string(r2))

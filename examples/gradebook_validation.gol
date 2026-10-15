@@ -1,0 +1,152 @@
+// gradebook.gol
+//
+// A small program that exercises:
+//   - rec, enum, nominal type, subrange
+//   - trait with associated type
+//   - generic function
+//   - Option / Result with match
+//   - List.length on a List<String> (the bug we fixed)
+//   - defer (LIFO cleanup)
+//   - try / catch (interpreter-only)
+//
+// Expected: prints a summary of three students' scores.
+
+// ─── Data types ─────────────────────────────────────────────────
+type StudentId distinct Int
+type Percent Int in 0..100
+
+enum Grade
+    A
+    B
+    C
+    F
+
+rec Student
+    id: StudentId
+    name: String
+    score: Percent
+
+// ─── Traits ─────────────────────────────────────────────────────
+trait Named
+    fn name(self: &Self) -> String
+
+impl Named for Student
+    fn name(self: &Student) -> String
+        self.name
+
+// A trait with an associated type — tests `assoc_bindings`
+// and `function_returns`.
+trait Collection
+    type Elem
+    fn count(self: &Self) -> Int
+
+impl Collection for List<Student>
+    type Elem := Student
+    fn count(self: &List<Student>) -> Int
+        List.length(*self)
+
+// ─── Generic function ───────────────────────────────────────────
+proc head<T>(xs: List<T>) -> Option<T>
+    if List.length(xs) = 0
+        return None
+    return Some(xs[0])
+
+// ─── Helpers ────────────────────────────────────────────────────
+proc grade_of(score: Percent) -> Grade
+    val s: Int := score.to_base()
+    if s >= 90
+        return Grade.A
+    else if s >= 80
+        return Grade.B
+    else if s >= 70
+        return Grade.C
+    else
+        return Grade.F
+
+fn grade_name(g: Grade) -> String
+    match g
+        case A
+            "A"
+        case B
+            "B"
+        case C
+            "C"
+        case F
+            "F"
+
+proc describe(s: Student) -> String
+    val id_int: Int := s.id.to_base()
+    val g: Grade := grade_of(s.score)
+    return "[" + Int.to_string(id_int) + "] " + s.name + ": " + grade_name(g)
+
+// ─── Division that can fail — tests Result + try/catch ──────────
+proc safe_divide(a: Float, b: Float) -> Result<Float, String>
+    if b = 0.0
+        return Error("division by zero")
+    return Ok(a / b)
+
+proc main
+    // Build a list of students.
+    val alice := Student {
+        id: StudentId.from_base(1),
+        name: "Alice",
+        score: Percent(95),
+    }
+    val bob := Student {
+        id: StudentId.from_base(2),
+        name: "Bob",
+        score: Percent(82),
+    }
+    val carol := Student {
+        id: StudentId.from_base(3),
+        name: "Carol",
+        score: Percent(67),
+    }
+    val students := [alice, bob, carol]
+
+    // ─── Defer (LIFO) ───────────────────────────────────────────
+    defer
+        print("--- done ---")
+
+    // ─── List.length on a List<Student> (our bug fix) ───────────
+    print("Students: " + Int.to_string(List.length(students)))
+
+    // ─── Loop over the list ────────────────────────────────────
+    for s in students
+        print(describe(s))
+
+    // ─── Generic `head` ────────────────────────────────────────
+    match head(students)
+        case Some(first)
+            print("First: " + first.name)
+        case None
+            print("Empty list")
+
+    // ─── Trait method with associated type ──────────────────────
+    val coll: &List<Student> := &students
+    print("Count via Collection trait: " + Int.to_string(coll.count()))
+
+    // ─── `&dyn Trait` ──────────────────────────────────────────
+    val n: &dyn Named := &alice
+    print("Named: " + n.name())
+
+    // ─── try/catch ─────────────────────────────────────────────
+    val result: Float := try
+        safe_divide(100.0, 4.0)
+    catch err
+        print("Error: " + err)
+        0.0
+    print("100/4 =")
+    print(result)
+
+    val err_result: Float := try
+        safe_divide(1.0, 0.0)
+    catch err
+        print("Caught: " + err)
+        -1.0
+    print("1/0 handled, result =")
+    print(err_result)
+
+    // ─── List of Strings (the exact bug we fixed) ───────────────
+    val tags := ["math", "science", "art"]
+    print("Tags: " + Int.to_string(List.length(tags)))

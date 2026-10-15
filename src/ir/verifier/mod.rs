@@ -284,7 +284,20 @@ fn successors_with_envs(term: &Terminator, env: &VerifyEnv) -> Vec<(usize, Verif
                 result.push((*target, succ_env));
             }
             if let Some(default) = default_block {
-                result.push((*default, env.clone()));
+                // Skip the default when it targets a block that one of
+                // the cases already targets. The case's environment
+                // carries the pattern binding (Some/Ok/Error); the
+                // default's environment does not. Adding both to the
+                // worklist would make the verifier's join drop the
+                // binding, since join_envs drops names present in
+                // only one predecessor. See the TryCatch lowering in
+                // `src/semantics/builder/expr.rs` — it emits a Switch
+                // whose Error case and default both target the err
+                // block.
+                let already_targeted = result.iter().any(|(block, _)| block == default);
+                if !already_targeted {
+                    result.push((*default, env.clone()));
+                }
             }
             result
         }

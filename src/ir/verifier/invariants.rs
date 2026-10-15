@@ -35,8 +35,7 @@
 use crate::common::types::Type;
 use crate::ir::instantiation_plan::InstantiationPlan;
 use crate::ir::semantic_ir::{
-    SemanticFunction, SemanticInstruction, SemanticPattern, SemanticProgram, Terminator,
-    TypedIRValue,
+    Instruction, SemanticFunction, SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,7 +102,7 @@ fn check_function(func: &SemanticFunction, errors: &mut Vec<InvariantError>) {
 }
 
 fn check_instruction(
-    instr: &SemanticInstruction,
+    instr: &Instruction,
     function: &str,
     block_id: usize,
     idx: usize,
@@ -112,12 +111,12 @@ fn check_instruction(
     let location = |suffix: &str| format!("block {} instr {}: {}", block_id, idx, suffix);
 
     match instr {
-        SemanticInstruction::Call { args, .. } => {
+        Instruction::Call { args, .. } => {
             for a in args {
                 check_value(a, function, &location("Call arg"), errors);
             }
         }
-        SemanticInstruction::Declare { type_, value, .. } => {
+        Instruction::Declare { type_, value, .. } => {
             if is_unresolved(type_) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
@@ -126,13 +125,13 @@ fn check_instruction(
             }
             check_value(value, function, &location("Declare value"), errors);
         }
-        SemanticInstruction::Assign { value, .. } => {
+        Instruction::Assign { value, .. } => {
             check_value(value, function, &location("Assign"), errors);
         }
-        SemanticInstruction::Print { value } => {
+        Instruction::Print { value } => {
             check_value(value, function, &location("Print"), errors);
         }
-        SemanticInstruction::ArrayAssign {
+        Instruction::ArrayAssign {
             array,
             index,
             value,
@@ -141,10 +140,10 @@ fn check_instruction(
             check_value(index, function, &location("ArrayAssign index"), errors);
             check_value(value, function, &location("ArrayAssign value"), errors);
         }
-        SemanticInstruction::SendChannel { value, .. } => {
+        Instruction::SendChannel { value, .. } => {
             check_value(value, function, &location("SendChannel"), errors);
         }
-        SemanticInstruction::Allocate { size, type_, .. } => {
+        Instruction::Allocate { size, type_, .. } => {
             if is_unresolved(type_) {
                 errors.push(InvariantError::TypeVarInExecutableIr {
                     function: function.to_string(),
@@ -153,7 +152,7 @@ fn check_instruction(
             }
             check_value(size, function, &location("Allocate size"), errors);
         }
-        SemanticInstruction::Free { ptr } => {
+        Instruction::Free { ptr } => {
             check_value(ptr, function, &location("Free"), errors);
         }
         _ => {}

@@ -143,7 +143,7 @@ impl SemanticIRBuilder {
                     self.safe_push_instruction(
                         func,
                         current_block,
-                        SemanticInstruction::RegionEnter { name: name.clone() },
+                        Instruction::RegionEnter { name: name.clone() },
                     );
                     let flow = self.translate_block(program, func, current_block, body);
                     self.pop_scope();
@@ -155,7 +155,7 @@ impl SemanticIRBuilder {
                         self.safe_push_instruction(
                             func,
                             id,
-                            SemanticInstruction::RegionExit { name: name.clone() },
+                            Instruction::RegionExit { name: name.clone() },
                         );
                     }
                     flow
@@ -503,7 +503,7 @@ impl SemanticIRBuilder {
         self.safe_push_instruction(
             func,
             current_block,
-            SemanticInstruction::Declare {
+            Instruction::Declare {
                 name: result_name.clone(),
                 mutable: true,
                 type_: Type::Void,
@@ -573,7 +573,7 @@ impl SemanticIRBuilder {
                             function,
                             args,
                             return_type: Type::Void,
-                        } => SemanticInstruction::Call {
+                        } => Instruction::Call {
                             func: function,
                             args,
                             result: None,
@@ -584,17 +584,15 @@ impl SemanticIRBuilder {
                             slot,
                             args,
                             return_type,
-                        } if matches!(return_type, Type::Void) => {
-                            SemanticInstruction::VirtualCall {
-                                receiver: *receiver,
-                                method_name,
-                                slot,
-                                args,
-                                result: None,
-                                return_type,
-                            }
-                        }
-                        other => SemanticInstruction::Assign {
+                        } if matches!(return_type, Type::Void) => Instruction::VirtualCall {
+                            receiver: *receiver,
+                            method_name,
+                            slot,
+                            args,
+                            result: None,
+                            return_type,
+                        },
+                        other => Instruction::Assign {
                             target: result_name.clone(),
                             value: other,
                         },
@@ -685,7 +683,7 @@ impl SemanticIRBuilder {
                             function,
                             args,
                             return_type: Type::Void,
-                        } => SemanticInstruction::Call {
+                        } => Instruction::Call {
                             func: function,
                             args,
                             result: None,
@@ -696,17 +694,15 @@ impl SemanticIRBuilder {
                             slot,
                             args,
                             return_type,
-                        } if matches!(return_type, Type::Void) => {
-                            SemanticInstruction::VirtualCall {
-                                receiver: *receiver,
-                                method_name,
-                                slot,
-                                args,
-                                result: None,
-                                return_type,
-                            }
-                        }
-                        other => SemanticInstruction::Assign {
+                        } if matches!(return_type, Type::Void) => Instruction::VirtualCall {
+                            receiver: *receiver,
+                            method_name,
+                            slot,
+                            args,
+                            result: None,
+                            return_type,
+                        },
+                        other => Instruction::Assign {
                             target: target_name.to_string(),
                             value: other,
                         },
@@ -836,7 +832,7 @@ impl SemanticIRBuilder {
         self.safe_push_instruction(
             func,
             current_block,
-            SemanticInstruction::Declare {
+            Instruction::Declare {
                 name: result_name.clone(),
                 mutable: true,
                 type_: Type::Void,
@@ -936,7 +932,7 @@ impl SemanticIRBuilder {
                             function,
                             args,
                             return_type: Type::Void,
-                        } => SemanticInstruction::Call {
+                        } => Instruction::Call {
                             func: function,
                             args,
                             result: None,
@@ -947,17 +943,15 @@ impl SemanticIRBuilder {
                             slot,
                             args,
                             return_type,
-                        } if matches!(return_type, Type::Void) => {
-                            SemanticInstruction::VirtualCall {
-                                receiver: *receiver,
-                                method_name,
-                                slot,
-                                args,
-                                result: None,
-                                return_type,
-                            }
-                        }
-                        other => SemanticInstruction::Assign {
+                        } if matches!(return_type, Type::Void) => Instruction::VirtualCall {
+                            receiver: *receiver,
+                            method_name,
+                            slot,
+                            args,
+                            result: None,
+                            return_type,
+                        },
+                        other => Instruction::Assign {
                             target: result_name.clone(),
                             value: other,
                         },
@@ -1073,7 +1067,7 @@ impl SemanticIRBuilder {
                             function,
                             args,
                             return_type: Type::Void,
-                        } => SemanticInstruction::Call {
+                        } => Instruction::Call {
                             func: function,
                             args,
                             result: None,
@@ -1084,17 +1078,15 @@ impl SemanticIRBuilder {
                             slot,
                             args,
                             return_type,
-                        } if matches!(return_type, Type::Void) => {
-                            SemanticInstruction::VirtualCall {
-                                receiver: *receiver,
-                                method_name,
-                                slot,
-                                args,
-                                result: None,
-                                return_type,
-                            }
-                        }
-                        other => SemanticInstruction::Assign {
+                        } if matches!(return_type, Type::Void) => Instruction::VirtualCall {
+                            receiver: *receiver,
+                            method_name,
+                            slot,
+                            args,
+                            result: None,
+                            return_type,
+                        },
+                        other => Instruction::Assign {
                             target: target_name.to_string(),
                             value: other,
                         },

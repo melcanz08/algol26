@@ -1,15 +1,12 @@
 // src/ir/semantic_ir/core.rs
 //
 // The container types: `SemanticProgram`, `SemanticFunction`, and
-// `SemanticBlock`. Plus the `SemanticInstruction` type alias kept
-// for backward compatibility (the name predates the split).
+// `SemanticBlock`.
 
 use super::instructions::Instruction;
 use super::terminators::Terminator;
 use crate::common::types::Type;
 use std::collections::HashMap;
-
-pub type SemanticInstruction = Instruction;
 
 #[derive(Debug, Clone)]
 pub struct SemanticBlock {

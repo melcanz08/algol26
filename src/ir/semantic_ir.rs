@@ -8,7 +8,7 @@
 //     instructions.rs  — Instruction
 //     terminators.rs   — Terminator
 //     core.rs          — SemanticProgram, SemanticFunction,
-//                        SemanticBlock, SemanticInstruction
+//                        SemanticBlock
 //
 // Every existing `use crate::ir::semantic_ir::*` continues to work
 // through the re-exports below. New code can import directly from
@@ -33,9 +33,7 @@ mod patterns;
 mod terminators;
 mod values;
 
-pub use self::core::{
-    SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram, VtableEntry,
-};
+pub use self::core::{SemanticBlock, SemanticFunction, SemanticProgram, VtableEntry};
 pub use self::display::{format_program, format_program_with, FormatMode, FormatOptions};
 pub use self::instructions::Instruction;
 pub use self::patterns::SemanticPattern;

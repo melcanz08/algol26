@@ -302,7 +302,7 @@ proc main
         .iter()
         .flat_map(|b| b.instructions.iter())
         .filter_map(|i| match i {
-            algol26::ir::semantic_ir::SemanticInstruction::Call { func, .. } => Some(func.as_str()),
+            algol26::ir::semantic_ir::Instruction::Call { func, .. } => Some(func.as_str()),
             _ => None,
         })
         .collect();

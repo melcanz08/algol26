@@ -8,8 +8,8 @@ use crate::frontend::ast::{
 };
 use crate::ir::instantiation_plan::{InstantiationPlan, Specialization};
 use crate::ir::semantic_ir::{
-    Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticInstruction,
-    SemanticPattern, SemanticProgram, Terminator, TypedIRValue,
+    Instruction, SemanticBinOp, SemanticBlock, SemanticFunction, SemanticPattern, SemanticProgram,
+    Terminator, TypedIRValue,
 };
 use crate::semantics::analyzer::VirtualCallInfo;
 use crate::semantics::flow_result::{DeferContext, FlowResult, LoopContext};

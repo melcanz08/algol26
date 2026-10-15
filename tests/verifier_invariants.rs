@@ -7,7 +7,7 @@
 use algol26::common::types::Type;
 use algol26::ir::instantiation_plan::InstantiationPlan;
 use algol26::ir::semantic_ir::{
-    SemanticBlock, SemanticFunction, SemanticInstruction, SemanticProgram, Terminator, TypedIRValue,
+    Instruction, SemanticBlock, SemanticFunction, SemanticProgram, Terminator, TypedIRValue,
 };
 use algol26::ir::verifier::invariants::{check_invariants, InvariantError};
 
@@ -69,7 +69,7 @@ fn type_var_in_return_type_is_rejected() {
 #[test]
 fn type_var_in_declare_value_is_rejected() {
     let mut f = trivial_function("main");
-    f.blocks[0].instructions.push(SemanticInstruction::Declare {
+    f.blocks[0].instructions.push(Instruction::Declare {
         name: "x".to_string(),
         mutable: false,
         type_: Type::Int,
@@ -88,7 +88,7 @@ fn type_var_in_declare_value_is_rejected() {
 #[test]
 fn type_var_in_nested_list_is_rejected() {
     let mut f = trivial_function("main");
-    f.blocks[0].instructions.push(SemanticInstruction::Declare {
+    f.blocks[0].instructions.push(Instruction::Declare {
         name: "x".to_string(),
         mutable: false,
         type_: Type::Int,
@@ -107,13 +107,11 @@ fn type_var_in_nested_list_is_rejected() {
 #[test]
 fn well_formed_program_passes() {
     let mut main_fn = trivial_function("main");
-    main_fn.blocks[0]
-        .instructions
-        .push(SemanticInstruction::Call {
-            func: "helper".to_string(),
-            args: vec![],
-            result: None,
-        });
+    main_fn.blocks[0].instructions.push(Instruction::Call {
+        func: "helper".to_string(),
+        args: vec![],
+        result: None,
+    });
 
     let program = program_with(vec![main_fn, trivial_function("helper")]);
     let plan = InstantiationPlan::default();
@@ -124,13 +122,11 @@ fn well_formed_program_passes() {
 #[test]
 fn generic_specialization_passes() {
     let mut main_fn = trivial_function("main");
-    main_fn.blocks[0]
-        .instructions
-        .push(SemanticInstruction::Call {
-            func: "identity_Int".to_string(),
-            args: vec![],
-            result: None,
-        });
+    main_fn.blocks[0].instructions.push(Instruction::Call {
+        func: "identity_Int".to_string(),
+        args: vec![],
+        result: None,
+    });
 
     let program = program_with(vec![main_fn, trivial_function("identity_Int")]);
     let plan = InstantiationPlan::default();

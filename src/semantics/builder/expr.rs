@@ -79,7 +79,7 @@ impl SemanticIRBuilder {
                     self.safe_push_instruction(
                         func,
                         current_block,
-                        SemanticInstruction::Declare {
+                        Instruction::Declare {
                             name: name.clone(),
                             mutable: *mutable,
                             type_: decl_type,
@@ -145,7 +145,7 @@ impl SemanticIRBuilder {
                         self.safe_push_instruction(
                             func,
                             current_block,
-                            SemanticInstruction::Allocate {
+                            Instruction::Allocate {
                                 target: name.clone(),
                                 size,
                                 type_: ptr_ty,
@@ -239,7 +239,7 @@ impl SemanticIRBuilder {
                     self.safe_push_instruction(
                         func,
                         merge,
-                        SemanticInstruction::Declare {
+                        Instruction::Declare {
                             name: name.clone(),
                             mutable: *mutable,
                             type_,
@@ -249,7 +249,7 @@ impl SemanticIRBuilder {
                     return FlowResult::Reachable(merge);
                 }
 
-                SemanticInstruction::Declare {
+                Instruction::Declare {
                     name: name.clone(),
                     mutable: *mutable,
                     type_,
@@ -295,7 +295,7 @@ impl SemanticIRBuilder {
                         self.safe_push_instruction(
                             func,
                             current_block,
-                            SemanticInstruction::Allocate {
+                            Instruction::Allocate {
                                 target: name.clone(),
                                 size,
                                 type_: ptr_ty,
@@ -322,14 +322,14 @@ impl SemanticIRBuilder {
                     ));
                 }
 
-                SemanticInstruction::Assign {
+                Instruction::Assign {
                     target: name.clone(),
                     value: typed_value,
                 }
             }
             Stmt::Print { expr, .. } => {
                 let typed_value = self.translate_expr(program, func, current_block, expr);
-                SemanticInstruction::Print { value: typed_value }
+                Instruction::Print { value: typed_value }
             }
             Stmt::Return { value, .. } => {
                 let typed_value = value
@@ -426,7 +426,7 @@ impl SemanticIRBuilder {
                 let arr_val = self.translate_expr(program, func, current_block, &arr_expr);
                 let idx_val = self.translate_expr(program, func, current_block, index);
                 let val = self.translate_expr(program, func, current_block, value);
-                SemanticInstruction::ArrayAssign {
+                Instruction::ArrayAssign {
                     array: Box::new(arr_val),
                     index: Box::new(idx_val),
                     value: val,
@@ -439,7 +439,7 @@ impl SemanticIRBuilder {
                 ..
             } => {
                 let typed_value = self.translate_expr(program, func, current_block, value);
-                SemanticInstruction::FieldAssign {
+                Instruction::FieldAssign {
                     target: target.clone(),
                     field: field.clone(),
                     value: typed_value,
@@ -448,21 +448,21 @@ impl SemanticIRBuilder {
             Stmt::ChannelDecl { name, .. } => {
                 let chan_type = Type::Channel(Box::new(Type::Unknown));
                 self.declare_var(name, chan_type.clone(), true);
-                SemanticInstruction::ChannelDecl {
+                Instruction::ChannelDecl {
                     name: name.clone(),
                     type_: chan_type,
                 }
             }
             Stmt::Send { channel, value, .. } => {
                 let typed_value = self.translate_expr(program, func, current_block, value);
-                SemanticInstruction::SendChannel {
+                Instruction::SendChannel {
                     channel: channel.clone(),
                     value: typed_value,
                 }
             }
             Stmt::Receive {
                 channel, target, ..
-            } => SemanticInstruction::ReceiveChannel {
+            } => Instruction::ReceiveChannel {
                 channel: channel.clone(),
                 target: target.clone(),
             },
@@ -470,9 +470,9 @@ impl SemanticIRBuilder {
                 for s in body {
                     let _ = self.translate_simple_stmt(program, func, current_block, s);
                 }
-                SemanticInstruction::Nop
+                Instruction::Nop
             }
-            Stmt::Import { .. } => SemanticInstruction::Nop,
+            Stmt::Import { .. } => Instruction::Nop,
             Stmt::Expression(expr) => {
                 // alloc(n) / free(p) in statement position are memory
                 // operations, not generic calls. Intercept before the
@@ -492,7 +492,7 @@ impl SemanticIRBuilder {
                         self.safe_push_instruction(
                             func,
                             current_block,
-                            SemanticInstruction::Allocate {
+                            Instruction::Allocate {
                                 target: temp,
                                 size,
                                 type_: ptr_ty,
@@ -505,11 +505,7 @@ impl SemanticIRBuilder {
                     }
                     if fn_name == "free" && args.len() == 1 {
                         let ptr = self.translate_expr(program, func, current_block, &args[0]);
-                        self.safe_push_instruction(
-                            func,
-                            current_block,
-                            SemanticInstruction::Free { ptr },
-                        );
+                        self.safe_push_instruction(func, current_block, Instruction::Free { ptr });
                         if let Some(merge) = self.pending_merge.take() {
                             return FlowResult::Reachable(merge);
                         }
@@ -581,7 +577,7 @@ impl SemanticIRBuilder {
                     // is reachable.
                     return FlowResult::Unreachable;
                 }
-                SemanticInstruction::Nop
+                Instruction::Nop
             }
             _ => {
                 self.diagnostics
@@ -1062,7 +1058,7 @@ impl SemanticIRBuilder {
                                 self.safe_push_instruction(
                                     func,
                                     current_block,
-                                    SemanticInstruction::BoundsCheck {
+                                    Instruction::BoundsCheck {
                                         value: inner.clone(),
                                         low: *low,
                                         high: *high,
@@ -1864,7 +1860,7 @@ impl SemanticIRBuilder {
                 self.safe_push_instruction(
                     func,
                     current_block,
-                    SemanticInstruction::Declare {
+                    Instruction::Declare {
                         name: try_value_name.clone(),
                         mutable: true,
                         type_: Type::result(Type::Unknown, Type::Unknown),
@@ -1949,7 +1945,7 @@ impl SemanticIRBuilder {
                 self.safe_push_instruction(
                     func,
                     ok_block_id,
-                    SemanticInstruction::Assign {
+                    Instruction::Assign {
                         target: result_var.clone(),
                         value: TypedIRValue::Variable(ok_payload_name.clone(), result_type.clone()),
                     },
@@ -2376,7 +2372,7 @@ impl SemanticIRBuilder {
         self.safe_push_instruction(
             func,
             right_end,
-            SemanticInstruction::Assign {
+            Instruction::Assign {
                 target: result_var.clone(),
                 value: right_val,
             },
@@ -2392,7 +2388,7 @@ impl SemanticIRBuilder {
         self.safe_push_instruction(
             func,
             short_id,
-            SemanticInstruction::Assign {
+            Instruction::Assign {
                 target: result_var.clone(),
                 value: short_const,
             },

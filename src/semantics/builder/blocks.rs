@@ -69,7 +69,7 @@ impl SemanticIRBuilder {
             self.safe_push_instruction(
                 func,
                 assign_block,
-                SemanticInstruction::Assign {
+                Instruction::Assign {
                     target: target.to_string(),
                     value: coerced,
                 },
@@ -83,7 +83,7 @@ impl SemanticIRBuilder {
             self.safe_push_instruction(
                 func,
                 final_block,
-                SemanticInstruction::Assign {
+                Instruction::Assign {
                     target: target.to_string(),
                     value: TypedIRValue::Void,
                 },
@@ -105,7 +105,7 @@ impl SemanticIRBuilder {
         self.safe_push_instruction(
             func,
             current_block,
-            SemanticInstruction::Declare {
+            Instruction::Declare {
                 name: name.clone(),
                 mutable: true,
                 type_: type_hint,

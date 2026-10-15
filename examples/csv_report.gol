@@ -1,0 +1,105 @@
+// csv_report.gol — parse a small sales CSV and print a report.
+//
+// Columns: region, product, units
+// Report groups by region, sums units, and prints totals sorted
+// by total units, descending. Exercises records, enums, Map,
+// List, String.split, String.concat, Int.to_string, numeric
+// comparison, and the fn/proc split.
+
+rec Row
+    zone: String
+    product: String
+    units: Int
+
+rec ZoneTotal
+    name: String
+    total: Int
+
+// Parse one CSV line. Returns None if the line does not have
+// exactly three fields.
+proc parse_row(line: String) -> Option<Row>
+    val parts := String.split(line, ",")
+    if List.length(parts) != 3 then
+        return None
+    val zone := parts[0]
+    val product := parts[1]
+    val units_opt := String.to_int(parts[2])
+    match units_opt
+        case Some(u)
+            return Some(Row { zone: zone, product: product, units: u })
+        case None
+            return None
+
+// True iff a should come before b in a descending-by-total sort.
+// Ties keep their original relative order (stable).
+fn comes_before(a: ZoneTotal, b: ZoneTotal) -> Bool
+    a.total > b.total
+
+// Bubble sort by total, descending. The language has no built-in
+// sort yet, and no string comparison, so this operates on Int.
+proc sort_by_total(items: List<ZoneTotal>) -> List<ZoneTotal>
+    val n := List.length(items)
+    var i := 0
+    while i < n
+        var j := 0
+        while j < n - i - 1
+            val a := items[j]
+            val b := items[j + 1]
+            if comes_before(b, a) then
+                items[j] := b
+                items[j + 1] := a
+            j := j + 1
+        i := i + 1
+    return items
+
+proc main
+    val csv := "North,Widget,100\nNorth,Gadget,50\nSouth,Widget,75\nEast,Widget,200\nWest,Gadget,25\nNorth,Widget,30\nSouth,Gadget,60"
+
+    val lines := String.split(csv, "\n")
+    var rows: List<Row> := []
+    for line in lines
+        val parsed := parse_row(line)
+        match parsed
+            case Some(r)
+                rows.append(r)
+            case None
+                print(String.concat("skipping malformed line: ", line))
+
+    // Group units by zone.
+    var totals: Map<String, Int> := Map {}
+    for r in rows
+        val existing := totals.get(r.zone)
+        match existing
+            case Some(prev)
+                totals.insert(r.zone, prev + r.units)
+            case None
+                totals.insert(r.zone, r.units)
+
+    // Collect into a list of records so we can sort.
+    var entries: List<ZoneTotal> := []
+    for r in rows
+        val opt := totals.get(r.zone)
+        match opt
+            case Some(n)
+                // Only append once per zone: since rows can
+                // repeat, skip a zone we've already recorded.
+                var seen := false
+                for e in entries
+                    if e.name = r.zone then
+                        seen := true
+                if not seen then
+                    entries.append(ZoneTotal { name: r.zone, total: n })
+            case None
+                print("unreachable")
+
+    val sorted := sort_by_total(entries)
+
+    print("=== Units by Zone (highest first) ===")
+    for zt in sorted
+        print(String.concat(String.concat(zt.name, ": "), Int.to_string(zt.total)))
+
+    var grand := 0
+    for r in rows
+        grand := grand + r.units
+    print("")
+    print(String.concat("Total units: ", Int.to_string(grand)))

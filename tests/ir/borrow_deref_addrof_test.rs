@@ -130,7 +130,7 @@ fn test_method_call_desugars_to_function_call() {
     use algol26::frontend::parser::Parser;
     use algol26::ir::semantic_ir::Instruction;
     use algol26::semantics::analyzer::SemanticAnalyzer;
-    use algol26::semantics::builder::SemanticIRBuilder;
+    use algol26::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
     let source = "\
 proc main
@@ -158,20 +158,20 @@ proc main
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (ir, _) = SemanticIRBuilder::build(
-        &functions,
-        type_table,
-        algol26::ir::instantiation_plan::InstantiationPlan::default(),
-        &[],
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-        std::collections::HashMap::new(), // trait_ids (ADR 0038)
-        std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-        std::collections::HashMap::new(), // function_returns (ADR 0041)
-    );
+    let (ir, _) = SemanticIRBuilder::build(BuildInputs {
+        functions: &functions,
+        type_table_id: type_table,
+        plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        records: &[],
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
+        virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+        assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+    });
 
     // `var n := list.length()` produces a standalone
     // Instruction::Call { func: "List.length", args: [Variable("list")],
@@ -204,7 +204,7 @@ fn test_if_expr_in_vardecl_keeps_following_statements() {
     use algol26::frontend::parser::Parser;
     use algol26::ir::semantic_ir::Instruction;
     use algol26::semantics::analyzer::SemanticAnalyzer;
-    use algol26::semantics::builder::SemanticIRBuilder;
+    use algol26::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
     let source = "\
 proc main
@@ -235,20 +235,20 @@ proc main
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (ir, _) = SemanticIRBuilder::build(
-        &functions,
-        type_table,
-        algol26::ir::instantiation_plan::InstantiationPlan::default(),
-        &[],
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-        std::collections::HashMap::new(), // trait_ids (ADR 0038)
-        std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-        std::collections::HashMap::new(), // function_returns (ADR 0041)
-    );
+    let (ir, _) = SemanticIRBuilder::build(BuildInputs {
+        functions: &functions,
+        type_table_id: type_table,
+        plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        records: &[],
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
+        virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+        assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+    });
 
     // The print must be present somewhere in the IR, not dropped.
     let has_print = ir.functions.iter().any(|f| {

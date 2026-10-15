@@ -674,7 +674,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
     use crate::frontend::parser::Parser;
     use crate::ir::instantiation_plan::InstantiationPlan;
     use crate::semantics::analyzer::SemanticAnalyzer;
-    use crate::semantics::builder::SemanticIRBuilder;
+    use crate::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
     let lexer = Lexer::new(source.to_string()).expect("lex");
     let mut parser = Parser::new(lexer.tokens);
@@ -701,20 +701,20 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
     plan.close(&functions);
 
     let virtual_calls = analyzer.take_virtual_calls();
-    let (semantic_program, _diags) = SemanticIRBuilder::build(
-        &functions,
-        type_table,
+    let (semantic_program, _diags) = SemanticIRBuilder::build(BuildInputs {
+        functions: &functions,
+        type_table_id: type_table,
         plan,
-        &program.records,
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
+        records: &program.records,
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
         virtual_calls,
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-    );
+        trait_ids: std::collections::HashMap::new(),
+        assoc_bindings: std::collections::HashMap::new(),
+        function_returns: std::collections::HashMap::new(),
+    });
     semantic_program
 }
 

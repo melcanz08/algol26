@@ -1,0 +1,145 @@
+// validation_build_inputs.gol
+//
+// Exercises every field of `BuildInputs` after the refactor:
+//
+//   functions        - many
+//   type_table_id    - every expression
+//   plan             - head<T> and identity<T>
+//   records          - rec Point, rec Circle
+//   nominal_types    - type Meters distinct Int
+//   enum_types       - enum Color
+//   subrange_types   - type Percentage Int in 0..100
+//   const_values     - Sizable::SIZE
+//   virtual_calls    - s.area() through &dyn Shape
+//   trait_ids        - Shape, Sizable, Container
+//   assoc_bindings   - Container::Item := Int
+//   function_returns - head<C>(c: C) -> C::Item
+//
+// Expected output:
+//   5
+//   30.0
+//   8
+//   12
+//   4
+//   2.5
+//   75
+//   red
+//   green
+//   blue
+//
+// The program uses both syntax forms (indented and brace) to
+// exercise the parser on both paths.
+
+// ─── records ────────────────────────────────────────────────────
+rec Point {
+    x: Int
+    y: Int
+}
+
+rec Circle {
+    r: Float
+}
+
+// ─── enums ──────────────────────────────────────────────────────
+enum Color
+    Red
+    Green
+    Blue
+
+// ─── nominal types ──────────────────────────────────────────────
+type Meters distinct Int
+
+// ─── subrange types ─────────────────────────────────────────────
+type Percentage Int in 0..100
+
+// ─── traits ─────────────────────────────────────────────────────
+trait Sizable
+    const SIZE: Int
+
+impl Sizable for Int
+    const SIZE: Int := 8
+
+trait Shape
+    fn area(self: &Self) -> Float
+
+impl Shape for Circle
+    fn area(self: &Circle) -> Float
+        self.r * self.r
+
+trait Container
+    type Item
+    fn first(self: &Self) -> Self::Item
+
+impl Container for List<Int>
+    type Item := Int
+    fn first(self: &List<Int>) -> Int
+        (*self)[0]
+
+// ─── generics with assoc-type return ────────────────────────────
+fn head<C>(c: C) -> C::Item where C: Container
+    c.first()
+
+// ─── generic identity (exercises `plan` specialization) ────────
+fn identity<T>(x: T) -> T
+    x
+
+// ─── record sum (exercises struct field access + type table) ────
+fn sum_point(p: Point) -> Int {
+    p.x + p.y
+}
+
+// ─── enum match ─────────────────────────────────────────────────
+fn name(c: Color) -> String
+    match c
+        case Red
+            "red"
+        case Green
+            "green"
+        case Blue
+            "blue"
+
+// ─── methods on records ─────────────────────────────────────────
+fn describe(m: Meters) -> Int
+    m.to_base()
+
+fn percent_value(p: Percentage) -> Int
+    p.to_base()
+
+// ─── main ───────────────────────────────────────────────────────
+proc main {
+    // records + type_table_id + functions
+    val pt := Point { x: 2, y: 3 }
+    print(sum_point(pt))
+
+    // shape via &dyn Shape (virtual_calls, trait_ids)
+    val c := Circle { r: 5.0 }
+    val s: &dyn Shape := &c
+    print(s.area())
+
+    // const_values (Sizable::SIZE)
+    print(Int.to_string(Int::SIZE))
+
+    // const in expression
+    print(Int.to_string(Int::SIZE + 4))
+
+    // generic specialization (plan)
+    val xs := [10, 20, 30]
+    print(head(xs))
+
+    // identity for Float
+    val f := identity(2.5)
+    print(f)
+
+    // subrange_types + nominal_types
+    val p := Percentage(75)
+    print(percent_value(p))
+
+    // nominal_types (exercises `nominal_types` BuildInputs field)
+    val m := Meters.from_base(100)
+    print(describe(m))
+
+    // enum_types
+    print(name(Color.Red))
+    print(name(Color.Green))
+    print(name(Color.Blue))
+}

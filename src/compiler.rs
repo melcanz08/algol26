@@ -327,9 +327,9 @@ pub fn build_semantic_ir_program(
     function_returns: std::collections::HashMap<String, crate::common::types::Type>,
 ) -> Result<crate::ir::semantic_ir::SemanticProgram> {
     use crate::common::diagnostics::{CompileError, Diagnostic, ErrorCode};
-    use crate::semantics::builder::SemanticIRBuilder;
+    use crate::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
-    let (program, diagnostics) = SemanticIRBuilder::build(
+    let (program, diagnostics) = SemanticIRBuilder::build(BuildInputs {
         functions,
         type_table_id,
         plan,
@@ -342,7 +342,7 @@ pub fn build_semantic_ir_program(
         trait_ids,
         assoc_bindings,
         function_returns,
-    );
+    });
     if !diagnostics.is_empty() {
         for diag in &diagnostics {
             Diagnostic::Warning(diag.to_string()).display();

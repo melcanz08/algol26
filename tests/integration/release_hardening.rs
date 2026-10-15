@@ -4,27 +4,27 @@ use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::optimizer::Optimizer;
 use algol26::ir::semantic_ir::SemanticProgram;
-use algol26::semantics::builder::SemanticIRBuilder;
+use algol26::semantics::builder::{BuildInputs, SemanticIRBuilder};
 use std::time::Instant;
 
 fn build_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     let lexer = Lexer::new(source.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let program = parser.parse_program().unwrap();
-    SemanticIRBuilder::build(
-        &program.functions,
-        std::collections::HashMap::new(),
-        algol26::ir::instantiation_plan::InstantiationPlan::default(),
-        &program.records,
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-        std::collections::HashMap::new(), // trait_ids (ADR 0038)
-        std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-        std::collections::HashMap::new(), // function_returns (ADR 0041)
-    )
+    SemanticIRBuilder::build(BuildInputs {
+        functions: &program.functions,
+        type_table_id: std::collections::HashMap::new(),
+        plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        records: &program.records,
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
+        virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+        assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+    })
 }
 fn run_interp(prog: SemanticProgram) -> String {
     let mut interp = Interpreter::new(prog);
@@ -157,20 +157,20 @@ fn test_negative_corpus_no_ice() {
             let prog = prog_res.unwrap();
             let mut functions = prog.functions;
             assign_expr_ids(&mut functions);
-            let (_ir, diags) = SemanticIRBuilder::build(
-                &functions,
-                std::collections::HashMap::new(),
-                algol26::ir::instantiation_plan::InstantiationPlan::default(),
-                &[],
-                std::collections::HashMap::new(),
-                std::collections::HashMap::new(),
-                std::collections::HashMap::new(),
-                std::collections::HashMap::new(),
-                std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-                std::collections::HashMap::new(), // trait_ids (ADR 0038)
-                std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-                std::collections::HashMap::new(), // function_returns (ADR 0041)
-            );
+            let (_ir, diags) = SemanticIRBuilder::build(BuildInputs {
+                functions: &functions,
+                type_table_id: std::collections::HashMap::new(),
+                plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+                records: &[],
+                nominal_types: std::collections::HashMap::new(),
+                enum_types: std::collections::HashMap::new(),
+                subrange_types: std::collections::HashMap::new(),
+                const_values: std::collections::HashMap::new(),
+                virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+                trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+                assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+                function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+            });
             let mut analyzer = algol26::semantics::analyzer::SemanticAnalyzer::new();
             let analyzer_invalid = analyzer.analyze(&functions).is_err();
             let is_invalid = !diags.is_empty() || analyzer_invalid;

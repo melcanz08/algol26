@@ -2,7 +2,7 @@
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::semantic_ir::SemanticProgram;
-use algol26::semantics::builder::SemanticIRBuilder;
+use algol26::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
 fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
     use algol26::semantics::analyzer::SemanticAnalyzer;
@@ -30,20 +30,20 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
         .unwrap();
 
     let type_table = analyzer.take_type_table_id();
-    SemanticIRBuilder::build(
-        &functions,
-        type_table,
-        algol26::ir::instantiation_plan::InstantiationPlan::default(),
-        &program.records,
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-        std::collections::HashMap::new(), // trait_ids (ADR 0038)
-        std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-        std::collections::HashMap::new(), // function_returns (ADR 0041)
-    )
+    SemanticIRBuilder::build(BuildInputs {
+        functions: &functions,
+        type_table_id: type_table,
+        plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        records: &program.records,
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
+        virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+        assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+    })
 }
 
 #[test]

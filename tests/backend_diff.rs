@@ -1,26 +1,26 @@
 use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::optimizer::Optimizer;
-use algol26::semantics::builder::SemanticIRBuilder;
+use algol26::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
 fn build_ir(src: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(src.to_string()).unwrap();
     let mut parser = Parser::new(lexer.tokens);
     let prog = parser.parse_program().unwrap();
-    let (ir, diags) = SemanticIRBuilder::build(
-        &prog.functions,
-        std::collections::HashMap::new(),
-        algol26::ir::instantiation_plan::InstantiationPlan::default(),
-        &[],
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-        std::collections::HashMap::new(), // trait_ids (ADR 0038)
-        std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-        std::collections::HashMap::new(), // function_returns (ADR 0041)
-    );
+    let (ir, diags) = SemanticIRBuilder::build(BuildInputs {
+        functions: &prog.functions,
+        type_table_id: std::collections::HashMap::new(),
+        plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        records: &[],
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
+        virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+        assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+    });
     assert!(diags.is_empty(), "diags: {:?}", diags);
     ir
 }

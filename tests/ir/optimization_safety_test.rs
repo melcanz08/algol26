@@ -7,7 +7,7 @@ use algol26::frontend::lexer::Lexer;
 use algol26::frontend::parser::Parser;
 use algol26::ir::optimizer::Optimizer;
 use algol26::semantics::analyzer::SemanticAnalyzer;
-use algol26::semantics::builder::SemanticIRBuilder;
+use algol26::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
 fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
     let lexer = Lexer::new(source.to_string()).unwrap();
@@ -24,20 +24,20 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
             &program.records,
         )
         .unwrap();
-    let (ir, _) = SemanticIRBuilder::build(
-        &functions,
-        std::collections::HashMap::new(),
-        algol26::ir::instantiation_plan::InstantiationPlan::default(),
-        &[],
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-        std::collections::HashMap::new(), // trait_ids (ADR 0038)
-        std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-        std::collections::HashMap::new(), // function_returns (ADR 0041)
-    );
+    let (ir, _) = SemanticIRBuilder::build(BuildInputs {
+        functions: &functions,
+        type_table_id: std::collections::HashMap::new(),
+        plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        records: &[],
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
+        virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+        assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+    });
     ir
 }
 
@@ -98,7 +98,7 @@ fn test_dce_preserves_list_declare_used_by_indexing() {
     use algol26::frontend::parser::Parser;
     use algol26::ir::optimizer::Optimizer;
     use algol26::semantics::analyzer::SemanticAnalyzer;
-    use algol26::semantics::builder::SemanticIRBuilder;
+    use algol26::semantics::builder::{BuildInputs, SemanticIRBuilder};
 
     let source = "\
 proc main
@@ -127,20 +127,20 @@ proc main
         .unwrap();
     let type_table = analyzer.take_type_table_id();
 
-    let (mut ir, _) = SemanticIRBuilder::build(
-        &functions,
-        type_table,
-        algol26::ir::instantiation_plan::InstantiationPlan::default(),
-        &[],
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(),
-        std::collections::HashMap::new(), // virtual_calls (ADR 0038)
-        std::collections::HashMap::new(), // trait_ids (ADR 0038)
-        std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
-        std::collections::HashMap::new(), // function_returns (ADR 0041)
-    );
+    let (mut ir, _) = SemanticIRBuilder::build(BuildInputs {
+        functions: &functions,
+        type_table_id: type_table,
+        plan: algol26::ir::instantiation_plan::InstantiationPlan::default(),
+        records: &[],
+        nominal_types: std::collections::HashMap::new(),
+        enum_types: std::collections::HashMap::new(),
+        subrange_types: std::collections::HashMap::new(),
+        const_values: std::collections::HashMap::new(),
+        virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
+        trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
+        assoc_bindings: std::collections::HashMap::new(), // assoc_bindings (ADR 0041)
+        function_returns: std::collections::HashMap::new(), // function_returns (ADR 0041)
+    });
 
     let mut opt = Optimizer::new();
     opt.optimize(&mut ir);

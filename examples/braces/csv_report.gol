@@ -1,0 +1,123 @@
+// csv_report.gol (brace form) — same program as examples/csv_report.gol,
+// written with brace-delimited blocks. See docs/guide/blocks.md.
+//
+// Both files must produce byte-identical interpreter output;
+// tests/brace_examples.rs asserts this.
+
+rec Row {
+    zone: String
+    product: String
+    units: Int
+}
+
+rec ZoneTotal {
+    name: String
+    total: Int
+}
+
+proc parse_row(line: String) -> Option<Row> {
+    val parts := String.split(line, ",")
+    if List.length(parts) != 3 {
+        return None
+    }
+    val zone := parts[0]
+    val product := parts[1]
+    val units_opt := String.to_int(parts[2])
+    match units_opt {
+        case Some(u) then {
+            return Some(Row { zone: zone, product: product, units: u })
+        }
+        case None then {
+            return None
+        }
+    }
+}
+
+fn comes_before(a: ZoneTotal, b: ZoneTotal) -> Bool {
+    a.total > b.total
+}
+
+proc sort_by_total(items: List<ZoneTotal>) -> List<ZoneTotal> {
+    val n := List.length(items)
+    var i := 0
+    while i < n {
+        var j := 0
+        while j < n - i - 1 {
+            val a := items[j]
+            val b := items[j + 1]
+            if comes_before(b, a) {
+                items[j] := b
+                items[j + 1] := a
+            }
+            j := j + 1
+        }
+        i := i + 1
+    }
+    return items
+}
+
+proc main {
+    val csv := "North,Widget,100\nNorth,Gadget,50\nSouth,Widget,75\nEast,Widget,200\nWest,Gadget,25\nNorth,Widget,30\nSouth,Gadget,60"
+
+    val lines := String.split(csv, "\n")
+    var rows: List<Row> := []
+    for line in lines {
+        val parsed := parse_row(line)
+        match parsed {
+            case Some(r) then {
+                rows.append(r)
+            }
+            case None then {
+                print(String.concat("skipping malformed line: ", line))
+            }
+        }
+    }
+
+    var totals: Map<String, Int> := Map {}
+    for r in rows {
+        val existing := totals.get(r.zone)
+        match existing {
+            case Some(prev) then {
+                totals.insert(r.zone, prev + r.units)
+            }
+            case None then {
+                totals.insert(r.zone, r.units)
+            }
+        }
+    }
+
+    var entries: List<ZoneTotal> := []
+    for r in rows {
+        val opt := totals.get(r.zone)
+        match opt {
+            case Some(n) then {
+                var seen := false
+                for e in entries {
+                    if e.name = r.zone {
+                        seen := true
+                    }
+                }
+                if not seen {
+                    entries.append(ZoneTotal { name: r.zone, total: n })
+                }
+            }
+            case None then {
+                print("unreachable")
+            }
+        }
+    }
+
+    val sorted := sort_by_total(entries)
+
+    print("=== Units by Zone (highest first) ===")
+    for zt in sorted {
+        print(String.concat(String.concat(zt.name, ": "), Int.to_string(zt.total)))
+    }
+
+    var grand := 0
+    for r in rows {
+        grand := grand + r.units
+    }
+    print("")
+    print(String.concat("Total units: ", Int.to_string(grand)))
+}

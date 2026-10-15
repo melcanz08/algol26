@@ -1,8 +1,3 @@
-#![allow(unused_variables)]
-#![allow(unused_mut)]
-#![allow(unused_imports)]
-#![allow(unused_assignments)]
-
 // src/semantics/builder/mod.rs
 
 use crate::common::span::Span;
@@ -105,22 +100,32 @@ pub(super) struct FunctionSignature {
     pub return_type: Type,
 }
 
+/// Inputs to `SemanticIRBuilder::build`.
+///
+/// Named-field struct rather than positional arguments. The previous
+/// signature took twelve positional arguments, four of which were
+/// `HashMap<String, Type>`-shaped. A caller transposing two of those
+/// four would compile, and the mistake would surface later as a
+/// record-resolution or nominal-type bug. Named fields make every
+/// argument self-documenting at the call site.
+pub struct BuildInputs<'a> {
+    pub functions: &'a [FunctionDecl],
+    pub type_table_id: HashMap<ExprId, Type>,
+    pub plan: InstantiationPlan,
+    pub records: &'a [RecordDecl],
+    pub nominal_types: HashMap<String, Type>,
+    pub enum_types: HashMap<String, Type>,
+    pub subrange_types: HashMap<String, Type>,
+    pub const_values: HashMap<String, (Type, Expr)>,
+    pub virtual_calls: HashMap<ExprId, VirtualCallInfo>,
+    pub trait_ids: HashMap<String, crate::common::types::TraitId>,
+    pub assoc_bindings: HashMap<(String, String), HashMap<String, Type>>,
+    pub function_returns: HashMap<String, Type>,
+}
+
 impl SemanticIRBuilder {
-    pub fn build(
-        functions: &[FunctionDecl],
-        type_table_id: HashMap<ExprId, Type>,
-        plan: InstantiationPlan,
-        records: &[RecordDecl],
-        nominal_types: HashMap<String, Type>,
-        enum_types: HashMap<String, Type>,
-        subrange_types: HashMap<String, Type>,
-        const_values: HashMap<String, (Type, Expr)>,
-        virtual_calls: HashMap<ExprId, VirtualCallInfo>,
-        trait_ids: HashMap<String, crate::common::types::TraitId>,
-        assoc_bindings: HashMap<(String, String), HashMap<String, Type>>,
-        function_returns: HashMap<String, Type>,
-    ) -> (SemanticProgram, Vec<String>) {
-        let record_names: HashSet<String> = records.iter().map(|r| r.name.clone()).collect();
+    pub fn build(inputs: BuildInputs<'_>) -> (SemanticProgram, Vec<String>) {
+        let record_names: HashSet<String> = inputs.records.iter().map(|r| r.name.clone()).collect();
 
         let mut builder = SemanticIRBuilder {
             scopes: vec![HashMap::new()],
@@ -131,21 +136,21 @@ impl SemanticIRBuilder {
             defer_stack: Vec::new(),
             list_values: HashMap::new(),
             pending_merge: None,
-            type_table_id,
+            type_table_id: inputs.type_table_id,
             current_subst: HashMap::new(),
-            plan,
+            plan: inputs.plan,
             record_names,
-            records: records.to_vec(),
-            nominal_types,
-            enum_types,
-            subrange_types,
-            const_values,
-            virtual_calls,
-            trait_ids,
-            assoc_bindings,
-            function_returns,
+            records: inputs.records.to_vec(),
+            nominal_types: inputs.nominal_types,
+            enum_types: inputs.enum_types,
+            subrange_types: inputs.subrange_types,
+            const_values: inputs.const_values,
+            virtual_calls: inputs.virtual_calls,
+            trait_ids: inputs.trait_ids,
+            assoc_bindings: inputs.assoc_bindings,
+            function_returns: inputs.function_returns,
         };
-        let program = builder.build_impl(functions);
+        let program = builder.build_impl(inputs.functions);
         (program, builder.diagnostics)
     }
     /// Resolve a syntactic callee name to the name that should

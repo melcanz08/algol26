@@ -1,0 +1,19 @@
+// BACKEND: interpreter llvm wasm
+// OUTPUT: 3.14
+// OUTPUT: 0.5
+// OUTPUT: -2.5
+// OUTPUT: 1
+// OUTPUT: 0
+// OUTPUT: 0.333333
+//
+// Float.to_string formats with %.6f and strips trailing zeros
+// from the fractional part (and a trailing '.' if the fractional
+// part becomes empty). All three backends produce identical
+// output.
+proc main
+    print(Float.to_string(3.14))
+    print(Float.to_string(0.5))
+    print(Float.to_string(-2.5))
+    print(Float.to_string(1.0))
+    print(Float.to_string(0.0))
+    print(Float.to_string(1.0 / 3.0))

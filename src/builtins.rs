@@ -199,6 +199,16 @@ pub fn builtins() -> Vec<BuiltinSig> {
         return_type: Type::option(Type::Int),
     });
 
+    // Float-to-string conversion. Format is `%.6f` with trailing
+    // zeros stripped from the fractional part, so 3.14 -> "3.14",
+    // 1.0 -> "1", 1.0/3.0 -> "0.333333". All three backends produce
+    // identical output for the same input.
+    v.push(BuiltinSig {
+        name: "Float.to_string",
+        params: vec![("x", Type::Float)],
+        return_type: Type::String,
+    });
+
     v
 }
 

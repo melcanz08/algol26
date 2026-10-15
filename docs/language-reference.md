@@ -902,13 +902,21 @@ attributed to the importing file's path. A type error inside
 
 ### 15.3 Conversions
 
-| Function             | Signature                       |
-|----------------------|---------------------------------|
-| `Int.to_string(n)`   | `Int -> String`                 |
-| `String.to_int(s)`   | `String -> Option<Int>`         |
+| Function               | Signature                       |
+|------------------------|---------------------------------|
+| `Int.to_string(n)`     | `Int -> String`                 |
+| `Float.to_string(x)`   | `Float -> String`               |
+| `String.to_int(s)`     | `String -> Option<Int>`         |
 
 `String.to_int` returns `Option<Int>` rather than `Int` because
 not every string is a valid integer. Use `match` to distinguish.
+
+`Float.to_string` formats with six decimal places, then strips
+trailing zeros (and a trailing `.` if the fractional part becomes
+empty). So `3.14` becomes `"3.14"`, `1.0` becomes `"1"`, and
+`1.0 / 3.0` becomes `"0.333333"`. All three backends produce
+identical output for the same input. Values below `1e-6` round
+to `"0"`.
 
 ### 15.4 File
 

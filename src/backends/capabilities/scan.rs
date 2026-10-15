@@ -122,6 +122,7 @@ fn mentions_generic_record(ty: &Type) -> bool {
 /// | Name pattern                              | Feature          |
 /// |-------------------------------------------|------------------|
 /// | `Int.to_string`                            | `IntToString`    |
+/// | `Float.to_string`                          | (none — permitted) |
 /// | `String.to_int`                            | `StringToInt`    |
 /// | `String.concat` / `.substring` / `.trim`   | `StringOps`      |
 /// | `String.to_upper` / `.to_lower`            | `StringOps`      |

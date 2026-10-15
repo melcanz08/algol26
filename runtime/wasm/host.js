@@ -101,9 +101,24 @@ const env = {
                 case 's':
                     out += readStrAt(dv.getUint32(slot, true));
                     break;
-                case 'f':
-                    out += dv.getFloat64(slot, true).toFixed(1);
+                case 'f': {
+                    // Read the precision from the format specifier,
+                    // defaulting to 6 (C standard for `%f`). The
+                    // substring between `i + 1` and `j` holds
+                    // flags/width/precision, possibly followed by
+                    // length modifiers.
+                    let prec = 6;
+                    const spec = fmt.slice(i + 1, j).replace(/[lh]+$/, '');
+                    const dot = spec.lastIndexOf('.');
+                    if (dot !== -1) {
+                        const digits = spec.slice(dot + 1);
+                        if (/^\d+$/.test(digits)) {
+                            prec = parseInt(digits, 10);
+                        }
+                    }
+                    out += dv.getFloat64(slot, true).toFixed(prec);
                     break;
+                }
                 default:
                     out += '%' + conv;
             }

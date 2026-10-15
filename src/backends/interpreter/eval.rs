@@ -1058,6 +1058,24 @@ impl Interpreter {
                 };
                 Ok(RuntimeValue::String(n.to_string()))
             }
+            "Float.to_string" => {
+                let f = match arg_vals.first() {
+                    Some(RuntimeValue::Float(f)) => *f,
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Float.to_string",
+                            left: runtime_kind(other),
+                            right: "Float",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "Float.to_string: missing argument".into(),
+                        ))
+                    }
+                };
+                Ok(RuntimeValue::String(format_float_for_display(f)))
+            }
             "String.to_int" => {
                 let s = match arg_vals.first() {
                     Some(RuntimeValue::String(s)) => s.clone(),
@@ -1454,5 +1472,36 @@ impl Interpreter {
 
         result.map_err(|e| EvalError::Runtime(format!("in {}: {}", callee.name, e)))?;
         Ok(ret)
+    }
+}
+
+/// Format a float for `Float.to_string`. Matches the LLVM and WASM
+/// codegen paths: `%.6f` formatting followed by stripping trailing
+/// zeros (and a trailing `.` if the fractional part becomes empty).
+/// This keeps all three backends in agreement.
+///
+/// Non-finite inputs (`NaN`, `inf`, `-inf`) format as `"NaN"`,
+/// `"inf"`, `"-inf"`.
+fn format_float_for_display(f: f64) -> String {
+    if f.is_nan() {
+        return "NaN".to_string();
+    }
+    if f.is_infinite() {
+        return if f.is_sign_negative() {
+            "-inf".to_string()
+        } else {
+            "inf".to_string()
+        };
+    }
+    let s = format!("{:.6}", f);
+    let s = if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
+    };
+    if s == "-0" {
+        "0".to_string()
+    } else {
+        s
     }
 }

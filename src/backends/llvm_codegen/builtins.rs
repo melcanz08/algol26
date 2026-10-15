@@ -174,6 +174,133 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
         }
 
+        // ── algol26_float_to_string_strip ──
+        // Given a buffer containing `%.6f`-formatted text, strip
+        // trailing '0' characters and a single trailing '.' if the
+        // fractional part became empty. Mutates in place, returns
+        // void. Used by `Float.to_string` after `sprintf`.
+        let strip_ty = self.context.void_type().fn_type(&[i8_ptr.into()], false);
+        let strip_fn = self
+            .module
+            .add_function("algol26_float_to_string_strip", strip_ty, None);
+        self.functions
+            .insert("algol26_float_to_string_strip".to_string(), strip_fn);
+        {
+            let saved = self.builder.get_insert_block();
+            let entry = self.context.append_basic_block(strip_fn, "entry");
+            let loop_head = self.context.append_basic_block(strip_fn, "loop_head");
+            let loop_check = self.context.append_basic_block(strip_fn, "loop_check");
+            let strip_body = self.context.append_basic_block(strip_fn, "strip_body");
+            let check_dot = self.context.append_basic_block(strip_fn, "check_dot");
+            let strip_dot = self.context.append_basic_block(strip_fn, "strip_dot");
+            let done = self.context.append_basic_block(strip_fn, "done");
+
+            self.builder.position_at_end(entry);
+            let buf = strip_fn.get_nth_param(0).unwrap().into_pointer_value();
+            let i64_ty = self.context.i64_type();
+            let i8_ty = self.context.i8_type();
+
+            let strlen_ty = i64_ty.fn_type(&[i8_ptr.into()], false);
+            let strlen_fn = self
+                .module
+                .get_function("strlen")
+                .unwrap_or_else(|| self.module.add_function("strlen", strlen_ty, None));
+            let len_call = self
+                .builder
+                .build_call(strlen_fn, &[buf.into()], "len")
+                .unwrap();
+            let len = match len_call.try_as_basic_value() {
+                inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                inkwell::values::ValueKind::Instruction(_) => {
+                    unreachable!("float_to_string_strip: strlen returned no value")
+                }
+            };
+            self.builder.build_unconditional_branch(loop_head).unwrap();
+
+            self.builder.position_at_end(loop_head);
+            let cur_len_phi = self.builder.build_phi(i64_ty, "cur_len").unwrap();
+            cur_len_phi.add_incoming(&[(&len, entry)]);
+            let cur_len = cur_len_phi.as_basic_value().into_int_value();
+            let is_zero = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    cur_len,
+                    i64_ty.const_int(0, false),
+                    "is_zero",
+                )
+                .unwrap();
+            self.builder
+                .build_conditional_branch(is_zero, done, loop_check)
+                .unwrap();
+
+            self.builder.position_at_end(loop_check);
+            let last_idx = self
+                .builder
+                .build_int_sub(cur_len, i64_ty.const_int(1, false), "last_idx")
+                .unwrap();
+            let last_ptr = unsafe {
+                self.builder
+                    .build_gep(i8_ty, buf, &[last_idx], "last_ptr")
+                    .unwrap()
+            };
+            let last_char = self
+                .builder
+                .build_load(i8_ty, last_ptr, "last_char")
+                .unwrap()
+                .into_int_value();
+            let is_zero_char = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    last_char,
+                    i8_ty.const_int(b'0' as u64, false),
+                    "is_zero_char",
+                )
+                .unwrap();
+            self.builder
+                .build_conditional_branch(is_zero_char, strip_body, check_dot)
+                .unwrap();
+
+            self.builder.position_at_end(strip_body);
+            self.builder
+                .build_store(last_ptr, i8_ty.const_int(0, false))
+                .unwrap();
+            let next_len = self
+                .builder
+                .build_int_sub(cur_len, i64_ty.const_int(1, false), "next_len")
+                .unwrap();
+            cur_len_phi.add_incoming(&[(&next_len, strip_body)]);
+            self.builder.build_unconditional_branch(loop_head).unwrap();
+
+            self.builder.position_at_end(check_dot);
+            let is_dot = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    last_char,
+                    i8_ty.const_int(b'.' as u64, false),
+                    "is_dot",
+                )
+                .unwrap();
+            self.builder
+                .build_conditional_branch(is_dot, strip_dot, done)
+                .unwrap();
+
+            self.builder.position_at_end(strip_dot);
+            self.builder
+                .build_store(last_ptr, i8_ty.const_int(0, false))
+                .unwrap();
+            self.builder.build_unconditional_branch(done).unwrap();
+
+            self.builder.position_at_end(done);
+            self.builder.build_return(None).unwrap();
+
+            if let Some(bb) = saved {
+                self.builder.position_at_end(bb);
+            }
+        }
+
         // ── algol26_string_to_upper / _to_lower ──
         // Allocate strlen(s)+1 bytes, walk bytes, apply the C
         // ctype function, NUL-terminate.
@@ -1015,6 +1142,73 @@ impl<'ctx> IRCodeGen<'ctx> {
                         &[buf.into(), fmt.as_pointer_value().into(), n.into()],
                         "int_to_string",
                     )
+                    .unwrap();
+
+                Ok((buf.into(), Type::String))
+            }
+            "Float.to_string" => {
+                let arg = args.first().ok_or_else(|| {
+                    CompileError::simple(
+                        "Float.to_string requires 1 argument",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    )
+                })?;
+                let val = self.compile_value(arg)?;
+                if !val.is_float_value() {
+                    return Err(CompileError::simple(
+                        "Float.to_string expects a Float",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let f = val.into_float_value();
+
+                let i8_ty = self.context.i8_type();
+                let buf_ty = i8_ty.array_type(32);
+                let buf = self.builder.build_alloca(buf_ty, "float_str_buf").unwrap();
+
+                let i8_ptr = self.context.ptr_type(AddressSpace::default());
+                let i32_ty = self.context.i32_type();
+                let sprintf_ty = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], true);
+                let sprintf_fn = match self.module.get_function("sprintf") {
+                    Some(f) => f,
+                    None => self.module.add_function("sprintf", sprintf_ty, None),
+                };
+
+                let fmt = self
+                    .builder
+                    .build_global_string_ptr("%.6f", "fmt_f64")
+                    .unwrap();
+
+                self.builder
+                    .build_call(
+                        sprintf_fn,
+                        &[buf.into(), fmt.as_pointer_value().into(), f.into()],
+                        "float_to_string_sprintf",
+                    )
+                    .unwrap();
+
+                // Strip trailing zeros and a trailing dot.
+                let strip_fn = self
+                    .module
+                    .get_function("algol26_float_to_string_strip")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "LLVM codegen: algol26_float_to_string_strip not \
+                             registered in stdlib",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                self.builder
+                    .build_call(strip_fn, &[buf.into()], "")
                     .unwrap();
 
                 Ok((buf.into(), Type::String))

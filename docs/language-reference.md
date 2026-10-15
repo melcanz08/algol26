@@ -152,7 +152,8 @@ The analyzer unifies operand types via `common_supertype`:
 | `String` `+` `String`      | `String` (concatenation) |
 
 Arithmetic and comparison operators require **numeric** operands.
-`"a" < "b"` is a type error, not a string comparison.
+`"a" < "b"` is a type error — there is no `<` operator for strings.
+Use `String.compare(a, b)` to compare strings lexicographically.
 
 Boolean operators `and` / `or` require `Bool` operands on both sides.
 
@@ -861,6 +862,7 @@ attributed to the importing file's path. A type error inside
 | Function                              | Signature                       |
 |---------------------------------------|---------------------------------|
 | `String.length(s)`                    | `String -> Int`                 |
+| `String.compare(a, b)`                | `String x String -> Int`        |
 | `String.concat(s1, s2)`               | `String x String -> String`     |
 | `String.substring(s, start, len)`     | `String x Int x Int -> String`  |
 | `String.to_upper(s)`                  | `String -> String`              |
@@ -1086,14 +1088,12 @@ that would fail if the guarantee were broken.
 - **Sum types.** The language has no variants or tagged unions;
   recursive structured data (a JSON tree, an AST) is not
   expressible. See ADR 0055.
-- **String ordering.** There is no `<`, `>`, `<=`, `>=`, or
-  `String.compare` operator for strings. Strings can be compared
-  for equality with `=` and `!=`, but not ordered. Sorting strings
-  would require iterating codepoints and comparing single
-  characters, which in turn needs a character-comparison primitive
-  that does not exist. Programs that need ordered string keys must
-  either sort on an associated numeric value, or maintain an
-  external ordering.
+- **String ordering operators.** There is no `<`, `>`, `<=`, or
+  `>=` operator for strings; those operators require numeric
+  operands. Order strings with `String.compare(a, b)`, which
+  returns -1, 0, or 1. `String.compare` is byte-wise (not
+  Unicode codepoint) ordering: `"é"` sorts after `"z"` because
+  the first byte of `"é"` is `0xC3 > 0x7A`.
 - **Reserved-word collisions.** `end`, `from`, `in`, `do`, `as`,
   `region`, and the rest of the keyword set cannot be used as field
   names. `rec Segment { start, end }` fails to parse;

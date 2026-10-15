@@ -406,123 +406,67 @@ fn float_arg_does_not_satisfy_int_param() {
 }
 
 #[test]
-fn builtin_signatures_match_analyzer_table() {
-    // The analyzer (`SemanticAnalyzer::register_builtin_functions`) and
-    // the IR verifier (`verifier::builtins::builtin_signatures`) each
-    // maintain a built-in signature table. They must agree on names,
-    // param counts, param types, and return types. If they diverge,
-    // a call the analyzer accepts will be rejected at verify time with
-    // "Call to undefined function" or a param-count mismatch — the
-    // failure surfaces far from the actual change.
+fn verifier_builtin_table_matches_canonical() {
+    // The verifier's built-in signature table is now derived from
+    // `crate::builtins::builtins()`. This test pins that the
+    // derivation is correct: every entry in the canonical table
+    // appears in the verifier's table with matching param types,
+    // param names, and return type, and there are no extras.
     //
-    // This test pins the full expected table. Adding a new built-in
-    // requires updating three places: the analyzer's registration, the
-    // verifier's `builtin_signatures`, and this test.
-    use crate::common::types::Type;
+    // If someone changes the shape of `FunctionSignature` or the
+    // conversion in `verifier/builtins.rs`, this test fails with a
+    // specific builtin name and field.
+    let canonical = crate::builtins::builtins();
+    let verifier = super::builtins::builtin_signatures();
 
-    let sigs = super::builtins::builtin_signatures();
-
-    let expected: Vec<(&str, Vec<Type>, Type)> = vec![
-        // Math
-        ("Math.sqrt", vec![Type::Float], Type::Float),
-        ("Math.pow", vec![Type::Float, Type::Float], Type::Float),
-        ("Math.sin", vec![Type::Float], Type::Float),
-        ("Math.cos", vec![Type::Float], Type::Float),
-        ("Math.abs", vec![Type::Float], Type::Float),
-        ("Math.floor", vec![Type::Float], Type::Float),
-        ("Math.ceil", vec![Type::Float], Type::Float),
-        ("Math.exp", vec![Type::Float], Type::Float),
-        ("Math.log", vec![Type::Float], Type::Float),
-        ("Math.tan", vec![Type::Float], Type::Float),
-        // String
-        ("String.length", vec![Type::String], Type::Int),
-        (
-            "String.concat",
-            vec![Type::String, Type::String],
-            Type::String,
-        ),
-        (
-            "String.substring",
-            vec![Type::String, Type::Int, Type::Int],
-            Type::String,
-        ),
-        ("String.to_upper", vec![Type::String], Type::String),
-        ("String.to_lower", vec![Type::String], Type::String),
-        ("String.trim", vec![Type::String], Type::String),
-        (
-            "String.split",
-            vec![Type::String, Type::String],
-            Type::list(Type::String),
-        ),
-        (
-            "String.join",
-            vec![Type::list(Type::String), Type::String],
-            Type::String,
-        ),
-        // File
-        ("File.read", vec![Type::String], Type::String),
-        ("File.write", vec![Type::String, Type::String], Type::Int),
-        ("File.append", vec![Type::String, Type::String], Type::Int),
-        // List
-        ("List.length", vec![Type::list(Type::Unknown)], Type::Int),
-        ("List.sum", vec![Type::list(Type::Unknown)], Type::Float),
-        ("List.max", vec![Type::list(Type::Unknown)], Type::Float),
-        ("List.min", vec![Type::list(Type::Unknown)], Type::Float),
-        // Raw memory
-        ("alloc", vec![Type::Int], Type::pointer(Type::Unknown)),
-        ("free", vec![Type::pointer(Type::Unknown)], Type::Void),
-        // Assertion (ADR 0022)
-        ("affirm", vec![Type::Bool, Type::String], Type::Void),
-        // Command-line arguments (ADR 0023)
-        ("args", vec![], Type::list(Type::String)),
-        // Conversions (Track B)
-        ("Int.to_string", vec![Type::Int], Type::String),
-        ("String.to_int", vec![Type::String], Type::option(Type::Int)),
-    ];
-
-    for (name, expected_params, expected_ret) in &expected {
-        let sig = sigs.get(*name).unwrap_or_else(|| {
+    for sig in &canonical {
+        let v = verifier.get(sig.name).unwrap_or_else(|| {
             panic!(
-                "builtin `{}` is in the expected table but missing from \
-                 `builtin_signatures()` — add it to `verifier/builtins.rs`",
-                name
+                "builtin `{}` in crate::builtins but not in verifier table — \
+                 update `verifier::builtins::builtin_signatures`",
+                sig.name
             )
         });
 
         assert_eq!(
+            v.params.len(),
             sig.params.len(),
-            expected_params.len(),
-            "builtin `{}`: param count mismatch (expected {}, got {})",
-            name,
-            expected_params.len(),
-            sig.params.len()
+            "builtin `{}`: param count mismatch (canonical {}, verifier {})",
+            sig.name,
+            sig.params.len(),
+            v.params.len()
         );
 
-        for (i, (expected_ty, (_, actual_ty))) in
-            expected_params.iter().zip(&sig.params).enumerate()
+        for (i, ((canonical_name, canonical_ty), (verifier_name, verifier_ty))) in
+            sig.params.iter().zip(&v.params).enumerate()
         {
             assert_eq!(
-                actual_ty, expected_ty,
-                "builtin `{}`: param {} type mismatch (expected {:?}, got {:?})",
-                name, i, expected_ty, actual_ty
+                verifier_name, canonical_name,
+                "builtin `{}`: param {} name mismatch (canonical {}, verifier {})",
+                sig.name, i, canonical_name, verifier_name
+            );
+            assert_eq!(
+                verifier_ty, canonical_ty,
+                "builtin `{}`: param {} type mismatch (canonical {:?}, verifier {:?})",
+                sig.name, i, canonical_ty, verifier_ty
             );
         }
 
         assert_eq!(
-            sig.return_type, *expected_ret,
-            "builtin `{}`: return type mismatch (expected {:?}, got {:?})",
-            name, expected_ret, sig.return_type
+            v.return_type, sig.return_type,
+            "builtin `{}`: return type mismatch (canonical {:?}, verifier {:?})",
+            sig.name, sig.return_type, v.return_type
         );
     }
 
-    // Catch the reverse direction: a built-in in the verifier's table
-    // that isn't in the expected list — probably a new built-in whose
-    // analyzer registration didn't land, or a leftover from a removal.
-    for name in sigs.keys() {
+    // Reverse direction: any name in the verifier's table that isn't
+    // in the canonical table is stale. This catches a leftover
+    // entry from a builtin that was removed.
+    for name in verifier.keys() {
         assert!(
-            expected.iter().any(|(n, _, _)| *n == name.as_str()),
-            "verifier's signature table has `{}` but the expected list \
-             does not — update this test if the built-in is intentional",
+            canonical.iter().any(|s| s.name == name),
+            "verifier table has `{}` but crate::builtins does not — \
+             remove it from `verifier::builtins::builtin_signatures`",
             name
         );
     }

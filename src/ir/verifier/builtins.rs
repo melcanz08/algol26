@@ -36,134 +36,26 @@ pub fn is_builtin_name(name: &str) -> bool {
 /// but that do not appear as `SemanticFunction` entries in the program.
 /// Keep this in sync with `SemanticIRBuilder::build_impl`.
 pub(super) fn builtin_signatures() -> HashMap<String, FunctionSignature> {
-    let mut m = HashMap::new();
-
-    let mut reg = |name: &str, params: Vec<(&str, Type)>, ret: Type| {
-        m.insert(
-            name.to_string(),
-            FunctionSignature {
-                params: params
-                    .into_iter()
-                    .map(|(n, t)| (n.to_string(), t))
-                    .collect(),
-                return_type: ret,
-                variadic: false,
-            },
-        );
-    };
-
-    // Math
-    for name in &[
-        "Math.sqrt",
-        "Math.sin",
-        "Math.cos",
-        "Math.tan",
-        "Math.abs",
-        "Math.floor",
-        "Math.ceil",
-        "Math.exp",
-        "Math.log",
-    ] {
-        reg(name, vec![("x", Type::Float)], Type::Float);
-    }
-    reg(
-        "Math.pow",
-        vec![("x", Type::Float), ("y", Type::Float)],
-        Type::Float,
-    );
-
-    // String
-    reg("String.length", vec![("s", Type::String)], Type::Int);
-    reg(
-        "String.concat",
-        vec![("s1", Type::String), ("s2", Type::String)],
-        Type::String,
-    );
-    reg(
-        "String.substring",
-        vec![
-            ("s", Type::String),
-            ("start", Type::Int),
-            ("length", Type::Int),
-        ],
-        Type::String,
-    );
-    reg("String.to_upper", vec![("s", Type::String)], Type::String);
-    reg("String.to_lower", vec![("s", Type::String)], Type::String);
-    reg("String.trim", vec![("s", Type::String)], Type::String);
-    reg(
-        "String.split",
-        vec![("s", Type::String), ("sep", Type::String)],
-        Type::list(Type::String),
-    );
-    reg(
-        "String.join",
-        vec![("xs", Type::list(Type::String)), ("sep", Type::String)],
-        Type::String,
-    );
-    // File
-    reg("File.read", vec![("path", Type::String)], Type::String);
-    reg(
-        "File.write",
-        vec![("path", Type::String), ("content", Type::String)],
-        Type::Int,
-    );
-    reg(
-        "File.append",
-        vec![("path", Type::String), ("content", Type::String)],
-        Type::Int,
-    );
-
-    // List
-    reg(
-        "List.length",
-        vec![("arr", Type::list(Type::Unknown))],
-        Type::Int,
-    );
-    reg(
-        "List.sum",
-        vec![("arr", Type::list(Type::Unknown))],
-        Type::Float,
-    );
-    reg(
-        "List.max",
-        vec![("arr", Type::list(Type::Unknown))],
-        Type::Float,
-    );
-    reg(
-        "List.min",
-        vec![("arr", Type::list(Type::Unknown))],
-        Type::Float,
-    );
-
-    // Assertion (ADR 0022)
-    reg(
-        "affirm",
-        vec![("cond", Type::Bool), ("msg", Type::String)],
-        Type::Void,
-    );
-    // Command-line arguments (ADR 0023)
-    reg("args", vec![], Type::list(Type::String));
-
-    // Conversions (Track B)
-    reg("Int.to_string", vec![("n", Type::Int)], Type::String);
-    reg(
-        "String.to_int",
-        vec![("s", Type::String)],
-        Type::option(Type::Int),
-    );
-
-    // Raw memory
-    reg(
-        "alloc",
-        vec![("size", Type::Int)],
-        Type::pointer(Type::Unknown),
-    );
-    reg(
-        "free",
-        vec![("ptr", Type::pointer(Type::Unknown))],
-        Type::Void,
-    );
-
-    m
+    // The signatures live in `crate::builtins`. This function converts
+    // them into the verifier's own `FunctionSignature` shape. Before
+    // the unification, this function had its own copy of the table
+    // and could drift from the analyzer's and builder's copies — see
+    // `src/builtins.rs` for the full story.
+    crate::builtins::builtins()
+        .into_iter()
+        .map(|sig| {
+            (
+                sig.name.to_string(),
+                FunctionSignature {
+                    params: sig
+                        .params
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
+                    return_type: sig.return_type,
+                    variadic: false,
+                },
+            )
+        })
+        .collect()
 }

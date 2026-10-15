@@ -6,31 +6,22 @@ use crate::frontend::ast::{RecordDecl, TypeSyntax, Visibility};
 
 impl SemanticAnalyzer {
     pub(super) fn register_builtin_functions(&mut self) {
-        let math_functions = [
-            ("Math.sqrt", vec![("x", Type::Float)], Type::Float),
-            (
-                "Math.pow",
-                vec![("x", Type::Float), ("y", Type::Float)],
-                Type::Float,
-            ),
-            ("Math.sin", vec![("x", Type::Float)], Type::Float),
-            ("Math.cos", vec![("x", Type::Float)], Type::Float),
-            ("Math.abs", vec![("x", Type::Float)], Type::Float),
-            ("Math.floor", vec![("x", Type::Float)], Type::Float),
-            ("Math.ceil", vec![("x", Type::Float)], Type::Float),
-            ("Math.exp", vec![("x", Type::Float)], Type::Float),
-            ("Math.log", vec![("x", Type::Float)], Type::Float),
-            ("Math.tan", vec![("x", Type::Float)], Type::Float),
-        ];
-        for (name, params, return_type) in math_functions {
+        // The built-in signature table lives in `crate::builtins`.
+        // Before the unification, this function, the IR builder's
+        // `build_impl`, and the verifier's `builtin_signatures` each
+        // maintained their own copy. They drifted — `List.length`
+        // was `List<Unknown>` here and `List<Float>` in the builder.
+        // See `src/builtins.rs` for the full story.
+        for sig in crate::builtins::builtins() {
             self.functions.insert(
-                name.to_string(),
+                sig.name.to_string(),
                 FunctionInfo {
-                    params: params
+                    params: sig
+                        .params
                         .into_iter()
                         .map(|(n, t)| (n.to_string(), t))
                         .collect(),
-                    return_type,
+                    return_type: sig.return_type,
                     type_params: Vec::new(),
                     where_clauses: Vec::new(),
                     visibility: Visibility::Public,
@@ -38,188 +29,6 @@ impl SemanticAnalyzer {
                 },
             );
         }
-        let string_functions = [
-            ("String.length", vec![("s", Type::String)], Type::Int),
-            (
-                "String.concat",
-                vec![("s1", Type::String), ("s2", Type::String)],
-                Type::String,
-            ),
-            (
-                "String.substring",
-                vec![
-                    ("s", Type::String),
-                    ("start", Type::Int),
-                    ("length", Type::Int),
-                ],
-                Type::String,
-            ),
-            ("String.to_upper", vec![("s", Type::String)], Type::String),
-            ("String.to_lower", vec![("s", Type::String)], Type::String),
-            ("String.trim", vec![("s", Type::String)], Type::String),
-            (
-                "String.split",
-                vec![("s", Type::String), ("sep", Type::String)],
-                Type::list(Type::String),
-            ),
-            (
-                "String.join",
-                vec![("xs", Type::list(Type::String)), ("sep", Type::String)],
-                Type::String,
-            ),
-        ];
-        for (name, params, return_type) in string_functions {
-            self.functions.insert(
-                name.to_string(),
-                FunctionInfo {
-                    params: params
-                        .into_iter()
-                        .map(|(n, t)| (n.to_string(), t))
-                        .collect(),
-                    return_type,
-                    type_params: Vec::new(),
-                    where_clauses: Vec::new(),
-                    visibility: Visibility::Public,
-                    module: None,
-                },
-            );
-        }
-        let file_functions = [
-            ("File.read", vec![("path", Type::String)], Type::String),
-            (
-                "File.write",
-                vec![("path", Type::String), ("content", Type::String)],
-                Type::Int,
-            ),
-            (
-                "File.append",
-                vec![("path", Type::String), ("content", Type::String)],
-                Type::Int,
-            ),
-        ];
-        for (name, params, return_type) in file_functions {
-            self.functions.insert(
-                name.to_string(),
-                FunctionInfo {
-                    params: params
-                        .into_iter()
-                        .map(|(n, t)| (n.to_string(), t))
-                        .collect(),
-                    return_type,
-                    type_params: Vec::new(),
-                    where_clauses: Vec::new(),
-                    visibility: Visibility::Public,
-                    module: None,
-                },
-            );
-        }
-        let list_functions = [
-            (
-                "List.length",
-                vec![("arr", Type::list(Type::Unknown))],
-                Type::Int,
-            ),
-            (
-                "List.sum",
-                vec![("arr", Type::list(Type::Unknown))],
-                Type::Float,
-            ),
-            (
-                "List.max",
-                vec![("arr", Type::list(Type::Unknown))],
-                Type::Float,
-            ),
-            (
-                "List.min",
-                vec![("arr", Type::list(Type::Unknown))],
-                Type::Float,
-            ),
-        ];
-        for (name, params, return_type) in list_functions {
-            self.functions.insert(
-                name.to_string(),
-                FunctionInfo {
-                    params: params
-                        .into_iter()
-                        .map(|(n, t)| (n.to_string(), t))
-                        .collect(),
-                    return_type,
-                    type_params: Vec::new(),
-                    where_clauses: Vec::new(),
-                    visibility: Visibility::Public,
-                    module: None,
-                },
-            );
-        }
-        self.functions.insert(
-            "alloc".to_string(),
-            FunctionInfo {
-                params: vec![("size".to_string(), Type::Int)],
-                return_type: Type::pointer(Type::Unknown),
-                type_params: Vec::new(),
-                where_clauses: Vec::new(),
-                visibility: Visibility::Public,
-                module: None,
-            },
-        );
-        self.functions.insert(
-            "free".to_string(),
-            FunctionInfo {
-                params: vec![("ptr".to_string(), Type::pointer(Type::Unknown))],
-                return_type: Type::Void,
-                type_params: Vec::new(),
-                where_clauses: Vec::new(),
-                visibility: Visibility::Public,
-                module: None,
-            },
-        );
-        self.functions.insert(
-            "affirm".to_string(),
-            FunctionInfo {
-                params: vec![
-                    ("cond".to_string(), Type::Bool),
-                    ("msg".to_string(), Type::String),
-                ],
-                return_type: Type::Void,
-                type_params: Vec::new(),
-                where_clauses: Vec::new(),
-                visibility: Visibility::Public,
-                module: None,
-            },
-        );
-        self.functions.insert(
-            "args".to_string(),
-            FunctionInfo {
-                params: vec![],
-                return_type: Type::list(Type::String),
-                type_params: Vec::new(),
-                where_clauses: Vec::new(),
-                visibility: Visibility::Public,
-                module: None,
-            },
-        );
-        self.functions.insert(
-            "Int.to_string".to_string(),
-            FunctionInfo {
-                params: vec![("n".to_string(), Type::Int)],
-                return_type: Type::String,
-                type_params: Vec::new(),
-                where_clauses: Vec::new(),
-                visibility: Visibility::Public,
-                module: None,
-            },
-        );
-        self.functions.insert(
-            "String.to_int".to_string(),
-            FunctionInfo {
-                params: vec![("s".to_string(), Type::String)],
-                return_type: Type::option(Type::Int),
-                type_params: Vec::new(),
-                where_clauses: Vec::new(),
-                visibility: Visibility::Public,
-                module: None,
-            },
-        );
     }
     /// Register every `enum Name ...` declaration.
     ///

@@ -1,0 +1,26 @@
+// BACKEND: interpreter
+// OUTPUT: 3
+// OUTPUT: 4
+// OUTPUT: 2
+//
+// Regression test for the builtin-signature unification.
+//
+// Before the unification, the analyzer and verifier used
+// `List<Unknown>` for `List.length`'s parameter, but the IR builder
+// used `List<Float>`. The builder's tighter signature rejected
+// `List.length(names)` where `names: List<String>`, even though the
+// call is well-typed. The unification made all three sites read
+// `List<Unknown>` from `crate::builtins`, so this program compiles
+// and runs.
+//
+// If the `List<Float>` signature is ever reintroduced at any site,
+// this test fails at compile time before it can fail at runtime.
+proc main
+    val names := ["alice", "bob", "carol"]
+    print(List.length(names))
+
+    val ints := [10, 20, 30, 40]
+    print(List.length(ints))
+
+    val floats := [1.0, 2.0]
+    print(List.length(floats))

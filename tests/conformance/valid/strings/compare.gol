@@ -1,0 +1,29 @@
+// OUTPUT: -1
+// OUTPUT: 0
+// OUTPUT: 1
+// OUTPUT: -1
+// OUTPUT: 1
+// OUTPUT: 0
+// OUTPUT: -1
+// OUTPUT: 1
+//
+// String.compare(a, b) returns -1, 0, or 1 depending on whether
+// a < b, a = b, or a > b — byte-wise lexicographic ordering (not
+// Unicode codepoint ordering). This test runs on the LLVM path
+// by default; the same source produces identical output on the
+// interpreter and on WASM (verified separately via the manual
+// probe and the host shim's strcmp).
+//
+// A future extension to the conformance harness will let this
+// test declare `// BACKEND: interpreter llvm wasm` and run on
+// all three backends. For now, the default (LLVM) exercises
+// the path that had the i32/i64 sign-extension bug.
+proc main
+    print(Int.to_string(String.compare("a", "b")))
+    print(Int.to_string(String.compare("a", "a")))
+    print(Int.to_string(String.compare("b", "a")))
+    print(Int.to_string(String.compare("", "a")))
+    print(Int.to_string(String.compare("a", "")))
+    print(Int.to_string(String.compare("", "")))
+    print(Int.to_string(String.compare("abc", "abcd")))
+    print(Int.to_string(String.compare("abcd", "abc")))

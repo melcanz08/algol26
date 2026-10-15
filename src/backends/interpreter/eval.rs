@@ -780,6 +780,25 @@ impl Interpreter {
                     right: arg_vals.get(1).map(runtime_kind).unwrap_or("none"),
                 }),
             },
+
+            // Byte-wise lexicographic comparison. Returns -1, 0, or 1.
+            // Rust's `str::cmp` already produces the right ordering;
+            // we map its `Ordering` to the language's convention.
+            "String.compare" => match (arg_vals.first(), arg_vals.get(1)) {
+                (Some(RuntimeValue::String(a)), Some(RuntimeValue::String(b))) => {
+                    let r = match a.cmp(b) {
+                        std::cmp::Ordering::Less => -1i64,
+                        std::cmp::Ordering::Equal => 0i64,
+                        std::cmp::Ordering::Greater => 1i64,
+                    };
+                    Ok(RuntimeValue::Int(r))
+                }
+                _ => Err(EvalError::TypeMismatch {
+                    op: "String.compare",
+                    left: arg_vals.first().map(runtime_kind).unwrap_or("none"),
+                    right: arg_vals.get(1).map(runtime_kind).unwrap_or("none"),
+                }),
+            },
             "String.to_upper" | "String.upper" | "to_upper" | "upper" => match arg_vals.first() {
                 Some(RuntimeValue::String(s)) => Ok(RuntimeValue::String(s.to_uppercase())),
                 Some(other) => Err(EvalError::TypeMismatch {

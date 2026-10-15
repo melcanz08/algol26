@@ -109,6 +109,16 @@ pub fn builtins() -> Vec<BuiltinSig> {
         return_type: Type::String,
     });
 
+    // Byte-wise lexicographic comparison. Returns -1, 0, or 1.
+    // Not Unicode-aware — "é" sorts after "z" because 'é' begins
+    // with byte 0xC3 > 0x7A. Documented in the language reference
+    // §15.2.
+    v.push(BuiltinSig {
+        name: "String.compare",
+        params: vec![("a", Type::String), ("b", Type::String)],
+        return_type: Type::Int,
+    });
+
     // ─── File ────────────────────────────────────────────────────
     v.push(BuiltinSig {
         name: "File.read",

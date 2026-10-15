@@ -125,6 +125,7 @@ fn mentions_generic_record(ty: &Type) -> bool {
 /// | `String.to_int`                            | `StringToInt`    |
 /// | `String.concat` / `.substring` / `.trim`   | `StringOps`      |
 /// | `String.to_upper` / `.to_lower`            | `StringOps`      |
+/// | `String.compare`                           | `StringOps`      |
 /// | `String.split`                             | `StringSplit`    |
 /// | `File.*`                                   | `FileFunctions`  |
 /// | `List.sum` / `.max` / `.min`               | `ListAggregates` |

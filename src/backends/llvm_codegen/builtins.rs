@@ -711,6 +711,108 @@ impl<'ctx> IRCodeGen<'ctx> {
                     }
                 }
             }
+            // `String.compare` calls C `strcmp` and normalizes the
+            // result to -1/0/1. The magnitude of `strcmp`'s return
+            // is implementation-defined; the sign is not. The
+            // interpreter produces -1/0/1 (via Rust's `str::cmp`
+            // and an `Ordering` match), so the LLVM arm normalizes
+            // to match.
+            "String.compare" => {
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        "LLVM codegen: String.compare requires exactly 2 arguments",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0004,
+                    ));
+                }
+                let a_val = self.compile_value(&args[0])?;
+                let b_val = self.compile_value(&args[1])?;
+                if !a_val.is_pointer_value() || !b_val.is_pointer_value() {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "LLVM codegen: String.compare expected two pointer arguments, got {:?} and {:?}",
+                            a_val, b_val
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let strcmp_fn = self.module.get_function("strcmp").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: strcmp not registered in stdlib",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let call = self
+                    .builder
+                    .build_call(strcmp_fn, &[a_val.into(), b_val.into()], "strcmp_call")
+                    .unwrap();
+                let raw = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                    inkwell::values::ValueKind::Instruction(_) => {
+                        return Err(CompileError::unsupported_operation(
+                            "String.compare (strcmp call produced no value)",
+                            "llvm",
+                        ));
+                    }
+                };
+                // Normalize: (raw < 0) ? -1 : (raw > 0) ? 1 : 0
+                let i32_ty = self.context.i32_type();
+                let neg = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::SLT,
+                        raw,
+                        i32_ty.const_int(0, false),
+                        "strcmp_neg",
+                    )
+                    .unwrap();
+                let pos = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::SGT,
+                        raw,
+                        i32_ty.const_int(0, false),
+                        "strcmp_pos",
+                    )
+                    .unwrap();
+                let step = self
+                    .builder
+                    .build_select(
+                        pos,
+                        i32_ty.const_int(1, false),
+                        i32_ty.const_int(0, false),
+                        "strcmp_step",
+                    )
+                    .unwrap()
+                    .into_int_value();
+                let normalized_i32 = self
+                    .builder
+                    .build_select(
+                        neg,
+                        i32_ty.const_int(-1i64 as u64, true),
+                        step,
+                        "strcmp_normalized",
+                    )
+                    .unwrap()
+                    .into_int_value();
+                // ALGOL26's `Int` is i64 in LLVM; `strcmp` is i32.
+                // Sign-extend so the caller reads a proper i64 -1,
+                // not a 32-bit -1 whose bit pattern reads as
+                // 4294967295 when reinterpreted as i64.
+                let normalized_i64 = self
+                    .builder
+                    .build_int_s_extend(normalized_i32, self.context.i64_type(), "strcmp_i64")
+                    .unwrap();
+                Ok((normalized_i64.into(), Type::Int))
+            }
             // ADR 00XX (Path A). `Int.to_string` allocates a stack
             // buffer and formats the integer into it via `sprintf`.
             // The buffer lives for the enclosing function's lifetime,

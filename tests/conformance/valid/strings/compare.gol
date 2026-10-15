@@ -1,3 +1,4 @@
+// BACKEND: interpreter llvm wasm
 // OUTPUT: -1
 // OUTPUT: 0
 // OUTPUT: 1

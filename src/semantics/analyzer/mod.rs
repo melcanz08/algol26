@@ -178,6 +178,21 @@ pub struct SemanticAnalyzer {
     /// `region_depth`; a counter rather than a bool so nested
     /// defer bodies nest.
     pub(super) defer_depth: usize,
+    /// ADR 0044 (read side). True while the walk is inside a
+    /// place-producing expression — the `object` of a
+    /// `FieldAccess`, the `array` of an `ArrayAccess`, or the
+    /// `operand` of a `Deref`. When set, the leaf `Var` arm does
+    /// NOT run its name-based mutable-borrow check; the enclosing
+    /// arm runs a *place-aware* check on the full place instead.
+    ///
+    /// Rationale: `Place::simple("p")` (the check `Var` would
+    /// run) overlaps any `Place { base: "p", projections: [_] }`.
+    /// That over-rejects reads of disjoint fields:
+    /// `&mut p.x` followed by `print(p.y)` is a false positive
+    /// because the read of `p` is really a read of `p.y`.
+    /// Letting the enclosing arm decide lets the conflict check
+    /// use the correct projection list.
+    pub(super) in_place_expr: bool,
 }
 
 /// ADR 0038 D4b. What the analyzer resolved at a `dyn Trait` method
@@ -306,6 +321,7 @@ impl SemanticAnalyzer {
             deferred_shared_writes: Vec::new(),
             shared_borrow_meta: HashMap::new(),
             defer_depth: 0,
+            in_place_expr: false,
         }
     }
 

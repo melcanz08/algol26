@@ -1,0 +1,16 @@
+// EXPECT: REJECT
+// ADR 0044 — place-based borrows: read the same field that is
+// mutably borrowed.
+//
+// `&mut p.x` and `p.x` overlap; the read conflicts. The diagnostic
+// now names `p.x`, not `p`, because the read-side check runs on
+// the full place.
+rec Point
+    x: Int
+    y: Int
+
+proc main
+    var p := Point { x: 1, y: 2 }
+    val rx := &mut p.x
+    print(p.x)
+    print(*rx)

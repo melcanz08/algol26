@@ -292,7 +292,19 @@ impl SemanticAnalyzer {
                     self.record_borrow_use(name, expr.id);
                 }
 
+                // ADR 0044 (read side). Same pattern as the other
+                // place arms. `place_of_expr` on a `Deref` produces
+                // a place whose projections end in `Deref`; that
+                // place is what the borrow-check query should use,
+                // not the base name of `operand`.
+                let saved_in_place = self.in_place_expr;
+                self.in_place_expr = true;
                 let inner_type = self.analyze_expr(operand)?;
+                self.in_place_expr = saved_in_place;
+
+                if let Some(place) = self.place_of_expr(expr) {
+                    self.check_borrow_rules_place(&place, false)?;
+                }
                 match inner_type {
                     Type::Pointer(t) => {
                         // ADR 0015: raw pointer dereference requires
@@ -928,7 +940,14 @@ impl SemanticAnalyzer {
                     }
                     return Err(err);
                 }
-                if self.is_mutably_borrowed(&crate::semantics::state::Place::simple(name.clone()))
+                // ADR 0044 (read side). Suppress this check when
+                // the `Var` is the base of a place expression
+                // (field access, index, or deref). The enclosing
+                // arm runs a place-aware check on the full place
+                // instead. See `in_place_expr` on SemanticAnalyzer.
+                if !self.in_place_expr
+                    && self
+                        .is_mutably_borrowed(&crate::semantics::state::Place::simple(name.clone()))
                     && !self.in_mut_borrow
                 {
                     return Err(CompileError::at(
@@ -955,7 +974,18 @@ impl SemanticAnalyzer {
                 })
             }
             ExprKind::ArrayAccess { array, index, .. } => {
+                // ADR 0044 (read side). Same pattern as FieldAccess:
+                // suppress the leaf `Var`'s over-broad check, and
+                // run a place-aware check on the whole `array[index]`.
+                let saved_in_place = self.in_place_expr;
+                self.in_place_expr = true;
                 let array_type = self.analyze_expr(array)?;
+                self.in_place_expr = saved_in_place;
+
+                if let Some(place) = self.place_of_expr(expr) {
+                    self.check_borrow_rules_place(&place, false)?;
+                }
+
                 let element_type = match array_type {
                     Type::List(element_type) => *element_type,
                     Type::Unknown => Type::Unknown,
@@ -2199,7 +2229,24 @@ impl SemanticAnalyzer {
                     }
                 }
 
+                // ADR 0044 (read side). Mark the walk as inside a
+                // place expression so the leaf `Var` arm doesn't
+                // fire its over-broad name-based check. Then run a
+                // place-aware check on the whole `object.field`.
+                let saved_in_place = self.in_place_expr;
+                self.in_place_expr = true;
                 let obj_ty = self.analyze_expr(object)?;
+                self.in_place_expr = saved_in_place;
+
+                // Place-aware read check. `place_of_expr` resolves
+                // `object.field` to `Place { base, projections:
+                // [...existing..., Field(field)] }` when `object`
+                // is itself a place. If it isn't (complex object),
+                // the check is skipped — no aliasing through a
+                // non-place expression is possible on the stack.
+                if let Some(place) = self.place_of_expr(expr) {
+                    self.check_borrow_rules_place(&place, false)?;
+                }
 
                 // Auto-deref: `self.name` where `self: &User`, or any field
                 // access on a borrowed value. Unwrap one level of reference

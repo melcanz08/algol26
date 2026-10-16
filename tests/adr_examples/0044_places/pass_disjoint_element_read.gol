@@ -1,0 +1,11 @@
+// EXPECT: COMPILE
+// ADR 0044 — place-based borrows: read a disjoint list element
+// while another element is mutably borrowed.
+//
+// `&mut arr[0]` and `arr[1]` are disjoint places (both literals,
+// both non-negative), so the read of `arr[1]` is accepted.
+proc main
+    var arr := [1, 2, 3]
+    val r0 := &mut arr[0]
+    print(arr[1])
+    print(*r0)

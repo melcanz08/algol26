@@ -1,0 +1,17 @@
+// EXPECT: COMPILE
+// ADR 0044 — place-based borrows: read a disjoint field while
+// another field is mutably borrowed.
+//
+// A `&mut p.x` borrow does not overlap `p.y`, so reading `p.y`
+// while the mutable borrow is live is fine. Before the read-side
+// place refinement, the leaf `Var("p")` check fired on the base
+// name and rejected this with "Cannot read 'p'".
+rec Point
+    x: Int
+    y: Int
+
+proc main
+    var p := Point { x: 1, y: 2 }
+    val rx := &mut p.x
+    print(p.y)
+    print(*rx)

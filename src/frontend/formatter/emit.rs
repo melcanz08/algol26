@@ -477,6 +477,165 @@ impl Formatter {
 
     // ─── Statements ───
 
+    // ─── Expression emission (ADR 0058 session 4a) ───
+    //
+    // `emit_expr` writes an expression to `self.output` at a given
+    // level. Block-shaped expressions (`if`, `match`, `try`,
+    // `for`, `while`, `Block`) emit multi-line using the same
+    // block-form-aware helpers as statement emission. Other
+    // expressions delegate to `expr_inline`, which returns a
+    // single-line string.
+
+    /// True if `expr` is block-shaped and cannot be rendered on a
+    /// single line. Used by callers that need to know which emitter
+    /// to invoke.
+    fn is_block_shaped(expr: &Expr) -> bool {
+        matches!(
+            expr.kind,
+            ExprKind::If { .. }
+                | ExprKind::Match { .. }
+                | ExprKind::TryCatch { .. }
+                | ExprKind::Block { .. }
+                | ExprKind::For { .. }
+                | ExprKind::While { .. }
+        )
+    }
+
+    /// Emit `expr` at `level`. The first line of the emitted text
+    /// begins at `level`'s indentation; block-shaped expressions
+    /// continue at deeper levels.
+    fn emit_expr(&mut self, level: usize, expr: &Expr) {
+        match &expr.kind {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.emit_if(level, condition, then_branch, else_branch.as_deref());
+            }
+            ExprKind::Match { value, cases, .. } => {
+                self.emit_match(level, value, cases);
+            }
+            ExprKind::TryCatch {
+                try_branch,
+                catch_var,
+                catch_branch,
+                finally_body,
+                ..
+            } => {
+                self.emit_try_catch(
+                    level,
+                    try_branch,
+                    catch_var.as_deref(),
+                    catch_branch,
+                    finally_body.as_deref(),
+                );
+            }
+            ExprKind::For { .. } | ExprKind::While { .. } => {
+                // Statement-shaped loops already have an emitter;
+                // reuse it.
+                self.emit_expr_stmt(level, expr);
+            }
+            ExprKind::Block {
+                statements,
+                trailing_expr,
+                ..
+            } => {
+                for s in statements {
+                    self.emit_stmt(level, s);
+                }
+                if let Some(e) = trailing_expr {
+                    self.emit_expr(level, e);
+                }
+            }
+            _ => {
+                // Single-line expression.
+                let text = expr_inline(expr);
+                self.emit_line(level, &text);
+            }
+        }
+    }
+
+    /// Emit an `if` expression at `level`.
+    fn emit_if(
+        &mut self,
+        level: usize,
+        condition: &Expr,
+        then_branch: &Expr,
+        else_branch: Option<&Expr>,
+    ) {
+        let mut header = format!("if {}", expr_inline(condition));
+        if self.block_form == BlockForm::Indentation {
+            header.push_str(" then");
+        }
+        self.emit_block_header(level, &header);
+        self.emit_block(level, |this, inner| {
+            this.emit_expr(inner, then_branch);
+        });
+        if let Some(eb) = else_branch {
+            self.emit_else(level, eb);
+        }
+    }
+
+    /// Emit a `match` expression at `level`.
+    fn emit_match(
+        &mut self,
+        level: usize,
+        value: &Expr,
+        cases: &[crate::frontend::ast::MatchCaseExpr],
+    ) {
+        let header = format!("match {}", expr_inline(value));
+        self.emit_block_header(level, &header);
+        self.emit_block(level, |this, inner| {
+            for case in cases {
+                let pat_text = pattern_text(&case.pattern);
+                // Brace form requires `then` between pattern and
+                // body (ADR 0054); indentation form does not.
+                let case_header = if this.block_form == BlockForm::Braces {
+                    format!("case {} then", pat_text)
+                } else {
+                    format!("case {}", pat_text)
+                };
+                this.emit_block_header(inner, &case_header);
+                this.emit_block(inner, |this2, deeper| {
+                    this2.emit_expr(deeper, &case.body);
+                });
+            }
+        });
+    }
+
+    /// Emit a `try`/`catch`/`finally` expression at `level`.
+    fn emit_try_catch(
+        &mut self,
+        level: usize,
+        try_branch: &Expr,
+        catch_var: Option<&str>,
+        catch_branch: &Expr,
+        finally_body: Option<&[Stmt]>,
+    ) {
+        self.emit_block_header(level, "try");
+        self.emit_block(level, |this, inner| {
+            this.emit_expr(inner, try_branch);
+        });
+        let catch_header = match catch_var {
+            Some(name) => format!("catch {}", name),
+            None => "catch".to_string(),
+        };
+        self.emit_block_header(level, &catch_header);
+        self.emit_block(level, |this, inner| {
+            this.emit_expr(inner, catch_branch);
+        });
+        if let Some(body) = finally_body {
+            self.emit_block_header(level, "finally");
+            self.emit_block(level, |this, inner| {
+                for s in body {
+                    this.emit_stmt(inner, s);
+                }
+            });
+        }
+    }
+
     fn emit_stmt(&mut self, level: usize, stmt: &Stmt) {
         // ADR 0058 session 2b. Drain any comments whose source
         // position precedes this statement.
@@ -498,9 +657,19 @@ impl Formatter {
                     line.push_str(": ");
                     line.push_str(&type_str(t));
                 }
-                line.push_str(" := ");
-                line.push_str(&expr_inline(value));
-                self.emit_line(level, &line);
+                line.push_str(" :=");
+
+                // ADR 0058 session 4a. If the value is block-shaped
+                // (e.g. `val x := if ...`), emit the header and then
+                // the block at one deeper level.
+                if Self::is_block_shaped(value) {
+                    self.emit_line(level, &line);
+                    self.emit_expr(level + 1, value);
+                } else {
+                    line.push(' ');
+                    line.push_str(&expr_inline(value));
+                    self.emit_line(level, &line);
+                }
             }
             Stmt::Assign { name, value, .. } => {
                 let line = format!("{} := {}", name, expr_inline(value));
@@ -953,6 +1122,50 @@ fn expr_inline(expr: &Expr) -> String {
             // Should not happen for well-formed source. Return a
             // placeholder so the formatter doesn't panic.
             "<block>".to_string()
+        }
+    }
+}
+
+/// ADR 0058 session 4a. Render a `match` pattern as source text.
+///
+/// A free function (not a method) so it can be called from inside
+/// `self.emit_block` closures without an extra immutable borrow of
+/// `self`.
+fn pattern_text(pat: &crate::frontend::ast::Pattern) -> String {
+    use crate::frontend::ast::Pattern;
+    match pat {
+        Pattern::Some(name) => format!("Some({})", name),
+        Pattern::SomeNested(inner) => format!("Some({})", pattern_text(inner)),
+        Pattern::None => "None".to_string(),
+        Pattern::Ok(name) => format!("Ok({})", name),
+        Pattern::OkNested(inner) => format!("Ok({})", pattern_text(inner)),
+        Pattern::Error(name) => format!("Error({})", name),
+        Pattern::ErrorNested(inner) => format!("Error({})", pattern_text(inner)),
+        Pattern::Wildcard => "_".to_string(),
+        Pattern::Binding(name) => name.clone(),
+        Pattern::Literal(e) => expr_inline(e),
+        Pattern::Variant(name) => name.clone(),
+        Pattern::Record { name, bindings } => {
+            format!("{} {{ {} }}", name, bindings.join(", "))
+        }
+        Pattern::Guarded { pattern, condition } => {
+            format!("{} if {}", pattern_text(pattern), expr_inline(condition))
+        }
+        Pattern::ListDestructure { first, rest } => {
+            let f = first
+                .as_ref()
+                .map(|p| pattern_text(p))
+                .unwrap_or_else(|| "_".to_string());
+            let r = rest
+                .as_ref()
+                .map(|p| pattern_text(p))
+                .unwrap_or_else(|| "_".to_string());
+            format!("[{}, ...{}]", f, r)
+        }
+        Pattern::Range { start, end } => {
+            let s = start.as_ref().map(|e| expr_inline(e)).unwrap_or_default();
+            let e = end.as_ref().map(|e| expr_inline(e)).unwrap_or_default();
+            format!("{}..{}", s, e)
         }
     }
 }

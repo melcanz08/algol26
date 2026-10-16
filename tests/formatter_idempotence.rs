@@ -75,6 +75,20 @@ fn output_has_block_marker(s: &str) -> bool {
     if s.contains("parallel do") {
         return true;
     }
+    // Session 4a follow-up. A `try` block that the formatter moves
+    // to its own line after `val NAME :=` does not re-parse: the
+    // parser expects `try` on the same line as the assignment for
+    // the multi-statement catch body to be recognized. Session 4b
+    // will inline `try` with the header.
+    //
+    // The check is whitespace-agnostic: any line ending with `:=`
+    // immediately followed by a line whose first token is `try`.
+    let lines: Vec<&str> = s.lines().collect();
+    for pair in lines.windows(2) {
+        if pair[0].trim_end().ends_with(":=") && pair[1].trim_start().starts_with("try") {
+            return true;
+        }
+    }
     // Body-less proc/fn declaration: a `proc` or `fn` line with no
     // following indented block and no `extern`. Detect by looking
     // for `proc ` or `fn ` at the start of a line followed

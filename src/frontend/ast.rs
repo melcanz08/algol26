@@ -353,6 +353,17 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    /// ADR 0056. Write through a mutable reference: `*r := v`,
+    /// `*r.f := v`, or `*r[i] := v`. `target` is a place expression
+    /// (an `ExprKind::Deref`, `ExprKind::FieldAccess` through a
+    /// reference, or `ExprKind::ArrayAccess` through a reference).
+    /// The analyzer resolves the referent and the borrow checker
+    /// treats the write as a use of the loan that produced `target`.
+    DerefAssign {
+        target: Expr,
+        value: Expr,
+        span: Span,
+    },
 }
 
 impl Stmt {
@@ -377,6 +388,7 @@ impl Stmt {
             Stmt::Receive { span, .. } => *span,
             Stmt::Expression(e) => e.span(),
             Stmt::FieldAssign { span, .. } => *span,
+            Stmt::DerefAssign { span, .. } => *span,
         }
     }
 }

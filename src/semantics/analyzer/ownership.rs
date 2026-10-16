@@ -420,6 +420,10 @@ impl SemanticAnalyzer {
             Stmt::Expression(expr) => {
                 self.collect_expr_captures(expr, captured);
             }
+            Stmt::DerefAssign { target, value, .. } => {
+                self.collect_expr_captures(target, captured);
+                self.collect_expr_captures(value, captured);
+            }
         }
     }
     pub(super) fn collect_expr_captures(&self, expr: &Expr, captured: &mut HashSet<String>) {

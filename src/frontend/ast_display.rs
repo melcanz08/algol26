@@ -230,6 +230,13 @@ fn format_stmt(out: &mut String, level: usize, stmt: &Stmt) {
             let _ = write!(out, "{}.{} := ", target, field);
             format_expr(out, level, value);
         }
+        Stmt::DerefAssign { target, value, .. } => {
+            indent(out, level);
+            format_expr(out, level, target);
+            out.push_str(" := ");
+            format_expr(out, level, value);
+            end_line(out);
+        }
         Stmt::Return { value, .. } => {
             indent(out, level);
             out.push_str("return");

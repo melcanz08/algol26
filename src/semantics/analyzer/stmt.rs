@@ -697,6 +697,9 @@ impl SemanticAnalyzer {
                     .borrows
                     .retain(|_, b| !b.place.overlaps(&target_place));
             }
+            Stmt::DerefAssign { .. } => {
+                todo!("ADR 0056: type-check *r := v (analyzer/stmt.rs)")
+            }
         }
         Ok(())
     }

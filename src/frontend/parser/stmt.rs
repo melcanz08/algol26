@@ -70,11 +70,41 @@ impl Parser {
             Token::Region => self.parse_region(),
             Token::Try => self.parse_try_catch(),
             Token::Import => self.parse_import(),
+            Token::Star => self.parse_deref_assign_or_expr(),
             Token::Identifier(name) => self.parse_identifier_stmt(name),
             _other => {
                 let expr = self.parse_expr()?;
                 Ok(Stmt::Expression(expr))
             }
+        }
+    }
+
+    /// ADR 0056. `*r := v` (or `*r.f := v`, `*r[i] := v`).
+    ///
+    /// `*expr` in expression position is already parsed by
+    /// `parse_expr` as `ExprKind::Deref`. This entry point parses
+    /// the deref expression, then checks whether it is followed by
+    /// the assignment token. If so, the statement is a write
+    /// through the reference; if not, the deref expression is a
+    /// bare expression statement (`*r` alone, `*r + 1`, etc.).
+    ///
+    /// No backtracking is needed: `parse_expr` consumes exactly
+    /// the deref production, and any binary operator that follows
+    /// (`*r + 1`) yields an `ExprKind::Binary` whose `Assign`-check
+    /// fails the same way `a + b := c` does.
+    pub(super) fn parse_deref_assign_or_expr(&mut self) -> Result<Stmt> {
+        let start_span = self.current_span();
+        let target = self.parse_expr()?;
+        if matches!(self.peek(), Token::Assign) {
+            self.advance();
+            let value = self.parse_expr()?;
+            Ok(Stmt::DerefAssign {
+                target,
+                value,
+                span: start_span,
+            })
+        } else {
+            Ok(Stmt::Expression(target))
         }
     }
 

@@ -119,6 +119,10 @@ impl<'a> Walker<'a> {
                 }
             }
             Stmt::Assign { value, .. } => self.visit_expr(value),
+            Stmt::DerefAssign { target, value, .. } => {
+                self.visit_expr(target);
+                self.visit_expr(value);
+            }
             Stmt::ArrayAssign { index, value, .. } => {
                 self.visit_expr(index);
                 self.visit_expr(value);

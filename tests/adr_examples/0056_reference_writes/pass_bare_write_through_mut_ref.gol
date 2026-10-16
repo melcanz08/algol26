@@ -1,0 +1,10 @@
+// EXPECT: COMPILE
+// ADR 0056 — bare write through a mutable reference.
+//
+// `*r := *r + 1` writes through the reference. The read through
+// `*r` at the end observes the updated value.
+proc main
+    var x := 10
+    var r := &mut x
+    *r := *r + 1
+    print(*r)

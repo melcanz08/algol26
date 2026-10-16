@@ -1,31 +1,29 @@
 # ADR 0056: Reference Writes
 
-Status: Accepted (LLVM complete; interpreter partially complete)
+Status: Accepted (bare and field-reference forms complete; two forms deferred)
 
 LLVM backend: `*r := *r + 1` compiles and runs; the motivating
 example prints 11.
 
 Interpreter: `assign_place` and the `WriteReference` dispatch are
-implemented. Same-function write-through is proven by construction
-but cannot be exercised by a user-visible test yet:
+implemented. Same-function write-through works and is exercised by
+fixtures under `tests/adr_examples/0056_reference_writes/`.
+The two formerly-blocking dependencies are now resolved:
 
-  - Reading the mutated variable after the write is rejected by
-    the analyzer's lexical borrow rule (E0007). ADR 0043 (NLL)
-    removes this rule; until then, every program that writes
-    through `&mut` and then reads the source is rejected at
-    analysis time.
+  - ADR 0043 (NLL) closed the borrow rule that rejected reads of
+    the source variable after a write. Reading through the
+    reference (`print(*r)`) is the correct form and compiles.
 
-  - Writing `*r := v` at the start of a statement that follows
-    another statement at the same indentation is a parser
-    ambiguity. ADR 0057 (statement boundaries) resolves it.
+  - ADR 0057 (statement boundaries) resolved the parser
+    ambiguity that blocked `*r := v` at the start of a statement.
 
 Cross-function write-through remains architecturally unsupported
 by the interpreter's frame-swap model and fails with an explicit
-error message.
+error message. See "Known limitations" below.
 
-Steps 1-5 of the implementation sketch are complete except for the
-interpreter test suite, which is deferred pending ADR 0043 and
-ADR 0057.
+Steps 1-5 of the implementation sketch are complete. The
+interpreter test suite is provided as fixtures under
+`tests/adr_examples/0056_reference_writes/`.
 
 ## Context
 
@@ -279,6 +277,29 @@ Step 2 (parser + AST + display) is done. Remaining:
    - `fail_write_through_temporary_ref.gol`
    - `pass_write_replaces_list_drops_old.gol`  ← critical
    - `fail_write_while_other_mut_loan_live.gol`
+
+## Known limitations
+
+Two forms described in the ADR are not implemented:
+
+- **Form A.** The ADR's "Form A" — `*r.f := v` where
+  `r: &mut Record` and `Record.f` is a value — is not expressible
+  in the current parser. The parser binds `.` tighter than `*`,
+  so `*r.f` parses as `*(r.f)`, meaning "dereference the field
+  `r.f`" (the ADR's Form B), not "field `f` of the referent of
+  `r`." To support Form A, the parser must change the precedence
+  of `*` in `DerefAssign` context — a separate ADR.
+
+  Workaround: `val r2 := &mut (*r).f; *r2 := v`, or bind the
+  referent to a local first.
+
+- **Cross-function write-through.** `proc bump(r: &mut Int)
+  *r := *r + 1` compiles and lowers correctly, but the
+  interpreter pre-resolves reference arguments at the call
+  site, so a callee's `&mut` parameter is a value, not a place.
+  Same-function writes work. Cross-function writes fail with an
+  explicit error. Fixing this is the same interprocedural place
+  resolution problem ADR 0044 defers.
 
 ## See also
 

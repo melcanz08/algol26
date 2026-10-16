@@ -1,0 +1,10 @@
+// EXPECT: REJECT
+// ADR 0056 — write through a shared reference is rejected.
+//
+// `*r := 20` where `r: &Int` is a compile error. Shared
+// references are read-only.
+proc main
+    var x := 10
+    val r := &x
+    *r := 20
+    print(x)

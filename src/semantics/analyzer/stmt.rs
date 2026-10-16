@@ -760,38 +760,58 @@ impl SemanticAnalyzer {
                 })?;
 
                 use crate::semantics::state::Projection;
-                if !matches!(target_place.projections.last(), Some(Projection::Deref)) {
-                    return Err(CompileError::at(
-                        *span,
-                        "Deref assignment target is not a dereference",
-                        ErrorCode::E0002,
-                    )
-                    .with_suggestion("The left side of a deref assignment must start with `*`"));
-                }
 
-                let reference_ty = {
-                    let mut ref_place = target_place.clone();
-                    ref_place.projections.pop();
-                    if !ref_place.projections.is_empty() {
+                // ADR 0056 (Form A). The `DerefAssign` arm handles
+                // `*r := v`, `*r.f := v`, `*r.f.g := v`, and
+                // `(*r)[i] := v`. The place produced by
+                // `place_of_expr` has the shape
+                //   { base: r, projections: [Deref, ...rest] }
+                // for `*r := v`, and
+                //   { base: r, projections: [Field("f"), Deref, ...rest] }
+                // for `r.f := v` where `r.f: &mut T` (Form B).
+                //
+                // The analyzer's job: find the *first* `Deref`
+                // projection, resolve the reference's type at that
+                // point, and check the remaining projections type
+                // against the referent. The first `Deref` must
+                // exist; if it doesn't, the target isn't a
+                // dereference.
+                let deref_idx = match target_place
+                    .projections
+                    .iter()
+                    .position(|p| matches!(p, Projection::Deref))
+                {
+                    Some(i) => i,
+                    None => {
                         return Err(CompileError::at(
                             *span,
-                            "Deref assignment through a projected reference is not yet supported",
+                            "Deref assignment target is not a dereference",
                             ErrorCode::E0002,
                         )
                         .with_suggestion(
-                            "Bind the reference to a local first, e.g. `val r2 := r.f` then `*r2 := v`",
+                            "The left side of a deref assignment must start with `*`                              or reach a `&mut T` field",
                         ));
                     }
-                    self.lookup_variable(&ref_place.base)
-                        .map(|(t, _)| t)
-                        .ok_or_else(|| {
-                            CompileError::at(
-                                *span,
-                                &format!("Undefined variable '{}'", ref_place.base),
-                                ErrorCode::E0003,
-                            )
-                        })?
                 };
+
+                // The prefix before the first `Deref` is the path
+                // from the base variable to the reference. Walk it
+                // to find the reference's type at that point.
+                let prefix = &target_place.projections[..deref_idx];
+                let suffix = &target_place.projections[deref_idx + 1..];
+
+                let base_ty = self
+                    .lookup_variable(&target_place.base)
+                    .map(|(t, _)| t)
+                    .ok_or_else(|| {
+                        CompileError::at(
+                            *span,
+                            &format!("Undefined variable '{}'", target_place.base),
+                            ErrorCode::E0003,
+                        )
+                    })?;
+
+                let reference_ty = self.walk_place_prefix(&base_ty, prefix, *span)?;
 
                 let referent_ty = match reference_ty {
                     Type::MutBorrow(inner) => *inner,
@@ -818,16 +838,23 @@ impl SemanticAnalyzer {
                     }
                 };
 
+                // If there are projections *after* the `Deref`, they
+                // apply to the referent. `*r.f := v` where
+                // `r: &mut Record` has `suffix = [Field("f")]`, so
+                // we walk the referent by the suffix to find the
+                // actual field being written.
+                let final_ty = self.walk_place_prefix(&referent_ty, suffix, *span)?;
+
                 // ADR 0043. `*r := v` writes through the
                 // reference. Eager mutable check; deferred shared
                 // check.
                 self.check_write_borrow_rules(&target_place)?;
                 self.defer_shared_borrow_check(target_place.clone(), value.id, *span);
 
-                let value_type = self.analyze_expr_with_context(value, Some(&referent_ty))?;
-                if referent_ty != Type::Unknown
+                let value_type = self.analyze_expr_with_context(value, Some(&final_ty))?;
+                if final_ty != Type::Unknown
                     && value_type != Type::Unknown
-                    && !value_type.can_coerce_to(&referent_ty)
+                    && !value_type.can_coerce_to(&final_ty)
                 {
                     return Err(CompileError::at(
                         *span,

@@ -1,0 +1,11 @@
+// EXPECT: COMPILE
+// ADR 0056 — write replaces a heap-allocated value.
+//
+// `*r := [...]` replaces the referent. The old list's storage
+// must be dropped before the store, or it leaks. The read
+// through `(*r)[0]` observes the new value.
+proc main
+    var xs := [1, 2, 3]
+    var r := &mut xs
+    *r := [4, 5, 6]
+    print((*r)[0])

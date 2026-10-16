@@ -1,0 +1,13 @@
+// EXPECT: COMPILE
+// ADR 0056 — write through a reference held in a record field.
+//
+// `*h.val_ref := 10` dereferences the field's reference and
+// writes through it. The field's type is `&mut Int`.
+rec Holder
+    val_ref: &mut Int
+
+proc main
+    var x := 5
+    var h := Holder { val_ref: &mut x }
+    *h.val_ref := 10
+    print(*h.val_ref)

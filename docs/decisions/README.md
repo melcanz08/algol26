@@ -85,7 +85,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0053](0053-interpreter-reference-semantics.md) | Interpreter Reference Semantics | Current (interpreter); cross-fn write-through deferred |
 | [0054](0054-alternate-brace-block-syntax.md) | Alternate Brace Block Syntax | Current (formatter deferred) |
 | [0055](0055-sum-and-recursive-types.md) | Sum Types and Recursive Types | Proposed |
-| [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current |
+| [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current (Form A + cross-fn deferred) |
 | [0057](0057-statement-boundaries.md) | Statement Boundaries | Current |
 | [0058](0058-algol26-fmt.md) | `algol26 fmt` | Proposed |
 

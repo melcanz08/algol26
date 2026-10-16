@@ -412,6 +412,90 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// ADR 0056. Walk a type through a sequence of `Place`
+    /// projections. Used by the `DerefAssign` arm to resolve
+    /// the reference type at the position of the first `Deref`
+    /// projection and to resolve the field type after it.
+    ///
+    /// Returns the type reached by applying each projection in
+    /// order. `Unknown` propagates: an unresolved type at any
+    /// step produces `Unknown` and the caller skips type checks
+    /// downstream.
+    pub(super) fn walk_place_prefix(
+        &self,
+        base: &Type,
+        projections: &[crate::semantics::state::Projection],
+        span: Span,
+    ) -> Result<Type> {
+        use crate::semantics::state::Projection;
+        let mut cur = base.clone();
+        for proj in projections {
+            cur = match (proj, &cur) {
+                (Projection::Field(f), Type::Record(name, args)) => {
+                    let rec = self.records.get(name).ok_or_else(|| {
+                        CompileError::at(
+                            span,
+                            &format!("Unknown record '{}'", name),
+                            ErrorCode::E0003,
+                        )
+                    })?;
+                    let (_, field_ty) =
+                        rec.fields.iter().find(|(n, _)| n == f).ok_or_else(|| {
+                            CompileError::at(
+                                span,
+                                &format!("Record '{}' has no field '{}'", name, f),
+                                ErrorCode::E0004,
+                            )
+                        })?;
+                    let mut subs = HashMap::new();
+                    for (p, a) in rec.type_params.iter().zip(args.iter()) {
+                        subs.insert(p.clone(), a.clone());
+                    }
+                    self.substitute_type_vars(field_ty, &subs)
+                }
+                (Projection::Field(f), Type::Borrow(inner))
+                | (Projection::Field(f), Type::MutBorrow(inner)) => {
+                    // Auto-deref through one level of reference,
+                    // then retry this field projection against the
+                    // dereferenced type. Note: the recursion gets
+                    // the *current* projection slice (including
+                    // this `Field`), because we want to retry it.
+                    let _ = f;
+                    let inner_ty = (**inner).clone();
+                    // Retry the field projection against the
+                    // dereferenced type. We do this by recursing
+                    // with a one-element slice containing just this
+                    // projection, then continuing with the rest.
+                    let head =
+                        self.walk_place_prefix(&inner_ty, std::slice::from_ref(proj), span)?;
+                    cur = head;
+                    continue;
+                }
+                (Projection::Index(_), Type::List(inner)) => (**inner).clone(),
+                (Projection::Deref, Type::MutBorrow(inner))
+                | (Projection::Deref, Type::Borrow(inner)) => (**inner).clone(),
+                (Projection::Deref, Type::Pointer(inner)) => (**inner).clone(),
+                (_, Type::Unknown) => Type::Unknown,
+                (proj, other) => {
+                    return Err(CompileError::at(
+                        span,
+                        &format!(
+                            "Cannot project {} through type {}",
+                            match proj {
+                                Projection::Field(f) => format!("field '{}'", f),
+                                Projection::Index(i) => format!("index {}", i),
+                                Projection::Deref => "a dereference".to_string(),
+                            },
+                            other
+                        ),
+                        ErrorCode::E0002,
+                    ));
+                }
+            };
+        }
+        Ok(cur)
+    }
+
     /// ADR 0044 stage 2. The place-aware counterpart of
     /// `check_borrow_rules`. The existing function keys on a bare
     /// name; this one takes a `Place` so a borrow of `p.x` can be

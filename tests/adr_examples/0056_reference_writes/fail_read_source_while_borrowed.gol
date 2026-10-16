@@ -1,0 +1,12 @@
+// EXPECT: REJECT
+// ADR 0056 — reading the source variable while it is mutably
+// borrowed is rejected.
+//
+// After `*r := *r + 1`, `r` is still a live mutable borrow of
+// `x`. `print(x)` reads `x` directly, which conflicts. The
+// correct form is `print(*r)`.
+proc main
+    var x := 10
+    var r := &mut x
+    *r := *r + 1
+    print(x)

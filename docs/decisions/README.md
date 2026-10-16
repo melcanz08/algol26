@@ -94,11 +94,14 @@ Do not edit an ADR's body to reflect new decisions. Either:
 
 - **0019–0021** are unused. No ADRs were written under those
   numbers; the sequence skips from 0018 to 0022.
-- **0055** is Reserved. **0056** (reference writes) and
-  **0057** (statement boundaries) are accepted and implemented.
-  **0058** (`algol26 fmt`) is proposed; implementation is the
-  next session-sized item. **0059+** are reserved for further
-  work on ADR 0044's interpreter side and anything else.
+- **0055** is Reserved. **0056** (reference writes), **0057**
+  (statement boundaries), **0058** (`algol26 fmt`), and **0059**
+  (comprehensive program walk) are accepted; 0056, 0057, and 0059
+  are implemented, and 0058 is in progress. **0060+** are
+  reserved for sum types (ADR 0055), multi-line container emission
+  in the formatter (ADR 0058 follow-up), the parser fix for
+  body-less declarations, and further work on ADR 0044's
+  interpreter side.
 
 ## Current state
 

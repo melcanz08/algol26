@@ -972,4 +972,43 @@ mod tests {
         };
         assert_eq!(out, out2, "not idempotent");
     }
+
+    #[test]
+    fn smoke_if_else() {
+        let source = "proc main\n    val x := 1\n    if x > 0 then\n        print(x)\n    else\n        print(0)\n";
+        let out = format(source).expect("format");
+        eprintln!("--- if_else output ---\n{}--- end ---", out);
+        let reparsed = parse(&out).expect("reparse");
+        let out2 = {
+            let f = Formatter::new(&reparsed, &out);
+            f.format(&reparsed)
+        };
+        assert_eq!(out, out2, "not idempotent");
+    }
+
+    #[test]
+    fn smoke_record() {
+        let source = "rec Point\n    x: Int\n    y: Int\n\nproc main\n    var p := Point { x: 1, y: 2 }\n    print(p.x)\n";
+        let out = format(source).expect("format");
+        eprintln!("--- record output ---\n{}--- end ---", out);
+        let reparsed = parse(&out).expect("reparse");
+        let out2 = {
+            let f = Formatter::new(&reparsed, &out);
+            f.format(&reparsed)
+        };
+        assert_eq!(out, out2, "not idempotent");
+    }
+
+    #[test]
+    fn smoke_braces_form() {
+        let source = "proc main {\n    val x := 1\n    print(x)\n}\n";
+        let out = format(source).expect("format");
+        eprintln!("--- braces output ---\n{}--- end ---", out);
+        let reparsed = parse(&out).expect("reparse");
+        let out2 = {
+            let f = Formatter::new(&reparsed, &out);
+            f.format(&reparsed)
+        };
+        assert_eq!(out, out2, "not idempotent");
+    }
 }

@@ -2,19 +2,23 @@
 //
 // Test runner for tests/adr_examples/. Walks the directory
 // recursively for `.gol` files that carry a `// EXPECT:` marker in
-// their first five lines, and checks each through
-// `Compiler::build_semantic_ir_for`.
+// their first five lines, and runs each through the same stages
+// the compiler does:
 //
-// Files without a `// EXPECT:` marker are *skipped* rather than
-// treated as failures. The older ADRs (0043–0047) use free-form
-// prose comments instead of a marker; those files are documentation
-// and are not run. ADR 0057 introduced the marker convention; its
-// files are the ones this runner exercises.
+//   1. Compiler::build_semantic_ir_for (lex, parse, type-check, IR)
+//   2. build_cfgs_from_semantic_program + DataflowEngine::run_all
+//
+// Any error at either stage counts as `has_error = true`, which is
+// what an `EXPECT: REJECT` file needs. Files without an `EXPECT:`
+// marker are skipped rather than treated as failures — the older
+// ADRs (0043–0047) use free-form prose comments; those files are
+// documentation until they carry the marker.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use algol26::compiler::Compiler;
+use algol26::ir::cfg::{build_cfgs_from_semantic_program, DataflowEngine, OwnershipTransfer};
 
 #[derive(Debug, PartialEq, Eq)]
 enum Expect {
@@ -72,9 +76,9 @@ fn collect_gol_files() -> Vec<PathBuf> {
     files
 }
 
-/// Run one file. Returns `Ok(None)` when the file has no
-/// `// EXPECT:` marker (skipped, not failed). Otherwise returns
-/// `Ok(Some((expect, had_error, messages)))`.
+/// Run one file through the full pipeline. Returns `Ok(None)` for
+/// files without an `// EXPECT:` marker (skipped). Otherwise
+/// returns `Ok(Some((expect, had_error, messages)))`.
 fn check_file(path: &Path) -> Result<Option<(Expect, bool, Vec<String>)>, String> {
     let source = fs::read_to_string(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
     let expect = match parse_expect(&source) {
@@ -82,11 +86,23 @@ fn check_file(path: &Path) -> Result<Option<(Expect, bool, Vec<String>)>, String
         None => return Ok(None),
     };
 
+    // Stage 1: frontend through IR construction.
     let mut compiler = Compiler::new();
-    match compiler.build_semantic_ir_for(&source, &path.to_string_lossy()) {
-        Ok(_sem_prog) => Ok(Some((expect, false, vec![]))),
-        Err(e) => Ok(Some((expect, true, vec![format!("{}", e)]))),
-    }
+    let sem_prog = match compiler.build_semantic_ir_for(&source, &path.to_string_lossy()) {
+        Ok(p) => p,
+        Err(e) => return Ok(Some((expect, true, vec![format!("{}", e)]))),
+    };
+
+    // Stage 2: CFG-level ownership + region dataflow. This is where
+    // the region-escape check (ADR 0045) and the move / init checks
+    // live — the AST-level analyzer doesn't see them.
+    let cfgs = build_cfgs_from_semantic_program(&sem_prog);
+    let engine = DataflowEngine::new(OwnershipTransfer);
+    let result = engine.run_all(&cfgs);
+    let has_errors = result.has_errors();
+    let messages: Vec<String> = result.diagnostics.into_iter().map(|d| d.message).collect();
+
+    Ok(Some((expect, has_errors, messages)))
 }
 
 #[test]

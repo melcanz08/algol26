@@ -10,6 +10,16 @@
   now rejects at the write; `val r := &x; print(*r); x := 2` still
   compiles. Uses inside loops or `defer` bodies conservatively
   extend the borrow to the enclosing scope's exit. (commit `6819517`)
+- **ADR 0057 — operator-at-end-of-line continuations now compile.**
+  `val total := a +` followed by an indented `b` previously produced
+  a spurious `Indent`, which `parse_unary` rejected. The lexer now
+  suppresses `Indent`/`Dedent` when the previous line ends with a
+  binary operator. The `parallel ... and` form is preserved by
+  excluding `And`/`Or` from the continuation set. The
+  `statement_start_column` field is now reset at the top of each
+  function declaration, closing a cross-function state leak.
+  `tests/adr_examples/0057_boundaries/pass_op_at_end_of_line.gol`
+  flips from `EXPECT: REJECT` to `EXPECT: COMPILE`. (commit `123de0b`)
 
 ### Changed
 

@@ -85,14 +85,17 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0053](0053-interpreter-reference-semantics.md) | Interpreter Reference Semantics | Session 1 of 3 done |
 | [0054](0054-alternate-brace-block-syntax.md) | Alternate Brace Block Syntax | Current (formatter deferred) |
 | [0055](0055-sum-and-recursive-types.md) | Sum Types and Recursive Types | Proposed |
+| [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current |
+| [0057](0057-statement-boundaries.md) | Statement Boundaries | Current |
 
 ## Numbering notes
 
 - **0019–0021** are unused. No ADRs were written under those
   numbers; the sequence skips from 0018 to 0022.
-- **0055+** are reserved for: reference writes (planned; the
-  parser needs `*r := ...` before ADR 0053 Session 2 can start)
-  and `algol26 fmt` (deferred from 0054).
+- **0055** is Reserved. **0056** (reference writes) and
+  **0057** (statement boundaries) are accepted and implemented.
+  **0058+** are reserved for: `algol26 fmt` (deferred from 0054)
+  and further work on ADR 0044's interpreter side.
 
 ## Current state
 

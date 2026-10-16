@@ -2,6 +2,13 @@
 
 Status: Accepted (implementation complete; tests pass)
 
+> **Note (commit `123de0b`):** The "end-of-line operator
+> continuation" case (`val total := a +` followed by an indented
+> `b`) was originally out of scope for this ADR. It has since been
+> fixed in the lexer — see "End-of-line operator continuations"
+> under Decision. The fixture `pass_op_at_end_of_line.gol` flipped
+> from `EXPECT: REJECT` to `EXPECT: COMPILE`.
+
 ## Context
 
 ADR 0001 established significant indentation: the lexer emits
@@ -96,18 +103,77 @@ statement. To continue an expression across a line break, one of:
         val total := (a
             + b)
 
-The parenthesized form is the one that works today. The
-"operator at end of previous line" form:
+The parenthesized form works today. The "operator at end of
+previous line" form also works as of commit `123de0b`:
 
     val total := a +
         b
 
-does *not* compile: the lexer emits an `Indent` before the
-continuation line, and `parse_unary` rejects the `Indent` token.
-That is a separate gap (how `Indent` interacts with expression
-continuations) and is out of scope for this ADR. It is tracked as
+The original implementation did *not* accept this form: the
+lexer emitted an `Indent` before the continuation line, and
+`parse_unary` rejected the `Indent` token. That was tracked as
 `pass_op_at_end_of_line.gol` under
 `tests/adr_examples/0057_boundaries/`, marked `EXPECT: REJECT`.
+
+The gap is now closed by extending the lexer's continuation
+suppression to operator-ending lines. See "End-of-line operator
+continuations" below. The fixture has been flipped to
+`EXPECT: COMPILE`.
+
+### End-of-line operator continuations
+
+The rule in "What this forbids" answers the case where an operator
+*starts* a continuation line. The mirror case — an operator *ends*
+the previous line, and the next line is the continuation:
+
+    val total := a +
+        b
+
+— is handled by a separate mechanism in the lexer, added in commit
+`123de0b` after the initial ADR 0057 implementation.
+
+The lexer already suppresses `Indent`/`Dedent` emission for two
+kinds of continuation lines: bracket-depth continuations (open `[`
+or `(` across lines) and chain continuations (a line whose first
+non-whitespace character is `.`). This commit adds a third:
+
+- **Operator continuations.** If the last token of the previous
+  non-blank line is a token that cannot legally end a statement,
+  the current line is a continuation. Suppress its `Indent` and
+  `Dedent`.
+
+The token set is `Lexer::token_requires_continuation`. It
+deliberately excludes tokens with a dual role:
+
+  - `Lt` and `Gt` are generic type brackets as well as comparison
+    operators. A function signature `-> Option<T>` ends in `Gt`
+    and would otherwise suppress the `Indent` for its own body.
+  - `Ampersand` and `Star` can start an expression (`&x`, `*x`).
+  - `And` and `Or` are logical operators, but `And` also separates
+    `parallel` blocks. After `parallel do ... and`, the next line's
+    `Indent` must be emitted for the second block.
+
+Included tokens: `Plus`, `Minus`, `Slash`, `Equal`, `NotEqual`,
+`LessEqual`, `GreaterEqual`, `In`, `Comma`.
+
+This is orthogonal to the *statement-start* rule. That rule handles
+"operator at the same column as the statement's first token"; this
+one handles "operator at the end of the previous line, followed by
+an indented continuation." Both can coexist:
+
+    val a := b + c        # statement
+    val d := e +          # statement, ends with operator
+        f                 # continuation of the same statement
+    val g := h
+        + i               # new statement (statement-start rule)
+
+The two rules disagree only when the previous line ends with an
+operator *and* the continuation line is at the same column as the
+statement start. That case does not arise in practice: an
+end-of-line operator always implies the continuation is indented
+or bracketed. If it ever does, the statement-start rule wins,
+because the parser's boundary check fires before the lexer's
+continuation suppression can matter.
 
 ### What this enables
 
@@ -250,6 +316,13 @@ ADR 0056's syntax choice.
    the previous expression, move the operator to the end of the
    previous line." Otherwise the generic "Unexpected expression"
    message is adequate.
+
+   The mirror case — the operator at the *end* of the previous
+   line — is handled by the lexer, not by this rule. See
+   "End-of-line operator continuations" under Decision. The
+   error message above is still the right guidance: if the author
+   sees it, they should either move the operator up (which now
+   works) or wrap the expression in parentheses.
 
 6. **Tests.**
 

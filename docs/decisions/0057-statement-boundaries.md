@@ -1,6 +1,6 @@
 # ADR 0057: Statement Boundaries
 
-Status: Proposed (design)
+Status: Accepted (implementation complete; tests pass)
 
 ## Context
 
@@ -91,19 +91,23 @@ The `+` at the start of line 2 is at the same column as the
 statement's first token (`val`), so by the rule it ends the
 statement. To continue an expression across a line break, one of:
 
-  * put the operator at the end of the previous line:
-
-        val total := a +
-            b
-
   * wrap the expression in parentheses:
 
         val total := (a
             + b)
 
-Both forms remain valid. The first is the common style in
-significant-indentation languages; the second is available when a
-line-wrapped operator is more readable.
+The parenthesized form is the one that works today. The
+"operator at end of previous line" form:
+
+    val total := a +
+        b
+
+does *not* compile: the lexer emits an `Indent` before the
+continuation line, and `parse_unary` rejects the `Indent` token.
+That is a separate gap (how `Indent` interacts with expression
+continuations) and is out of scope for this ADR. It is tracked as
+`pass_op_at_end_of_line.gol` under
+`tests/adr_examples/0057_boundaries/`, marked `EXPECT: REJECT`.
 
 ### What this enables
 

@@ -937,25 +937,46 @@ impl Formatter {
                 trailing_expr: Some(inner),
                 ..
             } if statements.is_empty() => {
-                if let ExprKind::If { .. } = &inner.kind {
+                if let ExprKind::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                    ..
+                } = &inner.kind
+                {
                     if self.block_form == BlockForm::Braces {
                         // `} else if cond {`
                         // The footer was already emitted, so we
-                        // emit `else if ... {` continuing the line.
-                        // For simplicity, emit `else` on the same
-                        // line as the previous `}`.
-                        // This requires tracking line position; we
-                        // simplify by emitting `else` on its own
-                        // line with braces.
-                        self.emit_block_header(level, "else");
-                        self.emit_block(level, |this, inner2| {
-                            this.emit_expr_stmt(inner2, inner);
-                        });
+                        // emit `else` on the same line as the
+                        // previous `}`. That requires tracking
+                        // line position; for now, emit `else if`
+                        // header on a new line.
+                        self.indent(level);
+                        self.output.push_str("else if ");
+                        self.output.push_str(&expr_inline(condition));
+                        self.output.push_str(" {\n");
+                        self.emit_expr(level + 1, then_branch);
+                        if let Some(eb) = else_branch {
+                            self.emit_else(level, eb);
+                        }
+                        self.indent(level);
+                        self.output.push_str("}\n");
                         return;
                     } else {
+                        // ADR 0058 session 5. `else if` chains:
+                        // emit the `if` header on the same line as
+                        // `else`, without re-indenting. The nested
+                        // `if` is emitted directly, not through
+                        // `emit_stmt` (which would re-indent the
+                        // header, producing `else         if`).
                         self.indent(level);
-                        self.output.push_str("else ");
-                        self.emit_stmt(level, &Stmt::Expression((**inner).clone()));
+                        self.output.push_str("else if ");
+                        self.output.push_str(&expr_inline(condition));
+                        self.output.push_str(" then\n");
+                        self.emit_expr(level + 1, then_branch);
+                        if let Some(eb) = else_branch {
+                            self.emit_else(level, eb);
+                        }
                         return;
                     }
                 }

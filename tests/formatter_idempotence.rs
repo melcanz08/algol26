@@ -23,6 +23,15 @@ use std::path::{Path, PathBuf};
 /// `expr_inline` to emit multi-line output would remove this rule
 /// and the files would start being checked.
 const SKIP_FILES: &[(&str, &str)] = &[
+    // Session 5. This file's formatter output fails to reparse for
+    // a reason not covered by the general rules. Diagnosis pending;
+    // it involves a comment/`parallel`/something else interaction
+    // that needs its own investigation. Listed explicitly so the
+    // generic `parallel do` rule could be dropped.
+    (
+        "examples/systems/comprehensive_test/full_test.gol",
+        "formatter output does not reparse; diagnosis pending session 5b",
+    ),
     // The two explicit entries below are files that fail for reasons
     // other than the `<block>` placeholder.
 
@@ -69,12 +78,13 @@ fn output_has_block_marker(s: &str) -> bool {
     //   - Trait method declarations with `Self` in a position the
     //     parser rejects on the second pass. This is an artifact of
     //     the way the emitter handles trait bodies.
-    if s.contains("else     if") || s.contains("else         if") {
-        return true;
-    }
-    if s.contains("parallel do") {
-        return true;
-    }
+    // (Session 5 removed the `else if` whitespace rule; emit_else
+    // now emits `else if` on one line.)
+    // (Session 5 removed the generic `parallel do` rule. Direct
+    // tests show both indentation and brace forms reparse. One
+    // file — examples/systems/comprehensive_test/full_test.gol —
+    // fails for a different reason and is listed explicitly in
+    // SKIP_FILES below.)
     // (Session 4b removed the `try`-after-`:=` rule; VarDecl now
     // inlines `try` with the header, so the previous skip is no
     // longer needed.)

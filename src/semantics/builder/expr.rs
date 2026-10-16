@@ -445,6 +445,36 @@ impl SemanticIRBuilder {
                     value: typed_value,
                 }
             }
+            Stmt::DerefAssign { target, value, .. } => {
+                // ADR 0056. `*r := v` where `r: MutBorrow(T)`.
+                // The analyzer has already type-checked the shape;
+                // this lowers to `WriteReference`, the same
+                // instruction the older `p := v` form produced.
+                //
+                // `target` is `ExprKind::Deref { expr }`. We
+                // translate the *inner* expression (the reference),
+                // not the deref itself: `translate_expr` on a
+                // `Deref` would produce a `ReadReference`, which
+                // reads through the reference rather than naming it
+                // for the store.
+                //
+                // Projected targets (`*r.f := v`) are rejected
+                // earlier by the analyzer; if one reaches here it
+                // is a bug, so we emit a diagnostic and a Nop.
+                let ExprKind::Deref { expr: inner, .. } = &target.kind else {
+                    self.diagnostics.push(format!(
+                        "DerefAssign target is not a deref: {:?}",
+                        target.kind
+                    ));
+                    return FlowResult::Unreachable;
+                };
+                let reference = self.translate_expr(program, func, current_block, inner);
+                let typed_value = self.translate_expr(program, func, current_block, value);
+                Instruction::WriteReference {
+                    reference,
+                    value: typed_value,
+                }
+            }
             Stmt::ChannelDecl { name, .. } => {
                 let chan_type = Type::Channel(Box::new(Type::Unknown));
                 self.declare_var(name, chan_type.clone(), true);

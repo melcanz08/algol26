@@ -703,6 +703,14 @@ impl SemanticAnalyzer {
                 span,
             } => {
                 // ADR 0056. `*r := v` where `r: &mut T`.
+                //
+                // Analyze `target` for its side effect: every node
+                // inside it gets a type-table entry, which the
+                // completeness pass requires. The returned type is
+                // discarded — the LHS of a deref assignment is a
+                // place, and the place is computed structurally
+                // below.
+                let _ = self.analyze_expr(target)?;
                 let target_place = self.place_of_expr(target).ok_or_else(|| {
                     CompileError::at(
                         *span,

@@ -1278,6 +1278,10 @@ fn number_stmt(stmt: &mut Stmt, next: &mut u32) {
         Stmt::Send { value, .. } => number_expr(value, next),
         Stmt::Expression(e) => number_expr(e, next),
         Stmt::FieldAssign { value, .. } => number_expr(value, next),
+        Stmt::DerefAssign { target, value, .. } => {
+            number_expr(target, next);
+            number_expr(value, next);
+        }
         _ => {}
     }
 }

@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod ast_display;
+pub mod formatter;
 pub mod lexer;
 pub mod module_loader;
 pub mod parser;

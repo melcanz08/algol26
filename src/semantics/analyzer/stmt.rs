@@ -19,6 +19,10 @@ impl SemanticAnalyzer {
                 mutable,
                 ..
             } => {
+                // ADR 0043. Clear any leftover borrow key from a
+                // previous declaration. `ExprKind::Borrow` sets it;
+                // the read below consumes it.
+                self.last_borrow_key = None;
                 // Detect mut-borrow before analyzing so we can set
                 // the "allow read during this declaration" flag and
                 // compute the borrowed place. The place flows into
@@ -61,7 +65,15 @@ impl SemanticAnalyzer {
                 // the first declaration of `&mut x` sets the flag; the second
                 // declaration sees the flag and errors out.
                 if let Some(place) = mut_borrow_place {
-                    self.register_mutable_borrow(name, place)?;
+                    self.register_mutable_borrow(name, place, value.id)?;
+                }
+
+                // ADR 0043. If the initializer was a shared
+                // borrow, `ExprKind::Borrow` stashed the borrow's
+                // key in `last_borrow_key`. Bind it to the declared
+                // name so `Var("r")` uses can find it.
+                if let Some(key) = self.last_borrow_key.take() {
+                    self.binding_to_shared_borrow.insert(name.clone(), key);
                 }
 
                 let binding_type = if let Some(annotated) = type_annotation {
@@ -162,6 +174,16 @@ impl SemanticAnalyzer {
                     )
                     .with_suggestion(&format!("Declare '{}' with 'var' instead of 'val'", name)));
                 }
+
+                // ADR 0043. Writing to `name` is a write to the
+                // place `name`. Eager rules first (deferred
+                // capture, mutable-borrow exclusivity), then the
+                // shared-borrow check is deferred: at this point
+                // in the walk, uses of the borrow later in the
+                // function have not yet been recorded.
+                let write_place = crate::semantics::state::Place::simple(name.clone());
+                self.check_write_borrow_rules(&write_place)?;
+                self.defer_shared_borrow_check(write_place, value.id, *span);
 
                 let target_type = match &var_type {
                     Type::MutBorrow(inner) => (**inner).clone(),
@@ -522,24 +544,27 @@ impl SemanticAnalyzer {
                     }
                     place
                 };
-                let conflict = if literal_index.is_some() {
-                    self.is_borrowed(&target_place)
+                // ADR 0043. Non-literal index: the write could
+                // reach any element, so fall back to the base
+                // array's place. Eager mutable check; deferred
+                // shared check.
+                let write_place = if literal_index.is_some() {
+                    target_place.clone()
                 } else {
-                    // Non-literal index: fall back to "any borrow of
-                    // the base array is a conflict."
-                    self.is_borrowed(&crate::semantics::state::Place::simple(array.clone()))
+                    crate::semantics::state::Place::simple(array.clone())
                 };
-                if conflict {
+                if self.is_mutably_borrowed(&write_place) {
                     return Err(CompileError::at(
                         self.current_span,
-                        &format!("Cannot assign to '{}' while it is borrowed", target_place),
+                        &format!(
+                            "Cannot assign to '{}' while it is mutably borrowed",
+                            write_place
+                        ),
                         ErrorCode::E0007,
                     )
-                    .with_suggestion(
-                        "Wait for the borrow to end, or write to a \
-                         different element",
-                    ));
+                    .with_suggestion("Wait for the mutable borrow to end"));
                 }
+                self.defer_shared_borrow_check(write_place, value.id, self.current_span);
 
                 // Value type must be assignable to the element type.
                 let value_type = self.analyze_expr(value)?;
@@ -601,17 +626,21 @@ impl SemanticAnalyzer {
                     place.projections.push(Projection::Field(field.clone()));
                     place
                 };
-                if self.is_borrowed(&target_place) {
+                // ADR 0043. Mutable-borrow exclusivity is eager;
+                // the shared case is deferred until the function
+                // end, when all uses are known.
+                if self.is_mutably_borrowed(&target_place) {
                     return Err(CompileError::at(
                         *span,
-                        &format!("Cannot assign to '{}' while it is borrowed", target_place),
+                        &format!(
+                            "Cannot assign to '{}' while it is mutably borrowed",
+                            target_place
+                        ),
                         ErrorCode::E0007,
                     )
-                    .with_suggestion(
-                        "Wait for the borrow to end, or bind the write to a \
-                         separate place",
-                    ));
+                    .with_suggestion("Wait for the mutable borrow to end"));
                 }
+                self.defer_shared_borrow_check(target_place.clone(), value.id, *span);
 
                 // Unwrap a mutable-borrow receiver: `r.x := v` where `r: &mut Point`
                 // is a legal write through the reference.
@@ -781,7 +810,11 @@ impl SemanticAnalyzer {
                     }
                 };
 
-                self.check_borrow_rules_place(&target_place, true)?;
+                // ADR 0043. `*r := v` writes through the
+                // reference. Eager mutable check; deferred shared
+                // check.
+                self.check_write_borrow_rules(&target_place)?;
+                self.defer_shared_borrow_check(target_place.clone(), value.id, *span);
 
                 let value_type = self.analyze_expr_with_context(value, Some(&referent_ty))?;
                 if referent_ty != Type::Unknown

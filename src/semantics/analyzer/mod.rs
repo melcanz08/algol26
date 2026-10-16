@@ -16,6 +16,16 @@ use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarStat
 use crate::semantics::trait_registry::TraitRegistry;
 use std::collections::{HashMap, HashSet};
 
+use self::ownership::DeferredSharedWrite;
+
+/// ADR 0043. `last_use` sentinel for a borrow that is live
+/// through its scope's end — either because no use was recorded
+/// (safe default) or because a use occurred inside a loop (see
+/// `record_borrow_use`). Uses `u32::MAX - 1` so that
+/// `ExprId::UNASSIGNED` (which is `u32::MAX`) remains a
+/// strictly greater "no position" marker.
+pub(super) const LAST_USE_SENTINEL: ExprId = ExprId(u32::MAX - 1);
+
 mod expr;
 mod items;
 mod ownership;
@@ -26,16 +36,23 @@ mod tests;
 
 // ─── Borrow-checking model ──────────────────────────────────────────────
 //
-// Borrow lifetimes are *lexical*: a borrow created inside scope S stays
-// alive until S is popped. Ownership, borrow, and initialization state
-// live in a single `SemanticState`, which is joined at every branch
-// point (`if`, `match`, loops) via `SemanticState::join`. The analyzer
-// does not maintain any parallel bookkeeping — `state` is the sole
-// authority.
+// Shared borrow lifetimes are *non-lexical* (ADR 0043): a borrow
+// is live from its creation expression through its last use. A
+// write to the borrow's place is an error iff it falls inside that
+// interval. Uses are recorded by `record_borrow_use` from the
+// `Var`, `Deref`, and dotted-`FunctionCall` arms of the expression
+// walk; write sites defer their checks via
+// `defer_shared_borrow_check` and resolve them at function end in
+// `flush_shared_borrow_checks`.
 //
-// Known limitation: NLL is not implemented, so a borrow lives until
-// the end of its enclosing block, not until the last use of the
-// reference. Programs that rely on NLL may be rejected conservatively.
+// Mutable borrows follow the same model: the binding is released
+// when a write goes through it, or at the borrow's own scope exit.
+// See `release_mutable_borrow` and the `retain` in `pop_scope`.
+//
+// Known limitation: use recording is syntactic, not CFG-based. A
+// borrow used inside a loop is conservatively treated as live
+// through the loop's exit (`LAST_USE_SENTINEL`). Precise per-path
+// liveness is ADR 0043's deferred work.
 // ────────────────────────────────────────────────────────────────────────
 pub struct SemanticAnalyzer {
     scopes: Vec<HashMap<String, (Type, bool)>>,
@@ -128,6 +145,30 @@ pub struct SemanticAnalyzer {
     /// being analyzed. Set at the top of `analyze_function` from
     /// `func.module`. Consulted by `check_visibility`.
     current_module: Option<String>,
+
+    // ─── ADR 0043: non-lexical shared borrow lifetimes ───
+    /// Borrow key (the synthetic `__shared_*` string) to the set
+    /// of AST positions at which the borrow is used. Populated by
+    /// `record_borrow_use`; consumed by `last_use_of`.
+    pub(super) shared_borrow_uses: HashMap<String, Vec<ExprId>>,
+    /// Binding name to the borrow key that binding owns, if any.
+    /// `val r := &x` inserts `"r" -> "__shared_x_0_N"`. Used by
+    /// `record_borrow_use` to translate a `Var("r")` use into the
+    /// borrow's key.
+    pub(super) binding_to_shared_borrow: HashMap<String, String>,
+    /// Set by `ExprKind::Borrow` to the key `mark_borrowed`
+    /// returned, and consumed (and cleared) by the enclosing
+    /// `Stmt::VarDecl`. Analogous to `in_mut_borrow`: a
+    /// single-slot handoff between adjacent arms of the walk.
+    pub(super) last_borrow_key: Option<String>,
+    /// ADR 0043. Write sites that need to be checked against
+    /// shared borrow liveness once all uses are known.
+    pub(in crate::semantics::analyzer) deferred_shared_writes: Vec<DeferredSharedWrite>,
+    /// ADR 0043. Borrow metadata that outlives `pop_scope`'s prune
+    /// of `state.borrows`. Maps a borrow key to (place, creation
+    /// `ExprId`). Cleared at the start of each `analyze_function`;
+    /// borrows do not cross function boundaries.
+    pub(super) shared_borrow_meta: HashMap<String, (crate::semantics::state::Place, ExprId)>,
 }
 
 /// ADR 0038 D4b. What the analyzer resolved at a `dyn Trait` method
@@ -250,6 +291,11 @@ impl SemanticAnalyzer {
             subrange_types: HashMap::new(),
             next_subrange_id: 0,
             const_values: HashMap::new(),
+            shared_borrow_uses: HashMap::new(),
+            binding_to_shared_borrow: HashMap::new(),
+            last_borrow_key: None,
+            deferred_shared_writes: Vec::new(),
+            shared_borrow_meta: HashMap::new(),
         }
     }
 

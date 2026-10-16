@@ -1,6 +1,7 @@
 // src/ir/cfg/dataflow.rs
 
 use crate::common::span::Span;
+use crate::frontend::ast::ExprId;
 use crate::semantics::state::{SemanticState, VarState};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -291,6 +292,11 @@ impl Transfer for OwnershipTransfer {
                         crate::semantics::state::Place::simple(place.clone()),
                         kind,
                         lt,
+                        // ADR 0043. The dataflow engine synthesizes
+                        // borrows during transfer; it has no AST
+                        // position. `ExprId::UNASSIGNED` is the
+                        // correct sentinel.
+                        ExprId::UNASSIGNED,
                     );
                 }
                 CfgInstruction::Call { name: _, args } => {

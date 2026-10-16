@@ -349,6 +349,16 @@ impl SemanticAnalyzer {
         Ok(())
     }
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
+        // ADR 0043. Reset per-function borrow metadata. Borrows do
+        // not cross function boundaries; a stale entry from the
+        // previous function would make `is_live_shared_borrow_of`
+        // report spurious conflicts.
+        self.shared_borrow_uses.clear();
+        self.binding_to_shared_borrow.clear();
+        self.shared_borrow_meta.clear();
+        self.deferred_shared_writes.clear();
+        self.last_borrow_key = None;
+
         // ADR 0039. Record which module's body we're analyzing so
         // visibility checks compare use sites to the declaring module.
         self.current_module = func.module.clone();
@@ -452,6 +462,11 @@ impl SemanticAnalyzer {
         for stmt in &func.body {
             self.analyze_stmt(stmt)?;
         }
+
+        // ADR 0043. Every use of every shared borrow in this
+        // function is now known. Resolve the deferred write
+        // conflicts.
+        self.flush_shared_borrow_checks()?;
 
         if return_type != Type::Void {
             let has_return = self.check_all_paths_return(&func.body);

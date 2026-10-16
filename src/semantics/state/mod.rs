@@ -3,6 +3,7 @@
 // Extends v0.9-A with proper outlives logic
 
 use crate::common::span::Span;
+use crate::frontend::ast::ExprId;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -239,6 +240,15 @@ pub struct BorrowState {
     pub kind: BorrowKind,
     pub lifetime: BorrowLifetime,
     pub created_at: NodeId,
+    /// ADR 0043. Stable AST identity of the borrow expression
+    /// that created this entry. `created_at` is a `NodeId`, which
+    /// the analyzer uses for fresh synthetic keys; borrow lifetime
+    /// ordering needs the AST's `ExprId`, which is what the
+    /// deferred-check machinery keys on. Kept separate rather
+    /// than unifying the two id spaces: `NodeId` is consumed by
+    /// `fresh_node_id` for unrelated purposes, and replacing it
+    /// would ripple.
+    pub created_expr: Option<ExprId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -474,6 +484,7 @@ impl SemanticState {
         place: Place,
         kind: BorrowKind,
         lifetime: BorrowLifetime,
+        created_expr: ExprId,
     ) {
         let node = self.fresh_node_id();
         self.borrows.insert(
@@ -483,6 +494,7 @@ impl SemanticState {
                 kind,
                 lifetime,
                 created_at: node,
+                created_expr: Some(created_expr),
             },
         );
     }
@@ -722,6 +734,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("r".into()),
+            ExprId(0),
         );
         assert!(s.is_borrowed("x"));
         s.move_out("x", Span::point(1, 1));
@@ -754,6 +767,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Region("outer".into()),
+            ExprId(0),
         );
 
         let outliving = s.exit_region("inner");
@@ -775,6 +789,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Region("r1".into()),
+            ExprId(0),
         );
 
         let outliving = s.exit_region("r1");
@@ -804,6 +819,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Local("r".into()),
+            ExprId(0),
         );
 
         let outliving = s.exit_region("inner");
@@ -823,6 +839,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Shared,
             BorrowLifetime::Local("p".into()),
+            ExprId(0),
         );
 
         let mut b = SemanticState::new();
@@ -849,6 +866,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("r".into()),
+            ExprId(0),
         );
 
         let j = SemanticState::join(&a, &b);
@@ -867,6 +885,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("p".into()),
+            ExprId(0),
         );
 
         let mut b = SemanticState::new();
@@ -876,6 +895,7 @@ mod tests {
             Place::simple("x"),
             BorrowKind::Mutable,
             BorrowLifetime::Local("p".into()),
+            ExprId(0),
         );
 
         let j = SemanticState::join(&a, &b);

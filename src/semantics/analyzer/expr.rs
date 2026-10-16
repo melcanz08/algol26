@@ -140,7 +140,7 @@ impl SemanticAnalyzer {
         expected_type: Option<&Type>,
     ) -> Result<Type> {
         match &expr.kind {
-            ExprKind::Borrow { expr, .. } => {
+            ExprKind::Borrow { expr: operand, .. } => {
                 // ADR 0044 stage 2. Track the borrow on a `Place`,
                 // not on a bare name — `&p.x` is a borrow of the
                 // place `p.x`, which the analyzer must be able to
@@ -151,11 +151,16 @@ impl SemanticAnalyzer {
                 // arithmetic expression, a literal, a nested
                 // function call — there is nothing to borrow. The
                 // analyzer reports "cannot borrow a temporary."
-                let place = self.place_of_expr(expr);
+                let place = self.place_of_expr(operand);
                 let inner_type = if let Some(place) = place {
                     self.check_borrow_rules_place(&place, false)?;
-                    self.mark_borrowed(&place);
-                    self.analyze_expr(expr)?
+                    // ADR 0043. `expr.id` is the borrow expression's
+                    // own id (the outer node); `operand.id` is the
+                    // borrowed place. The interval starts at the
+                    // borrow.
+                    let key = self.mark_borrowed(&place, expr.id);
+                    self.last_borrow_key = Some(key);
+                    self.analyze_expr(operand)?
                 } else {
                     return Err(CompileError::at(
                         self.current_span,
@@ -242,12 +247,12 @@ impl SemanticAnalyzer {
                 }
                 Ok(Type::mut_borrow(inner_type))
             }
-            ExprKind::Deref { expr, .. } => {
+            ExprKind::Deref { expr: operand, .. } => {
                 // Rule: dereferencing a value statically known to be
                 // null is a compile-time safety error. The language
                 // permits `null` as a value of type `Ptr`; it does not
                 // permit a deref whose operand is provably null.
-                if matches!(&expr.as_ref().kind, ExprKind::NullPtr(_)) {
+                if matches!(&operand.as_ref().kind, ExprKind::NullPtr(_)) {
                     return Err(CompileError::at(
                         self.current_span,
                         "Cannot dereference a null pointer",
@@ -258,7 +263,7 @@ impl SemanticAnalyzer {
                          e.g. with `if p != null then ...`",
                     ));
                 }
-                if let ExprKind::Var(name, _) = &expr.as_ref().kind {
+                if let ExprKind::Var(name, _) = &operand.as_ref().kind {
                     let is_known_null = self
                         .null_bindings
                         .iter()
@@ -280,7 +285,14 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                let inner_type = self.analyze_expr(expr)?;
+                // ADR 0043. `*r` is a use of `r`'s borrow. The
+                // use's position is the deref expression's own
+                // `ExprId`, not the operand's.
+                if let ExprKind::Var(name, _) = &operand.as_ref().kind {
+                    self.record_borrow_use(name, expr.id);
+                }
+
+                let inner_type = self.analyze_expr(operand)?;
                 match inner_type {
                     Type::Pointer(t) => {
                         // ADR 0015: raw pointer dereference requires
@@ -926,6 +938,10 @@ impl SemanticAnalyzer {
                     )
                     .with_suggestion("Wait for the mutable borrow to end before reading"));
                 }
+                // ADR 0043. A bare reference binding read is a use
+                // of the borrow it owns. No-op when `name` is not a
+                // borrow binding.
+                self.record_borrow_use(name, expr.id);
                 self.lookup_variable(name).map(|(t, _)| t).ok_or_else(|| {
                     CompileError::at(
                         *span,
@@ -1139,6 +1155,17 @@ impl SemanticAnalyzer {
             }
             ExprKind::FunctionCall { name, args, .. } => {
                 let clean_name = name.trim_end_matches("()");
+
+                // ADR 0043. `r.method()` parses as
+                // `FunctionCall { name: "r.method" }` — the receiver
+                // is folded into the name, so it is not walked as a
+                // child `Expr`. Record the use explicitly. The check
+                // is conservative: any dotted call whose prefix
+                // names a borrow binding counts, even if the method
+                // does not actually touch the borrow's referent.
+                if let Some((receiver, _)) = clean_name.split_once('.') {
+                    self.record_borrow_use(receiver, expr.id);
+                }
 
                 // UFCS: `Trait::method(receiver, extra...)`. Split
                 // before any other dispatch so the compound name

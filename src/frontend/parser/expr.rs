@@ -683,8 +683,29 @@ impl Parser {
                     trailing_expr: Some(Box::new(else_try_expr)),
                     span: else_try_span,
                 }))
-            } else {
+            } else if matches!(self.peek(), Token::Indent | Token::LBrace) {
+                // A real block (indented or braced).
                 Some(Box::new(self.parse_block_expr()?))
+            } else {
+                // ADR 0058 session 6. A single-expression else
+                // body. Parse a full expression so a trailing
+                // binary operator is consumed here, not left for
+                // the caller:
+                //
+                //     if cond then 0
+                //     else self.total() / self.count()
+                //
+                // Without this branch, `parse_block_expr` parses
+                // `self.total()` as a statement and the `/` is
+                // parsed by the caller as `(if ...) / self.count()`
+                // — a different program.
+                let else_span = self.current_span();
+                let else_expr = self.parse_expr()?;
+                Some(Expr::boxed(ExprKind::Block {
+                    statements: vec![],
+                    trailing_expr: Some(Box::new(else_expr)),
+                    span: else_span,
+                }))
             }
         } else {
             // No `else` — restore position so the Indent/Dedent we

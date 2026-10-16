@@ -237,6 +237,15 @@ impl SemanticAnalyzer {
                 base.projections.push(Projection::Index(*n as usize));
                 Some(base)
             }
+            ExprKind::Deref { expr, .. } => {
+                // ADR 0056. `*e` is a place: whatever `e` resolves
+                // to, projected through `Deref`. The borrow checker
+                // sees the syntactic path; referent resolution is
+                // the interpreter's / codegen's job.
+                let mut base = self.place_of_expr(expr)?;
+                base.projections.push(Projection::Deref);
+                Some(base)
+            }
             _ => None,
         }
     }

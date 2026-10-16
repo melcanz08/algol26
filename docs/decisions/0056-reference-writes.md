@@ -25,7 +25,7 @@ The absence forces one of two workarounds:
 
   1. Return the new value and let the caller rebind:
          fn bump(r: &Int) -> Int
-             *r + 1
+             ```*r + 1```
          # caller: x := bump(&x)
      This works but is unidiomatic and fails for procedures that
      mutate more than one argument.

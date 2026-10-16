@@ -185,6 +185,12 @@ pub struct Place {
 pub enum Projection {
     Field(String),
     Index(usize),
+    /// ADR 0056. Dereference through a reference. `*r` produces a
+    /// place whose projections end in `Deref`; `r.f := v` where
+    /// `r.f: &mut T` produces `[Field("f"), Deref]`. The two are
+    /// distinguished by *where* the `Deref` sits, which is exactly
+    /// the disambiguation rule the ADR specifies.
+    Deref,
 }
 
 impl Place {
@@ -210,11 +216,17 @@ impl Place {
 
 impl std::fmt::Display for Place {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut i = 0;
+        while i < self.projections.len() && matches!(self.projections[i], Projection::Deref) {
+            write!(f, "*")?;
+            i += 1;
+        }
         write!(f, "{}", self.base)?;
-        for p in &self.projections {
+        for p in &self.projections[i..] {
             match p {
                 Projection::Field(name) => write!(f, ".{}", name)?,
-                Projection::Index(i) => write!(f, "[{}]", i)?,
+                Projection::Index(idx) => write!(f, "[{}]", idx)?,
+                Projection::Deref => write!(f, "*")?,
             }
         }
         Ok(())

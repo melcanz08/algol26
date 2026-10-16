@@ -697,8 +697,102 @@ impl SemanticAnalyzer {
                     .borrows
                     .retain(|_, b| !b.place.overlaps(&target_place));
             }
-            Stmt::DerefAssign { .. } => {
-                todo!("ADR 0056: type-check *r := v (analyzer/stmt.rs)")
+            Stmt::DerefAssign {
+                target,
+                value,
+                span,
+            } => {
+                // ADR 0056. `*r := v` where `r: &mut T`.
+                let target_place = self.place_of_expr(target).ok_or_else(|| {
+                    CompileError::at(
+                        *span,
+                        "Deref assignment target is not a place",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "The left side of `*x := v` must be a dereference of a mutable reference",
+                    )
+                })?;
+
+                use crate::semantics::state::Projection;
+                if !matches!(target_place.projections.last(), Some(Projection::Deref)) {
+                    return Err(CompileError::at(
+                        *span,
+                        "Deref assignment target is not a dereference",
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion("The left side of a deref assignment must start with `*`"));
+                }
+
+                let reference_ty = {
+                    let mut ref_place = target_place.clone();
+                    ref_place.projections.pop();
+                    if !ref_place.projections.is_empty() {
+                        return Err(CompileError::at(
+                            *span,
+                            "Deref assignment through a projected reference is not yet supported",
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(
+                            "Bind the reference to a local first, e.g. `val r2 := r.f` then `*r2 := v`",
+                        ));
+                    }
+                    self.lookup_variable(&ref_place.base)
+                        .map(|(t, _)| t)
+                        .ok_or_else(|| {
+                            CompileError::at(
+                                *span,
+                                &format!("Undefined variable '{}'", ref_place.base),
+                                ErrorCode::E0003,
+                            )
+                        })?
+                };
+
+                let referent_ty = match reference_ty {
+                    Type::MutBorrow(inner) => *inner,
+                    Type::Borrow(_) => {
+                        return Err(CompileError::at(
+                            *span,
+                            "Cannot write through a shared reference",
+                            ErrorCode::E0007,
+                        )
+                        .with_suggestion("Declare the reference with `&mut` to write through it"));
+                    }
+                    other => {
+                        return Err(CompileError::at(
+                            *span,
+                            &format!(
+                                "Deref assignment target has type {}, not a reference",
+                                other
+                            ),
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(
+                            "Use `&mut x` to take a mutable reference before writing",
+                        ));
+                    }
+                };
+
+                self.check_borrow_rules_place(&target_place, true)?;
+
+                let value_type = self.analyze_expr_with_context(value, Some(&referent_ty))?;
+                if referent_ty != Type::Unknown
+                    && value_type != Type::Unknown
+                    && !value_type.can_coerce_to(&referent_ty)
+                {
+                    return Err(CompileError::at(
+                        *span,
+                        &format!(
+                            "Deref assignment type mismatch: cannot assign {} to a place of type {}",
+                            value_type, referent_ty
+                        ),
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(&format!(
+                        "Assign a value of type {} to `*{}`",
+                        referent_ty, target_place.base
+                    )));
+                }
             }
         }
         Ok(())

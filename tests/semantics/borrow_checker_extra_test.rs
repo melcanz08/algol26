@@ -378,8 +378,13 @@ proc main
 "#;
     let r = analyze_full(source);
     let msg = r.expect_err("write to a borrowed field must be rejected after stage 2c");
+    // ADR 0043. The diagnostic now names the full place and
+    // describes the conflict as "a shared borrow is live", rather
+    // than the pre-0043 "it is borrowed". Match on the invariant:
+    // the message names the conflicting place and identifies the
+    // conflict as a borrow.
     assert!(
-        msg.contains("p.x") && msg.contains("borrowed"),
+        msg.contains("p.x") && msg.contains("borrow"),
         "expected a place-based borrow diagnostic naming p.x, got: {}",
         msg
     );
@@ -419,8 +424,9 @@ proc main
 "#;
     let r = analyze_full(source);
     let msg = r.expect_err("write to a borrowed element must be rejected after stage 2d");
+    // ADR 0043. Same wording update as the field case above.
     assert!(
-        msg.contains("xs") && msg.contains("borrowed"),
+        msg.contains("xs") && msg.contains("borrow"),
         "expected a place-based borrow diagnostic naming xs, got: {}",
         msg
     );

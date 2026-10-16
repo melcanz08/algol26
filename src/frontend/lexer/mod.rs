@@ -272,6 +272,61 @@ fn strip_comment_not_in_string(line: &str) -> String {
     result
 }
 impl Lexer {
+    /// ADR 0057. True when `tok` cannot legally end a complete
+    /// statement — the next non-blank line is a continuation of
+    /// the expression, not a new block. Used to suppress the
+    /// lexer's `Indent` emission on such continuations; without
+    /// this, `val total := a +\n    b` produced an `Indent`
+    /// before `b`, and the parser rejected the `Indent` in
+    /// `parse_unary`.
+    ///
+    /// The set is deliberately narrow: tokens that cannot end a
+    /// complete statement under any interpretation. Four
+    /// exclusions are load-bearing:
+    ///
+    /// - `Ampersand` and `Star` can *start* an expression (`&x`,
+    ///   `*x`) as well as appear in the middle (`a * b`). Not
+    ///   including them here means `val x := a *` at end of line
+    ///   is not yet handled; add `Star` if a fixture needs it and
+    ///   no regression surfaces.
+    /// - `Lt` and `Gt` are excluded because they are both the
+    ///   comparison operators AND the generic type brackets.
+    ///   `proc f() -> Option<Student>` ends with `Gt` (the
+    ///   closing `>` of the generic), and treating that as a
+    ///   continuation would suppress the `Indent` for the
+    ///   function body on the next line. The unambiguous
+    ///   compound forms `LessEqual` / `GreaterEqual` are safe
+    ///   and stay.
+    /// - `And` and `Or` are excluded because `And` doubles as the
+    ///   keyword separating `parallel` blocks:
+    ///
+    ///   ```text
+    ///   parallel do
+    ///       stmt
+    ///   and
+    ///       stmt
+    ///   ```
+    ///
+    ///   After `and`, the next line's `Indent` *must* be emitted
+    ///   so the parser sees the second block. Treating `and` as
+    ///   a continuation suppresses that `Indent` and merges the
+    ///   second block into the first. (Regression found in
+    ///   tests/conformance/valid/concurrency/parallel_straightline.gol.)
+    fn token_requires_continuation(tok: &Token) -> bool {
+        matches!(
+            tok,
+            Token::Plus
+                | Token::Minus
+                | Token::Slash
+                | Token::Equal
+                | Token::NotEqual
+                | Token::LessEqual
+                | Token::GreaterEqual
+                | Token::In
+                | Token::Comma
+        )
+    }
+
     pub fn new(source: String) -> Result<Self> {
         let mut tokens = Vec::new();
         let mut indent_stack = vec![0];
@@ -350,11 +405,30 @@ impl Lexer {
             // statement.
             let is_chain_continuation = line.trim_start().starts_with('.');
 
-            if !in_bracket_continuation && !is_chain_continuation && indent > current_indent {
+            // ADR 0057. A line whose previous non-blank line ended
+            // with a binary operator is a continuation of the
+            // expression. Suppress the Indent (and Dedent) for it,
+            // same as a bracket continuation or a chain
+            // continuation. Without this, `val total := a +` on one
+            // line and `    b` on the next produced a spurious
+            // Indent before `b`, and `parse_unary` rejected it.
+            let is_operator_continuation = tokens
+                .last()
+                .map(Self::token_requires_continuation)
+                .unwrap_or(false);
+
+            if !in_bracket_continuation
+                && !is_chain_continuation
+                && !is_operator_continuation
+                && indent > current_indent
+            {
                 indent_stack.push(indent);
                 tokens.push(Token::Indent);
                 token_positions.push((line_number, 1, 1));
-            } else if !in_bracket_continuation && !is_chain_continuation && indent < current_indent
+            } else if !in_bracket_continuation
+                && !is_chain_continuation
+                && !is_operator_continuation
+                && indent < current_indent
             {
                 // ... existing dedent logic unchanged
                 if !indent_stack.contains(&indent) {

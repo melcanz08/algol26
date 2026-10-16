@@ -262,6 +262,22 @@ impl Parser {
     }
 
     pub(super) fn parse_function(&mut self) -> Result<FunctionDecl> {
+        // ADR 0057. Reset the statement-boundary column at the
+        // start of every function declaration. Without this, the
+        // column from the previous body's last statement carries
+        // over into the new body, and a binary operator whose
+        // column happens to match the stale value is misclassified
+        // as a new statement.
+        //
+        // The bug manifested on `gradebook.gol`: `fn tier`'s last
+        // statement `else Tier.AtRisk` left
+        // `statement_start_column = Some(14)`, and `fn letter`'s
+        // `if score >= 90` has its `>=` at column 14. The
+        // comparison loop rejected the `>=` as a statement boundary,
+        // and `parse_primary` failed with "Unexpected expression:
+        // GreaterEqual".
+        self.statement_start_column = None;
+
         // ADR 0039. Top-level functions and impl methods may carry a
         // leading `pub`. Trait-method and trait-impl rejection is
         // enforced by the callers (parse_trait and parse_impl).

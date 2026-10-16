@@ -1,11 +1,8 @@
-// EXPECT: REJECT
+// EXPECT: COMPILE
 // ADR 0057. Operator at end of previous line with the continuation
-// indented deeper: this *should* compile under the ADR's rule, but
-// does not, because the lexer emits an `Indent` token before the
-// continuation and `parse_unary` rejects it. That is a separate
-// gap (how `Indent` interacts with expression continuations) and
-// is out of scope for 0057. Retained here as a reproducer; flips
-// to EXPECT: COMPILE when the Indent-in-expression issue is fixed.
+// indented deeper: the lexer suppresses the Indent for lines whose
+// predecessor ends in a binary operator, so this parses as one
+// expression. See `Lexer::token_requires_continuation`.
 proc main()
     val a := 10
     val b := 3

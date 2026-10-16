@@ -87,7 +87,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0055](0055-sum-and-recursive-types.md) | Sum Types and Recursive Types | Proposed |
 | [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current (Form A + cross-fn deferred) |
 | [0057](0057-statement-boundaries.md) | Statement Boundaries | Current |
-| [0058](0058-algol26-fmt.md) | `algol26 fmt` | Proposed |
+| [0058](0058-algol26-fmt.md) | `algol26 fmt` | Accepted (in progress) |
 
 ## Numbering notes
 

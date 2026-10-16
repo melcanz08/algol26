@@ -1,6 +1,11 @@
 # ADR 0058: `algol26 fmt`
 
-Status: Proposed.
+Status: Accepted. Sessions 1, 2a, 2b, 3, 4a, 4b, 5a, and 5b landed.
+The formatter handles 300 of 309 parseable files in the corpus.
+Two rules document the remaining limitations: block-shaped
+expressions in single-line containers (multi-line container
+emission pending), and body-less proc/fn declarations (parser
+fix pending).
 
 ## Context
 

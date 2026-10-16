@@ -45,6 +45,16 @@ impl RaceDetector {
                 }
                 self.analyze_expr(value, in_spawn);
             }
+            // ADR 0056. `*r := v` reads through `r` and writes to the
+            // referent. The race detector is name-based; treating the
+            // target expression as a read of whatever it names (which
+            // for `*r` is `r` itself) captures the access conservatively.
+            // Precise referent tracking is a separate ADR, same as the
+            // field-level note above.
+            Stmt::DerefAssign { target, value, .. } => {
+                self.analyze_expr(target, in_spawn);
+                self.analyze_expr(value, in_spawn);
+            }
             Stmt::VarDecl { value, .. } => {
                 // A declaration is not a race-relevant access. It
                 // happens once, sequentially, before any concurrent
@@ -149,6 +159,11 @@ impl RaceDetector {
             }
             Stmt::FieldAssign { target, value, .. } => {
                 Self::merge_access_map(accesses, target, AccessType::Write);
+                self.collect_expr_accesses(value, accesses);
+            }
+            // ADR 0056. Same reasoning as the analyze_stmt arm above.
+            Stmt::DerefAssign { target, value, .. } => {
+                self.collect_expr_accesses(target, accesses);
                 self.collect_expr_accesses(value, accesses);
             }
             Stmt::VarDecl { value, .. } => {

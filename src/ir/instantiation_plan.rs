@@ -471,6 +471,14 @@ fn collect_stmt_call_ids(stmt: &Stmt, out: &mut Vec<ExprId>) {
         Stmt::FieldAssign { value, .. } => {
             collect_expr_call_ids(value, out);
         }
+        // ADR 0056. Generic calls on either side of `*r := f(x)`
+        // must be recorded in the plan. Without this arm,
+        // `DerefAssign` fell into the trailing `_ => {}` and any
+        // `FunctionCall` inside it was invisible to closure.
+        Stmt::DerefAssign { target, value, .. } => {
+            collect_expr_call_ids(target, out);
+            collect_expr_call_ids(value, out);
+        }
         Stmt::Return { value: Some(e), .. } => collect_expr_call_ids(e, out),
         Stmt::Print { expr, .. } => collect_expr_call_ids(expr, out),
         Stmt::Defer { stmt, .. } => collect_stmt_call_ids(stmt, out),

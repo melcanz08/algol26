@@ -87,6 +87,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0055](0055-sum-and-recursive-types.md) | Sum Types and Recursive Types | Proposed |
 | [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current |
 | [0057](0057-statement-boundaries.md) | Statement Boundaries | Current |
+| [0058](0058-algol26-fmt.md) | `algol26 fmt` | Proposed |
 
 ## Numbering notes
 
@@ -94,8 +95,9 @@ Do not edit an ADR's body to reflect new decisions. Either:
   numbers; the sequence skips from 0018 to 0022.
 - **0055** is Reserved. **0056** (reference writes) and
   **0057** (statement boundaries) are accepted and implemented.
-  **0058+** are reserved for: `algol26 fmt` (deferred from 0054)
-  and further work on ADR 0044's interpreter side.
+  **0058** (`algol26 fmt`) is proposed; implementation is the
+  next session-sized item. **0059+** are reserved for further
+  work on ADR 0044's interpreter side and anything else.
 
 ## Current state
 

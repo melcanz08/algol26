@@ -1,6 +1,6 @@
 # ADR 0054: Alternate brace block syntax
 
-Status: Proposed. Implementation staged.
+Status: Accepted. Implemented on all three sessions; formatter deferred.
 
 ## Context
 
@@ -142,13 +142,17 @@ commit `7f89f1c`. Every block-accepting site accepts a
 brace-form `match` arms. `tests/paired.rs` asserts identical
 ASTs for seven paired programs.
 
-**Session 2 — user-facing documentation.** `docs/guide/blocks.md`
-describing both forms, when to use which, and the "one form per
-file" convention. README updated.
+**Session 2 — user-facing documentation.** ✅ `docs/guide/blocks.md`
+(182 lines) describes both forms, when to use which, and the
+"one form per file" convention. `README.md` updated to present
+the brace form as a first-class alternate syntax referencing
+this ADR.
 
-**Session 3 — corpus coverage.** Add `examples/braces/*.gol` —
-the same programs as `examples/*.gol`, written in brace form,
-with a test asserting identical compilation.
+**Session 3 — corpus coverage.** ✅ `examples/braces/*.gol` (nine
+programs) mirror their indentation-form counterparts.
+`tests/brace_examples.rs` asserts byte-identical interpreter
+output between the two forms; `tests/paired.rs` asserts
+identical ASTs.
 
 ### Deferred: `algol26 fmt`
 

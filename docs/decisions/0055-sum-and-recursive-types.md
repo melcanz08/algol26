@@ -1,6 +1,34 @@
 # ADR 0055: Sum Types and Recursive Types
 
-Status: Proposed. Not implemented.
+Status: Proposed. Session 1 (recursive records) implemented; sum types not yet implemented.
+
+## Implementation plan
+
+Three sessions.
+
+**Session 1 — recursive records.** ✅ Splits record registration
+into two passes: names first (so self-reference and forward-
+reference resolve), then field types. Direct self-reference
+(a field whose type is exactly the record, with no indirection)
+is rejected as infinitely sized. `tests/adr_examples/0055_recursion/`
+holds three fixtures: `pass_rec_node.gol` (self-reference through
+`Option`), `pass_forward_reference.gol` (forward reference between
+records), and `fail_direct_self_reference.gol` (rejected with
+`E0002`).
+
+**Session 2 — union declarations and construction.** Not started.
+Adds the `union` keyword (or payload-carrying `enum`, per the
+syntax-form decision below), the `UnionDecl` AST node, and
+interpreter-side construction. LLVM and WASM refuse at the
+capability boundary.
+
+**Session 3 — match over unions.** Not started. Adds
+`Pattern::VariantWithBinding`, payload binding, and
+exhaustiveness checking over user-defined variants.
+
+**Deferred: LLVM / WASM codegen for union payloads.** The ADR's
+own "What is out of scope" section defers this to a follow-up.
+Interpreter-only until the codegen project lands.
 
 ## Context
 

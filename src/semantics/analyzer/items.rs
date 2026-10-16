@@ -289,7 +289,11 @@ impl SemanticAnalyzer {
         }
         Ok(())
     }
-    pub(super) fn register_record(&mut self, decl: &RecordDecl) -> Result<()> {
+    /// Session 1 of ADR 0055. Pass 1: register every record's name
+    /// with an empty placeholder, so field-type resolution in pass 2
+    /// can see the name even when a field refers to a later record or
+    /// to the record currently being registered.
+    pub(super) fn register_record_name(&mut self, decl: &RecordDecl) -> Result<()> {
         if self.records.contains_key(&decl.name) {
             return Err(CompileError::simple(
                 &format!("Duplicate record declaration '{}'", decl.name),
@@ -314,6 +318,30 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Insert a placeholder. Fields and field_visibilities are
+        // empty; pass 2 replaces this entry in place.
+        self.records.insert(
+            decl.name.clone(),
+            RecordInfo {
+                name: decl.name.clone(),
+                type_params: decl.type_params.clone(),
+                fields: Vec::new(),
+                field_visibilities: HashMap::new(),
+                visibility: decl.visibility,
+                module: decl.module.clone(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Session 1 of ADR 0055. Pass 2: resolve each field's type now
+    /// that every record name is registered, then replace the
+    /// placeholder from pass 1 with the fully resolved RecordInfo.
+    /// Rejects direct self-reference (a field whose type is exactly
+    /// this record) as an infinitely sized value; self-reference
+    /// through an indirection (List, Map, Option, Result, Borrow,
+    /// MutBorrow, Pointer) is permitted.
+    pub(super) fn resolve_record_fields(&mut self, decl: &RecordDecl) -> Result<()> {
         // Resolve field types. Type parameters are visible here as TypeVars.
         self.type_params.push(
             decl.type_params
@@ -327,6 +355,30 @@ impl SemanticAnalyzer {
             .map(|(name, ty, _)| Ok((name.clone(), self.resolve_type_syntax(ty)?)))
             .collect::<Result<Vec<_>>>()?;
         self.type_params.pop();
+
+        // ADR 0055. Direct self-reference — a field whose resolved
+        // type IS the record, with no indirection — is infinitely
+        // sized and rejected here. Self-reference through a container
+        // is fine.
+        for (field_name, field_ty) in &fields {
+            if Self::is_direct_self_reference(&decl.name, field_ty) {
+                return Err(CompileError::simple(
+                    &format!(
+                        "Record '{}' has field '{}' of its own type, which \
+                         would be infinitely sized",
+                        decl.name, field_name
+                    ),
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0002,
+                )
+                .with_suggestion(
+                    "Wrap the field in an indirection: `List<T>`, `Option<T>`, \
+                     `Borrow<T>`, or a pointer type",
+                ));
+            }
+        }
 
         // ADR 0039. Field visibilities, keyed by field name.
         let field_visibilities: HashMap<String, crate::frontend::ast::Visibility> = decl
@@ -347,6 +399,14 @@ impl SemanticAnalyzer {
             },
         );
         Ok(())
+    }
+
+    /// ADR 0055. True when `ty` is exactly the record named `name`
+    /// with no indirection. `List<Node>`, `Option<Node>`,
+    /// `Borrow<Node>`, etc. are NOT direct self-references — they are
+    /// permitted.
+    fn is_direct_self_reference(name: &str, ty: &Type) -> bool {
+        matches!(ty, Type::Record(n, _) if n == name)
     }
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
         // ADR 0043. Reset per-function borrow metadata. Borrows do

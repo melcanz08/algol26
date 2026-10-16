@@ -1,0 +1,14 @@
+// EXPECT: COMPILE
+// ADR 0055 Session 1 — forward reference between records.
+// `A` names `B` before `B` is declared. Pass 1 registers both
+// names; pass 2 resolves the field types.
+rec A
+    b: B
+
+rec B
+    x: Int
+
+proc main
+    val b := B { x: 42 }
+    val a := A { b: b }
+    print(Int.to_string(a.b.x))

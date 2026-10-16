@@ -54,7 +54,10 @@ proc main
 
 ## Language at a Glance
 
-- **Indentation-based**, like Python — no braces, no semicolons
+- **Indentation-based** by default, like Python — no semicolons. An
+  **alternate brace-based form** is also supported (ADR 0054); the two
+  forms are semantically identical. See `examples/braces/` and
+  `tests/brace_examples.rs`.
 - **Immutable by default** (`val`), opt-in mutability (`var`)
 - **Statically typed** with inference. Scalar types: `Int`, `Float`,
   `Bool`, `String`. Container and structured types: `List<T>`,

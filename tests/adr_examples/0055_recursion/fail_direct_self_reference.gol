@@ -1,0 +1,9 @@
+// EXPECT: REJECT E0002
+// ADR 0055 Session 1 — direct self-reference is rejected.
+// A field whose type is exactly the record, with no indirection,
+// is infinitely sized and must be a compile error.
+rec Bad
+    self: Bad
+
+proc main
+    print("unreachable")

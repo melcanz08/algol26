@@ -522,8 +522,14 @@ impl SemanticAnalyzer {
         // record table. Records are registered in declaration
         // order; a record that names a later record as a field
         // type is not yet supported.
+        // ADR 0055 Session 1. Split record registration into two
+        // passes: names first (so self-reference and forward-reference
+        // resolve), then fields.
         for rec in records {
-            self.register_record(rec)?;
+            self.register_record_name(rec)?;
+        }
+        for rec in records {
+            self.resolve_record_fields(rec)?;
         }
 
         // ADR 0041. Register traits and impls BEFORE user functions

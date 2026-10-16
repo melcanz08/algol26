@@ -1,0 +1,11 @@
+// EXPECT: COMPILE
+// ADR 0055 Session 1 — self-reference through Option.
+// A record whose field names itself through an indirection
+// (Option) is legal: the indirection breaks the infinite size.
+rec Node
+    value: Int
+    next: Option<Node>
+
+proc main
+    val n := Node { value: 1, next: None }
+    print(Int.to_string(n.value))

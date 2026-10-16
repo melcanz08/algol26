@@ -1,6 +1,31 @@
 # ADR 0056: Reference Writes
 
-Status: Proposed (design)
+Status: Accepted (LLVM complete; interpreter partially complete)
+
+LLVM backend: `*r := *r + 1` compiles and runs; the motivating
+example prints 11.
+
+Interpreter: `assign_place` and the `WriteReference` dispatch are
+implemented. Same-function write-through is proven by construction
+but cannot be exercised by a user-visible test yet:
+
+  - Reading the mutated variable after the write is rejected by
+    the analyzer's lexical borrow rule (E0007). ADR 0043 (NLL)
+    removes this rule; until then, every program that writes
+    through `&mut` and then reads the source is rejected at
+    analysis time.
+
+  - Writing `*r := v` at the start of a statement that follows
+    another statement at the same indentation is a parser
+    ambiguity. ADR 0057 (statement boundaries) resolves it.
+
+Cross-function write-through remains architecturally unsupported
+by the interpreter's frame-swap model and fails with an explicit
+error message.
+
+Steps 1-5 of the implementation sketch are complete except for the
+interpreter test suite, which is deferred pending ADR 0043 and
+ADR 0057.
 
 ## Context
 

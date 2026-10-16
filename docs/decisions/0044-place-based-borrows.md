@@ -1,6 +1,6 @@
 # ADR 0044: Place-based borrow tracking
 
-Status: In progress.
+Status: Current (analyzer side).
 
 - **Stage 1** (2026-10-11, commit `50d9e80`). `Place` and
   `Projection` introduced; `BorrowState.place` changed from
@@ -27,12 +27,27 @@ Status: In progress.
     `tests/semantics/borrow_checker_extra_test.rs` pin the
     reject-for-same-place and accept-for-disjoint-place
     behavior on both fields and elements.
+- **Stage 3: read-side place granularity** (this commit).
+  The read-side check at `ExprKind::Var` used
+  `Place::simple(name)`, losing any field or index projection
+  the leaf sat inside. Any field-level mutable borrow triggered
+  a conflict on the base name. `SemanticAnalyzer::in_place_expr`
+  is now set by the three place-producing arms (FieldAccess,
+  ArrayAccess, Deref) around their recursion into the object;
+  the leaf `Var` arm skips its check when set, and the enclosing
+  arm runs `check_borrow_rules_place` on the full place.
+  - Three new fixtures under `tests/adr_examples/0044_places/`:
+    `pass_disjoint_field_read.gol`,
+    `fail_read_same_field.gol`,
+    `pass_disjoint_element_read.gol`.
 - **Remaining.** Interpreter reference semantics (ADR 0053).
-  The analyzer rejects the motivating programs at compile time,
-  but the interpreter's runtime does not model places — `&p.x`
-  is a value snapshot. ADR 0053 replaces this with a
-  `RuntimeValue::Reference(Place)` that reads through the
-  current storage.
+  The analyzer accepts and rejects the motivating programs
+  correctly at compile time, but the interpreter's runtime does
+  not model places — `&p.x` is a value snapshot. ADR 0053
+  replaces this with a `RuntimeValue::Reference(Place)` that
+  reads through the current storage. That ADR is the one that
+  finally closes ADR 0044's "interpreter side" line; the
+  analyzer-side work here is complete.
 
 ### Shipped shape vs. original sketch
 

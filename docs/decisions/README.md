@@ -42,9 +42,9 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0007](0007-region-memory.md) | Region Memory | Drifted (see status note) |
 | [0008](0008-concurrency-model.md) | Concurrency Model | Drifted (see status note) |
 | [0009](0009-unsafe.md) | Unsafe Boundary | Drifted (see status note) |
-| [0010](0010-canonical-ir.md) | Canonical IR | Current |
-| [0011](0011-phase4-task-model.md) | Phase 4 Task Model | Current |
-| [0012](0012-implicit-deref-convention.md) | Implicit Deref Convention | Current |
+| [0010](0010-canonical-ir.md) | Canonical IR | Accepted |
+| [0011](0011-phase4-task-model.md) | Phase 4 Task Model | Proposed |
+| [0012](0012-implicit-deref-convention.md) | Implicit Deref Convention | Proposed |
 | [0013](0013-executable-ir-generic-invariant.md) | Executable IR Generic Invariant | Current |
 | [0014](0014-verifier-invariants.md) | Verifier Invariants | Current |
 | [0015](0015-unsafe-enforcement.md) | Unsafe Enforcement | Current |
@@ -63,8 +63,8 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0031](0031-subrange-types.md) | Subrange Types | Current |
 | [0032](0032-set-types.md) | Set Types | Current |
 | [0033](0033-methods-and-self.md) | Methods, Receivers, and the OOP Direction | Accepted |
-| [0034](0034-generic-impls.md) | Generic Impls | Accepted |
-| [0035](0035-interpreter-aliasing.md) | Interpreter Write-Through for `&mut self` Receivers | Accepted |
+| [0034](0034-generic-impls.md) | Generic Impls | Current |
+| [0035](0035-interpreter-aliasing.md) | Interpreter Write-Through for `&mut self` Receivers | Current |
 | [0036](0036-llvm-records.md) | LLVM Record Support | Current |
 | [0037](0037-wasm-records-references.md) | WASM Records and References | Superseded by 0036 |
 | [0038](0038-dynamic-dispatch.md) | Dynamic Dispatch (`dyn Trait`) | Current |

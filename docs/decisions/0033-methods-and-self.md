@@ -2,9 +2,18 @@
 
 ## Status
 
-Accepted. Not yet implemented.
+Accepted. Implemented on all three backends (interpreter, LLVM, WASM).
 
-> **Status note (2026-10-04).** This ADR records a decision, not a
+> **Status note (2026-10-04, updated 2026-10-17).** The original
+> note recorded the decision ahead of its implementation. Methods
+> landed afterward: `impl` blocks with `&self` and `&mut self`
+> receivers compile and run on the interpreter (verified by
+> `examples/library.gol`), and the LLVM/WASM backends lower the
+> same IR. The decision stands; the implementation is in place.
+>
+> Original note follows.
+>
+> This ADR records a decision, not a
 > completed implementation. It commits ALGOL26 to method syntax on
 > records with explicit-typed `self` receivers, and explicitly
 > declines classical inheritance, dynamic dispatch, and the

@@ -445,6 +445,7 @@ mod tests {
 
         let mut functions = vec![crate::frontend::ast::FunctionDecl {
             span: crate::common::span::Span::default(),
+            is_fn: false,
             name: "f".into(),
             params: vec![],
             return_type: None,

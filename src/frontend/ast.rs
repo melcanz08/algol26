@@ -414,6 +414,12 @@ pub struct FunctionDecl {
     /// `Span::default()` for synthesized declarations (impl
     /// expansion, tests).
     pub span: Span,
+    /// ADR 0048. True for `fn` declarations (single-expression
+    /// body), false for `proc` declarations (statement body).
+    /// The AST previously had no way to distinguish the two:
+    /// both could have a return type. The formatter needs the
+    /// distinction to pick the right body-emission path.
+    pub is_fn: bool,
     pub name: String,
     pub params: Vec<(String, Option<TypeSyntax>)>,
     pub return_type: Option<TypeSyntax>,

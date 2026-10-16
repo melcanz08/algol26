@@ -260,25 +260,12 @@ impl Formatter {
             return;
         }
 
-        let kind = if func.receiver.is_some() {
-            // Methods use `fn` or `proc` based on the return type.
-            // The ADR 0048 distinction: `fn` has an expression body,
-            // `proc` has a statement body. We detect from the return
-            // type: a `fn` has `-> T`, a `proc` may or may not.
-            // For emitted form, if there's a return type, use `fn`;
-            // otherwise `proc`.
-            if func.return_type.is_some() {
-                "fn"
-            } else {
-                "proc"
-            }
-        } else {
-            if func.return_type.is_some() {
-                "fn"
-            } else {
-                "proc"
-            }
-        };
+        // ADR 0048. `fn` vs `proc` is a source-level distinction
+        // the parser records on the AST (`is_fn`). Emitting `fn`
+        // for a `proc` with a return type would produce a body the
+        // parser rejects, since `fn` bodies may not contain
+        // statements or `return`.
+        let kind = if func.is_fn { "fn" } else { "proc" };
 
         let mut header = String::new();
         header.push_str(kind);

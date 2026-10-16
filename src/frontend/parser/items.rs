@@ -491,6 +491,7 @@ impl Parser {
 
         Ok(FunctionDecl {
             span: func_span,
+            is_fn,
             name,
             params,
             return_type,

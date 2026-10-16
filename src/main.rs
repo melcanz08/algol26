@@ -31,6 +31,13 @@ fn main() {
         run_inspect(&rest);
         std::process::exit(0);
     }
+    // ADR 0058 session 3. `fmt` also intercepts before the flag
+    // parser: `--check` and `--stdout` are fmt-specific.
+    if args.get(1).map(|s| s.as_str()) == Some("fmt") {
+        let rest: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
+        run_fmt(&rest);
+        std::process::exit(0);
+    }
     if args.len() < 2 {
         print_usage();
         std::process::exit(1);
@@ -504,4 +511,112 @@ fn print_inspect_usage() {
     eprintln!("  --ast    <file>  dump the parsed AST (before type checking)");
     eprintln!("  --ir     <file>  dump the semantic IR (after type checking)");
     eprintln!("  --cfg    <file>  dump the CFG view (blocks and successors)");
+}
+
+// ─── fmt ─────────────────────────────────────────────────────────────
+
+/// ADR 0058. `algol26 fmt [--check|--stdout] <file>`.
+///
+/// Reads `file`, parses it, and formats it. Behavior depends on
+/// flags:
+///
+///   (no flag)   write the formatted source back to `file`
+///   --check     exit 0 if `file` is already formatted; exit 1
+///               and print the path if it would change
+///   --stdout    write to stdout; do not modify `file`
+///
+/// On parse failure, prints the error and exits 1 without touching
+/// the file.
+fn run_fmt(args: &[&str]) {
+    use algol26::frontend::formatter::Formatter;
+    use algol26::frontend::lexer::Lexer;
+    use algol26::frontend::parser::Parser;
+
+    let mut check = false;
+    let mut stdout = false;
+    let mut path: Option<String> = None;
+
+    for a in args {
+        match *a {
+            "--check" => check = true,
+            "--stdout" => stdout = true,
+            "--help" | "-h" => {
+                println!("usage: algol26 fmt [--check|--stdout] <file>");
+                println!();
+                println!("  --check    exit 1 if <file> is not already formatted");
+                println!("  --stdout   write formatted source to stdout");
+                return;
+            }
+            other if other.starts_with('-') => {
+                eprintln!("Error: unknown fmt flag '{}'", other);
+                eprintln!("usage: algol26 fmt [--check|--stdout] <file>");
+                std::process::exit(1);
+            }
+            other => {
+                if path.is_some() {
+                    eprintln!("Error: fmt takes one file argument");
+                    std::process::exit(1);
+                }
+                path = Some(other.to_string());
+            }
+        }
+    }
+
+    let Some(path) = path else {
+        eprintln!("Error: fmt requires a filename");
+        eprintln!("usage: algol26 fmt [--check|--stdout] <file>");
+        std::process::exit(1);
+    };
+
+    if check && stdout {
+        eprintln!("Error: --check and --stdout are mutually exclusive");
+        std::process::exit(1);
+    }
+
+    let source = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to read file '{}': {}", path, e);
+            std::process::exit(1);
+        }
+    };
+
+    let lexer = match Lexer::new(source.clone()) {
+        Ok(l) => l,
+        Err(e) => {
+            let e = e.with_file(&path);
+            eprint!("{}", render_one_with_source(&e, Some(&source)));
+            std::process::exit(1);
+        }
+    };
+    let comments = lexer.comments.clone();
+
+    let mut parser = Parser::new(lexer.tokens);
+    let program = match parser.parse_program() {
+        Ok(p) => p,
+        Err(e) => {
+            let e = e.with_file(&path);
+            eprint!("{}", render_one_with_source(&e, Some(&source)));
+            std::process::exit(1);
+        }
+    };
+
+    let formatter = Formatter::new(&program, &source, comments);
+    let formatted = formatter.format(&program);
+
+    if check {
+        if formatted == source {
+            std::process::exit(0);
+        } else {
+            eprintln!("{}: would be reformatted", path);
+            std::process::exit(1);
+        }
+    }
+
+    if stdout {
+        print!("{}", formatted);
+    } else if let Err(e) = fs::write(&path, &formatted) {
+        eprintln!("Failed to write file '{}': {}", path, e);
+        std::process::exit(1);
+    }
 }

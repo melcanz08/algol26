@@ -335,8 +335,11 @@ impl Formatter {
     fn emit_fn_body(&mut self, level: usize, body: &[Stmt]) {
         match body {
             [Stmt::Return { value: Some(e), .. }] => {
-                let line = expr_inline(e);
-                self.emit_line(level, &line);
+                // ADR 0058 session 4a. The body expression may be
+                // block-shaped (an if-expression is the common
+                // case). `emit_expr` handles both single-line and
+                // block-shaped expressions.
+                self.emit_expr(level, e);
             }
             [] => {
                 // An empty `fn` body is a parse error upstream.

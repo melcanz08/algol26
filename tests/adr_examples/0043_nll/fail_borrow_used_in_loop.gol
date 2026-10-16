@@ -1,0 +1,20 @@
+// EXPECT: REJECT
+// ADR 0043 — a borrow used inside a loop is live through the
+// loop's exit, because iteration N+1 re-enters the body after
+// iteration N's write. This is a conservative approximation of
+// the ADR's "syntactic last-use" model: any use inside a loop
+// promotes the borrow's last use to LAST_USE_SENTINEL.
+//
+// Here `*r` is used before `count := count + 1` in the source,
+// but on iteration 2 the print runs after iteration 1's
+// increment. The analyzer conservatively rejects.
+
+proc main
+    var count := 0
+    val r := &count
+
+    while count < 3
+        print(*r)           // use inside loop -> borrow live through exit
+        count := count + 1  // E0007: borrow is still live
+
+    print(count)

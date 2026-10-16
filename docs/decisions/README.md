@@ -88,6 +88,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current (Form A + cross-fn deferred) |
 | [0057](0057-statement-boundaries.md) | Statement Boundaries | Current |
 | [0058](0058-algol26-fmt.md) | `algol26 fmt` | Accepted (in progress) |
+| [0059](0059-comprehensive-program-walk.md) | Comprehensive Program Walk | Accepted |
 
 ## Numbering notes
 

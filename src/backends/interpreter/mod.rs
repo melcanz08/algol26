@@ -525,17 +525,35 @@ impl Interpreter {
                     )));
                 }
             },
-            Instruction::WriteReference { .. } => {
-                // The interpreter does not model references. Its
-                // `Assign` handler would silently overwrite the
-                // reference variable's slot, which is wrong; refuse
-                // instead. Matches the interpreter's refusal of the
-                // reference-family `TypedIRValue` variants in
-                // `eval_value`.
-                return Err(EvalError::Unsupported {
-                    construct: "write-through-&mut",
-                    hint: "use the LLVM backend (--interpreter does not model references)",
-                });
+            Instruction::WriteReference { reference, value } => {
+                // ADR 0056. `*r := v`. Evaluate the reference and
+                // the value, then write through.
+                //
+                // The reference is a `RuntimeValue::Reference(place)`
+                // when the same-function case is in play (`var r :=
+                // &mut x; *r := 5`). Across a function boundary the
+                // interpreter pre-resolves reference arguments at the
+                // call site (see `eval_call`), so a parameter's value
+                // is the referent, not a Reference. That path still
+                // fails, but with a message that names the actual
+                // limitation.
+                let rv = self.eval_value(reference)?;
+                let place = match rv {
+                    RuntimeValue::Reference(p) => p,
+                    _other => {
+                        return Err(EvalError::Unsupported {
+                            construct: "write-through-&mut across a function boundary",
+                            hint: "the interpreter pre-resolves reference \
+                                   arguments at the call site, so a callee's \
+                                   `&mut` parameter is a value, not a place. \
+                                   Same-function writes (`var r := &mut x; \
+                                   *r := v`) work. Use the LLVM backend for \
+                                   cross-function write-through.",
+                        });
+                    }
+                };
+                let val = self.eval_value(value)?;
+                self.assign_place(&place, val)?;
             }
             // ADR 0020. Channels are not modeled by any backend.
             // The capability check refuses any program that would

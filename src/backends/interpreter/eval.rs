@@ -439,6 +439,78 @@ impl Interpreter {
         Ok(cur)
     }
 
+    /// ADR 0056. Write `value` into the place `place`. The write
+    /// counterpart of `resolve_place`: walk the base variable's
+    /// value through each projection and store `value` at the end.
+    ///
+    /// Clone-out / mutate / insert-back at the top level, so the
+    /// borrow of `self.variables` is released before we call
+    /// `insert` (same shape as `Instruction::FieldAssign`).
+    pub(super) fn assign_place(
+        &mut self,
+        place: &crate::semantics::state::Place,
+        value: RuntimeValue,
+    ) -> Result<(), EvalError> {
+        let mut cur = self.variables.get(&place.base).cloned().ok_or_else(|| {
+            EvalError::Runtime(format!(
+                "write to `{}`: base variable not in scope",
+                place.base
+            ))
+        })?;
+        Self::assign_into(&mut cur, &place.projections, value, place)?;
+        self.variables.insert(place.base.clone(), cur);
+        Ok(())
+    }
+
+    fn assign_into(
+        cur: &mut RuntimeValue,
+        projections: &[crate::semantics::state::Projection],
+        value: RuntimeValue,
+        whole: &crate::semantics::state::Place,
+    ) -> Result<(), EvalError> {
+        use crate::semantics::state::Projection;
+        match projections.split_first() {
+            None => {
+                *cur = value;
+                Ok(())
+            }
+            Some((Projection::Field(f), rest)) => match cur {
+                RuntimeValue::Record { fields, .. } => {
+                    let slot = fields.iter_mut().find(|(n, _)| n == f).ok_or_else(|| {
+                        EvalError::Runtime(format!("write to `{}`: field `{}` not found", whole, f))
+                    })?;
+                    Self::assign_into(&mut slot.1, rest, value, whole)
+                }
+                other => Err(EvalError::TypeMismatch {
+                    op: "assign_place",
+                    left: runtime_kind(other),
+                    right: "Record",
+                }),
+            },
+            Some((Projection::Index(i), rest)) => match cur {
+                RuntimeValue::List(items) => {
+                    let slot = items.get_mut(*i).ok_or_else(|| {
+                        EvalError::Runtime(format!(
+                            "write to `{}`: index {} out of bounds",
+                            whole, i
+                        ))
+                    })?;
+                    Self::assign_into(slot, rest, value, whole)
+                }
+                other => Err(EvalError::TypeMismatch {
+                    op: "assign_place",
+                    left: runtime_kind(other),
+                    right: "List",
+                }),
+            },
+            Some((Projection::Deref, _)) => Err(EvalError::Unsupported {
+                construct: "deref projection in interpreter assign_place",
+                hint: "references are resolved at creation; a Deref projection \
+                       should never reach assign_place",
+            }),
+        }
+    }
+
     pub(super) fn eval_binop(
         op: &SemanticBinOp,
         l: RuntimeValue,

@@ -11,6 +11,7 @@ use crate::frontend::ast::{
     BinOp, DistinctDecl, EnumDecl, Expr, ExprKind, FunctionDecl, ImplBlock, Program, RecordDecl,
     Stmt, SubrangeDecl, TraitDecl, TypeSyntax, UnaryOp,
 };
+use crate::frontend::lexer::Comment;
 
 /// The canonical indentation unit. ADR 0058 specifies 4 spaces.
 const INDENT: &str = "    ";
@@ -30,23 +31,34 @@ pub enum BlockForm {
 pub struct Formatter {
     block_form: BlockForm,
     output: String,
+    /// ADR 0058 session 2b. Comments from the lexer, in source order.
+    /// Emitted when the formatter passes their source position.
+    comments: Vec<Comment>,
+    /// Index of the next comment to emit.
+    comment_cursor: usize,
 }
 
 impl Formatter {
     /// Construct a formatter for a program, reading the block form
     /// from the source. The source is the original text; the
-    /// program is the parsed AST.
-    pub fn new(_program: &Program, source: &str) -> Self {
+    /// program is the parsed AST; `comments` are the lexer's
+    /// retained comments (ADR 0058 session 1).
+    pub fn new(_program: &Program, source: &str, comments: Vec<Comment>) -> Self {
         let block_form = detect_block_form(source);
         Formatter {
             block_form,
             output: String::new(),
+            comments,
+            comment_cursor: 0,
         }
     }
 
     /// Emit the program in canonical form.
     pub fn format(mut self, program: &Program) -> String {
         self.emit_program(program);
+        // ADR 0058 session 2b. Emit any trailing comments (comments
+        // after the last AST node) before finalizing.
+        self.flush_comments();
         // Exactly one trailing newline.
         while self.output.ends_with("\n\n") {
             self.output.pop();
@@ -127,6 +139,58 @@ impl Formatter {
 
     // ─── Helpers ───
 
+    /// ADR 0058 session 2b. Emit any pending comments whose source
+    /// position precedes (`line`, `col`) at `level`.
+    ///
+    /// Called before emitting each AST node. Comments are emitted
+    /// in source order; `comment_cursor` advances monotonically.
+    /// Standalone comments go on their own line at `level`;
+    /// trailing comments attach to the last emitted line.
+    fn drain_comments_before(&mut self, line: usize, col: usize, level: usize) {
+        while self.comment_cursor < self.comments.len() {
+            let c = self.comments[self.comment_cursor].clone();
+            if (c.line, c.start_col) >= (line, col) {
+                break;
+            }
+            self.emit_comment(&c, level);
+            self.comment_cursor += 1;
+        }
+    }
+
+    /// Emit a single comment at the current position.
+    fn emit_comment(&mut self, c: &Comment, level: usize) {
+        if c.standalone {
+            // Own-line comment. Emit at `level` indentation.
+            self.indent(level);
+            self.output.push_str(&c.text);
+            self.output.push('\n');
+        } else {
+            // Trailing comment. Attach to the previous line, or
+            // emit standalone if the previous output didn't end with
+            // a newline (defensive).
+            if self.output.ends_with('\n') {
+                self.output.pop();
+                self.output.push(' ');
+                self.output.push_str(&c.text);
+                self.output.push('\n');
+            } else {
+                self.output.push(' ');
+                self.output.push_str(&c.text);
+                self.output.push('\n');
+            }
+        }
+    }
+
+    /// ADR 0058 session 2b. Flush any remaining comments (trailing
+    /// comments at end of file).
+    fn flush_comments(&mut self) {
+        while self.comment_cursor < self.comments.len() {
+            let c = self.comments[self.comment_cursor].clone();
+            self.emit_comment(&c, 0);
+            self.comment_cursor += 1;
+        }
+    }
+
     fn indent(&mut self, level: usize) {
         for _ in 0..level {
             self.output.push_str(INDENT);
@@ -164,6 +228,12 @@ impl Formatter {
     // ─── Top-level items ───
 
     fn emit_function(&mut self, level: usize, func: &FunctionDecl) {
+        // ADR 0058 session 2b. Drain any comments whose source
+        // position precedes the function declaration. The span is
+        // the `proc`/`fn` keyword's position (populated by the
+        // parser); comments on lines before it are emitted before
+        // the function header.
+        self.drain_comments_before(func.span.start_line, func.span.start_column, level);
         // extern declarations have no body.
         if func.is_extern {
             let mut header = String::from("extern ");
@@ -421,6 +491,11 @@ impl Formatter {
     // ─── Statements ───
 
     fn emit_stmt(&mut self, level: usize, stmt: &Stmt) {
+        // ADR 0058 session 2b. Drain any comments whose source
+        // position precedes this statement.
+        let span = stmt.span();
+        self.drain_comments_before(span.start_line, span.start_column, level);
+
         match stmt {
             Stmt::VarDecl {
                 name,
@@ -727,8 +802,7 @@ fn detect_block_form(source: &str) -> BlockForm {
             continue;
         }
         for kw in &keywords {
-            if trimmed.starts_with(kw) {
-                let after = &trimmed[kw.len()..];
+            if let Some(after) = trimmed.strip_prefix(kw) {
                 // The keyword must be followed by whitespace or a
                 // delimiter to be a keyword. Otherwise it's a
                 // prefix of an identifier.
@@ -942,8 +1016,11 @@ mod tests {
     }
 
     fn format(source: &str) -> Result<String, String> {
-        let program = parse(source)?;
-        let f = Formatter::new(&program, source);
+        let lexer = Lexer::new(source.to_string()).map_err(|e| format!("{:?}", e))?;
+        let comments = lexer.comments.clone();
+        let mut parser = Parser::new(lexer.tokens);
+        let program = parser.parse_program().map_err(|e| format!("{:?}", e))?;
+        let f = Formatter::new(&program, source, comments);
         Ok(f.format(&program))
     }
 
@@ -954,7 +1031,7 @@ mod tests {
         eprintln!("--- output ---\n{}--- end ---", out);
         let reparsed = parse(&out).expect("reparse");
         let out2 = {
-            let f = Formatter::new(&reparsed, &out);
+            let f = Formatter::new(&reparsed, &out, Vec::new());
             f.format(&reparsed)
         };
         assert_eq!(out, out2, "not idempotent");
@@ -967,7 +1044,7 @@ mod tests {
         eprintln!("--- output ---\n{}--- end ---", out);
         let reparsed = parse(&out).expect("reparse");
         let out2 = {
-            let f = Formatter::new(&reparsed, &out);
+            let f = Formatter::new(&reparsed, &out, Vec::new());
             f.format(&reparsed)
         };
         assert_eq!(out, out2, "not idempotent");
@@ -980,7 +1057,7 @@ mod tests {
         eprintln!("--- if_else output ---\n{}--- end ---", out);
         let reparsed = parse(&out).expect("reparse");
         let out2 = {
-            let f = Formatter::new(&reparsed, &out);
+            let f = Formatter::new(&reparsed, &out, Vec::new());
             f.format(&reparsed)
         };
         assert_eq!(out, out2, "not idempotent");
@@ -993,7 +1070,7 @@ mod tests {
         eprintln!("--- record output ---\n{}--- end ---", out);
         let reparsed = parse(&out).expect("reparse");
         let out2 = {
-            let f = Formatter::new(&reparsed, &out);
+            let f = Formatter::new(&reparsed, &out, Vec::new());
             f.format(&reparsed)
         };
         assert_eq!(out, out2, "not idempotent");
@@ -1006,9 +1083,25 @@ mod tests {
         eprintln!("--- braces output ---\n{}--- end ---", out);
         let reparsed = parse(&out).expect("reparse");
         let out2 = {
-            let f = Formatter::new(&reparsed, &out);
+            let f = Formatter::new(&reparsed, &out, Vec::new());
             f.format(&reparsed)
         };
         assert_eq!(out, out2, "not idempotent");
+    }
+
+    #[test]
+    fn smoke_leading_comment() {
+        let source = "// leading\nproc main\n    val x := 1\n    print(x)\n";
+        let out = format(source).expect("format");
+        eprintln!("--- leading comment output ---\n{}--- end ---", out);
+        assert!(out.contains("// leading"), "comment was dropped");
+    }
+
+    #[test]
+    fn smoke_trailing_comment() {
+        let source = "proc main\n    val x := 1 // trailing\n    print(x)\n";
+        let out = format(source).expect("format");
+        eprintln!("--- trailing comment output ---\n{}--- end ---", out);
+        assert!(out.contains("// trailing"), "comment was dropped");
     }
 }

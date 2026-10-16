@@ -444,6 +444,7 @@ mod tests {
         use crate::compiler::assign_expr_ids;
 
         let mut functions = vec![crate::frontend::ast::FunctionDecl {
+            span: crate::common::span::Span::default(),
             name: "f".into(),
             params: vec![],
             return_type: None,

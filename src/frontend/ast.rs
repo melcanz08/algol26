@@ -408,6 +408,12 @@ pub enum ReceiverMode {
 
 #[derive(Clone, Debug)]
 pub struct FunctionDecl {
+    /// ADR 0058 session 2b. Source span of the declaration —
+    /// the position of the `proc` or `fn` keyword. Used by the
+    /// formatter to place comments that precede the declaration.
+    /// `Span::default()` for synthesized declarations (impl
+    /// expansion, tests).
+    pub span: Span,
     pub name: String,
     pub params: Vec<(String, Option<TypeSyntax>)>,
     pub return_type: Option<TypeSyntax>,

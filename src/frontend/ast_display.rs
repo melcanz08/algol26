@@ -745,6 +745,7 @@ mod tests {
 
     fn mk_fn(name: &str, body: Vec<Stmt>) -> FunctionDecl {
         FunctionDecl {
+            span: crate::common::span::Span::default(),
             name: name.into(),
             params: vec![],
             return_type: None,

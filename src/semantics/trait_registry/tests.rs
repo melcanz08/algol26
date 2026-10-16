@@ -47,6 +47,7 @@ fn test_type_implements_trait() {
         trait_name: Some("Comparable".to_string()),
         target_type: "Int".to_string(),
         methods: vec![FunctionDecl {
+            span: crate::common::span::Span::default(),
             name: "compare".to_string(),
             params: vec![],
             return_type: Some(TypeSyntax::Named("Int".to_string())),
@@ -97,6 +98,7 @@ fn test_validate_impl_signature_mismatch() {
         trait_name: Some("Comparable".to_string()),
         target_type: "Int".to_string(),
         methods: vec![FunctionDecl {
+            span: crate::common::span::Span::default(),
             name: "compare".to_string(),
             params: vec![], // Wrong! Missing "other" parameter
             return_type: Some(TypeSyntax::Named("String".to_string())), // Wrong! Should be Int
@@ -143,6 +145,7 @@ fn test_generic_impl() {
         trait_name: Some("Display".to_string()),
         target_type: "List<T>".to_string(),
         methods: vec![FunctionDecl {
+            span: crate::common::span::Span::default(),
             name: "display".to_string(),
             params: vec![],
             return_type: Some(TypeSyntax::Named("String".to_string())),

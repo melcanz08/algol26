@@ -62,6 +62,7 @@ fn test_trait_registry_resolution() {
         trait_name: Some("Comparable".to_string()),
         target_type: "Int".to_string(),
         methods: vec![algol26::frontend::ast::FunctionDecl {
+            span: algol26::common::span::Span::default(),
             name: "compare".to_string(),
             params: vec![(
                 "other".to_string(),

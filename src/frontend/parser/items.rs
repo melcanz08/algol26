@@ -306,6 +306,10 @@ impl Parser {
         if !is_fn && !matches!(self.peek(), Token::Proc) {
             return Err(self.error("Expected 'fn' or 'proc'"));
         }
+        // ADR 0058 session 2b. Record the keyword's span so the
+        // formatter can place comments that precede this
+        // declaration.
+        let func_span = self.current_span();
         self.advance();
 
         let name = self.expect_identifier("function name")?;
@@ -486,6 +490,7 @@ impl Parser {
         };
 
         Ok(FunctionDecl {
+            span: func_span,
             name,
             params,
             return_type,

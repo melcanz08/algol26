@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **ADR 0043 — shared borrows are now checked at last use.** Prior
+  to this change, a write to a variable with a live shared borrow
+  was accepted — a soundness hole. `val r := &x; x := 2; print(*r)`
+  now rejects at the write; `val r := &x; print(*r); x := 2` still
+  compiles. Uses inside loops or `defer` bodies conservatively
+  extend the borrow to the enclosing scope's exit. (commit `6819517`)
+
 ### Changed
 
 - Renamed the `procedure` keyword to `proc`. Programs using

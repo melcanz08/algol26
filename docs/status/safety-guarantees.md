@@ -47,12 +47,14 @@ A well-typed ALGOL26 program does not use a variable after
 moving out of it, does not mutate through a `&`, and never has
 two conflicting live borrows of the same variable.
 
-*Enforcement*: analyzer (ownership tracking, borrow lifetimes,
-scope exit).
+*Enforcement*: analyzer (ownership tracking, borrow lifetimes
+enforced at last use, scope exit).
 
-*Known gaps*: borrow lifetimes are lexical, not NLL (B1, ADR
-0043); conflicts are tracked by variable name, not memory place
-(B3, ADR 0044).
+*Known gaps*: conflicts are tracked by variable name on the read
+side, not memory place (B3, ADR 0044). Shared borrows are checked
+at last use (ADR 0043); the analysis is syntactic, so uses inside
+loops or `defer` bodies conservatively extend the borrow to the
+enclosing scope's exit.
 
 ### G4 — Data-race freedom
 

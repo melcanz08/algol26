@@ -72,7 +72,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0040](0040-function-value-surface.md) | Function-Value Surface | Proposed |
 | [0041](0041-associated-types.md) | Associated Types | Proposed |
 | [0042](0042-llvm-dynamic-lists.md) | LLVM Dynamic Lists | Accepted |
-| [0043](0043-nll-borrow-lifetimes.md) | Non-Lexical Lifetimes | Not started |
+| [0043](0043-nll-borrow-lifetimes.md) | Non-Lexical Lifetimes | Accepted |
 | [0044](0044-place-based-borrows.md) | Place-Based Borrows | Analyzer done; interpreter side pending via 0053 |
 | [0045](0045-region-lifetime-unification.md) | Region Lifetime Unification | Current |
 | [0046](0046-reference-containment-escape.md) | Reference Containment / Escape | Reject-only |

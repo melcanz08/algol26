@@ -110,8 +110,13 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
 - **Trait method dispatch on records** (`f5bc75d`).
   `impl Show for Sale` + `sale.show()` resolves the impl-mangled
   name (`Sale_show`) before falling through to the builtin path.
-- **Not yet supported:** field-level borrows (`&p.x`), auto-derived
-  traits, nested destructuring beyond one level.
+- **Partially supported:** field-level borrows (`&p.x`). The
+  *write* side is place-granular (ADR 0044 stage 2, commit
+  `6819517`): `p.x := ...` conflicts with a live borrow of `p.x`
+  but not with a borrow of `p.y`. The *read* side is still
+  variable-granular; completing it is ADR 0044 follow-up.
+- **Not yet supported:** auto-derived traits, nested destructuring
+  beyond one level.
 
 ### Map (ADR 0027) and List.append (ADR 0028)
 

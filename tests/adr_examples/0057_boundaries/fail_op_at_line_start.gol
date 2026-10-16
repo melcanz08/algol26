@@ -1,0 +1,11 @@
+// EXPECT: REJECT
+// ADR 0057. A binary operator at the same column as the
+// statement's first token begins a new statement. `+ b` here is a
+// fresh statement whose first token is `+`, which is not a valid
+// statement start.
+proc main()
+    val a := 10
+    val b := 3
+    val total := a
+    + b
+    print(total)

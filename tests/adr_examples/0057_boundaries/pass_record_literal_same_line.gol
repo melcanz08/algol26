@@ -1,0 +1,10 @@
+// EXPECT: COMPILE
+// ADR 0057. A record literal whose `{` is on the same line as the
+// type name parses as a record literal.
+rec Point
+    x: Int
+    y: Int
+
+proc main()
+    val p := Point { x: 1, y: 2 }
+    print(p.x)

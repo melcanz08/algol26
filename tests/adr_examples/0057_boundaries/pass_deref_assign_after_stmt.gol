@@ -1,0 +1,9 @@
+// EXPECT: COMPILE
+// ADR 0057. The motivating case: `*r := *r + 1` at the start of a
+// statement following another statement at the same indentation.
+// The parser must read the leading `*` as a deref-assign start,
+// not as a multiplication continuation of the previous line.
+proc main()
+    var x := 10
+    var r := &mut x
+    *r := *r + 1

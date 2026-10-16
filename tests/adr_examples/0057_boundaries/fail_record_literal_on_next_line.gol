@@ -1,0 +1,10 @@
+// EXPECT: REJECT
+// ADR 0057. A `{` at the start of a line at the same column as the
+// statement's first token begins a block, not a record literal.
+// The statement above (`val p := Point`) has no value, and the
+// block below declares variables that the analyzer cannot resolve
+// against `p`'s (unresolvable) type.
+proc main()
+    val p := Point
+    { x: 1, y: 2 }
+    print(p.x)

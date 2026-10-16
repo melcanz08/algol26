@@ -1,0 +1,7 @@
+// EXPECT: COMPILE
+// ADR 0057. Inside parentheses, line breaks are continuations.
+proc main()
+    val a := 10
+    val b := 3
+    print(a
+        - b)

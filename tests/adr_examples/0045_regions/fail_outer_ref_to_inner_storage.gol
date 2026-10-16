@@ -1,3 +1,4 @@
+// EXPECT: REJECT
 // ADR 0045 — outer-region reference to inner-region storage.
 //
 // `r` lives in `outer`. It is reassigned to point at `x`, which

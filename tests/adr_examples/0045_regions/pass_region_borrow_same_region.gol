@@ -1,3 +1,4 @@
+// EXPECT: COMPILE
 // ADR 0045 — same-region borrow does not escape.
 //
 // Now:   ACCEPTED. `exit_region("outer")` returns an empty list;

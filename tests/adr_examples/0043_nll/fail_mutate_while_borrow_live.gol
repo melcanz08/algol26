@@ -1,3 +1,4 @@
+// EXPECT: REJECT
 // ADR 0043 — NLL: mutation while a shared borrow is still live.
 //
 // Now:   REJECTED (for the wrong reason — borrow lives to scope end).

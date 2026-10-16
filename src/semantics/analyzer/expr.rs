@@ -431,7 +431,11 @@ impl SemanticAnalyzer {
                 // Build the substitution T -> concrete type from the literal's type_args.
                 let mut subs: HashMap<String, Type> = HashMap::new();
                 for (param, arg) in rec.type_params.iter().zip(type_args.iter()) {
-                    subs.insert(param.clone(), arg.to_type());
+                    // Resolve through the analyzer's syntax resolver
+                    // so a record type argument (`List<Book>`)
+                    // resolves to its declared type, not
+                    // `Type::Unknown`.
+                    subs.insert(param.clone(), self.resolve_type_syntax(arg)?);
                 }
 
                 // Every field must appear exactly once, with a coercible value.
@@ -489,10 +493,11 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                Ok(Type::record(
-                    name,
-                    type_args.iter().map(|t| t.to_type()).collect(),
-                ))
+                let resolved_args: Result<Vec<Type>> = type_args
+                    .iter()
+                    .map(|t| self.resolve_type_syntax(t))
+                    .collect();
+                Ok(Type::record(name, resolved_args?))
             }
             ExprKind::Some { value, .. } => {
                 let inner = self.analyze_expr(value)?;
@@ -1226,11 +1231,61 @@ impl SemanticAnalyzer {
 
                 if clean_name.contains('.') {
                     let parts: Vec<&str> = clean_name.split('.').collect();
-                    if parts.len() == 2 {
-                        let receiver = parts[0];
-                        let method_name = parts[1];
+                    if parts.len() >= 2 {
+                        // ADR 0059. The last segment is the method
+                        // name; the prefix is the receiver path.
+                        // For `x.method`, the prefix is `x`, a
+                        // variable. For `a.b.method`, the prefix is
+                        // `a.b`, a field chain. The mutability of
+                        // either form is the mutability of the
+                        // *base* variable (the first segment).
+                        let method_name = parts[parts.len() - 1];
+                        let receiver_segments = &parts[..parts.len() - 1];
+                        let base_name = receiver_segments[0];
 
-                        if let Some((receiver_type, mutable)) = self.lookup_variable(receiver) {
+                        // Resolve the receiver's type and mutability.
+                        let receiver_type_and_mutable: Option<(Type, bool)> = {
+                            let base_info = self.lookup_variable(base_name);
+                            match base_info {
+                                None => None,
+                                Some((base_ty, base_mutable)) => {
+                                    if receiver_segments.len() == 1 {
+                                        // `x.method` — the receiver
+                                        // is the variable itself.
+                                        Some((base_ty, base_mutable))
+                                    } else {
+                                        // `a.b.c.method` — walk the
+                                        // field chain against the
+                                        // base type.
+                                        let mut cur_ty = base_ty;
+                                        let mut ok = true;
+                                        for seg in &receiver_segments[1..] {
+                                            match self.resolve_field_type(&cur_ty, seg) {
+                                                Ok(t) => cur_ty = t,
+                                                Err(_) => {
+                                                    ok = false;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if ok {
+                                            Some((cur_ty, base_mutable))
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                }
+                            }
+                        };
+
+                        if let Some((receiver_type, mutable)) = receiver_type_and_mutable {
+                            // `receiver` is used in the diagnostic
+                            // messages below as the receiver's
+                            // name. For multi-segment receivers,
+                            // name the base variable — the
+                            // mutation and the lookup are both
+                            // attributed to it.
+                            let receiver: &str = base_name;
                             // ADR 0038 D4b. A method call on a `&dyn Trait`
                             // receiver dispatches through the trait's
                             // declaration, not through any impl. The
@@ -1315,6 +1370,23 @@ impl SemanticAnalyzer {
                             }
 
                             // ADR 0029: Nominal type instance conversion. `x.to_base()`.
+                            //
+                            // ADR 0059. `to_base` is a type-level
+                            // unwrap, not a runtime move. The
+                            // interpreter represents a `Distinct`
+                            // value as its underlying runtime value
+                            // (`(v, Type::Distinct { .. }) => v` in
+                            // eval.rs), so unwrapping does not
+                            // consume anything. Marking the
+                            // receiver as moved would reject valid
+                            // programs — e.g.
+                            //
+                            //     val isbn: Isbn = ...
+                            //     self.books.insert(isbn.to_base(), b)
+                            //     updated.append(isbn)   // legal
+                            //
+                            // The nominal binding remains available
+                            // after `to_base`.
                             if let Type::Distinct { base, .. } = &receiver_type {
                                 if method_name == "to_base" {
                                     if !args.is_empty() {
@@ -1327,12 +1399,7 @@ impl SemanticAnalyzer {
                                             ErrorCode::E0002,
                                         ));
                                     }
-                                    let base_ty = (**base).clone();
-                                    if !self.is_type_copy(&base_ty) {
-                                        let span = self.current_span;
-                                        self.mark_moved(receiver, span);
-                                    }
-                                    return Ok(base_ty);
+                                    return Ok((**base).clone());
                                 }
                             }
 
@@ -1711,7 +1778,8 @@ impl SemanticAnalyzer {
                                     let raw_return = method
                                         .return_type
                                         .as_ref()
-                                        .map(|t| t.to_type())
+                                        .map(|t| self.resolve_type_syntax(t))
+                                        .transpose()?
                                         .unwrap_or(Type::Void);
                                     return Ok(
                                         self.substitute_type_vars(&raw_return, &type_bindings)
@@ -1997,6 +2065,31 @@ impl SemanticAnalyzer {
                         return Ok(Type::Void);
                     }
                 }
+                // ─── Map method dispatch ───
+                // Same rationale as the List tier above. A
+                // field-access receiver like `lib.members.get(...)`
+                // parses as `MethodCall { receiver: FieldAccess,
+                // method: "get" }`, not as
+                // `FunctionCall { name: "lib.members.get" }`.
+                // Dispatch through the same
+                // `analyze_map_method_call` used for Var receivers.
+                //
+                // Mutability is derived from the receiver
+                // expression's base variable: `lib.members.insert`
+                // requires `lib` to be `var`. Methods that don't
+                // mutate (`get`, `contains`, `keys`, `values`,
+                // `length`) accept either.
+                if let Type::Map(k, v) = &receiver_type {
+                    let receiver_mutable = self.receiver_is_mutable(receiver);
+                    return self.analyze_map_method_call(
+                        "<complex receiver>",
+                        receiver_mutable,
+                        method,
+                        args,
+                        k,
+                        v,
+                    );
+                }
                 // ─── Inherent tier ───
                 let owner_name: Option<String> = match &receiver_type {
                     Type::Record(n, _) => Some(n.clone()),
@@ -2144,7 +2237,8 @@ impl SemanticAnalyzer {
                     return Ok(m
                         .return_type
                         .as_ref()
-                        .map(|t| t.to_type())
+                        .map(|t| self.resolve_type_syntax(t))
+                        .transpose()?
                         .unwrap_or(Type::Void));
                 }
 
@@ -2397,7 +2491,8 @@ impl SemanticAnalyzer {
                     return Ok(method
                         .return_type
                         .as_ref()
-                        .map(|t| t.to_type())
+                        .map(|t| self.resolve_type_syntax(t))
+                        .transpose()?
                         .unwrap_or(Type::Void));
                 }
 
@@ -2426,8 +2521,14 @@ impl SemanticAnalyzer {
                 // The declared K and V are authoritative; each entry's key
                 // and value must coerce to them.
                 if let (Some(k_syntax), Some(v_syntax)) = (key_syntax, value_syntax) {
-                    let declared_key = k_syntax.to_type();
-                    let declared_value = v_syntax.to_type();
+                    // ADR 0059. Resolve through the analyzer's
+                    // syntax resolver so record, enum, and nominal
+                    // types in the value position resolve to their
+                    // declared types. `TypeSyntax::to_type()` only
+                    // knows primitives and generics; it maps a
+                    // record name like `Book` to `Type::Unknown`.
+                    let declared_key = self.resolve_type_syntax(k_syntax)?;
+                    let declared_value = self.resolve_type_syntax(v_syntax)?;
 
                     if !Self::is_hashable_key(&declared_key) {
                         return Err(CompileError::at(
@@ -2865,6 +2966,99 @@ impl SemanticAnalyzer {
     /// builtin path (which only checks argument count), this handler
     /// checks argument types against the receiver's concrete `K` and
     /// `V`, and enforces that `insert` has a `var` receiver.
+    /// ADR 0059. Whether a `MethodCall` receiver expression roots
+    /// at a mutable variable. Used to decide whether mutating
+    /// methods (`Map.insert`, `List.append`) are legal on a
+    /// complex receiver.
+    ///
+    /// A `Var` receiver is mutable if its binding is `var`. A
+    /// `FieldAccess` inherits its base's mutability. A `Deref` on
+    /// a `MutBorrow` is mutable. Everything else (function calls,
+    /// literals, arithmetic) is not.
+    fn receiver_is_mutable(&self, recv: &Expr) -> bool {
+        match &recv.kind {
+            ExprKind::Var(name, _) => self.lookup_variable(name).map(|(_, m)| m).unwrap_or(false),
+            ExprKind::FieldAccess { object, .. } => self.receiver_is_mutable(object),
+            ExprKind::Deref { expr, .. } => {
+                if let ExprKind::Var(name, _) = &expr.as_ref().kind {
+                    matches!(self.lookup_variable(name), Some((Type::MutBorrow(_), _)))
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// ADR 0059. Resolve a field name against a type. Used by the
+    /// dotted-name method dispatch to compute the receiver type
+    /// for `a.b.c.method(...)` — the field chain is walked
+    /// symbolically, without synthesizing AST nodes.
+    ///
+    /// Handles:
+    ///   - `Record` fields (with type-parameter substitution)
+    ///   - One level of auto-deref for `Borrow`/`MutBorrow`
+    ///   - `Distinct.to_base` and `Subrange.to_base` (the
+    ///     intrinsic accessors that read as fields)
+    ///   - `Enum.to_ordinal`
+    ///
+    /// Returns `Err` for unknown fields or unsupported receivers;
+    /// the caller treats a failure as "the receiver path doesn't
+    /// resolve" and falls through to the general dispatch.
+    pub(super) fn resolve_field_type(&self, ty: &Type, field: &str) -> Result<Type> {
+        // Auto-deref one level.
+        let ty = match ty {
+            Type::Borrow(inner) | Type::MutBorrow(inner) => inner.as_ref(),
+            other => other,
+        };
+
+        // Intrinsic accessors.
+        if let Type::Distinct { base, .. } = ty {
+            if field == "to_base" {
+                return Ok((**base).clone());
+            }
+        }
+        if let Type::Subrange { base, .. } = ty {
+            if field == "to_base" {
+                return Ok((**base).clone());
+            }
+        }
+        if let Type::Enum { .. } = ty {
+            if field == "to_ordinal" {
+                return Ok(Type::Int);
+            }
+        }
+
+        // Record field.
+        if let Type::Record(name, args) = ty {
+            let rec = self.records.get(name).ok_or_else(|| {
+                CompileError::at(
+                    self.current_span,
+                    &format!("Unknown record '{}'", name),
+                    ErrorCode::E0003,
+                )
+            })?;
+            let (_, field_ty) = rec.fields.iter().find(|(n, _)| n == field).ok_or_else(|| {
+                CompileError::at(
+                    self.current_span,
+                    &format!("Record '{}' has no field '{}'", name, field),
+                    ErrorCode::E0004,
+                )
+            })?;
+            let mut subs = std::collections::HashMap::new();
+            for (p, a) in rec.type_params.iter().zip(args.iter()) {
+                subs.insert(p.clone(), a.clone());
+            }
+            return Ok(self.substitute_type_vars(field_ty, &subs));
+        }
+
+        Err(CompileError::at(
+            self.current_span,
+            &format!("Type {} has no field '{}'", ty, field),
+            ErrorCode::E0011,
+        ))
+    }
+
     fn analyze_map_method_call(
         &mut self,
         receiver: &str,
@@ -3399,7 +3593,8 @@ impl SemanticAnalyzer {
         Ok(method
             .return_type
             .as_ref()
-            .map(|t| t.to_type())
+            .map(|t| self.resolve_type_syntax(t))
+            .transpose()?
             .unwrap_or(Type::Void))
     }
 

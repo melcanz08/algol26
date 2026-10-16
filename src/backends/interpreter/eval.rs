@@ -1168,24 +1168,17 @@ impl Interpreter {
                 }
             }
             "Map.insert" => {
-                // ─── Structural receiver access ───
-                // Evaluating args[0] would clone the map, so mutation would
-                // be lost. Instead, look at it structurally: the IR builder
-                // always emits `Variable(name)` as the receiver of a Map
-                // method call, so we can grab the name and mutate
-                // `self.variables[name]` in place. Same shape as
-                // `Instruction::FieldAssign`.
-                let receiver_name = match args.first() {
-                    Some(TypedIRValue::Variable(name, _)) => name.clone(),
-                    _ => {
-                        return Err(EvalError::Unsupported {
-                            construct: "Map.insert on non-variable receiver",
-                            hint:
-                                "the IR builder always emits a Variable as the Map.insert receiver",
-                        });
-                    }
-                };
-
+                // ADR 0059. The receiver is a place, not just a
+                // variable. `self.books.insert(k, v)` from an
+                // inherent method has a `FieldAccess` receiver;
+                // `m.insert(k, v)` on a local has a `Variable`
+                // receiver. Both are places.
+                //
+                // Resolve the receiver to a `Place` and use the
+                // interpreter's place machinery (`resolve_place` /
+                // `assign_place`) so the mutation lands on the
+                // correct storage — the variable, the field, or
+                // wherever the place roots.
                 if args.len() != 3 {
                     return Err(EvalError::Runtime(format!(
                         "Map.insert expects 3 arguments (receiver, key, value), got {}",
@@ -1193,29 +1186,39 @@ impl Interpreter {
                     )));
                 }
 
-                // Evaluate key and value before borrowing self.variables mutably.
+                // Evaluate key and value before touching the
+                // receiver's storage.
                 let k_val = self.eval_value(&args[1])?;
                 let v_val = self.eval_value(&args[2])?;
                 let key = MapKey::from_runtime(&k_val)?;
 
-                let receiver = self.variables.get_mut(&receiver_name).ok_or_else(|| {
-                    EvalError::Runtime(format!(
-                        "Map.insert target `{}` not found at runtime",
-                        receiver_name
-                    ))
-                })?;
-
-                match receiver {
-                    RuntimeValue::Map(entries) => {
-                        entries.insert(key, v_val);
-                        Ok(RuntimeValue::Void)
+                // Try the place-based path first.
+                if let Some(place) = self.place_of_ir_value(&args[0]) {
+                    let mut current = self.resolve_place(&place)?;
+                    match &mut current {
+                        RuntimeValue::Map(entries) => {
+                            entries.insert(key, v_val);
+                            self.assign_place(&place, current)?;
+                            return Ok(RuntimeValue::Void);
+                        }
+                        other => {
+                            return Err(EvalError::TypeMismatch {
+                                op: "Map.insert",
+                                left: runtime_kind(other),
+                                right: "Map",
+                            });
+                        }
                     }
-                    other => Err(EvalError::TypeMismatch {
-                        op: "Map.insert",
-                        left: runtime_kind(other),
-                        right: "Map",
-                    }),
                 }
+
+                // Fall back to the old non-place path. This handles
+                // a receiver that isn't a place — a function call,
+                // a literal — which shouldn't occur for a Map
+                // method but is left as a defensive error.
+                Err(EvalError::Unsupported {
+                    construct: "Map.insert on non-place receiver",
+                    hint: "the receiver must be a variable, field, or other place",
+                })
             }
 
             "Map.get" => {

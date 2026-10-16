@@ -1446,6 +1446,30 @@ impl SemanticIRBuilder {
                         };
                     }
                 }
+                // ─── Map method dispatch ───
+                // ADR 0059. Same as the List.append tier above. A
+                // field-access receiver like `lib.members.get(...)`
+                // is a `MethodCall`, and the builder must lower the
+                // method to a builtin call (`Map.get`,
+                // `Map.insert`, ...). The FunctionCall arm handles
+                // `m.get(k)` via its container block; this mirrors
+                // it for the complex-receiver shape. The analyzer's
+                // MethodCall arm has the matching tier; without this
+                // the builder pushes a "Type Map has no method"
+                // warning even though the analyzer accepted the
+                // call.
+                if let Type::Map(..) = &receiver_type {
+                    let mut call_args = vec![receiver_value];
+                    for arg in args {
+                        call_args.push(self.translate_expr(program, func, current_block, arg));
+                    }
+                    let return_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                    return TypedIRValue::Call {
+                        function: format!("Map.{}", method),
+                        args: call_args,
+                        return_type,
+                    };
+                }
                 if let Some(resolved_name) = self.resolve_method_call(&receiver_type, method) {
                     let wrapped = match self
                         .function_types

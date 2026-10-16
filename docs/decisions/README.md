@@ -82,7 +82,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0050](0050-region-cleanup-heap-lists.md) | Region Cleanup for Heap Lists | Current |
 | [0051](0051-scope-exit-list-cleanup.md) | Scope-Exit List Cleanup | Current |
 | [0052](0052-llvm-codegen-architecture.md) | LLVM Codegen Architecture | Current |
-| [0053](0053-interpreter-reference-semantics.md) | Interpreter Reference Semantics | Session 1 of 3 done |
+| [0053](0053-interpreter-reference-semantics.md) | Interpreter Reference Semantics | Current (interpreter); cross-fn write-through deferred |
 | [0054](0054-alternate-brace-block-syntax.md) | Alternate Brace Block Syntax | Current (formatter deferred) |
 | [0055](0055-sum-and-recursive-types.md) | Sum Types and Recursive Types | Proposed |
 | [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current |

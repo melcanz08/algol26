@@ -1,22 +1,32 @@
 # ADR 0053: Interpreter reference semantics
 
-Status: Accepted. Implementation in three sessions.
+Status: Accepted. Implemented.
+
+> **Status note:** The implementation landed after this ADR was
+> written; the body below is preserved as the design intent. For
+> the shipped shape, see "Shipped shape" at the end of this
+> document. One limitation remains: write-through across a
+> function boundary (`f(&mut x)` where `f`'s body writes `*r`).
+> See "Known limitations" below.
 
 ## Context
 
-The interpreter treats a reference as a value snapshot. The
-entire runtime model is at `src/backends/interpreter/eval.rs:175`:
+**Before this ADR**, the interpreter treated a reference as a
+value snapshot. The runtime model was:
 
     TypedIRValue::BorrowShared { expr, .. }
     | TypedIRValue::BorrowMutable { expr, .. }
     | TypedIRValue::ReadReference { expr, .. }
     | TypedIRValue::AddrOf { expr, .. } => self.eval_value(expr)?,
 
-Every reference-valued expression evaluates to the value of its
-operand. `&p.x` produces `10` (the current value of `p.x`), not a
-pointer to `p.x`. `*r` reads `10` regardless of what happened to
-`p.x` afterward. `val r := &p.x; p.x := 20; print(*r)` prints
+Every reference-valued expression evaluated to the value of its
+operand. `&p.x` produced `10` (the current value of `p.x`), not a
+pointer to `p.x`. `*r` read `10` regardless of what happened to
+`p.x` afterward. `val r := &p.x; p.x := 20; print(*r)` printed
 `10` on the interpreter.
+
+That model is gone. See "Shipped shape" below for the current
+implementation.
 
 The LLVM backend, by contrast, emits a real `getelementptr` for
 `&p.x` (fixed in an earlier commit) and prints `20`. The two
@@ -64,20 +74,17 @@ seen by `*r` is whatever `p.x` holds now, not what it held when
 
 ## Scope
 
-One session. Add `RuntimeValue::Reference(Place)`.
-`BorrowShared` / `BorrowMutable` / `AddrOf` produce it.
-`ReadReference` resolves it through a `resolve_place` helper
-that walks the current `variables` map. A `place_of_ir_value`
-helper mirrors the analyzer's `place_of_expr` at the IR level.
-Reads through references become live.
+Implemented in one session. `RuntimeValue::Reference(Place)` is
+produced by `BorrowShared` / `BorrowMutable` / `AddrOf`.
+`ReadReference` resolves it through `resolve_place`, which walks
+the current `variables` map. `place_of_ir_value` mirrors the
+analyzer's `place_of_expr` at the IR level. Reads through
+references are live.
+
+For the shipped shape, see "Shipped shape" at the end of this
+document.
 
 **Out of scope, deliberately:**
-
-- **Writes through references.** `*r := ...` is not a grammar
-  production; the parser rejects it. Making writes work requires
-  AST changes (`Stmt::Assign`'s target from `String` to `Expr`),
-  parser changes, type-checker changes, and interpreter changes.
-  That is a separate ADR — "reference writes" or equivalent.
 
 - **Storage-level aliasing.** A future ADR may replace
   `HashMap<String, RuntimeValue>` with
@@ -89,6 +96,17 @@ Reads through references become live.
   dataflow layer, which runs before either backend. This ADR
   makes the interpreter's *runtime representation* of references
   correct; it does not change which programs are accepted.
+
+- **Write-through across a function boundary.** Same-function
+  write-through (`var r := &mut x; *r := v`) is implemented and
+  uses the `Instruction::WriteReference` path. Cross-function
+  write-through (`f(&mut x)` where `f`'s body writes `*r`) is
+  rejected at runtime with an `Unsupported` error, because the
+  interpreter pre-resolves reference arguments at the call site
+  and the callee's `&mut` parameter is therefore a value, not a
+  place. Fixing it requires interprocedural place resolution,
+  which is the same problem ADR 0044's "Interprocedural place
+  resolution" bullet defers. See "Known limitations" below.
 
 ## Consequences
 
@@ -159,6 +177,55 @@ handle all reference shapes uniformly. But it also ripples
 through every read and write in the interpreter — a multi-week
 refactor. Start with projection-based resolution; upgrade if
 aliasing patterns demand it. A future ADR can revisit.
+
+## Shipped shape
+
+The implementation is in `src/backends/interpreter/`:
+
+- `runtime.rs`: `RuntimeValue::Reference(crate::semantics::state::Place)`.
+  Other `RuntimeValue` methods (`as_bool`, `display`, `eq`,
+  `type_name`) have explicit `Reference` arms.
+- `eval.rs`:
+  - `place_of_ir_value(&TypedIRValue) -> Option<Place>` — mirrors
+    the analyzer's `place_of_expr` at the IR level. Handles
+    `Variable`, `FieldAccess` with a `Field` projection,
+    `ArrayAccess` with a literal non-negative index. Returns
+    `None` for anything else.
+  - `BorrowShared` / `BorrowMutable` / `AddrOf` produce
+    `RuntimeValue::Reference(place)`.
+  - `ReadReference` evaluates its operand, matches on
+    `Reference(place)`, and calls `resolve_place`.
+  - `resolve_place(&Place) -> Result<RuntimeValue, EvalError>` —
+    walks `variables` by base name, applying each projection
+    (Field, Index). Values are cloned at each step; the
+    interpreter is a tree-walker with owned values, so aliasing
+    is not a concern.
+  - `assign_place(&Place, RuntimeValue)` — the write counterpart,
+    used by `Instruction::WriteReference` for the same-function
+    case.
+- `mod.rs`: `Instruction::WriteReference` at the same-function
+  case. Cross-function cases produce `EvalError::Unsupported`
+  with a message that names the limitation.
+
+Unlike the ADR's original "Out of scope" list, **writes through
+references are implemented for the same-function case**, because
+ADR 0056 added `Stmt::DerefAssign` to the grammar and the IR
+emits `Instruction::WriteReference` for it.
+
+## Known limitations
+
+- **Write-through across a function boundary.** A `proc` taking
+  `r: &mut T` whose body contains `*r := v` fails at runtime.
+  The interpreter pre-resolves `&mut` arguments at the call
+  site, so the callee receives a value, not a place. The
+  diagnostic names the limitation. Same-function writes work.
+
+- **`Deref` projections in `resolve_place` and `assign_place`.**
+  Both functions error on a `Deref` projection with an
+  `Unsupported` message. This case does not arise in practice
+  because `place_of_ir_value` never produces a `Deref`
+  projection — `*r` in the IR is `ReadReference`, which resolves
+  before constructing a place. The guard exists defensively.
 
 ## See also
 

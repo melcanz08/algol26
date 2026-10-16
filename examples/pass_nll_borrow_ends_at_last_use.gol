@@ -1,0 +1,21 @@
+// pass_nll_borrow_ends_at_last_use.gol
+//
+// ADR 0043 — a shared borrow is live from its creation through
+// its last use. After that point, the borrowed place is free to
+// be written again.
+//
+// The borrow of `count` held by `r` is used at `print(*r)`.
+// Nothing uses `r` after that line, so the borrow is dead by the
+// time `count := 99` runs. The write is accepted.
+
+proc main
+    var count := 10
+    val r := &count
+
+    print(*r)               // last use of `r` — borrow dies here
+
+    count := 99             // OK: borrow is no longer live
+    print(count)            // prints 99
+
+    count := 100
+    print(count)            // prints 100

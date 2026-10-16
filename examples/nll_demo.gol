@@ -1,0 +1,39 @@
+// nll_demo.gol
+//
+// ADR 0043 — demonstration of non-lexical shared borrow lifetimes.
+//
+// Section 1: write after last use. Compiles, because the borrow is
+// dead by the time the write runs.
+//
+// Section 2: multiple borrows, each ending before the next write.
+// Compiles, because each borrow's interval is disjoint from the
+// writes that follow it.
+//
+// The program prints a trace so you can see the values change.
+// A write inside a live borrow would make it fail at `check`, so
+// the "bad" cases are in the two separate files above.
+
+proc main
+    print("--- section 1: borrow dies at last use ---")
+    var x := 1
+    val r := &x
+    print(*r)               // 1
+    x := 2                  // OK: r is dead
+    print(x)                // 2
+
+    print("--- section 2: two borrows, two last uses ---")
+    var y := 10
+    val r1 := &y
+    print(*r1)              // 10
+    val r2 := &y            // OK: r1 is dead
+    print(*r2)              // 10
+    y := 20                 // OK: both r1 and r2 are dead
+    print(y)                // 20
+
+    print("--- section 3: borrow reused across a plain block ---")
+    var z := 100
+    val rz := &z
+    print(*rz)              // 100
+    print(*rz)              // 100 again — last use is here, not the first
+    z := 200                // OK: rz is dead
+    print(z)                // 200

@@ -384,7 +384,15 @@ impl SemanticAnalyzer {
                         scope.insert(var.clone());
                     }
                 }
-                self.analyze_stmt(stmt)?;
+                // ADR 0043. Mark the walk as inside a defer body
+                // so `record_borrow_use` promotes any use of a
+                // reference binding to LAST_USE_SENTINEL. The
+                // deferred statement runs at scope exit, after
+                // any lexically-later write.
+                self.defer_depth += 1;
+                let r = self.analyze_stmt(stmt);
+                self.defer_depth -= 1;
+                r?;
             }
             Stmt::Spawn { body, .. } => {
                 self.push_scope();

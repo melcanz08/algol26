@@ -57,7 +57,13 @@ impl SemanticAnalyzer {
         };
         let uses = self.shared_borrow_uses.entry(key).or_default();
         uses.push(at);
-        if !self.loop_stack.is_empty() {
+        // A use inside a loop body or a defer body outlives any
+        // write that lexically follows it, because the use runs
+        // again on the next iteration, or at the enclosing
+        // scope's exit. Promote the borrow's last use to
+        // LAST_USE_SENTINEL so a write after the use still
+        // conflicts.
+        if !self.loop_stack.is_empty() || self.defer_depth > 0 {
             uses.push(LAST_USE_SENTINEL);
         }
     }

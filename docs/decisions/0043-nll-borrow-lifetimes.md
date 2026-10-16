@@ -110,23 +110,6 @@ a write through the reference (ADR 0056) or by scope exit.
 
 ## Known limitations
 
-- **`defer` capture is not yet promoted to scope exit.** A
-  program like
-
-      var x := 1
-      val r := &x
-      defer print(*r)
-      x := 2
-
-  still compiles, because the use of `r` is recorded at its
-  lexical position (the `defer` line) rather than at scope exit.
-  The fix is a `defer_depth` counter incremented in the
-  `Stmt::Defer` arm of `analyze_stmt`, mirroring `unsafe_depth`
-  and `region_depth`; `record_borrow_use` then promotes to
-  `LAST_USE_SENTINEL` when the counter is non-zero. Tracked here
-  rather than in a new ADR because it is a strict refinement of
-  this one.
-
 - **No per-path liveness.** A borrow used in one `if` branch and
   a conflicting write in the other branch reject, even if the
   two paths are mutually exclusive. Refining this requires a

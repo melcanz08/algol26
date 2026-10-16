@@ -169,6 +169,15 @@ pub struct SemanticAnalyzer {
     /// `ExprId`). Cleared at the start of each `analyze_function`;
     /// borrows do not cross function boundaries.
     pub(super) shared_borrow_meta: HashMap<String, (crate::semantics::state::Place, ExprId)>,
+    /// ADR 0043. Non-zero while the walk is inside a `defer` body.
+    /// A use of a reference binding recorded under a non-zero
+    /// depth promotes its borrow's last use to
+    /// `LAST_USE_SENTINEL`, because the deferred statement runs
+    /// at the enclosing scope's exit — *after* any later write in
+    /// source order. Same shape as `unsafe_depth` and
+    /// `region_depth`; a counter rather than a bool so nested
+    /// defer bodies nest.
+    pub(super) defer_depth: usize,
 }
 
 /// ADR 0038 D4b. What the analyzer resolved at a `dyn Trait` method
@@ -296,6 +305,7 @@ impl SemanticAnalyzer {
             last_borrow_key: None,
             deferred_shared_writes: Vec::new(),
             shared_borrow_meta: HashMap::new(),
+            defer_depth: 0,
         }
     }
 

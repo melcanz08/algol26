@@ -1,0 +1,23 @@
+// EXPECT: REJECT
+// ADR 0043 — a `defer` captures its operands at the defer
+// statement, and the captured statement runs at the enclosing
+// scope's exit. A use of a reference binding inside the defer
+// body is therefore a use at scope exit, not at its lexical
+// position.
+//
+// Without the `defer_depth` promotion, the use of `r` would be
+// recorded at the `defer` line, and the write at `count := 99`
+// would appear to precede the use — the analysis would accept
+// the program. On real execution, the deferred print runs at
+// scope exit, after the write, and reads through a borrowed
+// reference that was mutated underneath it.
+//
+// With the promotion, the borrow's last use is the enclosing
+// scope's exit, so the write conflicts.
+
+proc main
+    var count := 10
+    val r := &count
+    defer print(*r)
+    count := 99
+    print(count)

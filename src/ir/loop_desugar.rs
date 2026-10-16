@@ -125,6 +125,55 @@ fn desugar_stmts(stmts: Vec<Stmt>, env: &mut HashMap<String, Vec<Expr>>) -> Vec<
                     span,
                 });
             }
+            // The four Stmt variants below carry sub-expressions and
+            // must recurse into `desugar_expr`; before these arms
+            // existed they fell into the trailing `other =>` catch-all
+            // and their sub-expressions were silently skipped. A loop
+            // body containing `*r := f(xs)` would not have `xs` or the
+            // call desugared; the same applied to field writes and
+            // `send ch value`.
+            Stmt::DerefAssign {
+                target,
+                value,
+                span,
+            } => {
+                let desugared_target = desugar_expr(target, env);
+                let desugared_value = desugar_expr(value, env);
+                result.push(Stmt::DerefAssign {
+                    target: desugared_target,
+                    value: desugared_value,
+                    span,
+                });
+            }
+            Stmt::FieldAssign {
+                target,
+                field,
+                value,
+                span,
+            } => {
+                // A field write invalidates any known-list binding for
+                // the record; we do not track field-wise updates.
+                env.remove(&target);
+                let desugared_value = desugar_expr(value, env);
+                result.push(Stmt::FieldAssign {
+                    target,
+                    field,
+                    value: desugared_value,
+                    span,
+                });
+            }
+            Stmt::Send {
+                channel,
+                value,
+                span,
+            } => {
+                let desugared_value = desugar_expr(value, env);
+                result.push(Stmt::Send {
+                    channel,
+                    value: desugared_value,
+                    span,
+                });
+            }
             Stmt::Expression(Expr {
                 kind:
                     ExprKind::For {
@@ -571,6 +620,34 @@ fn substitute_var_literal(stmts: &[Stmt], old_name: &str, literal: &Expr) -> Vec
             } => Stmt::ArrayAssign {
                 array: array.clone(),
                 index: substitute_expr_literal(index, old_name, literal),
+                value: substitute_expr_literal(value, old_name, literal),
+                span: *span,
+            },
+            // ADR 0056. Both sides of a deref-assign need the loop
+            // variable substituted when a `for` unrolls. Without this
+            // arm, `*r := *r + i` inside `for i in [1, 2, 3]` kept
+            // the `i` symbol in the unrolled body and the analyzer
+            // reported "Undefined variable 'i'" at analysis time.
+            Stmt::DerefAssign {
+                target,
+                value,
+                span,
+            } => Stmt::DerefAssign {
+                target: substitute_expr_literal(target, old_name, literal),
+                value: substitute_expr_literal(value, old_name, literal),
+                span: *span,
+            },
+            // Same omission for field writes. `target` is a String
+            // (the record's name) and is not substituted; only the
+            // value expression is.
+            Stmt::FieldAssign {
+                target,
+                field,
+                value,
+                span,
+            } => Stmt::FieldAssign {
+                target: target.clone(),
+                field: field.clone(),
                 value: substitute_expr_literal(value, old_name, literal),
                 span: *span,
             },

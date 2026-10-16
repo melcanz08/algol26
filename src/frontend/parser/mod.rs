@@ -164,6 +164,30 @@ impl Parser {
         )
     }
 
+    /// ADR 0057 follow-up. Like `error`, but uses the span of the
+    /// most recently consumed token rather than the current one.
+    ///
+    /// Use this when the error is about the token that was just
+    /// `advance()`d past — typically inside a `match self.advance()`
+    /// fall-through arm, where the local binding names the offending
+    /// token but `self.peek()` is already looking at the next one.
+    ///
+    /// The failure that motivated this method: `parse_primary`'s
+    /// `other =>` arm reported `GreaterEqual` at the column of the
+    /// *following* `IntLit(90)` token, off by one token. See the
+    /// `diagnostic_span_points_at_failing_token` test in
+    /// `src/frontend/parser/tests.rs`.
+    fn error_at_last(&self, message: &str) -> CompileError {
+        let span = self.last_span();
+        CompileError::simple(
+            message,
+            span.start_line,
+            span.start_column,
+            "",
+            ErrorCode::E0001,
+        )
+    }
+
     fn skip_keyword(&mut self, keyword: &str) {
         if let Token::Identifier(id) = self.peek() {
             if id == keyword {

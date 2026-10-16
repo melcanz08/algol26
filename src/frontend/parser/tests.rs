@@ -23,6 +23,40 @@ fn test_parse_simple_function() {
     assert_eq!(functions[0].body.len(), 1);
 }
 
+/// ADR 0057 follow-up. The diagnostic for a parse failure must point
+/// at the token that caused the failure, not the token after it.
+///
+/// The specific case that motivated this test: `gradebook.gol`'s
+/// `if score >= 90 then "A"` failed at `parse_primary`'s fall-through
+/// with the message "Unexpected expression: GreaterEqual", but the
+/// span pointed at the following `IntLit(90)` token because
+/// `error()` used `peek_info()` (the *next* token) after
+/// `self.advance()` had consumed `GreaterEqual`.
+///
+/// The fix: fall-through error sites where `advance()` has already
+/// run use `error_at_last()`, which reads `last_span`.
+#[test]
+fn diagnostic_span_points_at_failing_token() {
+    // A program whose statement begins with a token that cannot
+    // begin a statement. `+` on line 3 is the offending token; `b`
+    // on the same line follows it.
+    let source = "proc main\n    val a := 1\n    + b\n";
+
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).expect("lex should succeed");
+    let mut parser = Parser::new(lexer.tokens);
+    let err = parser.parse_program().expect_err("must fail");
+
+    // The offending token is `+` at line 3, column 5.
+    assert_eq!(
+        (err.line(), err.column()),
+        (3, 5),
+        "diagnostic should point at the `+` on line 3 col 5, got line {} col {}: {}",
+        err.line(),
+        err.column(),
+        err.message
+    );
+}
+
 #[test]
 fn test_parse_var_decl() {
     let source = "proc main()\n    var x := 5\n    val y := 10";

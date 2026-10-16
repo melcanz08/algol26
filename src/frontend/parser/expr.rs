@@ -63,7 +63,9 @@ impl Parser {
                 Token::NotEqual => BinOp::NotEqual,
                 Token::In => BinOp::In,
                 other => {
-                    return Err(self.error(&format!("Unexpected comparison operator: {:?}", other)))
+                    return Err(
+                        self.error_at_last(&format!("Unexpected comparison operator: {:?}", other))
+                    )
                 }
             };
             let right = self.parse_additive()?;
@@ -86,7 +88,9 @@ impl Parser {
                 Token::Plus => BinOp::Add,
                 Token::Minus => BinOp::Subtract,
                 other => {
-                    return Err(self.error(&format!("Unexpected additive operator: {:?}", other)))
+                    return Err(
+                        self.error_at_last(&format!("Unexpected additive operator: {:?}", other))
+                    )
                 }
             };
             let right = self.parse_multiplicative()?;
@@ -109,9 +113,10 @@ impl Parser {
                 Token::Star => BinOp::Multiply,
                 Token::Slash => BinOp::Divide,
                 other => {
-                    return Err(
-                        self.error(&format!("Unexpected multiplicative operator: {:?}", other))
-                    )
+                    return Err(self.error_at_last(&format!(
+                        "Unexpected multiplicative operator: {:?}",
+                        other
+                    )))
                 }
             };
             let right = self.parse_unary()?;
@@ -457,7 +462,7 @@ impl Parser {
                     self.span_from(start_span),
                 )))
             }
-            other => Err(self.error(&format!("Unexpected expression: {:?}", other))),
+            other => Err(self.error_at_last(&format!("Unexpected expression: {:?}", other))),
         }
     }
 

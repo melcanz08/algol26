@@ -10,7 +10,7 @@ impl Parser {
     pub(super) fn parse_logical_or(&mut self) -> Result<Expr> {
         let start_span = self.current_span();
         let mut left = self.parse_logical_and()?;
-        while matches!(self.peek(), Token::Or) {
+        while matches!(self.peek(), Token::Or) && !self.at_statement_boundary() {
             self.advance();
             let right = self.parse_logical_and()?;
             left = Expr::new(ExprKind::Binary {
@@ -26,7 +26,7 @@ impl Parser {
     pub(super) fn parse_logical_and(&mut self) -> Result<Expr> {
         let start_span = self.current_span();
         let mut left = self.parse_comparison()?;
-        while matches!(self.peek(), Token::And) {
+        while matches!(self.peek(), Token::And) && !self.at_statement_boundary() {
             self.advance();
             let right = self.parse_comparison()?;
             left = Expr::new(ExprKind::Binary {
@@ -51,7 +51,8 @@ impl Parser {
                 | Token::Equal
                 | Token::NotEqual
                 | Token::In
-        ) {
+        ) && !self.at_statement_boundary()
+        {
             let op = self.advance();
             let binop = match op {
                 Token::Gt => BinOp::Greater,
@@ -79,7 +80,7 @@ impl Parser {
     pub(super) fn parse_additive(&mut self) -> Result<Expr> {
         let start_span = self.current_span();
         let mut left = self.parse_multiplicative()?;
-        while matches!(self.peek(), Token::Plus | Token::Minus) {
+        while matches!(self.peek(), Token::Plus | Token::Minus) && !self.at_statement_boundary() {
             let op = self.advance();
             let binop = match op {
                 Token::Plus => BinOp::Add,
@@ -102,7 +103,7 @@ impl Parser {
     pub(super) fn parse_multiplicative(&mut self) -> Result<Expr> {
         let start_span = self.current_span();
         let mut left = self.parse_unary()?;
-        while matches!(self.peek(), Token::Star | Token::Slash) {
+        while matches!(self.peek(), Token::Star | Token::Slash) && !self.at_statement_boundary() {
             let op = self.advance();
             let binop = match op {
                 Token::Star => BinOp::Multiply,
@@ -196,7 +197,11 @@ impl Parser {
                 Token::LBracket => {
                     let span = expr.span();
                     self.advance();
+                    // ADR 0057. Postfix index is inside `[ ... ]`.
+                    let saved_col = self.statement_start_column;
+                    self.statement_start_column = None;
                     let index = self.parse_expr()?;
+                    self.statement_start_column = saved_col;
                     self.expect_token(Token::RBracket, "']'")?;
                     expr = Expr::new(ExprKind::ArrayAccess {
                         array: Box::new(expr),
@@ -215,6 +220,10 @@ impl Parser {
                         // dedicated MethodCall node.
                         let is_var_receiver = matches!(&expr.kind, ExprKind::Var(_, _));
                         self.advance();
+                        // ADR 0057. Method-call arguments are inside
+                        // `( ... )`.
+                        let saved_col = self.statement_start_column;
+                        self.statement_start_column = None;
                         let mut args = Vec::new();
                         while !matches!(self.peek(), Token::RParen | Token::Eof) {
                             args.push(self.parse_expr()?);
@@ -222,6 +231,7 @@ impl Parser {
                                 self.advance();
                             }
                         }
+                        self.statement_start_column = saved_col;
                         self.expect_token(Token::RParen, "')'")?;
 
                         if is_var_receiver {
@@ -364,8 +374,14 @@ impl Parser {
                 // the inner expression and restore it after.
                 let saved = self.suppress_brace_literal;
                 self.suppress_brace_literal = false;
+                // ADR 0057. Inside `( ... )`, line breaks are
+                // continuations; the statement-boundary rule is
+                // inactive.
+                let saved_col = self.statement_start_column;
+                self.statement_start_column = None;
                 let result = self.parse_expr();
                 self.suppress_brace_literal = saved;
+                self.statement_start_column = saved_col;
                 let expr = result?;
                 self.expect_token(Token::RParen, "')'")?;
                 Ok(expr)
@@ -418,6 +434,10 @@ impl Parser {
                 // identifier is unambiguously a record literal.
                 let saved = self.suppress_brace_literal;
                 self.suppress_brace_literal = false;
+                // ADR 0057. Inside `[ ... ]`, line breaks are
+                // continuations.
+                let saved_col = self.statement_start_column;
+                self.statement_start_column = None;
                 let mut elements = Vec::new();
                 let result: Result<()> = (|| {
                     while !matches!(self.peek(), Token::RBracket | Token::Eof) {
@@ -429,6 +449,7 @@ impl Parser {
                     Ok(())
                 })();
                 self.suppress_brace_literal = saved;
+                self.statement_start_column = saved_col;
                 result?;
                 self.expect_token(Token::RBracket, "']'")?;
                 Ok(Expr::new(ExprKind::List(
@@ -462,6 +483,9 @@ impl Parser {
         if matches!(self.peek(), Token::LParen) {
             // Unchanged: function call `name(args)`.
             self.advance();
+            // ADR 0057. Call arguments are inside `( ... )`.
+            let saved_col = self.statement_start_column;
+            self.statement_start_column = None;
             let mut args = Vec::new();
             while !matches!(self.peek(), Token::RParen | Token::Eof) {
                 args.push(self.parse_expr()?);
@@ -469,6 +493,7 @@ impl Parser {
                     self.advance();
                 }
             }
+            self.statement_start_column = saved_col;
             self.expect_token(Token::RParen, "')'")?;
             Ok(Expr::new(ExprKind::FunctionCall {
                 name,
@@ -478,7 +503,11 @@ impl Parser {
         } else if matches!(self.peek(), Token::LBracket) {
             // Unchanged: `name[index]`.
             self.advance();
+            // ADR 0057. Index expressions are inside `[ ... ]`.
+            let saved_col = self.statement_start_column;
+            self.statement_start_column = None;
             let index = self.parse_expr()?;
+            self.statement_start_column = saved_col;
             self.expect_token(Token::RBracket, "']'")?;
             Ok(Expr::new(ExprKind::ArrayAccess {
                 array: Expr::boxed(ExprKind::Var(name, ident_span)),

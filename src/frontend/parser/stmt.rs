@@ -161,6 +161,7 @@ impl Parser {
         if matches!(self.peek(), Token::Indent) {
             self.advance();
             while !matches!(self.peek(), Token::Dedent | Token::End | Token::Eof) {
+                self.statement_start_column = self.current_column();
                 statements.push(self.parse_stmt()?);
             }
             if matches!(self.peek(), Token::Dedent) {
@@ -235,6 +236,7 @@ impl Parser {
 
             // Fall back to statement-by-statement parsing.
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                self.statement_start_column = self.current_column();
                 statements.push(self.parse_stmt()?);
                 while matches!(self.peek(), Token::Indent | Token::Dedent) {
                     self.advance();
@@ -245,6 +247,7 @@ impl Parser {
             self.advance();
         } else if !matches!(self.peek(), Token::Eof | Token::Dedent | Token::End) {
             // Single-statement body: `if cond then x`.
+            self.statement_start_column = self.current_column();
             statements.push(self.parse_stmt()?);
         }
 

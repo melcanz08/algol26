@@ -39,6 +39,14 @@ pub struct Parser {
     /// not a literal. Reset inside `(...)` and `[...]`, where a
     /// `{` is unambiguously a literal.
     pub(super) suppress_brace_literal: bool,
+    /// ADR 0057. Column of the token that begins the current
+    /// statement, or `None` when the rule is inactive (inside
+    /// `( )`, `[ ]`, or `{ }`, where line breaks are continuations).
+    /// Set by `parse_body_statements` before each `parse_stmt`
+    /// call. Read by the binary-operator loops in `expr.rs` to
+    /// decide whether an operator token ends the statement or
+    /// continues the expression.
+    pub(super) statement_start_column: Option<usize>,
 }
 
 impl Parser {
@@ -56,6 +64,7 @@ impl Parser {
             pos: 0,
             last_span: Span::default(),
             suppress_brace_literal: false,
+            statement_start_column: None,
         }
     }
 
@@ -85,6 +94,24 @@ impl Parser {
     /// Span of the most recently consumed token, as recorded by `advance()`.
     pub(super) fn last_span(&self) -> Span {
         self.last_span
+    }
+
+    /// ADR 0057. Column of the current token, or `None` at EOF.
+    pub(super) fn current_column(&self) -> Option<usize> {
+        self.tokens.get(self.pos).map(|ti| ti.span.start_column)
+    }
+
+    /// ADR 0057. True when the parser is at a statement boundary
+    /// and the current token sits in the same column as the
+    /// statement's first token. Binary-operator loops consult this
+    /// to decide whether an operator continues the current
+    /// expression (returns `false`) or terminates the statement
+    /// (returns `true`).
+    pub(super) fn at_statement_boundary(&self) -> bool {
+        match (self.statement_start_column, self.current_column()) {
+            (Some(start), Some(cur)) => start == cur,
+            _ => false,
+        }
     }
 
     /// Combine `start` with the span of the most recently consumed

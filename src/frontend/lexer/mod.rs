@@ -157,8 +157,37 @@ pub struct SpannedToken {
     pub span: Span,
 }
 
+/// ADR 0058. A comment retained by the lexer for the formatter.
+///
+/// The analyzer and compiler never read these; the lexer discards
+/// comments from the token stream. The formatter reads both
+/// `Lexer::tokens` (structure) and `Lexer::comments` (trivia) and
+/// interleaves them by source position.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comment {
+    /// The comment text including the leading `//`. No trailing
+    /// newline.
+    pub text: String,
+    /// 1-based line number of the comment.
+    pub line: usize,
+    /// 1-based column of the first character of `text` (the first
+    /// `/`).
+    pub start_col: usize,
+    /// 1-based column of the last character of `text`. Inclusive.
+    pub end_col: usize,
+    /// True if the comment is alone on its line — nothing before it
+    /// but whitespace. False for a trailing comment after code.
+    /// The formatter uses this to decide whether the comment goes on
+    /// its own line or stays attached to the preceding line.
+    pub standalone: bool,
+}
+
 pub struct Lexer {
     pub tokens: Vec<SpannedToken>,
+    /// ADR 0058. Comments collected during lexing, in source order.
+    /// The analyzer and IR builder ignore this field; the formatter
+    /// consumes it. Empty when the source has no comments.
+    pub comments: Vec<Comment>,
 }
 lazy_static::lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token> = {
@@ -236,13 +265,15 @@ fn starts_with_keyword(line: &str, kw: &str) -> bool {
         .map_or(true, |c| !c.is_alphanumeric() && c != '_')
 }
 
-fn strip_comment_not_in_string(line: &str) -> String {
+fn strip_comment_not_in_string(line: &str) -> (String, Option<(usize, String)>) {
     let mut result = String::new();
     let mut in_string = false;
     let mut escaped = false;
+    let mut col = 0usize;
     let mut chars = line.chars().peekable();
 
     while let Some(c) = chars.next() {
+        col += 1;
         if escaped {
             // Previous char was a backslash inside a string; this char
             // is its escape target, whatever it is. Push and reset.
@@ -260,7 +291,18 @@ fn strip_comment_not_in_string(line: &str) -> String {
             result.push(c);
         } else if c == '/' && !in_string {
             if let Some(&'/') = chars.peek() {
-                break;
+                // ADR 0058. The `//` starts a comment. `c` is
+                // the first `/`; `chars` is positioned at the
+                // second `/`. `col` was incremented at the top of
+                // the loop, so it is the column of the first `/`.
+                let comment_start = col;
+                let mut comment_text = String::new();
+                comment_text.push(c);
+                for c in chars {
+                    comment_text.push(c);
+                }
+                let comment_text = comment_text.trim_end().to_string();
+                return (result, Some((comment_start, comment_text)));
             } else {
                 result.push(c);
             }
@@ -269,7 +311,7 @@ fn strip_comment_not_in_string(line: &str) -> String {
         }
     }
 
-    result
+    (result, None)
 }
 impl Lexer {
     /// ADR 0057. True when `tok` cannot legally end a complete
@@ -329,6 +371,9 @@ impl Lexer {
 
     pub fn new(source: String) -> Result<Self> {
         let mut tokens = Vec::new();
+        // ADR 0058. Comments are collected as a side channel so the
+        // formatter can interleave them with AST-derived output.
+        let mut comments: Vec<Comment> = Vec::new();
         let mut indent_stack = vec![0];
         let mut pending_dedents = 0;
         // Bracket depth for indentation suppression. While a
@@ -364,10 +409,25 @@ impl Lexer {
             let line = lines[line_idx];
             let line_number = line_idx + 1;
 
-            if line.trim().is_empty()
-                || line.trim().starts_with("//")
-                || line.trim().starts_with("--")
-            {
+            // ADR 0058. Whole-line comments are recorded before
+            // being skipped. They are standalone: nothing before
+            // them on the line but whitespace.
+            if line.trim().starts_with("//") {
+                let trimmed = line.trim_start();
+                let indent = line.len() - trimmed.len();
+                let start_col = indent + 1;
+                let end_col = start_col + trimmed.chars().count() - 1;
+                comments.push(Comment {
+                    text: trimmed.trim_end().to_string(),
+                    line: line_number,
+                    start_col,
+                    end_col,
+                    standalone: true,
+                });
+                line_idx += 1;
+                continue;
+            }
+            if line.trim().is_empty() || line.trim().starts_with("--") {
                 line_idx += 1;
                 continue;
             }
@@ -467,14 +527,33 @@ impl Lexer {
             }
 
             let trimmed = line.trim();
-            let trimmed = strip_comment_not_in_string(trimmed);
-            let trimmed = trimmed.trim();
+            let (trimmed, trailing_comment) = strip_comment_not_in_string(trimmed);
+            let trimmed = trimmed.trim().to_string();
+            // ADR 0058. Record the trailing comment (if any) with
+            // its column. `standalone` is false — this comment is
+            // attached to a code line.
+            if let Some((col, text)) = trailing_comment {
+                let end_col = col + text.chars().count() - 1;
+                comments.push(Comment {
+                    text,
+                    line: line_number,
+                    start_col: col,
+                    end_col,
+                    standalone: false,
+                });
+            }
             line_idx += 1;
             current_line = line_number;
 
             let tokens_before = tokens.len();
             let mut char_positions: Vec<(usize, usize)> = Vec::new();
-            Lexer::tokenize_line(trimmed, line_number, line, &mut tokens, &mut char_positions)?;
+            Lexer::tokenize_line(
+                &trimmed,
+                line_number,
+                line,
+                &mut tokens,
+                &mut char_positions,
+            )?;
             let base_column = indent + 1;
 
             // Update bracket depth from the tokens this line emitted.
@@ -549,7 +628,10 @@ impl Lexer {
             })
             .collect();
 
-        Ok(Lexer { tokens: spanned })
+        Ok(Lexer {
+            tokens: spanned,
+            comments,
+        })
     }
     fn tokenize_line(
         trimmed: &str,

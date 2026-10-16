@@ -301,3 +301,48 @@ fn multi_line_list_after_statement() {
         last_real
     );
 }
+
+/// ADR 0058. The lexer retains comments for the formatter.
+#[test]
+fn lexer_retains_whole_line_comments() {
+    let source = "// leading\nval x := 1\n";
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    assert_eq!(lexer.comments.len(), 1);
+    assert_eq!(lexer.comments[0].text, "// leading");
+    assert_eq!(lexer.comments[0].line, 1);
+    assert_eq!(lexer.comments[0].start_col, 1);
+    assert!(lexer.comments[0].standalone);
+}
+
+/// ADR 0058. Trailing comments are captured with `standalone: false`.
+#[test]
+fn lexer_retains_trailing_comments() {
+    let source = "val x := 1 // trailing\n";
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    assert_eq!(lexer.comments.len(), 1);
+    assert_eq!(lexer.comments[0].text, "// trailing");
+    assert_eq!(lexer.comments[0].line, 1);
+    assert!(!lexer.comments[0].standalone);
+}
+
+/// ADR 0058. A comment inside a string literal is not a comment.
+#[test]
+fn lexer_ignores_comment_marker_in_string() {
+    let source = "val s := \"// not a comment\"\n";
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    assert_eq!(lexer.comments.len(), 0);
+}
+
+/// ADR 0058. Multiple comments are recorded in source order.
+#[test]
+fn lexer_retains_multiple_comments_in_order() {
+    let source = "// first\nval x := 1 // second\n// third\n";
+    let lexer = crate::frontend::lexer::Lexer::new(source.to_string()).unwrap();
+    assert_eq!(lexer.comments.len(), 3);
+    assert_eq!(lexer.comments[0].text, "// first");
+    assert_eq!(lexer.comments[1].text, "// second");
+    assert_eq!(lexer.comments[2].text, "// third");
+    assert!(lexer.comments[0].standalone);
+    assert!(!lexer.comments[1].standalone);
+    assert!(lexer.comments[2].standalone);
+}

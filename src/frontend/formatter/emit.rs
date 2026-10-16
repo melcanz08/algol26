@@ -605,7 +605,8 @@ impl Formatter {
         });
     }
 
-    /// Emit a `try`/`catch`/`finally` expression at `level`.
+    /// Emit a `try`/`catch`/`finally` expression at `level`, with
+    /// the `try` keyword on its own line.
     fn emit_try_catch(
         &mut self,
         level: usize,
@@ -615,6 +616,30 @@ impl Formatter {
         finally_body: Option<&[Stmt]>,
     ) {
         self.emit_block_header(level, "try");
+        self.emit_try_catch_body(level, try_branch, catch_var, catch_branch, finally_body);
+    }
+
+    /// ADR 0058 session 4b. Emit the body and clauses of a
+    /// try/catch/finally, assuming the `try` keyword has already
+    /// been emitted at the end of the previous line. Used by
+    /// `VarDecl` to inline `try` with the `:=` header:
+    ///
+    ///     val r1: Int := try
+    ///         might_fail(true)
+    ///     catch err
+    ///         ...
+    ///
+    /// The caller emits `val r1: Int := try` at `level`, then calls
+    /// this method with `level`. The try body indents one deeper;
+    /// `catch` sits at `level`.
+    fn emit_try_catch_body(
+        &mut self,
+        level: usize,
+        try_branch: &Expr,
+        catch_var: Option<&str>,
+        catch_branch: &Expr,
+        finally_body: Option<&[Stmt]>,
+    ) {
         self.emit_block(level, |this, inner| {
             this.emit_expr(inner, try_branch);
         });
@@ -663,8 +688,33 @@ impl Formatter {
                 // (e.g. `val x := if ...`), emit the header and then
                 // the block at one deeper level.
                 if Self::is_block_shaped(value) {
-                    self.emit_line(level, &line);
-                    self.emit_expr(level + 1, value);
+                    // ADR 0058 session 4b. A `try` initializer is
+                    // special: the parser expects `try` inline with
+                    // `:=`. Emit `val NAME := try` on the header
+                    // line, then the try body and clauses at `level`.
+                    if let ExprKind::TryCatch {
+                        try_branch,
+                        catch_var,
+                        catch_branch,
+                        finally_body,
+                        ..
+                    } = &value.kind
+                    {
+                        line.push_str(" try");
+                        self.emit_line(level, &line);
+                        self.emit_try_catch_body(
+                            level,
+                            try_branch,
+                            catch_var.as_deref(),
+                            catch_branch,
+                            finally_body.as_deref(),
+                        );
+                    } else {
+                        // `if`, `match`, etc.: keyword on its own
+                        // line, one indent deeper.
+                        self.emit_line(level, &line);
+                        self.emit_expr(level + 1, value);
+                    }
                 } else {
                     line.push(' ');
                     line.push_str(&expr_inline(value));

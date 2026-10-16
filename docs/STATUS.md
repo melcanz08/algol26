@@ -98,7 +98,7 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   `Person { name: String, age: Int }` moves. The property is a
   compile-time predicate on the type, not a declaration the
   programmer writes.
-- **Interpreter-only.** LLVM and WASM refuse programs using records
+- **Interpreter-only.** LLVM and WASM refuse programs using maps
   at the capability check (`Feature::Records`).
 - **Cross-module merge** (`c8c15fc`). `process_imports` merges
   `imported_program.records` alongside imported functions. A record

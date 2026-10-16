@@ -118,7 +118,7 @@ proc main
 | Backend | Output | Role |
 |---------|--------|------|
 | Interpreter | Direct execution (semantic oracle) | Reference backend. Executes every feature the language specifies, in the subset where a runtime model exists. |
-| LLVM | Native executable | Native compilation for the feature subset the capability check permits. Refuses records, maps, `List.append`, `Option`, `Result`, and channels at the boundary. |
+| LLVM | Native executable | Native compilation for the feature subset the capability check permits. Refuses maps, `List.append`, `Option`, `Result`, and channels at the boundary. |
 | WASM | `.wasm` module | Compiles and runs via the Node host shim. Supports a similar subset to LLVM. |
 
 **The authoritative feature × backend matrix is

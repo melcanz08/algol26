@@ -65,12 +65,12 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0033](0033-methods-and-self.md) | Methods, Receivers, and the OOP Direction | Accepted |
 | [0034](0034-generic-impls.md) | Generic Impls | Accepted |
 | [0035](0035-interpreter-aliasing.md) | Interpreter Write-Through for `&mut self` Receivers | Accepted |
-| [0036](0036-llvm-records.md) | LLVM Record Support | Proposed |
+| [0036](0036-llvm-records.md) | LLVM Record Support | Current |
 | [0037](0037-wasm-records-references.md) | WASM Records and References | Superseded by 0036 |
-| [0038](0038-dynamic-dispatch.md) | Dynamic Dispatch (`dyn Trait`) | Proposed |
-| [0039](0039-visibility.md) | Visibility Modifiers | Proposed |
-| [0040](0040-function-value-surface.md) | Function-Value Surface | Proposed |
-| [0041](0041-associated-types.md) | Associated Types | Proposed |
+| [0038](0038-dynamic-dispatch.md) | Dynamic Dispatch (`dyn Trait`) | Current |
+| [0039](0039-visibility.md) | Visibility Modifiers | Current |
+| [0040](0040-function-value-surface.md) | Function-Value Surface | Accepted (three subjects are deferrals) |
+| [0041](0041-associated-types.md) | Associated Types | Current |
 | [0042](0042-llvm-dynamic-lists.md) | LLVM Dynamic Lists | Accepted |
 | [0043](0043-nll-borrow-lifetimes.md) | Non-Lexical Lifetimes | Accepted |
 | [0044](0044-place-based-borrows.md) | Place-Based Borrows | Current (analyzer); interpreter side via 0053 |

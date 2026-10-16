@@ -2,16 +2,17 @@
 
 ## Status
 
-Proposed. Requires investigation before implementation.
+Accepted. Implemented on all three backends (interpreter, LLVM, WASM).
 
-> **Status note (2026-10-06).** The methods feature (ADR 0033)
-> shipped on the interpreter only. LLVM refuses records at the
-> capability boundary. This ADR proposes closing that gap by
-> lowering the three record-related IR shapes to LLVM struct
-> operations. The first implementation step is investigation —
-> the LLVM backend's existing idioms for list and string values
-> need to be read before the layout and passing decisions are
-> finalized.
+> **Status note (updated this session).** The original note
+> recorded the gap: LLVM refused records at the capability
+> boundary. The implementation landed afterward. LLVM codegen
+> now has `record_decls`, `record_struct_types`, and
+> `RecordLiteral` lowering (`src/backends/llvm_codegen/`), and
+> `tests/backends/llvm_record_test.rs` covers the feature. A
+> direct probe — `rec Point` with `Point { x: 1, y: 2 }` and
+> `p.x` — compiles, links, and prints the correct value under
+> LLVM.
 
 ## Context
 

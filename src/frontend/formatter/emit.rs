@@ -82,7 +82,11 @@ impl Formatter {
             if !first {
                 self.output.push('\n');
             }
-            self.emit_line(0, &format!("import {}", imp));
+            // ADR 0058 session 5b. The parser strips the quotes
+            // from `import "path"`, storing the bare path in the
+            // AST. The formatter must re-add them, since the
+            // parser requires the quoted form.
+            self.emit_line(0, &format!("import \"{}\"", imp));
             first = false;
         }
 

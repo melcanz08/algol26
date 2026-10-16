@@ -23,15 +23,8 @@ use std::path::{Path, PathBuf};
 /// `expr_inline` to emit multi-line output would remove this rule
 /// and the files would start being checked.
 const SKIP_FILES: &[(&str, &str)] = &[
-    // Session 5. This file's formatter output fails to reparse for
-    // a reason not covered by the general rules. Diagnosis pending;
-    // it involves a comment/`parallel`/something else interaction
-    // that needs its own investigation. Listed explicitly so the
-    // generic `parallel do` rule could be dropped.
-    (
-        "examples/systems/comprehensive_test/full_test.gol",
-        "formatter output does not reparse; diagnosis pending session 5b",
-    ),
+    // (Session 5b removed the full_test.gol entry: the file's
+    // reparse failure was the import-quoting bug, now fixed.)
     // The two explicit entries below are files that fail for reasons
     // other than the `<block>` placeholder.
 

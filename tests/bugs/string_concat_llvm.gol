@@ -1,0 +1,29 @@
+// BUG (found 2026-10-16): `String + String` fails on the LLVM backend.
+//
+// Reproducer:
+//
+//     proc main()
+//         print("hello" + " world")
+//
+// produces:
+//
+//     error[E0009]: codegen: Add received non-numeric operands
+//                   (left=ptr, right=ptr) — builder should have coerced
+//     error[E0002]: Codegen failed: ...
+//
+// Confirmed pre-existing by checking out commit 1cbd370 (origin/main
+// at the time this was discovered): same error, same shape.
+//
+// Likely location: `src/backends/llvm_codegen/binop.rs` or the IR
+// builder's string-add lowering. `Add` should lower to
+// `algol26_string_concat`, not to LLVM `add`. The diagnostic message
+// "builder should have coerced" names the fault as upstream of the
+// LLVM backend.
+//
+// This file is NOT run by `adr_examples_runner` because that runner
+// stops at CFG dataflow, before LLVM codegen. It exists as a
+// documentation reproducer. Move it under tests/adr_examples/ and
+// mark EXPECT: COMPILE once the codegen path is fixed and the runner
+// is extended to cover it.
+proc main()
+    print("hello" + " world")

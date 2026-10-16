@@ -1,0 +1,277 @@
+// library.gol — a small library book-lending system.
+//
+// Exercises: records, methods, a trait with an associated type,
+// generics, Option and Result, Map, List, string handling, match
+// on enums and on Option, defer, the fn/proc split, and reference
+// reads through methods.
+
+// ─── Domain types ───────────────────────────────────────────────
+
+enum Status
+    Available
+    Borrowed
+    Reserved
+
+enum Category
+    Fiction
+    NonFiction
+    Reference
+    Children
+
+type Isbn distinct String
+
+rec Book
+    isbn: Isbn
+    title: String
+    author: String
+    category: Category
+    status: Status
+
+rec Member
+    id: Int
+    name: String
+    books_borrowed: List<Isbn>
+
+// ─── Trait with associated type ─────────────────────────────────
+
+trait Catalog
+    fn count(self: &Self) -> Int
+    fn find(self: &Self, isbn: Isbn) -> Option<Book>
+
+// ─── Library ────────────────────────────────────────────────────
+
+rec Library
+    books: Map<String, Book>
+    members: Map<Int, Member>
+
+impl Library
+    proc add_book(self: &mut Library, b: Book)
+        // Bind the field to a local, mutate the local, write it
+        // back. The direct `self.books.insert(...)` form needs a
+        // place-shaped receiver path in the interpreter that isn't
+        // yet wired for mutating builtins; the local form goes
+        // through the plain-variable path that works today.
+        var books := self.books
+        books.insert(b.isbn.to_base(), b)
+        self.books := books
+
+    proc register(self: &mut Library, m: Member)
+        var members := self.members
+        members.insert(m.id, m)
+        self.members := members
+
+    fn book_count(self: &Library) -> Int
+        self.books.length()
+
+    fn member_count(self: &Library) -> Int
+        self.members.length()
+
+    fn has_book(self: &Library, isbn: Isbn) -> Bool
+        self.books.contains(isbn.to_base())
+
+    proc lend(self: &mut Library, member_id: Int, isbn: Isbn) -> Result<String, String>
+        if not self.members.contains(member_id) then
+            return Error("Unknown member id")
+        if not self.books.contains(isbn.to_base()) then
+            return Error("Unknown ISBN")
+
+        val book := self.books.get(isbn.to_base())
+        match book
+            case Some(b)
+                if b.status != Status.Available then
+                    return Error("Book is not available")
+            case None
+                return Error("Book missing from catalog")
+
+        // Mark borrowed.
+        val current := self.books.get(isbn.to_base())
+        match current
+            case Some(b)
+                self.books.insert(isbn.to_base(), Book {
+                    isbn: b.isbn,
+                    title: b.title,
+                    author: b.author,
+                    category: b.category,
+                    status: Status.Borrowed,
+                })
+            case None
+                return Error("Book vanished")
+
+        // Record on member.
+        val m := self.members.get(member_id)
+        match m
+            case Some(member)
+                var updated := member.books_borrowed
+                updated.append(isbn)
+                self.members.insert(member_id, Member {
+                    id: member.id,
+                    name: member.name,
+                    books_borrowed: updated,
+                })
+            case None
+                return Error("Member vanished")
+
+        return Ok("Lent to member")
+
+    proc give_back(self: &mut Library, member_id: Int, isbn: Isbn) -> Result<String, String>
+        if not self.members.contains(member_id) then
+            return Error("Unknown member id")
+
+        // Remove from the member's list.
+        val m := self.members.get(member_id)
+        match m
+            case Some(member)
+                var kept: List<Isbn> := []
+                for isbn_i in member.books_borrowed
+                    if isbn_i.to_base() != isbn.to_base() then
+                        kept.append(isbn_i)
+                self.members.insert(member_id, Member {
+                    id: member.id,
+                    name: member.name,
+                    books_borrowed: kept,
+                })
+            case None
+                return Error("Member vanished")
+
+        // Mark available.
+        val b := self.books.get(isbn.to_base())
+        match b
+            case Some(book)
+                self.books.insert(isbn.to_base(), Book {
+                    isbn: book.isbn,
+                    title: book.title,
+                    author: book.author,
+                    category: book.category,
+                    status: Status.Available,
+                })
+            case None
+                return Error("Book vanished")
+
+        return Ok("Returned")
+
+impl Catalog for Library
+    fn count(self: &Library) -> Int
+        self.books.length()
+
+    fn find(self: &Library, isbn: Isbn) -> Option<Book>
+        self.books.get(isbn.to_base())
+
+// ─── Free functions (single-expression form) ───────────────────
+
+fn category_name(c: Category) -> String
+    match c
+        case Fiction then "Fiction"
+        case NonFiction then "Non-Fiction"
+        case Reference then "Reference"
+        case Children then "Children"
+
+fn status_name(s: Status) -> String
+    match s
+        case Available then "available"
+        case Borrowed then "on loan"
+        case Reserved then "reserved"
+
+fn describe(b: Book) -> String
+    "[" + b.isbn.to_base() + "] " + b.title + " by " + b.author +
+        " (" + category_name(b.category) + ", " + status_name(b.status) + ")"
+
+// ─── Reporting ──────────────────────────────────────────────────
+
+proc print_summary(lib: Library)
+    print("Library summary")
+    print("---------------")
+    print("Books: " + Int.to_string(lib.book_count()))
+    print("Members: " + Int.to_string(lib.member_count()))
+
+proc print_member_loans(lib: Library, member_id: Int)
+    val m := lib.members.get(member_id)
+    match m
+        case Some(member)
+            print(member.name + " has " + Int.to_string(List.length(member.books_borrowed)) + " book(s):")
+            for isbn in member.books_borrowed
+                match lib.find(isbn)
+                    case Some(book)
+                        print("  " + describe(book))
+                    case None
+                        print("  [missing: " + isbn.to_base() + "]")
+        case None
+            print("No such member")
+
+// ─── Entry point ────────────────────────────────────────────────
+
+proc main()
+    var lib := Library {
+        books: Map<String, Book> {},
+        members: Map<Int, Member> {},
+    }
+
+    lib.add_book(Book {
+        isbn: Isbn.from_base("978-0-13-235088-4"),
+        title: "Clean Code",
+        author: "Robert C. Martin",
+        category: Category.NonFiction,
+        status: Status.Available,
+    })
+    lib.add_book(Book {
+        isbn: Isbn.from_base("978-0-201-63361-0"),
+        title: "The Mythical Man-Month",
+        author: "Frederick P. Brooks Jr.",
+        category: Category.NonFiction,
+        status: Status.Available,
+    })
+    lib.add_book(Book {
+        isbn: Isbn.from_base("978-0-06-112008-4"),
+        title: "To Kill a Mockingbird",
+        author: "Harper Lee",
+        category: Category.Fiction,
+        status: Status.Available,
+    })
+    lib.add_book(Book {
+        isbn: Isbn.from_base("978-0-590-93998-2"),
+        title: "The Very Hungry Caterpillar",
+        author: "Eric Carle",
+        category: Category.Children,
+        status: Status.Available,
+    })
+
+    lib.register(Member { id: 1, name: "Alice", books_borrowed: [] })
+    lib.register(Member { id: 2, name: "Bob", books_borrowed: [] })
+
+    print_summary(lib)
+    print("")
+
+    // Lend a few.
+    val r1 := lib.lend(1, Isbn.from_base("978-0-13-235088-4"))
+    match r1
+        case Ok(msg) then print("Lend #1: " + msg)
+        case Error(msg) then print("Lend #1 failed: " + msg)
+
+    val r2 := lib.lend(1, Isbn.from_base("978-0-06-112008-4"))
+    match r2
+        case Ok(msg) then print("Lend #2: " + msg)
+        case Error(msg) then print("Lend #2 failed: " + msg)
+
+    val r3 := lib.lend(2, Isbn.from_base("978-0-13-235088-4"))
+    match r3
+        case Ok(msg) then print("Lend #3: " + msg)
+        case Error(msg) then print("Lend #3 failed: " + msg)
+
+    print("")
+    print_member_loans(lib, 1)
+    print_member_loans(lib, 2)
+
+    // Return one.
+    print("")
+    val r4 := lib.give_back(1, Isbn.from_base("978-0-13-235088-4"))
+    match r4
+        case Ok(msg) then print("Return #1: " + msg)
+        case Error(msg) then print("Return #1 failed: " + msg)
+
+    print("")
+    print_member_loans(lib, 1)
+
+    // Now Alice can lend it again.
+    val r5 := lib.lend(2, Isbn.from_base("978-0-13-235088-4"))
+    match r5
+        case Ok(msg) then print("Lend #4: " + msg)
+        case Error(msg) then print("Lend #4 failed: " + msg)

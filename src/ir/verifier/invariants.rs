@@ -155,7 +155,57 @@ fn check_instruction(
         Instruction::Free { ptr } => {
             check_value(ptr, function, &location("Free"), errors);
         }
-        _ => {}
+        Instruction::WriteReference { reference, value } => {
+            check_value(reference, function, &location("WriteReference ref"), errors);
+            check_value(value, function, &location("WriteReference value"), errors);
+        }
+        Instruction::FieldAssign { value, .. } => {
+            check_value(value, function, &location("FieldAssign"), errors);
+        }
+        Instruction::IteratorInit { iterable, .. } => {
+            check_value(iterable, function, &location("IteratorInit"), errors);
+        }
+        Instruction::ChannelDecl { type_, .. } => {
+            if is_unresolved(type_) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: location(&format!("ChannelDecl type `{}`", type_)),
+                });
+            }
+        }
+        Instruction::ReceiveChannel { .. } => {}
+        Instruction::RegionEnter { .. } | Instruction::RegionExit { .. } => {}
+        Instruction::VirtualCall {
+            receiver,
+            args,
+            return_type,
+            ..
+        } => {
+            if is_unresolved(return_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: location(&format!("VirtualCall return type `{}`", return_type)),
+                });
+            }
+            check_value(
+                receiver,
+                function,
+                &location("VirtualCall receiver"),
+                errors,
+            );
+            for a in args {
+                check_value(a, function, &location("VirtualCall arg"), errors);
+            }
+        }
+        Instruction::BoundsCheck { value, .. } => {
+            check_value(value, function, &location("BoundsCheck"), errors);
+        }
+        Instruction::UnionConstruct { payload, .. } => {
+            for p in payload {
+                check_value(p, function, &location("UnionConstruct payload"), errors);
+            }
+        }
+        Instruction::Nop => {}
     }
 }
 
@@ -191,7 +241,21 @@ fn check_terminator(
                 }
             }
         }
-        _ => {}
+        // `Return { value: None, type_: T }` — T can carry an unresolved
+        // type even without a value. Split off from the Some arm above
+        // so the None case still gets its return type checked.
+        Terminator::Return { value: None, type_ } => {
+            if is_unresolved(type_) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: location(&format!("Return type `{}`", type_)),
+                });
+            }
+        }
+        Terminator::Jump { .. } => {}
+        Terminator::IteratorNext { .. } => {}
+        Terminator::Spawn { .. } => {}
+        Terminator::Fork { .. } => {}
     }
 }
 
@@ -306,7 +370,137 @@ fn check_value(
             check_value(array, function, location, errors);
             check_value(index, function, location, errors);
         }
-        _ => {}
+        TypedIRValue::VirtualCall {
+            receiver,
+            args,
+            return_type,
+            ..
+        } => {
+            if is_unresolved(return_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: VirtualCall return type `{}`", location, return_type),
+                });
+            }
+            check_value(receiver, function, location, errors);
+            for a in args {
+                check_value(a, function, location, errors);
+            }
+        }
+        TypedIRValue::Record {
+            fields,
+            record_type,
+            ..
+        } => {
+            if is_unresolved(record_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: Record type `{}`", location, record_type),
+                });
+            }
+            for (_, v) in fields {
+                check_value(v, function, location, errors);
+            }
+        }
+        TypedIRValue::Map {
+            entries, map_type, ..
+        } => {
+            if is_unresolved(map_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: Map type `{}`", location, map_type),
+                });
+            }
+            for (k, v) in entries {
+                check_value(k, function, location, errors);
+                check_value(v, function, location, errors);
+            }
+        }
+        TypedIRValue::Array(elements, elem_type, _) => {
+            if is_unresolved(elem_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: Array element type `{}`", location, elem_type),
+                });
+            }
+            for e in elements {
+                check_value(e, function, location, errors);
+            }
+        }
+        TypedIRValue::Range(start, end) => {
+            check_value(start, function, location, errors);
+            check_value(end, function, location, errors);
+        }
+        TypedIRValue::FieldAccess {
+            object,
+            field,
+            field_type,
+        } => {
+            if is_unresolved(field_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!(
+                        "{}: FieldAccess `{}` type `{}`",
+                        location, field, field_type
+                    ),
+                });
+            }
+            check_value(object, function, location, errors);
+        }
+        TypedIRValue::Set { element_type, .. } => {
+            if is_unresolved(element_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: Set element type `{}`", location, element_type),
+                });
+            }
+        }
+        TypedIRValue::SetSingleton {
+            element,
+            element_type,
+        } => {
+            if is_unresolved(element_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: SetSingleton element type `{}`", location, element_type),
+                });
+            }
+            check_value(element, function, location, errors);
+        }
+        TypedIRValue::DynTrait {
+            data, target_type, ..
+        } => {
+            if is_unresolved(target_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: DynTrait type `{}`", location, target_type),
+                });
+            }
+            check_value(data, function, location, errors);
+        }
+        TypedIRValue::UnionConstruct {
+            payload,
+            target_type,
+            ..
+        } => {
+            if is_unresolved(target_type) {
+                errors.push(InvariantError::TypeVarInExecutableIr {
+                    function: function.to_string(),
+                    location: format!("{}: UnionConstruct type `{}`", location, target_type),
+                });
+            }
+            for p in payload {
+                check_value(p, function, location, errors);
+            }
+        }
+        // Leaf values: no type, or a concrete scalar type, nothing to check.
+        TypedIRValue::Int(_)
+        | TypedIRValue::Float(_)
+        | TypedIRValue::String(_)
+        | TypedIRValue::Bool(_)
+        | TypedIRValue::Void
+        | TypedIRValue::PtrLiteral(_)
+        | TypedIRValue::NullPtr => {}
     }
 }
 

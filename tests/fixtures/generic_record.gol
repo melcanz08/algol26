@@ -6,5 +6,5 @@ rec Box<T>
     value: T
 
 proc main
-    val b := Box { value: 42 }
+    val b := Box<Int> { value: 42 }
     print(Int.to_string(b.value))

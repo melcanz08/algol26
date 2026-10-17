@@ -189,6 +189,14 @@ pub fn assert_all_numbered(functions: &[FunctionDecl]) -> bool {
             ExprKind::ArrayAccess { array, index, .. } => walk_expr(array) && walk_expr(index),
             ExprKind::Binary { left, right, .. } => walk_expr(left) && walk_expr(right),
             ExprKind::FunctionCall { args, .. } => args.iter().all(walk_expr),
+            ExprKind::MethodCall { receiver, args, .. } => {
+                walk_expr(receiver) && args.iter().all(walk_expr)
+            }
+            ExprKind::RecordLiteral { fields, .. } => fields.iter().all(|(_, e)| walk_expr(e)),
+            ExprKind::MapLiteral { entries, .. } => {
+                entries.iter().all(|(k, v)| walk_expr(k) && walk_expr(v))
+            }
+            ExprKind::SetLiteral { elements, .. } => elements.iter().all(walk_expr),
             ExprKind::TryCatch {
                 try_branch,
                 catch_branch,
@@ -230,6 +238,8 @@ pub fn assert_all_numbered(functions: &[FunctionDecl]) -> bool {
         match s {
             Stmt::VarDecl { value, .. } | Stmt::Assign { value, .. } => walk_expr(value),
             Stmt::ArrayAssign { index, value, .. } => walk_expr(index) && walk_expr(value),
+            Stmt::FieldAssign { value, .. } => walk_expr(value),
+            Stmt::DerefAssign { target, value, .. } => walk_expr(target) && walk_expr(value),
             Stmt::Return { value: Some(e), .. } => walk_expr(e),
             Stmt::Print { expr, .. } => walk_expr(expr),
             Stmt::Defer { stmt, .. } => walk_stmt(stmt),
@@ -545,6 +555,14 @@ impl Compiler {
         let mut program = Program::new(source, filename);
         program.typed = Some(typed);
         let mut ctx = CompilerContext::new(CompilerConfig::default());
+
+        // Match the canonical pipeline: run TypeTableCompletePass
+        // between type-check and build-IR. Without this, `inspect --ir`
+        // observes a different gate than the full pipeline — a program
+        // with an incomplete type table would reach BuildSemanticIRPass
+        // here but be rejected in `compile()`. The pass is cheap and
+        // its only effect is to fail closed on analyzer bugs.
+        self.run_type_table_complete_pass(&mut program, &mut ctx)?;
 
         self.run_build_ir_pass(&mut program, &mut ctx)?;
 

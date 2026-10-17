@@ -166,10 +166,13 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // The `args` vector is ignored here; if a
                 // `Type::Record` with non-empty args reaches this
                 // arm, the caller took a path ADR 0036 didn't cover.
-                debug_assert!(
+                assert!(
                     args.is_empty(),
                     "LLVM codegen reached generic record type {:?}<{:?}> — \
-                     not supported in ADR 0036 v1",
+                     the capability scan should have refused this program \
+                     (ADR 0036). Reaching this arm means scan.rs failed \
+                     to recognize a generic record, which is a compiler \
+                     bug, not a user error.",
                     name,
                     args
                 );

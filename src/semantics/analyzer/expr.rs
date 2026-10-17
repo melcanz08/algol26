@@ -414,6 +414,30 @@ impl SemanticAnalyzer {
                     self.current_span,
                 )?;
 
+                // A generic record literal requires explicit type
+                // arguments. Without them, `Box { value: 42 }` would
+                // build `Type::record("Box", [])` — losing the
+                // binding — and every field access would report an
+                // unresolved `T`. Reject the form with a targeted
+                // diagnostic rather than silently producing IR the
+                // verifier must reject.
+                if !rec.type_params.is_empty() && type_args.is_empty() {
+                    return Err(CompileError::at(
+                        self.current_span,
+                        &format!(
+                            "Record '{}' is generic; write `{}<...>` with \
+                             explicit type arguments",
+                            name, name
+                        ),
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(&format!(
+                        "Write `{}<{}> {{ ... }}` for the type arguments",
+                        name,
+                        rec.type_params.join(", ")
+                    )));
+                }
+
                 // Type-arg arity check.
                 if !type_args.is_empty() && type_args.len() != rec.type_params.len() {
                     return Err(CompileError::at(

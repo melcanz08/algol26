@@ -444,6 +444,10 @@ pub fn mangled_type_name(ty: &Type) -> String {
             mangled_type_name(base)
         ),
         Type::Set(inner) => format!("Set_{}", mangled_type_name(inner)),
+        // ADR 0055. Unions mangle as `Union_<name>`. The id is
+        // stable per compilation, so the mangled name is
+        // deterministic for a given source set.
+        Type::Union { name, .. } => format!("Union_{}", name),
     }
 }
 

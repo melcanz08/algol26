@@ -24,6 +24,17 @@ pub struct NominalTypeId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EnumTypeId(pub u32);
 
+/// Union type identity. Two declarations with the same `name` in
+/// different modules produce different `UnionTypeId` values, and
+/// therefore different types. Identity is `id`; `name` and
+/// `variants` are for display and analysis. See ADR 0055.
+///
+/// Assigned by the analyzer during union declaration registration,
+/// in declaration order, so ids are deterministic for a given
+/// source set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UnionTypeId(pub u32);
+
 /// Subrange type identity. `type Percentage Int in 0..100` and
 /// `type WorkDay Day in Monday..Friday`. Identity is `id`; `name`,
 /// `base`, and the bounds are presentation / analysis. See ADR 0031.
@@ -135,6 +146,21 @@ pub enum Type {
         name: String,
         variants: Vec<String>,
     },
+    /// A tagged union. Identity is `id`; `name` is presentation.
+    /// `variants[i]` is `(variant_name, payload_types)`: an empty
+    /// payload for `Null`, one type for `Num(Int)`, or several
+    /// for `Pair(Int, String)`. See ADR 0055.
+    ///
+    /// The payload types are resolved at declaration time, so a
+    /// union variant naming a record, enum, or nominal type carries
+    /// the resolved `Type`, not a `TypeSyntax`. Self-reference
+    /// through an indirection (`List<Json>`, `Option<Json>`) is
+    /// permitted; direct self-reference is rejected by the analyzer.
+    Union {
+        id: UnionTypeId,
+        name: String,
+        variants: Vec<(String, Vec<Type>)>,
+    },
     /// A subrange of an ordinal type. `low..high` is inclusive.
     /// When `base` is `Type::Enum`, `low` and `high` are ordinals.
     /// Identity is `id`; every other field is presentation or
@@ -234,6 +260,17 @@ impl Type {
     /// identity; `variants` is in declaration order (ordinals 0..N).
     pub fn enum_type(id: EnumTypeId, name: &str, variants: Vec<String>) -> Self {
         Type::Enum {
+            id,
+            name: name.to_string(),
+            variants,
+        }
+    }
+
+    /// Construct a tagged-union type. `id` is the analyzer-assigned
+    /// identity; `variants[i]` is `(variant_name, payload_types)`.
+    /// An empty payload is the payloadless form (`Null`). See ADR 0055.
+    pub fn union_type(id: UnionTypeId, name: &str, variants: Vec<(String, Vec<Type>)>) -> Self {
+        Type::Union {
             id,
             name: name.to_string(),
             variants,
@@ -1121,6 +1158,9 @@ impl fmt::Display for Type {
             Type::Enum { name, .. } => name.clone(),
             // Subranges print as their declared name. See ADR 0031.
             Type::Subrange { name, .. } => name.clone(),
+            // ADR 0055. Unions print as their declared name, like
+            // nominal types, enums, and subranges.
+            Type::Union { name, .. } => name.clone(),
             Type::Set(inner) => format!("Set<{}>", inner),
             Type::DynTrait { trait_name, .. } => format!("dyn {}", trait_name),
             Type::Associated {

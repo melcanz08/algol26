@@ -78,6 +78,18 @@ impl<'ctx> IRCodeGen<'ctx> {
             Type::Int => self.context.i64_type().into(),
             Type::Float => self.context.f64_type().into(),
             Type::Bool => self.context.bool_type().into(),
+            // ADR 0055. Unions have no LLVM lowering: a tagged union
+            // with variable-sized payloads requires boxing or a fat
+            // pointer, which is deferred to a follow-up ADR. The
+            // capability scan refuses any program containing a
+            // union declaration before reaching codegen, so this
+            // arm should never fire. If it does, the scan missed a
+            // case, and a loud panic is the correct signal.
+            Type::Union { name, .. } => unreachable!(
+                "union `{}` reached LLVM codegen — the capability scan \
+                 should have refused this program (ADR 0055)",
+                name
+            ),
             // Strings are `char*` — a pointer to a null-terminated
             // UTF-8 buffer.
             Type::String => self.context.ptr_type(AddressSpace::default()).into(),

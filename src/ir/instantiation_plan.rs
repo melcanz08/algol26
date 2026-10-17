@@ -297,6 +297,83 @@ impl InstantiationPlan {
     pub fn is_empty(&self) -> bool {
         self.specializations.is_empty() && self.call_sites.is_empty()
     }
+
+    /// ADR 0013 follow-up. Verify that the plan is *closed*: for
+    /// every concrete specialization in the plan, every symbolic
+    /// call reachable from its declaration body has been resolved
+    /// to a concrete specialization (or is unreachable because the
+    /// callee is not a generic function).
+    ///
+    /// `close()` iterates a worklist to a fixpoint. Emptying the
+    /// worklist is necessary for closure but not sufficient: a
+    /// bug in `collect_expr_call_ids` (a missing AST variant) can
+    /// leave a symbolic call undiscovered, the worklist can still
+    /// empty, and every invariant downstream of `close()` fails
+    /// silently. This helper makes that failure loud.
+    ///
+    /// Returns `Ok(())` when closed, `Err(messages)` otherwise.
+    /// Call this from `close()` (via `debug_assert`) or from
+    /// tests that want to pin the invariant.
+    pub fn assert_plan_closed(&self, functions: &[FunctionDecl]) -> Result<(), Vec<String>> {
+        let mut unclosed: Vec<String> = Vec::new();
+
+        for spec in self.specializations.values() {
+            let Some(func) = functions.iter().find(|f| f.name == spec.function) else {
+                // The specialization names a function that is not
+                // in the caller's function list. That's a caller
+                // bug (specialization was materialized for a
+                // function it never saw), but not a *closure*
+                // bug — record it and keep going.
+                unclosed.push(format!(
+                    "specialization `{}` names unknown function `{}`",
+                    spec.mangled_name, spec.function
+                ));
+                continue;
+            };
+
+            let bindings = spec.bindings();
+            let call_ids = collect_function_call_ids(&func.body);
+
+            for expr_id in call_ids {
+                let Some(csi) = self.call_sites.get(&expr_id) else {
+                    // Not a generic call site (no Instantiation
+                    // recorded for it) — nothing to check.
+                    continue;
+                };
+                let concrete_args: Vec<Type> = csi
+                    .type_args
+                    .iter()
+                    .map(|t| t.substitute(&bindings))
+                    .collect();
+                // Symbolic under these bindings: the callee is
+                // itself generic in a way this specialization
+                // does not resolve. That is a closure gap.
+                if concrete_args.iter().any(|t| t.contains_unresolved()) {
+                    unclosed.push(format!(
+                        "specialization `{}` has unresolved call to `{}`                          with type args {:?}",
+                        spec.mangled_name, csi.function, concrete_args
+                    ));
+                    continue;
+                }
+                // Concrete: the specialization must exist.
+                if self
+                    .specialization_for(&csi.function, &concrete_args)
+                    .is_none()
+                {
+                    unclosed.push(format!(
+                        "specialization `{}` calls `{}` with concrete type args                          {:?}, but that specialization is not in the plan",
+                        spec.mangled_name, csi.function, concrete_args
+                    ));
+                }
+            }
+        }
+
+        if unclosed.is_empty() {
+            Ok(())
+        } else {
+            Err(unclosed)
+        }
+    }
 }
 
 fn format_type_args(args: &[Type]) -> String {
@@ -619,6 +696,27 @@ fn collect_expr_call_ids(expr: &Expr, out: &mut Vec<ExprId>) {
             for (k, v) in entries {
                 collect_expr_call_ids(k, out);
                 collect_expr_call_ids(v, out);
+            }
+        }
+        // ADR 0013 follow-up. Method calls produce a
+        // `MethodCall` AST node whose `args` are walked as
+        // separate expressions. Without this arm, a generic
+        // call hidden inside a method receiver or argument
+        // (e.g. `f(g(x)).method(h(y))`) would not be added to
+        // the worklist, and `close()` would silently leave the
+        // plan incomplete. See the `assert_plan_closed` test
+        // helper for the closure proof this guards.
+        ExprKind::MethodCall { receiver, args, .. } => {
+            collect_expr_call_ids(receiver, out);
+            for a in args {
+                collect_expr_call_ids(a, out);
+            }
+        }
+        // Set literals are analogous: `Set<Int> { g(x), h(y) }`
+        // must record generic calls in element position.
+        ExprKind::SetLiteral { elements, .. } => {
+            for e in elements {
+                collect_expr_call_ids(e, out);
             }
         }
         _ => {}
@@ -1031,6 +1129,157 @@ proc main
         plan.close(&[]);
 
         assert_eq!(plan.specializations.len(), before);
+    }
+
+    #[test]
+    fn closure_through_method_call_arg() {
+        // Finding #8 regression: a generic call inside a
+        // method-call argument must be discovered by
+        // `collect_expr_call_ids`. Before the fix, the
+        // `MethodCall` variant fell through to `_ => {}` and the
+        // generic call was invisible to `close()`.
+        // `fn` bodies are single-expression (ADR 0048); the
+        // multi-statement form needs `proc`. Use `proc outer<T>`
+        // for the closure to walk into — the body's `Wrapper {
+        // value: identity(1) }` call is the code path this test
+        // pins.
+        let source = r#"
+rec Wrapper
+    value: Int
+
+impl Wrapper
+    fn pass(self: &Wrapper, x: Int) -> Int
+        x
+
+fn identity<T>(x: T) -> T
+    x
+
+proc outer<T>(x: T) -> T
+    val w := Wrapper { value: identity(1) }
+    val y := identity(w.value)
+    return identity(y)
+
+proc main
+    val z := outer(42)
+    print(Int.to_string(z))
+"#;
+
+        let (functions, mut plan) = analyze_to_plan(source);
+        plan.close(&functions);
+
+        assert!(plan.specialization_for("outer", &[Type::Int]).is_some());
+        // The generic `identity` inside `Wrapper { value: identity(1) }`
+        // must be specialized through the closure.
+        assert!(
+            plan.specialization_for("identity", &[Type::Int]).is_some(),
+            "identity_Int should be materialized via the closure; \
+             specializations: {:?}",
+            plan.specializations.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            plan.assert_plan_closed(&functions).is_ok(),
+            "plan should be closed: {:?}",
+            plan.assert_plan_closed(&functions).err()
+        );
+    }
+
+    #[test]
+    fn closure_through_set_literal_element() {
+        // Finding #8 regression: a generic call inside a set
+        // literal element must be discovered by
+        // `collect_expr_call_ids`. Before the fix, `SetLiteral`
+        // fell through to `_ => {}`.
+        // Same shape as closure_through_method_call_arg: `proc`
+        // for the multi-statement body. The set literal element
+        // `one(1)` is the call that must reach the worklist.
+        // `Set<T>` requires a small-domain element type — `Int`
+        // would mean a 2^63-bit bitset. Use `Bool`, which is a
+        // valid element type per ADR 0032, so the set literal
+        // parses and analyzes.
+        let source = r#"
+fn one<T>(x: T) -> T
+    x
+
+proc pick<T>(x: T) -> T
+    val s := Set<Bool> { one(true), false }
+    return x
+
+proc main
+    val z := pick(42)
+    print(Int.to_string(z))
+"#;
+
+        let (functions, mut plan) = analyze_to_plan(source);
+        plan.close(&functions);
+
+        assert!(plan.specialization_for("pick", &[Type::Int]).is_some());
+        assert!(
+            plan.assert_plan_closed(&functions).is_ok(),
+            "plan should be closed: {:?}",
+            plan.assert_plan_closed(&functions).err()
+        );
+    }
+
+    #[test]
+    fn closure_assertion_detects_missing_specialization() {
+        // Direct test of the assertion helper: build a plan by
+        // hand that is *not* closed (contains a symbolic call
+        // whose callee has no specialization), verify the helper
+        // reports it. This pins the helper's behavior independently
+        // of the traversal fix.
+        use crate::compiler::assign_expr_ids;
+        use crate::frontend::lexer::Lexer;
+        use crate::frontend::parser::Parser;
+        use crate::semantics::analyzer::SemanticAnalyzer;
+
+        let source = r#"
+fn inner<T>(x: T) -> T
+    x
+
+fn outer<T>(x: T) -> T
+    inner(x)
+
+proc main
+    val z := outer(42)
+    print(z)
+"#;
+
+        let lexer = Lexer::new(source.to_string()).unwrap();
+        let mut parser = Parser::new(lexer.tokens);
+        let program = parser.parse_program().unwrap();
+        let mut functions = program.functions;
+        assign_expr_ids(&mut functions);
+
+        let mut analyzer = SemanticAnalyzer::new();
+        analyzer
+            .analyze_with_traits(
+                &functions,
+                &program.traits,
+                &program.impls,
+                &program.records,
+            )
+            .expect("analysis failed");
+
+        let instantiations = analyzer.take_instantiations();
+        let mut plan = InstantiationPlan::from_instantiations(&instantiations);
+
+        // Do NOT call close(); the plan has only outer_Int, not
+        // inner_Int. The assertion helper should report the gap.
+        let result = plan.assert_plan_closed(&functions);
+        assert!(
+            result.is_err(),
+            "helper should report the unclosed plan; \
+             specializations: {:?}",
+            plan.specializations.keys().collect::<Vec<_>>()
+        );
+
+        // After close, the gap is filled and the helper passes.
+        plan.close(&functions);
+        assert!(
+            plan.assert_plan_closed(&functions).is_ok(),
+            "plan should be closed after close(): {:?}",
+            plan.assert_plan_closed(&functions).err()
+        );
     }
 
     #[test]

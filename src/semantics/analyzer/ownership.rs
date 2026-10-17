@@ -136,12 +136,6 @@ impl SemanticAnalyzer {
     ///
     /// The borrow rules for the argument were already checked by
     /// `Expr::MutBorrow`; this only installs the state entry.
-    pub(super) fn register_call_argument_mut_borrow(&mut self, source: &str) {
-        self.register_call_argument_mut_borrow_place(
-            &crate::semantics::state::Place::simple(source),
-        );
-    }
-
     /// ADR 0044 follow-up. Place-aware variant of
     /// `register_call_argument_mut_borrow`. A call argument that is
     /// `&mut record.field` or `&mut arr[0]` registers a borrow of

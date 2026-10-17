@@ -1,0 +1,27 @@
+[package]
+authors = [ "Rommel Caneos <rec0608m@gmail.com>" ]
+autoexamples = false
+categories = [ "parser-implementations", "parsing", "text-editors" ]
+description = "ALGOL26 grammar for Tree-sitter"
+edition = "2024"
+keywords = [ "incremental", "parsing", "tree-sitter", "algol26" ]
+license = "MIT"
+name = "tree-sitter-algol26"
+readme = "README.md"
+repository = "https://github.com/melcanz08/algol26/tree/main/tree-sitter-algol26"
+version = "0.1.0"
+
+build = "bindings/rust/build.rs"
+include = [ "bindings/rust/*", "grammar.js", "queries/*", "src/*", "tree-sitter.json", "/LICENSE" ]
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1.2"
+
+[dev-dependencies]
+tree-sitter = "0.27.1"

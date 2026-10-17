@@ -1,0 +1,46 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "algol26",
+      "camelcase": "Algol26",
+      "title": "Algol26",
+      "scope": "source.algol26",
+      "file-types": [
+        "gol"
+      ],
+      "injection-regex": "^algol26$",
+      "class-name": "TreeSitterAlgol26",
+      "queries": {
+        "highlights": "queries/highlights.scm"
+      },
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "ALGOL26 grammar for Tree-sitter",
+    "authors": [
+      {
+        "name": "Rommel Caneos",
+        "email": "rec0608m@gmail.com",
+        "url": ""
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/melcanz08/algol26/tree/main/tree-sitter-algol26",
+      "funding": ""
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": true,
+    "java": false,
+    "node": true,
+    "python": true,
+    "rust": true,
+    "swift": true,
+    "zig": false
+  }
+}

@@ -1,0 +1,98 @@
+%YAML 1.2
+---
+name: ALGOL26
+file_extensions:
+  - gol
+scope: source.algol26
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: numbers
+    - include: keywords
+    - include: functions
+    - include: types
+    - include: calls
+    - include: operators
+    - include: punctuation
+    - include: identifiers
+
+  comments:
+    - match: //.*$
+      scope: comment.line.double-slash
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin
+      push: inside_string
+
+  inside_string:
+    - meta_scope: string.quoted.double
+    - match: '\\.'
+      scope: constant.character.escape
+    - match: '"'
+      scope: punctuation.definition.string.end
+      pop: true
+
+  numbers:
+    - match: \b\d+\.\d+\b
+      scope: constant.numeric
+    - match: \b\d+\b
+      scope: constant.numeric
+
+  keywords:
+    - match: \b(if|else|match|case|then|for|in|while|return|defer|break|continue)\b
+      scope: keyword.control
+    - match: \b(val|var|distinct|mut|self|Self)\b
+      scope: keyword.other
+    - match: \b(spawn|parallel|region|unsafe|try|catch|as|from|affirm|args|alloc|free|import|extern)\b
+      scope: keyword.other
+
+  functions:
+    - match: \b(fn|proc)\s+([A-Za-z_][A-Za-z0-9_]*)
+      captures:
+        1: keyword.other
+        2: entity.name.function
+    - match: \b(rec|enum|union|trait|type|impl)\s+([A-Za-z_][A-Za-z0-9_]*)
+      captures:
+        1: keyword.other
+        2: entity.name.type
+
+  calls:
+    # Method call: `recv.method(...)`
+    - match: '\.([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()'
+      captures:
+        1: support.function
+    # Bare call: `name(...)`
+    - match: '\b([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()'
+      captures:
+        1: support.function
+
+  types:
+    - match: \b(Int|Float|Bool|String|Char|Unit)\b
+      scope: storage.type
+    - match: \b(List|Map|Option|Result|Set)\b
+      scope: support.type
+
+  operators:
+    - match: ':='
+      scope: keyword.operator
+    - match: '==|!=|<=|>=|->'
+      scope: keyword.operator
+    - match: '[+\-*/%<>=!&|]'
+      scope: keyword.operator
+
+  punctuation:
+    - match: '[(){}\[\]]'
+      scope: punctuation.section.group
+    - match: '[<,;>:]'
+      scope: punctuation.separator
+    - match: '\.'
+      scope: punctuation.accessor
+
+  identifiers:
+    - match: \b[A-Z][A-Za-z0-9_]*\b
+      scope: variable.other.constant
+    - match: \b[a-z_][A-Za-z0-9_]*\b
+      scope: variable.other

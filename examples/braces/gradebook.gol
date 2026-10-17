@@ -163,7 +163,7 @@ proc main {
     print("=== Lookup ===")
     val found := find_by_name(roster, "Bob")
     match found {
-        case Some(s) {
+        case Some(s) then {
             print(String.concat("Found: ", s.name))
         }
         case None then {

@@ -153,6 +153,17 @@ Plus `--timing` for per-phase compile durations, on the LLVM path:
 ./target/debug/algol26 build --timing file.gol
 ```
 
+## Editor Support
+
+- **Sublime Text** — copy `editors/sublime/ALGOL26.sublime-syntax`
+  into `Packages/User/`. Every `.gol` file then highlights
+  automatically, in both brace and indentation forms.
+- **Tree-sitter** (Neovim, Helix, Zed) — grammar lives in
+  `tree-sitter-algol26/`. It currently covers brace form; the
+  indentation scanner (`INDENT`/`DEDENT`) is not yet implemented.
+  Run `tree-sitter generate` inside the grammar directory, then
+  point your editor's Tree-sitter plugin at it.
+
 ## Known Limitations
 
 These are verified gaps in the current version.

@@ -10,10 +10,9 @@ impl Parser {
         let mut impls = Vec::new();
         let mut top_level_imports = Vec::new();
         let mut records = Vec::new(); // NEW
-                                      // ADR 0055. Sum-type declarations. Empty until Step 3 wires
-                                      // the parser dispatch; the field exists so `Program` can be
-                                      // constructed.
-        let unions = Vec::new();
+                                      // ADR 0055. Sum-type declarations, populated by the
+                                      // `Token::Union` dispatch arm below.
+        let mut unions = Vec::new();
         let mut distinct_decls = Vec::new();
         let mut enum_decls = Vec::new();
         let mut subrange_decls = Vec::new();
@@ -46,6 +45,8 @@ impl Parser {
                 impls.push(self.parse_impl()?);
             } else if matches!(lookahead, Token::Rec) {
                 records.push(self.parse_record_decl()?);
+            } else if matches!(lookahead, Token::Union) {
+                unions.push(self.parse_union_decl()?);
             } else if matches!(lookahead, Token::Identifier(s) if s == "type") {
                 // `type Name distinct Base` or `type Name Base in Low..High`.
                 let after_name = self
@@ -832,6 +833,108 @@ impl Parser {
             span: start_span,
             visibility,
             module: None,
+        })
+    }
+
+    /// ADR 0055 Session 2 Step 3. Parse `union Name { Variant Variant(T) ... }`.
+    ///
+    /// Consumes the leading `union` token. The body is either an
+    /// indented block or a `{ ... }` block, mirroring `rec` and
+    /// `enum` (ADR 0054's dual syntax).
+    ///
+    /// Each variant is one identifier, optionally followed by a
+    /// parenthesized, comma-separated list of *type syntaxes* —
+    /// not expressions. This is why `Num(Int)` inside a union body
+    /// is unambiguous: the parser is looking for a type, so `Int`
+    /// resolves to `TypeSyntax::Named("Int")`, not a variable
+    /// reference.
+    pub(super) fn parse_union_decl(&mut self) -> Result<crate::frontend::ast::UnionDecl> {
+        let visibility = self.try_parse_visibility();
+        let start_span = self.current_span();
+        self.advance(); // consume `union`
+
+        let name = self.expect_identifier("union name")?;
+
+        // Optional type parameters: `union Option2<T>`.
+        let mut type_params = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.advance();
+            while !matches!(self.peek(), Token::Gt | Token::Eof) {
+                type_params.push(self.expect_identifier("type parameter")?);
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                }
+            }
+            self.expect_token(Token::Gt, "'>'")?;
+        }
+
+        // Body: indented variants or `{ ... }` variants — same dual
+        // syntax as `rec`, `enum`, and `trait`.
+        let mut variants = Vec::new();
+        let closes_with_brace = matches!(self.peek(), Token::LBrace);
+        if matches!(self.peek(), Token::Indent) || closes_with_brace {
+            self.advance();
+            let closer = if closes_with_brace {
+                Token::RBrace
+            } else {
+                Token::Dedent
+            };
+            if closes_with_brace {
+                while matches!(self.peek(), Token::Indent | Token::Dedent) {
+                    self.advance();
+                }
+            }
+            while !matches!(self.peek(), t if *t == closer) && !matches!(self.peek(), Token::Eof) {
+                variants.push(self.parse_union_variant()?);
+            }
+            if matches!(self.peek(), t if *t == closer) {
+                self.advance();
+            }
+        }
+
+        if variants.is_empty() {
+            return Err(self.error(&format!(
+                "union '{}' must declare at least one variant",
+                name
+            )));
+        }
+
+        Ok(crate::frontend::ast::UnionDecl {
+            name,
+            type_params,
+            variants,
+            visibility,
+            module: None,
+            span: self.span_from(start_span),
+        })
+    }
+
+    /// ADR 0055 Session 2 Step 3. Parse one union variant.
+    ///
+    /// `Null` (payloadless) or `Num(Int)` / `Pair(Int, String)`
+    /// (parenthesized payload types). Payloads are `TypeSyntax`,
+    /// not expressions — the caller already knows it is inside a
+    /// union body, so there is no ambiguity to resolve.
+    fn parse_union_variant(&mut self) -> Result<crate::frontend::ast::UnionVariant> {
+        let start_span = self.current_span();
+        let name = self.expect_identifier("variant name")?;
+
+        let mut payload = Vec::new();
+        if matches!(self.peek(), Token::LParen) {
+            self.advance();
+            while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                payload.push(self.parse_type_syntax()?);
+                if matches!(self.peek(), Token::Comma) {
+                    self.advance();
+                }
+            }
+            self.expect_token(Token::RParen, "')'")?;
+        }
+
+        Ok(crate::frontend::ast::UnionVariant {
+            name,
+            payload,
+            span: self.span_from(start_span),
         })
     }
 

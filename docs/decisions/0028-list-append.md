@@ -1,6 +1,6 @@
 # ADR 0028: `List.append` — dynamic list growth
 
-Status: Accepted (design); implementation pending
+Status: Current
 
 ## Context
 

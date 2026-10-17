@@ -1,6 +1,6 @@
 # ADR 0042: LLVM dynamic list representation
 
-Status: Proposed (design; implementation pending)
+Status: Accepted
 
 ## Context
 

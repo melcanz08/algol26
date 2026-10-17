@@ -1,6 +1,6 @@
 # ADR 0026: Structural `Copy` for records
 
-Status: Accepted (design); implementation pending
+Status: Current
 
 ## Context
 

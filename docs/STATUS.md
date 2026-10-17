@@ -11,7 +11,7 @@
 > Superseded docs are preserved (with headers) under
 > [`archive/`](archive/).
 
-Last updated: 2026-10-01
+Last updated: 2026-10-17
 
 This document records what actually works, verified by the
 differential corpus in `tests/corpus/`, the conformance fixtures in
@@ -41,6 +41,32 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   associated types.
 - **Not yet supported:** associated type bounds, associated type
   defaults, supertrait associated types, generic associated types.
+
+### Sum types (ADR 0055)
+
+- **Union declarations.** `union Json { Null Num(Int) Str(String) }`
+  declares a tagged-union type. Variants may carry payloads of any
+  type, including the union itself through an indirection
+  (`Arr(List<Json>)`, `Obj(Map<String, Json>)`).
+- **Construction.** `Json.Num(42)` and payloadless `Json.Null` are
+  recognized by the analyzer and lowered by the builder to
+  `Instruction::UnionConstruct`.
+- **Pattern matching.** `match j ... case Num(n) then ...` extracts
+  the payload and binds it with its declared type. Every variant
+  must be covered, or a `case _` fallback must be present.
+- **Guards.** `case Pos(n) if n > 0 then ...` evaluates the
+  condition with the payload bindings in scope; if the guard is
+  false, the switch falls through to the next case. Guarded arms
+  do not count as exhaustiveness coverage.
+- **Cross-file unions.** A `pub union` declared in an imported
+  file is merged into the top-level program and usable from
+  function signatures.
+- **Interpreter-only.** LLVM and WASM refuse union programs at the
+  capability boundary (`Feature::Unions`) with an `E0002` error.
+  See `examples/json/` for the end-to-end demonstration.
+- **Not yet supported:** nested patterns (`case Pair(Some(x), _)`),
+  reference patterns (`case &Num(n)`), LLVM/WASM codegen for
+  unions.
 
 ### Visibility (`pub`, ADR 0039)
 

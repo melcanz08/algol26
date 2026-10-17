@@ -1125,9 +1125,13 @@ that would fail if the guarantee were broken.
   not parse; inference from argument types is the only form.
 - **Generic records.** `rec Pair<T>` parses, but the construction
   form `Pair<Int> { first: 1 }` is not supported by the parser.
-- **Sum types.** The language has no variants or tagged unions;
-  recursive structured data (a JSON tree, an AST) is not
-  expressible. See ADR 0055.
+- **Sum types.** Implemented (ADR 0055). The language has
+  `union` declarations with payloads, pattern matching, guards,
+  and exhaustiveness checking. Recursive structured data (a
+  JSON tree, an AST) is expressible through recursive payloads
+  (`Arr(List<Json>)`). See `examples/json/` for the end-to-end
+  demonstration. LLVM and WASM refuse union programs at the
+  capability boundary — run through the interpreter.
 - **String ordering operators.** There is no `<`, `>`, `<=`, or
   `>=` operator for strings; those operators require numeric
   operands. Order strings with `String.compare(a, b)`, which

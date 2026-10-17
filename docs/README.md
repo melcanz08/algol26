@@ -132,7 +132,7 @@ Before writing a new doc, ask:
 
 | Doc | Why it matters |
 |-----|---------------|
-| `features/*.md` (14 more) | Every feature besides `Option` and `Result` still needs a contract. `list.md` and `channel.md` are the next candidates. |
+| `features/*.md` (27 more) | Every feature besides `Option` and `Result` still needs a contract. `list.md` and `channel.md` are the next candidates. `union.md` was added alongside ADR 0055. |
 | `stdlib.md` | Built-in functions (`String.*`, `Math.*`, `List.*`) have no reference doc. Currently discoverable only by reading `builtin_signatures()` in `src/ir/verifier/builtins.rs`. |
 | `errors.md` | The nine current diagnostic codes (`E-BORROW-004` through `E-UNSUPPORTED-001`) have no public documentation. Users only see them in compiler output. |
 

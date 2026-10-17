@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- **Sum types (ADR 0055)** — `union` declarations with payloads
+  and recursive self-reference, construction (`Json.Num(42)`),
+  pattern matching (`case Num(n) then ...`), guards
+  (`case Pos(n) if n > 0 then ...`), exhaustive checking, and
+  cross-file imports. Interpreter-only; LLVM and WASM refuse at
+  the capability boundary. See `examples/json/` for the end-to-end
+  demonstration.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

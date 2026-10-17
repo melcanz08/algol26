@@ -13,6 +13,35 @@ It replaces ALGOL's explicit block delimiters with significant indentation, draw
 
 It then asks: What would ALGOL look like if we applied everything the programming-language community has learned since 1958?
 
+## The Expressiveness Philosophy
+
+ALGOL 58 gave the world:
+- Structured programming
+- Mathematical expressions
+- Procedures and blocks
+
+ALGOL 68 added:
+- Tagged unions
+- Reference types
+- User-defined types
+
+ALGOL26 combines both lineages with the type-system lessons of
+Rust and ML:
+
+- **Sum types** (`union`) — a value is one of several tagged
+  variants, each optionally carrying a payload. Recursive types
+  (JSON values, AST nodes, linked lists) are expressible.
+- **Pattern matching** (`match`) — destructures tagged variants
+  with exhaustive coverage checking, so adding a variant to a
+  union surfaces every `match` that needs updating.
+- **Guards** (`case Pos(n) if n > 0`) — refines matches without
+  nesting.
+
+The result: data-shaped programs that express their intent
+directly, with the compiler proving that every case is handled.
+This is the piece of modern language design that ALGOL 58 could
+not have, and that ALGOL26 adds.
+
 ## The Safety Philosophy
 
 ### Control Without Unsafe Defaults

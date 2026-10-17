@@ -63,6 +63,14 @@ fn type_mentions_dyn_trait(ty: &Type) -> bool {
     }
 }
 
+/// ADR 0055. True if `ty` is a union type used *by value* — i.e.
+/// a top-level `Type::Union`. Same signature-position rationale as
+/// `is_record_by_value`: a union parameter or return value requires
+/// the backend to agree on an ABI for the tagged-union representation.
+fn is_union_by_value(ty: &Type) -> bool {
+    matches!(ty, Type::Union { .. })
+}
+
 /// True if `ty` is a record type used *by value* — i.e. a top-level
 /// `Type::Record`. This is the signature-position check: a record
 /// parameter or return value requires the backend to agree on an
@@ -333,7 +341,10 @@ pub(super) fn scan_instruction(
         // `Feature::Records` as a stand-in until `Feature::Unions`
         // is added.
         Instruction::UnionConstruct { payload, .. } => {
-            used.insert(Feature::Records);
+            // ADR 0055. Union construction is interpreter-only until
+            // LLVM/WASM codegen for tagged unions lands. Refused at
+            // the capability boundary before codegen runs.
+            used.insert(Feature::Unions);
             for p in payload {
                 scan_value(p, extern_fns, used);
             }
@@ -515,6 +526,9 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
             if is_record_by_value(ty) {
                 used.insert(Feature::RecordByValue);
             }
+            if is_union_by_value(ty) {
+                used.insert(Feature::Unions);
+            }
             if mentions_generic_record(ty) {
                 used.insert(Feature::GenericRecords);
             }
@@ -527,6 +541,9 @@ pub(super) fn scan_features(program: &SemanticProgram) -> HashSet<Feature> {
         }
         if is_record_by_value(&func.return_type) {
             used.insert(Feature::RecordByValue);
+        }
+        if is_union_by_value(&func.return_type) {
+            used.insert(Feature::Unions);
         }
         if mentions_generic_record(&func.return_type) {
             used.insert(Feature::GenericRecords);

@@ -70,6 +70,10 @@ pub enum Feature {
     CommandLineArgs,
     /// `rec` declarations, literals, field access and assignment.
     Records,
+    /// ADR 0055. `union` declarations and construction
+    /// (`Json.Num(42)`). Interpreter-only until LLVM/WASM codegen
+    /// for tagged unions lands.
+    Unions,
     /// A record type appearing directly as a function parameter or
     /// return type — i.e. passed or returned *by value* across a
     /// function boundary. LLVM and WASM lower record literals and
@@ -118,6 +122,7 @@ impl Feature {
             Feature::References,
             Feature::CommandLineArgs,
             Feature::Records,
+            Feature::Unions,
             Feature::RecordByValue,
             Feature::GenericRecords,
             Feature::IntToString,
@@ -146,6 +151,7 @@ impl Feature {
             Feature::References => "references",
             Feature::CommandLineArgs => "args",
             Feature::Records => "records",
+            Feature::Unions => "union",
             Feature::RecordByValue => "records.by-value",
             Feature::GenericRecords => "records.generic",
             Feature::IntToString => "int.to_string",
@@ -172,6 +178,7 @@ impl Feature {
             Feature::References => "reference operations (&x, &mut x, *r)",
             Feature::CommandLineArgs => "command-line arguments (args())",
             Feature::Records => "records (rec declarations, literals, field access)",
+            Feature::Unions => "union types (declarations, construction)",
             Feature::RecordByValue => "records passed or returned by value in function signatures",
             Feature::GenericRecords => "generic records (rec Box<T>)",
             Feature::IntToString => "Int.to_string",
@@ -261,6 +268,7 @@ impl BackendCapabilities {
         supported.insert(Feature::RawMemory);
         supported.insert(Feature::CommandLineArgs);
         supported.insert(Feature::Records);
+        supported.insert(Feature::Unions);
         supported.insert(Feature::IntToString);
         supported.insert(Feature::StringToInt);
         supported.insert(Feature::Map);

@@ -689,7 +689,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
             &program.traits,
             &program.impls,
             &program.records,
-            &[],
+            &program.unions,
             &[],
             &[],
             &[],
@@ -701,6 +701,8 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
     let mut plan = InstantiationPlan::from_instantiations(&instantiations);
     plan.close(&functions);
 
+    let subrange_types = analyzer.take_subrange_types();
+    let union_types = analyzer.take_union_types();
     let virtual_calls = analyzer.take_virtual_calls();
     let (semantic_program, _diags) = SemanticIRBuilder::build(BuildInputs {
         functions: &functions,
@@ -709,8 +711,8 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
         records: &program.records,
         nominal_types: std::collections::HashMap::new(),
         enum_types: std::collections::HashMap::new(),
-        subrange_types: std::collections::HashMap::new(),
-        union_types: std::collections::HashMap::new(),
+        subrange_types,
+        union_types,
         const_values: std::collections::HashMap::new(),
         virtual_calls,
         trait_ids: std::collections::HashMap::new(),
@@ -940,4 +942,67 @@ fn interpreter_accepts_dynamic_dispatch() {
     // impl name; the capability matrix now includes the feature.
     check_backend(&dyn_trait_program(), &BackendCapabilities::interpreter())
         .expect("interpreter should accept `&dyn Trait` after ADR 0038 D6-1");
+}
+
+// ─── ADR 0055: unions are refused by LLVM and WASM ────────────────────
+
+#[test]
+fn union_declaration_rejected_by_llvm() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+
+proc main
+    val j := Json.Num(42)
+    print("constructed")
+"#;
+    let program = build_ir(source);
+    let caps = crate::backends::capabilities::BackendCapabilities::llvm();
+    let err = crate::backends::capabilities::check_backend(&program, &caps)
+        .expect_err("LLVM should refuse union construction");
+    assert!(
+        err.message.contains("union"),
+        "expected message naming unions, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn union_declaration_rejected_by_wasm() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+
+proc main
+    val j := Json.Null
+    print("constructed")
+"#;
+    let program = build_ir(source);
+    let caps = crate::backends::capabilities::BackendCapabilities::wasm();
+    let err = crate::backends::capabilities::check_backend(&program, &caps)
+        .expect_err("WASM should refuse union construction");
+    assert!(
+        err.message.contains("union"),
+        "expected message naming unions, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn union_declaration_accepted_by_interpreter() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+
+proc main
+    val j := Json.Num(42)
+    print("constructed")
+"#;
+    let program = build_ir(source);
+    let caps = crate::backends::capabilities::BackendCapabilities::interpreter();
+    crate::backends::capabilities::check_backend(&program, &caps)
+        .expect("interpreter should accept unions");
 }

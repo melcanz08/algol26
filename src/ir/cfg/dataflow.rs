@@ -249,6 +249,19 @@ impl Transfer for OwnershipTransfer {
                     place,
                     mutable,
                 } => {
+                    // ADR 0016 (Neutral). The dataflow layer records
+                    // borrows and checks state-machine violations
+                    // (moved, uninitialized) but does NOT re-verify
+                    // borrow conflicts — overlapping mutable borrows,
+                    // shared-vs-mutable races — because the analyzer
+                    // is the sole authority for those rules. Dataflow
+                    // "agrees by not asserting the opposite" (ADR
+                    // 0016). Adding an overlap check here would
+                    // double-report analyzer diagnostics and create
+                    // two sources of truth for the borrow checker.
+                    // See `check_borrow_rules_place` in
+                    // `src/semantics/analyzer/ownership.rs` for the
+                    // canonical check.
                     if let Some(st) = incoming.vars.get(place) {
                         if st.is_moved() {
                             diags.push(DataflowDiagnostic {

@@ -40,8 +40,8 @@ rec Point
     x: Int
     y: Int
 
-function sum_point(p: Point) -> Int
-    return p.x + p.y
+fn sum_point(p: Point) -> Int
+    p.x + p.y
 
 proc main
     val p := Point { x: 3, y: 4 }
@@ -74,10 +74,12 @@ proc main
 - **Region-based memory** — no garbage collector
 - **Traits and impls** — declared with `impl Trait for Type`, called
   with method syntax: `x.method()`
-- **Generics** — `function first<T>(xs: List<T>) -> Option<T>`; type
+- **Generics** — `fn first<T>(xs: List<T>) -> Option<T>`; type
   parameters bind from arguments, including inside container types
 - **`defer`** for LIFO cleanup, **`try`/`catch`** for `Result` handling
-- **`match`** on `Option`, `Result`, records, and literals
+- **`match`** on `Option`, `Result`, records, unions, and literals
+  — with guards (`case Num(n) if n > 0 then ...`) and
+  exhaustiveness checking
 - **FFI** via `extern "C"` for calling into C libraries
 - **`spawn`** and **`parallel`** blocks for structured concurrency
 - **`region`** blocks and `alloc` / `free` for manual memory
@@ -107,9 +109,9 @@ proc main
 >
 > Several features are interpreter-only in the current version —
 > `Map<K, V>`, `List.append`, `Option`, `Result` with `try`/`catch`,
-> and `String.*` conversions among them. LLVM and WASM refuse these
-> at the capability boundary and print an `E0002` error suggesting
-> `--interpreter`. The matrix below is the authoritative list.
+> `String.*` conversions, and **union types** among them. LLVM and
+> WASM refuse these at the capability boundary and print an `E0002`
+> error suggesting `--interpreter`. The matrix below is the authoritative list.
 >
 > `rec` records are **no longer** on this list. Every record
 > boundary — parameter, return, nested field, in a list, method
@@ -121,7 +123,7 @@ proc main
 | Backend | Output | Role |
 |---------|--------|------|
 | Interpreter | Direct execution (semantic oracle) | Reference backend. Executes every feature the language specifies, in the subset where a runtime model exists. |
-| LLVM | Native executable | Native compilation for the feature subset the capability check permits. Refuses maps, `List.append`, `Option`, `Result`, and channels at the boundary. |
+| LLVM | Native executable | Native compilation for the feature subset the capability check permits. Refuses maps, `List.append`, `Option`, `Result`, unions, and channels at the boundary. |
 | WASM | `.wasm` module | Compiles and runs via the Node host shim. Supports a similar subset to LLVM. |
 
 **The authoritative feature × backend matrix is
@@ -179,9 +181,13 @@ These are verified gaps in the current version.
   importing file's path.** When a nested module fails to compile,
   the error's line:column points at the wrong source file. The
   message text is correct; only the location is misattributed.
-- **`output/json.gol`-style recursive structured data is not
-  expressible.** The language has no sum types; recursive values
-  need a design decision that belongs in its own ADR.
+- **~~`output/json.gol`-style recursive structured data is not
+  expressible.~~** Fixed in ADR 0055. Sum types
+  (`union Json { Null Num(Int) ... }`) with recursive payloads work
+  end-to-end through the interpreter. See `examples/json/` for the
+  first real-world program using the feature. LLVM and WASM still
+  refuse union programs at the capability boundary
+  (`Feature::Unions`).
 
 ## Testing
 
@@ -239,7 +245,7 @@ but it is not the only mechanism.
 |----------|---------|
 | [`docs/STATUS.md`](docs/STATUS.md) | Feature matrix + known gaps |
 | [`docs/pass-contracts.md`](docs/pass-contracts.md) | Compiler pass contracts and pipeline rules |
-| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0048) |
+| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (0001–0059) |
 | [`docs/features/`](docs/features/) | Per-feature reference docs |
 | [`docs/releases/`](docs/releases/) | Release notes |
 | [`docs/archive/`](docs/archive/) | Superseded docs, kept for history |

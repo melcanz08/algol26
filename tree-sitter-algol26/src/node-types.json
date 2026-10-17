@@ -259,15 +259,15 @@
           "named": true
         },
         {
-          "type": "block",
-          "named": true
-        },
-        {
           "type": "break_statement",
           "named": true
         },
         {
           "type": "continue_statement",
+          "named": true
+        },
+        {
+          "type": "dedent",
           "named": true
         },
         {
@@ -284,6 +284,10 @@
         },
         {
           "type": "if_expression",
+          "named": true
+        },
+        {
+          "type": "indent",
           "named": true
         },
         {
@@ -484,10 +488,6 @@
       "types": [
         {
           "type": "assignment",
-          "named": true
-        },
-        {
-          "type": "block",
           "named": true
         },
         {
@@ -2387,6 +2387,10 @@
     "named": true
   },
   {
+    "type": "dedent",
+    "named": true
+  },
+  {
     "type": "defer",
     "named": false
   },
@@ -2429,6 +2433,10 @@
   {
     "type": "in",
     "named": false
+  },
+  {
+    "type": "indent",
+    "named": true
   },
   {
     "type": "integer",

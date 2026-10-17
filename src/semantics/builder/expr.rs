@@ -1844,7 +1844,37 @@ impl SemanticIRBuilder {
                                 },
                                 _ => SemanticPattern::Wildcard,
                             };
+                            // ADR 0055 Session 3 follow-up. Translate
+                            // the guard condition with the payload
+                            // bindings in scope. Without this,
+                            // `xs.length()` inside the guard resolves
+                            // to a bare
+                            // `Call { function: "xs.length", args: [] }`
+                            // — the receiver is missing because `xs`
+                            // isn't a known variable in the builder's
+                            // scope. The interpreter then can't dispatch
+                            // `"xs.length"` (it expects `"List.length"`
+                            // with the receiver as arg[0]).
+                            self.push_scope();
+                            if let crate::frontend::ast::Pattern::VariantWithBinding {
+                                variant,
+                                payload,
+                            } = &**inner_pattern
+                            {
+                                let payload_types = match &matched_type {
+                                    Type::Union { variants, .. } => variants
+                                        .iter()
+                                        .find(|(v, _)| v == variant)
+                                        .map(|(_, t)| t.clone())
+                                        .unwrap_or_default(),
+                                    _ => Vec::new(),
+                                };
+                                for (name, ty) in payload.iter().zip(payload_types.iter()) {
+                                    self.declare_var(name, ty.clone(), false);
+                                }
+                            }
                             let cond = self.translate_expr(program, func, current_block, condition);
+                            self.pop_scope();
                             SemanticPattern::Guarded {
                                 inner: Box::new(inner_sem),
                                 condition: cond,

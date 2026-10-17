@@ -1,0 +1,20 @@
+import "json.gol"
+
+proc main
+    val null_val := Json.Null
+    val bool_val := Json.Bool(true)
+    val num_val := Json.Num(42)
+    val neg_val := Json.Num(-7)
+    val str_val := Json.Str("hello")
+    val empty_str := Json.Str("")
+    val empty_arr := Json.Arr([])
+    val empty_obj := Json.Obj(Map<String, Json> {})
+
+    print(describe(null_val))
+    print(describe(bool_val))
+    print(describe(num_val))
+    print(describe(neg_val))
+    print(describe(str_val))
+    print(describe(empty_str))
+    print(describe(empty_arr))
+    print(describe(empty_obj))

@@ -1,0 +1,34 @@
+// json.gol — a JSON value type, exactly what ADR 0055 was written for.
+//
+// Exercises:
+//   - Union declaration with 6 variants
+//   - Payloads of every type: Bool, Int, String, List<Json>, Map<String, Json>
+//   - Recursive types (Arr and Obj refer back to Json)
+//   - Guards on variants (`case Bool(b) if b`)
+//   - Pattern matching with 11 arms
+//   - Exhaustive coverage (every variant handled, no `case _`)
+
+pub union Json
+    Null
+    Bool(Bool)
+    Num(Int)
+    Str(String)
+    Arr(List<Json>)
+    Obj(Map<String, Json>)
+
+/// Render a Json value as a human-readable string. The guards
+/// distinguish sub-cases (negative vs non-negative numbers,
+/// empty vs non-empty containers).
+pub fn describe(j: Json) -> String
+    match j
+        case Null then "null"
+        case Bool(b) if b then "true"
+        case Bool(_) then "false"
+        case Num(n) if n < 0 then "negative: " + Int.to_string(n)
+        case Num(n) then "number: " + Int.to_string(n)
+        case Str(s) if s = "" then "empty string"
+        case Str(s) then "string: " + s
+        case Arr(xs) if xs.length() = 0 then "empty array"
+        case Arr(xs) then "array of " + Int.to_string(xs.length())
+        case Obj(m) if m.length() = 0 then "empty object"
+        case Obj(m) then "object with " + Int.to_string(m.length()) + " keys"

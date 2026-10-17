@@ -10,6 +10,10 @@ impl Parser {
         let mut impls = Vec::new();
         let mut top_level_imports = Vec::new();
         let mut records = Vec::new(); // NEW
+                                      // ADR 0055. Sum-type declarations. Empty until Step 3 wires
+                                      // the parser dispatch; the field exists so `Program` can be
+                                      // constructed.
+        let unions = Vec::new();
         let mut distinct_decls = Vec::new();
         let mut enum_decls = Vec::new();
         let mut subrange_decls = Vec::new();
@@ -88,6 +92,7 @@ impl Parser {
             traits,
             impls,
             records, // NEW
+            unions,
             distinct_decls,
             enum_decls,
             subrange_decls,

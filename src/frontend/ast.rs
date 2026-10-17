@@ -453,6 +453,41 @@ pub struct RecordDecl {
     pub span: Span,
 }
 
+/// ADR 0055. A tagged union declaration: `union Json { Null Num(Int) ... }`.
+///
+/// Each variant carries zero or more payload types. Zero is the
+/// payloadless form (`Null`); one is the single-payload form
+/// (`Num(Int)`); multiple are supported (`Pair(Int, Int)`).
+///
+/// Payload types are `TypeSyntax`, resolved by the analyzer in
+/// context — same as record fields. A union variant can name
+/// records, enums, nominal types, and (with the two-pass
+/// registration from Session 1) unions declared later.
+#[derive(Clone, Debug)]
+pub struct UnionDecl {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub variants: Vec<UnionVariant>,
+    /// ADR 0039. Visibility of the union type itself.
+    pub visibility: Visibility,
+    /// ADR 0039. Defining module. See `FunctionDecl::module`.
+    pub module: Option<String>,
+    pub span: Span,
+}
+
+/// ADR 0055. One variant of a `UnionDecl`.
+///
+/// `payload` is empty for a payloadless variant (`Null`), one type
+/// for a single-payload variant (`Num(Int)`), or multiple for a
+/// multi-payload variant (`Pair(Int, String)`). The analyzer checks
+/// the arity at construction sites.
+#[derive(Clone, Debug)]
+pub struct UnionVariant {
+    pub name: String,
+    pub payload: Vec<TypeSyntax>,
+    pub span: Span,
+}
+
 /// A nominal type declaration. `type UserId = distinct Int`.
 /// See ADR 0029. The `NominalTypeId` is assigned by the analyzer
 /// when it registers this declaration; the AST carries only the
@@ -772,6 +807,8 @@ pub struct Program {
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
     pub records: Vec<RecordDecl>,
+    /// ADR 0055. Sum-type declarations, in declaration order.
+    pub unions: Vec<UnionDecl>,
     pub distinct_decls: Vec<DistinctDecl>,
     pub enum_decls: Vec<EnumDecl>,
     pub subrange_decls: Vec<SubrangeDecl>,

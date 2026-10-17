@@ -225,6 +225,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                 global.as_pointer_value().into()
             }
             TypedIRValue::Void => self.context.f64_type().const_float(0.0).into(),
+            TypedIRValue::UnionConstruct { .. } => unreachable!(
+                "union construction value reached LLVM codegen — the \
+                 capability scan should have refused this program (ADR 0055)"
+            ),
             TypedIRValue::NullPtr => self
                 .context
                 .ptr_type(AddressSpace::default())

@@ -9,6 +9,16 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
         TypedIRValue::Bool(_) => Type::Bool,
         TypedIRValue::String(_) => Type::String,
         TypedIRValue::Void => Type::Void,
+        TypedIRValue::UnionConstruct {
+            target_type,
+            payload,
+            ..
+        } => {
+            for p in payload {
+                verify_value(p, env)?;
+            }
+            target_type.clone()
+        }
         TypedIRValue::NullPtr => Type::Ptr,
         TypedIRValue::PtrLiteral(_) => Type::Ptr,
         TypedIRValue::Variable(name, claimed) => {

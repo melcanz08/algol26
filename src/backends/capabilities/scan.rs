@@ -328,6 +328,16 @@ pub(super) fn scan_instruction(
         // construction only accepts Int or enum arguments) are
         // scanned; the check itself introduces no feature.
         Instruction::BoundsCheck { value, .. } => scan_value(value, extern_fns, used),
+        // ADR 0055. Union construction is interpreter-only until
+        // LLVM/WASM codegen for tagged unions lands. Uses
+        // `Feature::Records` as a stand-in until `Feature::Unions`
+        // is added.
+        Instruction::UnionConstruct { payload, .. } => {
+            used.insert(Feature::Records);
+            for p in payload {
+                scan_value(p, extern_fns, used);
+            }
+        }
         Instruction::Nop => {}
     }
 }

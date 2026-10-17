@@ -409,6 +409,10 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
                             }
                         }
                     }
+                    I::UnionConstruct { payload, .. } => {
+                        let _ = payload;
+                        instrs.push(CfgInstruction::Nop);
+                    }
                     I::Nop => instrs.push(CfgInstruction::Nop),
                 }
             }

@@ -113,6 +113,16 @@ pub enum RuntimeValue {
         trait_name: String,
         concrete_type: String,
     },
+    /// ADR 0055. A tagged-union value. `tag` is the variant's
+    /// index in `Type::Union::variants`; `union_name` and
+    /// `variant_name` are presentation only. `payload` is empty
+    /// for payloadless variants, one value for single-payload.
+    Union {
+        tag: u32,
+        union_name: String,
+        variant_name: String,
+        payload: Vec<RuntimeValue>,
+    },
     /// ADR 0053. A reference to a place, stored as the place itself
     /// rather than a resolved value. Reads through this reference
     /// (`*r`) resolve the place against the interpreter's current
@@ -142,6 +152,8 @@ impl RuntimeValue {
             // ADR 0053. A reference is truthy: the language has no
             // null references.
             RuntimeValue::Reference(_) => true,
+            // ADR 0055. A union value is truthy.
+            RuntimeValue::Union { .. } => true,
         }
     }
 
@@ -190,6 +202,19 @@ impl RuntimeValue {
             // the value can change between when the reference was
             // made and when it is printed.
             RuntimeValue::Reference(place) => format!("ref({})", place),
+            RuntimeValue::Union {
+                union_name,
+                variant_name,
+                payload,
+                ..
+            } => {
+                if payload.is_empty() {
+                    format!("{}.{}", union_name, variant_name)
+                } else {
+                    let parts: Vec<String> = payload.iter().map(|v| v.display()).collect();
+                    format!("{}.{}({})", union_name, variant_name, parts.join(", "))
+                }
+            }
         }
     }
 
@@ -270,6 +295,20 @@ impl RuntimeValue {
             // equality today; this arm exists so a future `==` on
             // references has a defined meaning instead of a panic.
             (Reference(p), Reference(q)) => p == q,
+            (
+                Union {
+                    tag: t1,
+                    payload: p1,
+                    ..
+                },
+                Union {
+                    tag: t2,
+                    payload: p2,
+                    ..
+                },
+            ) => {
+                t1 == t2 && p1.len() == p2.len() && p1.iter().zip(p2).all(|(a, b)| a.runtime_eq(b))
+            }
             _ => false,
         }
     }
@@ -291,5 +330,6 @@ pub(super) fn runtime_kind(v: &RuntimeValue) -> &'static str {
         RuntimeValue::Map(_) => "Map",
         RuntimeValue::DynTrait { .. } => "DynTrait",
         RuntimeValue::Reference(_) => "Reference",
+        RuntimeValue::Union { .. } => "Union",
     }
 }

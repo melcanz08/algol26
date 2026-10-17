@@ -119,4 +119,20 @@ pub enum Instruction {
         high: i64,
         message: String,
     },
+
+    /// ADR 0055. Construct a tagged-union value and store it in
+    /// `target`. `tag` is the variant's index in
+    /// `Type::Union::variants`; `payload` is the evaluated payload
+    /// (empty for payloadless variants). Emitted by the IR builder
+    /// when a `Json.Num(42)` (or payloadless `Json.Null`) appears
+    /// in a `VarDecl` or `Stmt::Expression` position; expression-
+    /// position occurrences go through `TypedIRValue::UnionConstruct`
+    /// and are lowered here by the same sites.
+    UnionConstruct {
+        target: String,
+        union_name: String,
+        variant_name: String,
+        tag: u32,
+        payload: Vec<TypedIRValue>,
+    },
 }

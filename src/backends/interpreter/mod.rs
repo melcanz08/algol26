@@ -279,6 +279,27 @@ impl Interpreter {
 
     fn execute_instruction(&mut self, instr: &Instruction) -> Result<(), EvalError> {
         match instr {
+            Instruction::UnionConstruct {
+                target,
+                union_name,
+                variant_name,
+                tag,
+                payload,
+            } => {
+                let mut payload_vals = Vec::with_capacity(payload.len());
+                for p in payload {
+                    payload_vals.push(self.eval_value(p)?);
+                }
+                self.variables.insert(
+                    target.clone(),
+                    RuntimeValue::Union {
+                        tag: *tag,
+                        union_name: union_name.clone(),
+                        variant_name: variant_name.clone(),
+                        payload: payload_vals,
+                    },
+                );
+            }
             Instruction::Nop => {}
 
             Instruction::Declare { name, value, .. } => {

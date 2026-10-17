@@ -321,6 +321,24 @@ impl Interpreter {
             // enums and subranges erase (they flow through `Int` too —
             // see the `Cast` arms below).
             TypedIRValue::Set { bits, .. } => RuntimeValue::Int(*bits as i64),
+            TypedIRValue::UnionConstruct {
+                union_name,
+                variant_name,
+                tag,
+                payload,
+                ..
+            } => {
+                let mut payload_vals = Vec::with_capacity(payload.len());
+                for p in payload {
+                    payload_vals.push(self.eval_value(p)?);
+                }
+                RuntimeValue::Union {
+                    tag: *tag,
+                    union_name: union_name.clone(),
+                    variant_name: variant_name.clone(),
+                    payload: payload_vals,
+                }
+            }
             TypedIRValue::SetSingleton {
                 element,
                 element_type,

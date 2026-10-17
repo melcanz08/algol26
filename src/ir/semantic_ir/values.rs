@@ -176,6 +176,20 @@ pub enum TypedIRValue {
         element: Box<TypedIRValue>,
         element_type: Type,
     },
+    /// ADR 0055. A union variant construction. `union_name` and
+    /// `variant_name` are presentation only (for `display` and
+    /// diagnostics); `tag` is the variant's index in
+    /// `Type::Union::variants`, matching the runtime representation.
+    /// `payload` is empty for payloadless variants (`Json.Null`),
+    /// one value for single-payload variants (`Json.Num(42)`).
+    /// `target_type` is the full `Type::Union`.
+    UnionConstruct {
+        union_name: String,
+        variant_name: String,
+        tag: u32,
+        payload: Vec<TypedIRValue>,
+        target_type: Type,
+    },
 }
 
 impl TypedIRValue {
@@ -213,6 +227,7 @@ impl TypedIRValue {
             TypedIRValue::FieldAccess { field_type, .. } => field_type.clone(),
             TypedIRValue::Set { element_type, .. } => Type::set(element_type.clone()),
             TypedIRValue::SetSingleton { element_type, .. } => Type::set(element_type.clone()),
+            TypedIRValue::UnionConstruct { target_type, .. } => target_type.clone(),
         }
     }
 

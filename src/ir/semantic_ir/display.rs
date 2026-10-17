@@ -178,6 +178,21 @@ fn format_block_cfg(out: &mut String, block: &SemanticBlock, entry_id: usize) {
 fn format_instruction(out: &mut String, instr: &Instruction) {
     match instr {
         Instruction::Nop => out.push_str("nop"),
+        Instruction::UnionConstruct {
+            target,
+            tag,
+            payload,
+            ..
+        } => {
+            write!(out, "{} := union_tag_{}(", target, tag).unwrap();
+            for (i, p) in payload.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                format_value(out, p);
+            }
+            out.push(')');
+        }
         Instruction::Declare {
             name,
             mutable,
@@ -307,6 +322,20 @@ fn format_value(out: &mut String, value: &TypedIRValue) {
         TypedIRValue::String(s) => write!(out, "{:?}", s).unwrap(),
         TypedIRValue::Bool(b) => write!(out, "{}", b).unwrap(),
         TypedIRValue::Void => out.push_str("void"),
+        TypedIRValue::UnionConstruct {
+            union_name,
+            variant_name,
+            tag,
+            payload,
+            ..
+        } => {
+            write!(out, "{}.{}(tag={}", union_name, variant_name, tag).unwrap();
+            for p in payload {
+                out.push_str(", ");
+                format_value(out, p);
+            }
+            out.push(')');
+        }
         TypedIRValue::NullPtr => out.push_str("null"),
         TypedIRValue::PtrLiteral(p) => write!(out, "0x{:x}", p).unwrap(),
         TypedIRValue::Variable(name, _) => out.push_str(name),

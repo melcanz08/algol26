@@ -9,6 +9,20 @@ pub(super) fn verify_instruction(
 ) -> Result<(), String> {
     match instr {
         Instruction::Nop => Ok(()),
+        Instruction::UnionConstruct {
+            target, payload, ..
+        } => {
+            for p in payload {
+                verify_value(p, env)?;
+            }
+            // The union's type is opaque to the verifier at Step 6;
+            // tag-range and variant-arity checks come in Session 3.
+            // Declare the target with an Unknown type so subsequent
+            // uses resolve.
+            env.variables.insert(target.clone(), Type::Unknown);
+            env.mutability.insert(target.clone(), false);
+            Ok(())
+        }
         Instruction::Declare {
             name,
             type_,

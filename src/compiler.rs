@@ -992,6 +992,7 @@ impl Compiler {
         let mut all_distincts = parsed.distincts.clone();
         let mut all_enums = parsed.enums.clone();
         let mut all_subranges = parsed.subranges.clone();
+        let mut all_unions = parsed.unions.clone();
         let mut visited: HashSet<PathBuf> = HashSet::new();
 
         // Collect every import this file names: top-level declarations
@@ -1018,6 +1019,7 @@ impl Compiler {
                 &mut all_distincts,
                 &mut all_enums,
                 &mut all_subranges,
+                &mut all_unions,
                 &mut visited,
             )?;
         }
@@ -1027,7 +1029,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: all_records,
-            unions: parsed.unions.clone(),
+            unions: all_unions,
             distincts: all_distincts,
             enums: all_enums,
             subranges: all_subranges,
@@ -1055,6 +1057,7 @@ impl Compiler {
         all_distincts: &mut Vec<crate::frontend::ast::DistinctDecl>,
         all_enums: &mut Vec<crate::frontend::ast::EnumDecl>,
         all_subranges: &mut Vec<crate::frontend::ast::SubrangeDecl>,
+        all_unions: &mut Vec<crate::frontend::ast::UnionDecl>,
         visited: &mut HashSet<PathBuf>,
     ) -> Result<()> {
         // Resolve, then canonicalize. `resolve_import` joins relative
@@ -1113,6 +1116,9 @@ impl Compiler {
             for s in &mut imported.subrange_decls {
                 s.module = module_tag.clone();
             }
+            for u in &mut imported.unions {
+                u.module = module_tag.clone();
+            }
             for t in &mut imported.traits {
                 t.module = module_tag.clone();
             }
@@ -1156,6 +1162,11 @@ impl Compiler {
                     all_subranges.push(s);
                 }
             }
+            for u in imported.unions {
+                if !all_unions.iter().any(|x| x.name == u.name) {
+                    all_unions.push(u);
+                }
+            }
 
             // Recurse. The `current_file` for nested imports is this
             // file's canonical path, so its imports resolve relative to
@@ -1171,6 +1182,7 @@ impl Compiler {
                     all_distincts,
                     all_enums,
                     all_subranges,
+                    all_unions,
                     visited,
                 )?;
             }

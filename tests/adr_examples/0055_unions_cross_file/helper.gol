@@ -1,0 +1,4 @@
+union Json
+    Null
+    Num(Int)
+    Str(String)

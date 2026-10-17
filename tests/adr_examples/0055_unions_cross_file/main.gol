@@ -1,0 +1,13 @@
+// EXPECT: COMPILE
+import "helper.gol"
+
+fn describe(j: Json) -> String
+    match j
+        case Null then "null"
+        case Num(n) then Int.to_string(n)
+        case Str(s) then s
+
+proc main
+    print(describe(Json.Null))
+    print(describe(Json.Num(42)))
+    print(describe(Json.Str("hello")))

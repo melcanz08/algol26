@@ -517,7 +517,41 @@ impl Parser {
                 // name).
                 self.skip_keyword("then");
 
-                let body = self.parse_block_expr()?;
+                // ADR 0055 Session 3. An inline case body is
+                // either an expression (`a + b`, `Int.to_string(n)`)
+                // or a statement form (`print(...)`). Try the
+                // expression parser first — it handles binary
+                // operators — and fall back to the statement
+                // parser for statement-only forms like `print`.
+                // Backtracking is safe: `parse_expr` fails fast
+                // on `Token::Print` because `parse_primary` doesn't
+                // handle it as a leading token.
+                let body = if matches!(self.peek(), Token::Indent | Token::LBrace) {
+                    self.parse_block_expr()?
+                } else {
+                    let snapshot = self.pos;
+                    match self.parse_expr() {
+                        Ok(expr) => {
+                            let span = expr.span();
+                            Expr::new(ExprKind::Block {
+                                statements: vec![],
+                                trailing_expr: Some(Box::new(expr)),
+                                span,
+                            })
+                        }
+                        Err(_) => {
+                            self.pos = snapshot;
+                            self.statement_start_column = self.current_column();
+                            let stmt = self.parse_stmt()?;
+                            let span = stmt.span();
+                            Expr::new(ExprKind::Block {
+                                statements: vec![stmt],
+                                trailing_expr: None,
+                                span,
+                            })
+                        }
+                    }
+                };
 
                 let body = match body.kind {
                     ExprKind::Block {

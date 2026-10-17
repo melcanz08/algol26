@@ -83,6 +83,10 @@ pub struct TypedProgram {
     /// so the IR builder can resolve union names in signatures and
     /// (later) lower union construction.
     pub unions: Vec<crate::frontend::ast::UnionDecl>,
+    /// ADR 0055. Resolved union type table from the analyzer, keyed
+    /// by union name. Consumed by the IR builder to recognize
+    /// `Json.Num(42)` and produce `TypedIRValue::UnionConstruct`.
+    pub union_types: std::collections::HashMap<String, crate::common::types::Type>,
     /// Resolved nominal type declarations, keyed by name. Values
     /// carry the `NominalTypeId` the analyzer assigned. Downstream
     /// consumers read this map and never reconstruct ids — the
@@ -277,6 +281,7 @@ pub fn type_check_program(
     let nominal_types = analyzer.take_nominal_types();
     let enum_types = analyzer.take_enum_types();
     let subrange_types = analyzer.take_subrange_types();
+    let union_types = analyzer.take_union_types();
     let mut plan = InstantiationPlan::from_instantiations(&instantiations);
     plan.close(functions);
 
@@ -291,6 +296,7 @@ pub fn type_check_program(
         plan,
         records: records.to_vec(),
         unions: unions.to_vec(),
+        union_types,
         nominal_types,
         enum_types,
         subrange_types,
@@ -319,6 +325,7 @@ pub fn build_semantic_ir_program(
     nominal_types: std::collections::HashMap<String, crate::common::types::Type>,
     enum_types: std::collections::HashMap<String, crate::common::types::Type>,
     subrange_types: std::collections::HashMap<String, crate::common::types::Type>,
+    union_types: std::collections::HashMap<String, crate::common::types::Type>,
     const_values: std::collections::HashMap<
         String,
         (crate::common::types::Type, crate::frontend::ast::Expr),
@@ -346,6 +353,7 @@ pub fn build_semantic_ir_program(
         nominal_types,
         enum_types,
         subrange_types,
+        union_types,
         const_values,
         virtual_calls,
         trait_ids,

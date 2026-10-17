@@ -32,6 +32,7 @@ fn compile_to_ir(source: &str) -> algol26::ir::semantic_ir::SemanticProgram {
         nominal_types: std::collections::HashMap::new(),
         enum_types: std::collections::HashMap::new(),
         subrange_types: std::collections::HashMap::new(),
+        union_types: std::collections::HashMap::new(),
         const_values: std::collections::HashMap::new(),
         virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
         trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)
@@ -136,6 +137,7 @@ proc main
         nominal_types: std::collections::HashMap::new(),
         enum_types: std::collections::HashMap::new(),
         subrange_types: std::collections::HashMap::new(),
+        union_types: std::collections::HashMap::new(),
         const_values: std::collections::HashMap::new(),
         virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
         trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)

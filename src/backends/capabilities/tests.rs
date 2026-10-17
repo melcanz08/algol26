@@ -710,6 +710,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
         nominal_types: std::collections::HashMap::new(),
         enum_types: std::collections::HashMap::new(),
         subrange_types: std::collections::HashMap::new(),
+        union_types: std::collections::HashMap::new(),
         const_values: std::collections::HashMap::new(),
         virtual_calls,
         trait_ids: std::collections::HashMap::new(),

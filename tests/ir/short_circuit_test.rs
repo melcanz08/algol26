@@ -36,6 +36,7 @@ fn run(source: &str) -> String {
         nominal_types: std::collections::HashMap::new(),
         enum_types: std::collections::HashMap::new(),
         subrange_types: std::collections::HashMap::new(),
+        union_types: std::collections::HashMap::new(),
         const_values: std::collections::HashMap::new(),
         virtual_calls: std::collections::HashMap::new(), // virtual_calls (ADR 0038)
         trait_ids: std::collections::HashMap::new(),     // trait_ids (ADR 0038)

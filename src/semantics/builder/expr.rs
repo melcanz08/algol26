@@ -195,6 +195,26 @@ impl SemanticIRBuilder {
                 // than `List.length` and break both the interpreter and the IR
                 // shape tests.
                 let declare_value = match typed_value {
+                    TypedIRValue::UnionConstruct {
+                        union_name,
+                        variant_name,
+                        tag,
+                        payload,
+                        target_type,
+                    } => {
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            Instruction::UnionConstruct {
+                                target: name.clone(),
+                                union_name,
+                                variant_name,
+                                tag,
+                                payload,
+                            },
+                        );
+                        TypedIRValue::Variable(name.clone(), target_type)
+                    }
                     TypedIRValue::Call {
                         function,
                         args: call_args,
@@ -557,6 +577,29 @@ impl SemanticIRBuilder {
                 if matches!(&expr.kind, ExprKind::FunctionCall { .. }) {
                     let typed_value = self.translate_expr(program, func, current_block, expr);
                     match typed_value {
+                        TypedIRValue::UnionConstruct {
+                            union_name,
+                            variant_name,
+                            tag,
+                            payload,
+                            ..
+                        } => {
+                            let temp = format!("__union_{}", self.iter_counter);
+                            self.iter_counter += 1;
+                            let union_ty = self.union_types.get(&union_name).cloned();
+                            self.declare_var(&temp, union_ty.unwrap_or(Type::Unknown), false);
+                            self.safe_push_instruction(
+                                func,
+                                current_block,
+                                Instruction::UnionConstruct {
+                                    target: temp,
+                                    union_name,
+                                    variant_name,
+                                    tag,
+                                    payload,
+                                },
+                            );
+                        }
                         TypedIRValue::Call {
                             function,
                             args: call_args,
@@ -1228,6 +1271,51 @@ impl SemanticIRBuilder {
                 // Otherwise it's a regular function call — this is how all built-ins
                 // (Math.*, String.*, List.*, File.*) are dispatched.
                 let is_known_function = self.function_types.contains_key(clean_name);
+
+                // ADR 0055. Union variant construction (payloadful).
+                // `Json.Num(42)` reaches here as
+                // `FunctionCall { name: "Json.Num", args: [42] }`.
+                // Recognized before the general dotted-method dispatch
+                // because the analyzer already accepted it as a union
+                // construction (Step 5) — a `Json` variable that
+                // happened to have a `Num` method would have been
+                // accepted by Step 5's union arm only if `Json` were
+                // a registered union, which means it's a union.
+                if !is_known_function {
+                    if let Some((union_name, variant_name)) = clean_name.split_once('.') {
+                        if !variant_name.contains('.') {
+                            if let Some(union_ty) = self.union_types.get(union_name).cloned() {
+                                if let Type::Union { name, variants, .. } = &union_ty {
+                                    if let Some(pos) =
+                                        variants.iter().position(|(v, _)| v == variant_name)
+                                    {
+                                        let tag = pos as u32;
+                                        let payload_types = variants[pos].1.clone();
+                                        let mut typed_payload =
+                                            Vec::with_capacity(payload_types.len());
+                                        for (arg, expected) in args.iter().zip(payload_types.iter())
+                                        {
+                                            let v = self.translate_expr(
+                                                program,
+                                                func,
+                                                current_block,
+                                                arg,
+                                            );
+                                            typed_payload.push(self.coerce_value(v, expected));
+                                        }
+                                        return TypedIRValue::UnionConstruct {
+                                            union_name: name.clone(),
+                                            variant_name: variant_name.to_string(),
+                                            tag,
+                                            payload: typed_payload,
+                                            target_type: union_ty.clone(),
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if !is_known_function && clean_name.contains('.') {
                     let parts: Vec<&str> = clean_name.split('.').collect();
@@ -2117,6 +2205,27 @@ impl SemanticIRBuilder {
                 TypedIRValue::List(vec![start_val, end_val], elem_type)
             }
             ExprKind::FieldAccess { object, field, .. } => {
+                // ADR 0055. Payloadless union variant. `Json.Null`
+                // reaches here as `FieldAccess { object: Var("Json"),
+                // field: "Null" }`. Checked before the enum-variant
+                // recognition — a `Json` that reaches here has already
+                // been accepted as a union at the analyzer level.
+                if let ExprKind::Var(union_name, _) = &object.as_ref().kind {
+                    if let Some(union_ty) = self.union_types.get(union_name).cloned() {
+                        if let Type::Union { name, variants, .. } = &union_ty {
+                            if let Some(pos) = variants.iter().position(|(v, _)| v == field) {
+                                return TypedIRValue::UnionConstruct {
+                                    union_name: name.clone(),
+                                    variant_name: field.clone(),
+                                    tag: pos as u32,
+                                    payload: Vec::new(),
+                                    target_type: union_ty.clone(),
+                                };
+                            }
+                        }
+                    }
+                }
+
                 // ADR 0032 (A4): qualified enum variant value.
                 // `Day.Saturday` has no object to translate — `Day`
                 // is a type name. Emit the variant's ordinal as a

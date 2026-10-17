@@ -67,6 +67,11 @@ pub struct SemanticIRBuilder {
     /// Values carry a `Type::Subrange` whose `SubrangeTypeId`
     /// matches the one the analyzer assigned. See ADR 0031.
     pub(super) subrange_types: HashMap<String, Type>,
+    /// ADR 0055. Union type declarations, keyed by name. Values
+    /// carry a `Type::Union` whose `UnionTypeId` matches the one
+    /// the analyzer assigned. Read by `translate_expr` to recognize
+    /// `Json.Num(42)` and `Json.Null`.
+    pub(super) union_types: HashMap<String, Type>,
     /// Associated constants from the analyzer, keyed by `"Type::NAME"`.
     /// Read by the Var arm of `translate_expr` to inline the value at
     /// each use site.
@@ -116,6 +121,7 @@ pub struct BuildInputs<'a> {
     pub nominal_types: HashMap<String, Type>,
     pub enum_types: HashMap<String, Type>,
     pub subrange_types: HashMap<String, Type>,
+    pub union_types: HashMap<String, Type>,
     pub const_values: HashMap<String, (Type, Expr)>,
     pub virtual_calls: HashMap<ExprId, VirtualCallInfo>,
     pub trait_ids: HashMap<String, crate::common::types::TraitId>,
@@ -144,6 +150,7 @@ impl SemanticIRBuilder {
             nominal_types: inputs.nominal_types,
             enum_types: inputs.enum_types,
             subrange_types: inputs.subrange_types,
+            union_types: inputs.union_types,
             const_values: inputs.const_values,
             virtual_calls: inputs.virtual_calls,
             trait_ids: inputs.trait_ids,
@@ -450,6 +457,7 @@ mod substitution_tests {
             nominal_types: HashMap::new(),
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),
+            union_types: HashMap::new(),
             const_values: HashMap::new(),
             virtual_calls: HashMap::new(),
             trait_ids: HashMap::new(),

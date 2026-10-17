@@ -611,7 +611,43 @@ impl Parser {
 
         self.skip_keyword("then");
 
-        let then_branch = Box::new(self.parse_block_expr()?);
+        // ADR 0055 Session 3. A `then` body is either a block
+        // (indented/braced) or an inline expression. Parse inline
+        // bodies with `parse_expr` first so `if cond then a + b`
+        // produces a trailing expression rather than a dangling
+        // `+ b`. Fall back to `parse_stmt` for statement-only
+        // forms like `print(...)`, mirroring `parse_match_case`'s
+        // case-body logic.
+        //
+        // `parse_block_expr` for the block forms; the inline try-parse
+        // otherwise. Both produce a `Block` node, so the type
+        // inference in `ExprKind::If` sees a uniform shape.
+        let then_branch = Box::new(if matches!(self.peek(), Token::Indent | Token::LBrace) {
+            self.parse_block_expr()?
+        } else {
+            let snapshot = self.pos;
+            match self.parse_expr() {
+                Ok(expr) => {
+                    let span = expr.span();
+                    Expr::new(ExprKind::Block {
+                        statements: vec![],
+                        trailing_expr: Some(Box::new(expr)),
+                        span,
+                    })
+                }
+                Err(_) => {
+                    self.pos = snapshot;
+                    self.statement_start_column = self.current_column();
+                    let stmt = self.parse_stmt()?;
+                    let span = stmt.span();
+                    Expr::new(ExprKind::Block {
+                        statements: vec![stmt],
+                        trailing_expr: None,
+                        span,
+                    })
+                }
+            }
+        });
 
         // ADR 0054. In brace form, `if cond { a } else { b }` is
         // often written with the `else` on its own line:

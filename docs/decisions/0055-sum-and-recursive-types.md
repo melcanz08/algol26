@@ -52,9 +52,63 @@ prints `both constructed` through the interpreter, and is refused
 by LLVM with `E0002: The LLVM backend does not support: union
 types (declarations, construction)`.
 
-**Session 3 — match over unions.** ⏸️ Planned but not yet
-implemented. See "Session 3 plan" below for the design
-decisions and step breakdown.
+**Session 3 — match over unions.** ✅ Implemented. Adds
+`Pattern::VariantWithBinding` for `case Num(n) then ...`,
+payload binding with declared types, and exhaustiveness
+checking over user-defined variants (guards do not count as
+coverage — a guarded arm may fail).
+
+Follow-up fixes after Session 3 landed:
+
+- **Union guards** (`case Pos(n) if n > 0 then ...`). The
+  parser already handled `if` after a pattern; the analyzer's
+  `bind_pattern_variables` recursed into `Guarded`'s inner
+  pattern; the builder now emits `SemanticPattern::Guarded`;
+  the interpreter matches the inner pattern, temporarily inserts
+  the payload bindings, evaluates the condition, restores the
+  bindings, and returns Some/None based on the result.
+
+- **Exhaustive match over unions.** `check_match_exhaustiveness`
+  had arms for Option, Result, Bool, and Enum but not Union.
+  Added. Guarded arms don't count as coverage — a guarded arm
+  may fail — so a match whose only arm is guarded still errors
+  for missing variants.
+
+- **Cross-file unions.** `process_imports` carried the top-level
+  file's unions through without merging imported unions. Fixed:
+  `load_import_recursive` now takes `all_unions` alongside
+  `all_records`, `all_distincts`, `all_enums`, and
+  `all_subranges`.
+
+- **Guards on container payloads** (`case Arr(xs) if xs.length()
+  = 0`). The builder translated the guard's condition before
+  declaring the payload bindings, so `xs.length()` resolved as
+  a bare call with no receiver. Fixed by translating the
+  condition with the payload bindings in a temporary scope.
+
+- **Type equality for recursive unions.** `Type::Union`
+  structural equality compared the `variants` field, which
+  embeds a placeholder of the union inside its recursive
+  payloads. Two `Type::Union` with the same `id` compared
+  unequal. Fixed by short-circuiting on `id` in `can_coerce_to`,
+  `can_cast_to`, and `common_supertype`.
+
+- **Optimizer DCE for union construction.** Neither the DCE
+  instruction scan nor `collect_variables_from_value` scanned
+  `UnionConstruct`'s payload, so a variable whose only use was
+  inside a union payload was dropped. Fixed by adding
+  `UnionConstruct` arms to both.
+
+- **Union resolution in type annotations.** The builder's
+  `resolve_type_syntax` didn't consult `union_types`, so
+  `List<Json>` in a type annotation resolved the union name to
+  `Unknown`. Fixed by adding the union lookup to the `Named` arm.
+
+The end-to-end demonstration is `examples/json/` — a JSON value
+type with recursive payloads (`Arr(List<Json>)`,
+`Obj(Map<String, Json>)`), guards on container payloads, 11-arm
+pattern matching, and cross-file imports. It is the first real
+program to exercise every feature of the sum-type system.
 
 **Deferred: LLVM / WASM codegen for union payloads.** The ADR's
 own "What is out of scope" section defers this to a follow-up.

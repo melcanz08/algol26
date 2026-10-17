@@ -1792,25 +1792,70 @@ impl SemanticIRBuilder {
                         crate::frontend::ast::Pattern::Literal(e) => SemanticPattern::Literal(
                             self.translate_expr(program, func, current_block, e),
                         ),
-                        crate::frontend::ast::Pattern::Variant(variant_name) => {
-                            // ADR 0030: the ordinal is resolved at
-                            // IR-build time from the matched type. The
-                            // analyzer has already validated that the
-                            // name is a variant of the enum, so a miss
-                            // here would be an internal error; fall
-                            // back to -1 so a would-be bug becomes a
-                            // never-matching case rather than a panic.
-                            let ordinal = match &matched_type {
-                                Type::Enum { variants, .. } => variants
+                        crate::frontend::ast::Pattern::VariantWithBinding {
+                            variant: variant_name,
+                            payload: bindings,
+                        } => {
+                            // ADR 0055 Session 3. Union variant pattern.
+                            // Look up the union's variants to compute the tag.
+                            let tag = match &matched_type {
+                                Type::Union { variants, .. } => variants
                                     .iter()
-                                    .position(|v| v == variant_name)
-                                    .map(|i| i as i64)
-                                    .unwrap_or(-1),
-                                _ => -1,
+                                    .position(|(v, _)| v == variant_name)
+                                    .map(|i| i as u32)
+                                    .unwrap_or(u32::MAX),
+                                _ => u32::MAX,
                             };
-                            SemanticPattern::Variant {
-                                name: variant_name.clone(),
-                                ordinal,
+                            SemanticPattern::VariantWithPayload {
+                                tag,
+                                variant_name: variant_name.clone(),
+                                bindings: bindings.clone(),
+                            }
+                        }
+                        crate::frontend::ast::Pattern::Variant(variant_name) => {
+                            // ADR 0055 Session 3. A bare identifier
+                            // in pattern position may be:
+                            //   - an enum variant (`case Monday`) — emitted
+                            //     as `SemanticPattern::Variant { ordinal }`
+                            //     which the runtime compares against the
+                            //     enum's Int representation.
+                            //   - a payloadless union variant (`case Null`)
+                            //     — emitted as `SemanticPattern::VariantWithPayload
+                            //     { tag, bindings: [] }` which the runtime
+                            //     matches against the union's tag.
+                            //
+                            // The matched type disambiguates. The analyzer
+                            // already validated the name exists on the
+                            // type; -1 or u32::MAX are never-match
+                            // fallbacks for internal errors.
+                            match &matched_type {
+                                Type::Enum { variants, .. } => {
+                                    let ordinal = variants
+                                        .iter()
+                                        .position(|v| v == variant_name)
+                                        .map(|i| i as i64)
+                                        .unwrap_or(-1);
+                                    SemanticPattern::Variant {
+                                        name: variant_name.clone(),
+                                        ordinal,
+                                    }
+                                }
+                                Type::Union { variants, .. } => {
+                                    let tag = variants
+                                        .iter()
+                                        .position(|(v, _)| v == variant_name)
+                                        .map(|i| i as u32)
+                                        .unwrap_or(u32::MAX);
+                                    SemanticPattern::VariantWithPayload {
+                                        tag,
+                                        variant_name: variant_name.clone(),
+                                        bindings: Vec::new(),
+                                    }
+                                }
+                                _ => SemanticPattern::Variant {
+                                    name: variant_name.clone(),
+                                    ordinal: -1,
+                                },
                             }
                         }
                         _ => SemanticPattern::Wildcard,
@@ -1892,6 +1937,27 @@ impl SemanticIRBuilder {
                     if let crate::frontend::ast::Pattern::Record { bindings, .. } = &case.pattern {
                         for b in bindings {
                             self.declare_var(b, Type::Unknown, false);
+                        }
+                    }
+
+                    // ADR 0055 Session 3. Union variant bindings.
+                    // Look up the variant's declared payload types and
+                    // declare each binding with its type (not Unknown),
+                    // so `Int.to_string(n)` sees `n : Int` rather than
+                    // `Unknown`, and the verifier accepts the case body.
+                    if let crate::frontend::ast::Pattern::VariantWithBinding { variant, payload } =
+                        &case.pattern
+                    {
+                        let payload_types = match &matched_type {
+                            Type::Union { variants, .. } => variants
+                                .iter()
+                                .find(|(v, _)| v == variant)
+                                .map(|(_, types)| types.clone())
+                                .unwrap_or_default(),
+                            _ => Vec::new(),
+                        };
+                        for (name, ty) in payload.iter().zip(payload_types.iter()) {
+                            self.declare_var(name, ty.clone(), false);
                         }
                     }
 

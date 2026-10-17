@@ -336,6 +336,10 @@ impl<'a> Walker<'a> {
                 self.visit_pattern(pattern);
                 self.visit_expr(condition);
             }
+            Pattern::VariantWithBinding { .. } => {
+                // ADR 0055 Session 3. Payload bindings are strings,
+                // not Exprs — nothing to visit.
+            }
             Pattern::Range { start, end } => {
                 if let Some(e) = start {
                     self.visit_expr(e);

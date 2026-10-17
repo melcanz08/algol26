@@ -591,6 +591,13 @@ fn format_pattern(out: &mut String, pat: &SemanticPattern) {
         SemanticPattern::Variant { name, ordinal } => {
             write!(out, "{} ({})", name, ordinal).unwrap();
         }
+        SemanticPattern::VariantWithPayload {
+            variant_name,
+            bindings,
+            tag,
+        } => {
+            write!(out, "{}({}) tag={}", variant_name, bindings.join(", "), tag).unwrap();
+        }
     }
 }
 

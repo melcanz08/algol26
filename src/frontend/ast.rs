@@ -573,6 +573,15 @@ pub enum Pattern {
     /// A bare enum variant match. `case Monday` where the matched
     /// type is `Type::Enum`. No payload, no binding. See ADR 0030.
     Variant(String),
+    /// ADR 0055 Session 3. `case Num(n) then ...` — a union variant
+    /// pattern binding the payload to named variables. Empty payload
+    /// for payloadless variants (`case Null`), one binding for
+    /// single-payload (`case Num(n)`), multiple for multi-payload
+    /// (`case Pt(x, y)`).
+    VariantWithBinding {
+        variant: String,
+        payload: Vec<String>,
+    },
 }
 
 /// An associated constant declared in a trait body. The value is

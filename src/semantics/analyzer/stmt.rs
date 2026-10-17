@@ -974,6 +974,21 @@ impl SemanticAnalyzer {
                     self.declare_variable(binding, ty, false)?;
                 }
             }
+            Pattern::VariantWithBinding { variant, payload } => {
+                // ADR 0055 Session 3. Bind each payload name to its
+                // declared payload type. The variant and its payload
+                // types come from the matched value's Type::Union.
+                let Type::Union { variants, .. } = value_type else {
+                    // check_pattern_type already rejected this; skip.
+                    return Ok(());
+                };
+                let Some((_, payload_types)) = variants.iter().find(|(v, _)| v == variant) else {
+                    return Ok(());
+                };
+                for (name, ty) in payload.iter().zip(payload_types.iter()) {
+                    self.declare_variable(name, ty.clone(), false)?;
+                }
+            }
             _ => {}
         }
         Ok(())

@@ -232,6 +232,7 @@ impl SemanticAnalyzer {
         // read them without conflicting with the `&mut self` of the
         // loop.
         let records_snapshot = self.records.clone();
+        let unions_snapshot = self.union_types.clone();
         let nominals_snapshot = self.nominal_types.clone();
         let enums_snapshot = self.enum_types.clone();
         let subranges_snapshot = self.subrange_types.clone();
@@ -250,6 +251,7 @@ impl SemanticAnalyzer {
                             &nominals_snapshot,
                             &enums_snapshot,
                             &subranges_snapshot,
+                            &unions_snapshot,
                             &func.where_clauses,
                             &trait_registry_snapshot,
                         )?,
@@ -266,6 +268,7 @@ impl SemanticAnalyzer {
                     &nominals_snapshot,
                     &enums_snapshot,
                     &subranges_snapshot,
+                    &unions_snapshot,
                     &func.where_clauses,
                     &trait_registry_snapshot,
                 )?,
@@ -897,6 +900,10 @@ impl SemanticAnalyzer {
         nominals: &HashMap<String, Type>,
         enums: &HashMap<String, Type>,
         subranges: &HashMap<String, Type>,
+        // ADR 0055. Union type declarations, keyed by name. Used to
+        // resolve a union name in a function signature to its
+        // `Type::Union`.
+        unions: &HashMap<String, Type>,
         // ADR 0041. Where-clauses on the function whose signature is
         // being resolved, plus a snapshot of the trait registry so
         // the Projection arm can check that a bound trait declares
@@ -924,6 +931,7 @@ impl SemanticAnalyzer {
                     nominals,
                     enums,
                     subranges,
+                    unions,
                     where_clauses,
                     trait_registry,
                 )?;
@@ -946,14 +954,9 @@ impl SemanticAnalyzer {
                 if let Some(enum_ty) = enums.get(name.as_str()) {
                     return Ok(enum_ty.clone());
                 }
-                // NOTE: resolve_syntax_with_records does not receive the
-                // union table, so a union name reaching this path
-                // falls through to `syntax.to_type()` and becomes
-                // Unknown. Function signatures that name a union
-                // therefore fail with an unknown-type error at
-                // registration time. This is acceptable for Step 4b
-                // because nothing yet names a union in a signature;
-                // a follow-up will thread the table through.
+                if let Some(union_ty) = unions.get(name.as_str()) {
+                    return Ok(union_ty.clone());
+                }
                 if let Some(nominal) = nominals.get(name.as_str()) {
                     return Ok(nominal.clone());
                 }
@@ -984,6 +987,7 @@ impl SemanticAnalyzer {
                                 nominals,
                                 enums,
                                 subranges,
+                                unions,
                                 where_clauses,
                                 trait_registry,
                             )
@@ -1000,6 +1004,7 @@ impl SemanticAnalyzer {
                             nominals,
                             enums,
                             subranges,
+                            unions,
                             where_clauses,
                             trait_registry,
                         )

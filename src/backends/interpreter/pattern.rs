@@ -72,6 +72,35 @@ impl Interpreter {
                 RuntimeValue::Int(n) if *n == *ordinal => Ok(Some(Vec::new())),
                 _ => Ok(None),
             },
+
+            // ADR 0055 Session 3. Union variant pattern. The
+            // runtime value is `RuntimeValue::Union { tag, payload,
+            // .. }`. Match on tag; if it fires, bind each payload
+            // element to its corresponding name. Binding is by
+            // value (the ADR's design decision) — payload elements
+            // are cloned, not moved.
+            SemanticPattern::VariantWithPayload { tag, bindings, .. } => match value {
+                RuntimeValue::Union {
+                    tag: value_tag,
+                    payload,
+                    ..
+                } if *value_tag == *tag => {
+                    if bindings.len() != payload.len() {
+                        return Err(EvalError::Runtime(format!(
+                            "internal: VariantWithPayload expects {} binding(s), \
+                             runtime value has {} payload element(s)",
+                            bindings.len(),
+                            payload.len()
+                        )));
+                    }
+                    let mut out = Vec::with_capacity(bindings.len());
+                    for (name, val) in bindings.iter().zip(payload.iter()) {
+                        out.push((name.clone(), val.clone()));
+                    }
+                    Ok(Some(out))
+                }
+                _ => Ok(None),
+            },
         }
     }
 }

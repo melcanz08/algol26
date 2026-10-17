@@ -279,6 +279,19 @@ fn successors_with_envs(term: &Terminator, env: &VerifyEnv) -> Vec<(usize, Verif
                             succ_env.mutability.insert(b.clone(), false);
                         }
                     }
+                    // ADR 0055 Session 3. Union variant pattern binds
+                    // each payload name in the target block. Types are
+                    // Unknown here for the same reason as Record — the
+                    // switch runtime supplies values of the correct
+                    // shape, and the analyzer already validated the
+                    // variant's payload types against the union
+                    // declaration.
+                    SemanticPattern::VariantWithPayload { bindings, .. } => {
+                        for b in bindings {
+                            succ_env.variables.insert(b.clone(), Type::Unknown);
+                            succ_env.mutability.insert(b.clone(), false);
+                        }
+                    }
                     _ => {}
                 }
                 result.push((*target, succ_env));

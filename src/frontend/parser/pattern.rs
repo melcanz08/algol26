@@ -231,6 +231,27 @@ impl Parser {
                     .map(|c| c.is_uppercase())
                     .unwrap_or(false)
                 {
+                    // ADR 0055 Session 3. Uppercase identifier
+                    // followed by `(` is a union variant pattern
+                    // with payload bindings. The parser context
+                    // (inside a match body) disambiguates from a
+                    // function call, which the expression parser
+                    // would have consumed.
+                    if matches!(self.peek(), Token::LParen) {
+                        self.advance();
+                        let mut payload = Vec::new();
+                        while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                            payload.push(self.expect_identifier("binding name")?);
+                            if matches!(self.peek(), Token::Comma) {
+                                self.advance();
+                            }
+                        }
+                        self.expect_token(Token::RParen, "')'")?;
+                        return Ok(Pattern::VariantWithBinding {
+                            variant: name,
+                            payload,
+                        });
+                    }
                     return Ok(Pattern::Variant(name));
                 }
                 Ok(Pattern::Binding(name))

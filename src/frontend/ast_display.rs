@@ -709,6 +709,9 @@ fn format_pattern(out: &mut String, pat: &Pattern) {
         // ADR 0030: enum variant pattern. Rendered as the bare
         // variant name, matching source syntax.
         Pattern::Variant(name) => out.push_str(name),
+        Pattern::VariantWithBinding { variant, payload } => {
+            write!(out, "{}({})", variant, payload.join(", ")).unwrap();
+        }
     }
 }
 

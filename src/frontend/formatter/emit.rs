@@ -1225,6 +1225,9 @@ fn pattern_text(pat: &crate::frontend::ast::Pattern) -> String {
         Pattern::Binding(name) => name.clone(),
         Pattern::Literal(e) => expr_inline(e),
         Pattern::Variant(name) => name.clone(),
+        Pattern::VariantWithBinding { variant, payload } => {
+            format!("{}({})", variant, payload.join(", "))
+        }
         Pattern::Record { name, bindings } => {
             format!("{} {{ {} }}", name, bindings.join(", "))
         }

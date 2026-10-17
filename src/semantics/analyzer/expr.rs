@@ -3463,6 +3463,52 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
+            Pattern::VariantWithBinding { variant, payload } => {
+                // ADR 0055 Session 3. Variant pattern requires a
+                // union type. The variant must exist on the union
+                // and the binding arity must match its payload
+                // arity.
+                let Type::Union { name, variants, .. } = value_type else {
+                    return Err(CompileError::at(
+                        self.current_span,
+                        &format!(
+                            "Variant pattern '{}(..)' requires a union type, found {}",
+                            variant, value_type
+                        ),
+                        ErrorCode::E0002,
+                    ));
+                };
+                let Some((_, payload_types)) = variants.iter().find(|(v, _)| v == variant) else {
+                    return Err(CompileError::at(
+                        self.current_span,
+                        &format!("Union '{}' has no variant '{}'", name, variant),
+                        ErrorCode::E0004,
+                    )
+                    .with_suggestion(&format!(
+                        "Available variants of '{}': {}",
+                        name,
+                        variants
+                            .iter()
+                            .map(|(v, _)| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )));
+                };
+                if payload.len() != payload_types.len() {
+                    return Err(CompileError::at(
+                        self.current_span,
+                        &format!(
+                            "Variant '{}.{}' expects {} binding(s), got {}",
+                            name,
+                            variant,
+                            payload_types.len(),
+                            payload.len()
+                        ),
+                        ErrorCode::E0002,
+                    ));
+                }
+                Ok(())
+            }
             Pattern::Variant(name) => match value_type {
                 Type::Enum {
                     name: enum_name,
@@ -3484,10 +3530,38 @@ impl SemanticAnalyzer {
                         )))
                     }
                 }
+                // ADR 0055 Session 3. A payloadless union variant
+                // (`case Null`). The parser emits Pattern::Variant
+                // for `Null` because there's no `(` after it; the
+                // analyzer must accept it against a Type::Union.
+                Type::Union {
+                    name: union_name,
+                    variants,
+                    ..
+                } => {
+                    if variants.iter().any(|(v, _)| v == name) {
+                        Ok(())
+                    } else {
+                        Err(CompileError::at(
+                            self.current_span,
+                            &format!("Union '{}' has no variant '{}'", union_name, name),
+                            ErrorCode::E0004,
+                        )
+                        .with_suggestion(&format!(
+                            "Available variants of '{}': {}",
+                            union_name,
+                            variants
+                                .iter()
+                                .map(|(v, _)| v.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )))
+                    }
+                }
                 other => Err(CompileError::at(
                     self.current_span,
                     &format!(
-                        "variant pattern requires an enum type; matched type is '{}'",
+                        "variant pattern requires an enum or union type; matched type is '{}'",
                         other
                     ),
                     ErrorCode::E0002,
@@ -3547,7 +3621,7 @@ impl SemanticAnalyzer {
                     ..
                 }) => has_false = true,
                 Pattern::Wildcard | Pattern::Binding(_) => has_fallback = true,
-                Pattern::Variant(name) => {
+                Pattern::Variant(name) | Pattern::VariantWithBinding { variant: name, .. } => {
                     covered_variants.insert(name.clone());
                 }
                 _ => {}

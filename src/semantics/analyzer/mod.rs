@@ -695,6 +695,7 @@ impl SemanticAnalyzer {
                     &self.nominal_types,
                     &self.enum_types,
                     &self.subrange_types,
+                    &self.union_types,
                     &[],
                     &self.trait_registry,
                 )?;

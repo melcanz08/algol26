@@ -19,6 +19,14 @@ pub enum SemanticPattern {
     },
     Wildcard,
     Literal(TypedIRValue),
+    /// ADR 0055 Session 3. A union variant pattern. `tag` is the
+    /// variant's index in `Type::Union::variants`; `bindings` are
+    /// the names the payload binds to, in order.
+    VariantWithPayload {
+        tag: u32,
+        variant_name: String,
+        bindings: Vec<String>,
+    },
     Record {
         name: String,
         bindings: Vec<String>,

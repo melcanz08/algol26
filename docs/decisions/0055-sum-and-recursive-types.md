@@ -1,6 +1,8 @@
 # ADR 0055: Sum Types and Recursive Types
 
-Status: Proposed. Session 1 (recursive records) implemented; sum types not yet implemented.
+Status: Proposed. Sessions 1 and 2 implemented (recursive records;
+union declarations and construction). Session 3 (match over unions)
+not yet implemented.
 
 ## Implementation plan
 
@@ -16,11 +18,37 @@ holds three fixtures: `pass_rec_node.gol` (self-reference through
 records), and `fail_direct_self_reference.gol` (rejected with
 `E0002`).
 
-**Session 2 — union declarations and construction.** Not started.
-Adds the `union` keyword (or payload-carrying `enum`, per the
-syntax-form decision below), the `UnionDecl` AST node, and
-interpreter-side construction. LLVM and WASM refuse at the
-capability boundary.
+**Session 2 — union declarations and construction.** ✅ Implemented
+across seven commits (Steps 1–7). Adds the `union` keyword (Form A
+from the syntax-form decision below), the `UnionDecl` /
+`UnionVariant` AST nodes, the `Type::Union` variant with its
+`UnionTypeId`, two-pass analyzer registration (names first, then
+variant payloads), `Json.Num(42)` / `Json.Null` construction
+recognized by the analyzer and lowered by the builder, and
+`RuntimeValue::Union { tag, union_name, variant_name, payload }`
+in the interpreter. LLVM and WASM refuse union programs at the
+capability boundary via `Feature::Unions`, producing a clean
+`E0002` with the `--interpreter` hint.
+
+Two known gaps, deferred:
+- `resolve_syntax_with_records` does not consult the union table,
+  so a union name in a function signature fails at registration
+  time. No test triggers this yet.
+- `process_imports` carries the top-level file's unions through
+  without merging imported unions. No cross-file union test
+  exercises this yet.
+
+Smoke test:
+    union Json
+        Null
+        Num(Int)
+    proc main
+        val a := Json.Null
+        val b := Json.Num(42)
+        print("both constructed")
+prints `both constructed` through the interpreter, and is refused
+by LLVM with `E0002: The LLVM backend does not support: union
+types (declarations, construction)`.
 
 **Session 3 — match over unions.** Not started. Adds
 `Pattern::VariantWithBinding`, payload binding, and

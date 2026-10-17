@@ -2,7 +2,7 @@
 
 Status: Proposed. Sessions 1 and 2 implemented (recursive records;
 union declarations and construction). Session 3 (match over unions)
-not yet implemented.
+planned but not yet implemented — see "Session 3 plan" below.
 
 ## Implementation plan
 
@@ -50,13 +50,144 @@ prints `both constructed` through the interpreter, and is refused
 by LLVM with `E0002: The LLVM backend does not support: union
 types (declarations, construction)`.
 
-**Session 3 — match over unions.** Not started. Adds
-`Pattern::VariantWithBinding`, payload binding, and
-exhaustiveness checking over user-defined variants.
+**Session 3 — match over unions.** ⏸️ Planned but not yet
+implemented. See "Session 3 plan" below for the design
+decisions and step breakdown.
 
 **Deferred: LLVM / WASM codegen for union payloads.** The ADR's
 own "What is out of scope" section defers this to a follow-up.
 Interpreter-only until the codegen project lands.
+
+### Session 3 plan
+
+Session 3 is the destructuring half of sum types: `match j` with
+`case Num(n) then ...` extracts `n` from `Json.Num(42)`. It is
+additive on top of Sessions 1 and 2 — the `Type::Union` variant,
+the `RuntimeValue::Union { tag, .. }` runtime value, and the
+capability matrix's `Feature::Unions` all already exist.
+
+Four design decisions, frozen here:
+
+**1. Binding semantics — by value.**
+
+`case Num(n) then ...` binds `n` to a copy of the payload if the
+payload type is `Copy` (Int, Float, Bool), and to a **moved** value
+if it is not (String, record, list). The matched union becomes
+partially unusable after that arm — the payload was consumed.
+This matches how `Option<NonCopyType>` matching works today:
+`case Some(v)` gives `v : NonCopyType` by move.
+
+Rust shipped with pattern-by-value and added reference patterns
+later. ALGOL26 v1 does the same: `case &Num(n)` (reference
+patterns) is deferred.
+
+**2. Payload arity — mandatory.**
+
+`case Pt(x, y)` requires the `Pt` variant to declare exactly
+two payload types. Arity mismatch is `E0002`, same diagnostic as
+construction-time arity mismatch (`Json.Num()` for a one-payload
+variant).
+
+**3. Exhaustiveness — required, `case _` is the fallback.**
+
+Every variant of the union must appear as a `case Name` arm, or a
+wildcard `case _` must be present. Same rule as enum
+exhaustiveness (`check_match_exhaustiveness`'s `Type::Enum`
+arm), reusing the same `covered_variants` set. The diagnostic
+names the first missing variant, matching the enum behavior.
+
+**4. Guards — deferred.**
+
+`case Num(n) if n > 0 then ...` is not part of Session 3. The
+existing `Pattern::Guarded` mechanism for `Option`/`Result` can
+be extended later; Session 3 is `case Variant(names) then ...`
+with no `if`.
+
+### Session 3 implementation steps
+
+Seven steps. Each lands as its own commit.
+
+1. **AST + parser — `Pattern::VariantWithBinding`.**
+   Add `Pattern::VariantWithBinding { variant: String,
+   payload: Vec<String> }`. Parse `case Name(n1, n2, ...)` inside
+   a `match` body. The parser context (inside `match`) distinguishes
+   `Num(n)` (a variant binding) from `Num(n)` (a function call).
+
+2. **Analyzer — payload binding.**
+   Extend `check_pattern_type` and `bind_pattern_variables` for
+   `VariantWithBinding`. Look up the variant in
+   `Type::Union::variants`, check arity, bind each name to its
+   declared payload type.
+
+3. **Analyzer — exhaustiveness over unions.**
+   Extend `check_match_exhaustiveness`'s `Type::Union` arm to
+   require every variant be covered, mirroring `Type::Enum`.
+
+4. **Builder — `SemanticPattern::VariantWithPayload`.**
+   Add the IR pattern. In `translate_expr`'s `Match` arm, when
+   the AST pattern is `VariantWithBinding`, emit
+   `SemanticPattern::VariantWithPayload { tag, variant_name,
+   bindings }` and dispatch on the union's tag.
+
+5. **IR verifier — variant pattern validation.**
+   Verify that `VariantWithPayload` cases appear only on
+   `Type::Union` switches, that each tag is in range, and that
+   each binding count matches the variant's payload arity.
+
+6. **Interpreter — match on tag, bind payload.**
+   In `Switch` evaluation, a `VariantWithPayload { tag, bindings }`
+   case matches a `RuntimeValue::Union` whose `tag` equals `tag`.
+   Bind each payload element to its corresponding name.
+
+7. **Capability — refuse union match on LLVM/WASM.**
+   Any `Switch` containing a `VariantWithPayload` case marks
+   `Feature::Unions` in `scan_terminator`, consistent with
+   `UnionConstruct`.
+
+### Session 3 smoke test
+
+```gol
+union Json
+    Null
+    Num(Int)
+    Str(String)
+
+fn describe(j: Json) -> String
+    return match j
+        case Null then "null"
+        case Num(n) then Int.to_string(n)
+        case Str(s) then s
+
+proc main
+    print(describe(Json.Null))
+    print(describe(Json.Num(42)))
+    print(describe(Json.Str("hello")))
+```
+
+Expected output through the interpreter:
+
+```
+null
+42
+hello
+```
+
+### Session 3 deferred items
+
+- **Guards** on variant patterns (`case Num(n) if n > 0`).
+- **Nested patterns** (`case Pair(Some(x), _)`).
+- **Reference patterns** (`case &Num(n)`).
+- **LLVM/WASM codegen** for union match. Refused by
+  `Feature::Unions` like construction.
+
+### Session 3 estimated effort
+
+Roughly 8–10 script rounds, 2–3 days of focused work. Much of the
+mechanism — the `Switch` terminator, `SemanticPattern`, enum
+exhaustiveness, capability scan — already exists; Session 3 adds
+a new pattern kind that plugs into it. Size is closer to Session 2
+Step 5 (analyzer construction, ~3 rounds) than Session 2 Step 4b
+(cross-cutting threading, ~8 rounds).
 
 ## Context
 

@@ -1,6 +1,6 @@
 # ADR 0016: Per-function CFG and dataflow
 
-Status: Proposed
+Status: Current
 
 ## Context
 

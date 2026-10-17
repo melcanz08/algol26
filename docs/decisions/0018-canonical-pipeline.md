@@ -1,6 +1,6 @@
 # ADR 0018: One canonical pipeline
 
-Status: Proposed
+Status: Current
 
 ## Context
 

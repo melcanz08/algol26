@@ -1,6 +1,6 @@
 # ADR 0015: Unsafe enforcement
 
-Status: Proposed
+Status: Current
 
 ## Context
 

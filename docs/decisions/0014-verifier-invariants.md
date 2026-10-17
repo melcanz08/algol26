@@ -1,6 +1,6 @@
 # ADR 0014: Verifier invariants for executable IR
 
-Status: Proposed
+Status: Current
 
 ## Context
 

@@ -1,6 +1,6 @@
 # ADR 0017: VerifiedIR as a typestate boundary
 
-Status: Proposed
+Status: Current
 
 ## Context
 

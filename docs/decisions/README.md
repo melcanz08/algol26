@@ -84,7 +84,7 @@ Do not edit an ADR's body to reflect new decisions. Either:
 | [0052](0052-llvm-codegen-architecture.md) | LLVM Codegen Architecture | Current |
 | [0053](0053-interpreter-reference-semantics.md) | Interpreter Reference Semantics | Current (interpreter); cross-fn write-through deferred |
 | [0054](0054-alternate-brace-block-syntax.md) | Alternate Brace Block Syntax | Current (formatter deferred) |
-| [0055](0055-sum-and-recursive-types.md) | Sum Types and Recursive Types | Proposed |
+| [0055](0055-sum-and-recursive-types.md) | Sum Types and Recursive Types | Current |
 | [0056](0056-reference-writes.md) | Reference Writes (`*r := v`) | Current (Form A + cross-fn deferred) |
 | [0057](0057-statement-boundaries.md) | Statement Boundaries | Current |
 | [0058](0058-algol26-fmt.md) | `algol26 fmt` | Accepted (in progress) |
@@ -94,13 +94,13 @@ Do not edit an ADR's body to reflect new decisions. Either:
 
 - **0019–0021** are unused. No ADRs were written under those
   numbers; the sequence skips from 0018 to 0022.
-- **0055** is Reserved. **0056** (reference writes), **0057**
-  (statement boundaries), **0058** (`algol26 fmt`), and **0059**
-  (comprehensive program walk) are accepted; 0056, 0057, and 0059
-  are implemented, and 0058 is in progress. **0060+** are
-  reserved for sum types (ADR 0055), multi-line container emission
-  in the formatter (ADR 0058 follow-up), the parser fix for
-  body-less declarations, and further work on ADR 0044's
+- **0055** (sum types) is implemented. The three sessions plus
+  seven follow-up fixes landed in commits 5b20c1e through 33c7f88.
+  See `examples/json/` for the end-to-end demonstration.
+- **0056**, **0057**, and **0059** are implemented. **0058**
+  (`algol26 fmt`) is in progress (Sessions 5b+).
+- **0060+** are reserved for multi-line container emission in the
+  formatter (ADR 0058 follow-up) and further work on ADR 0044's
   interpreter side.
 
 ## Current state

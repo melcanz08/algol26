@@ -122,6 +122,7 @@ pub enum Token {
     Trait,
     Impl,
     Rec,
+    Union,
     SelfType,
     Case,  // case keyword for match arms
     Const, // `const` keyword for associated constants
@@ -237,6 +238,7 @@ lazy_static::lazy_static! {
         m.insert("trait", Token::Trait);
         m.insert("impl", Token::Impl);
         m.insert("rec", Token::Rec);
+        m.insert("union", Token::Union);
         m.insert("Self", Token::SelfType);
         m.insert("case", Token::Case);
         m.insert("const", Token::Const);

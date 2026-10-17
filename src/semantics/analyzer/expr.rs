@@ -3686,6 +3686,33 @@ impl SemanticAnalyzer {
                     }
                 }
             }
+            // ADR 0055 Session 3 follow-up. Every variant of a union
+            // must be covered, exactly like an enum. Guards do not
+            // count as coverage (a guarded arm may fail), so a match
+            // whose only arm is guarded still errors for the missing
+            // variants.
+            Type::Union {
+                name: union_name,
+                variants,
+                ..
+            } => {
+                for (variant, _) in variants {
+                    if !covered_variants.contains(variant) {
+                        return Err(CompileError::at(
+                            self.current_span,
+                            &format!(
+                                "match on union '{}' is missing a case for variant '{}'",
+                                union_name, variant
+                            ),
+                            ErrorCode::E0002,
+                        )
+                        .with_suggestion(&format!(
+                            "Add `case {}`, or a `case _` fallback arm",
+                            variant
+                        )));
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())

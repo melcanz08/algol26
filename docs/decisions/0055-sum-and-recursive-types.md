@@ -1,8 +1,10 @@
 # ADR 0055: Sum Types and Recursive Types
 
-Status: Proposed. Sessions 1 and 2 implemented (recursive records;
-union declarations and construction). Session 3 (match over unions)
-planned but not yet implemented — see "Session 3 plan" below.
+Status: Implemented. All three sessions complete (recursive
+records; union declarations and construction; match over unions).
+LLVM/WASM codegen for union payloads is deferred to a follow-up
+ADR — union programs are refused by `Feature::Unions` at the
+capability boundary.
 
 ## Implementation plan
 

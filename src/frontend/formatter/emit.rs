@@ -631,10 +631,12 @@ impl Formatter {
     /// been emitted at the end of the previous line. Used by
     /// `VarDecl` to inline `try` with the `:=` header:
     ///
-    ///     val r1: Int := try
-    ///         might_fail(true)
-    ///     catch err
-    ///         ...
+    /// ```text
+    /// val r1: Int := try
+    ///     might_fail(true)
+    /// catch err
+    ///     ...
+    /// ```
     ///
     /// The caller emits `val r1: Int := try` at `level`, then calls
     /// this method with `level`. The try body indents one deeper;

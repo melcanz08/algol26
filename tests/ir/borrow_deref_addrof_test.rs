@@ -79,6 +79,7 @@ fn test_double_borrow_fails() {
         &[],
         &[],
         &[],
+        &[],
     );
 
     assert!(
@@ -151,6 +152,7 @@ proc main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
             &[],
             &[],
             &[],
@@ -228,6 +230,7 @@ proc main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
             &[],
             &[],
             &[],

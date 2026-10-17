@@ -40,6 +40,9 @@ pub struct ParsedProgram {
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    /// ADR 0055. Sum-type declarations from the frontend, threaded
+    /// through the pipeline to `analyze_with_spans`.
+    pub unions: Vec<crate::frontend::ast::UnionDecl>,
     pub distincts: Vec<crate::frontend::ast::DistinctDecl>,
     pub enums: Vec<crate::frontend::ast::EnumDecl>,
     pub subranges: Vec<crate::frontend::ast::SubrangeDecl>,
@@ -76,6 +79,10 @@ pub struct TypedProgram {
     /// builder so it can resolve record names in user function
     /// signatures to `Type::Record(...)` rather than `Type::Unknown`.
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    /// ADR 0055. Sum-type declarations from the frontend. Forwarded
+    /// so the IR builder can resolve union names in signatures and
+    /// (later) lower union construction.
+    pub unions: Vec<crate::frontend::ast::UnionDecl>,
     /// Resolved nominal type declarations, keyed by name. Values
     /// carry the `NominalTypeId` the analyzer assigned. Downstream
     /// consumers read this map and never reconstruct ids — the
@@ -244,6 +251,7 @@ pub fn type_check_program(
     traits: &[TraitDecl],
     impls: &[ImplBlock],
     records: &[crate::frontend::ast::RecordDecl], // ← NEW
+    unions: &[crate::frontend::ast::UnionDecl],   // ← ADR 0055
     distincts: &[crate::frontend::ast::DistinctDecl], // ← ADR 0029
     enums: &[crate::frontend::ast::EnumDecl],     // ← ADR 0030
     subranges: &[crate::frontend::ast::SubrangeDecl], // ← ADR 0031
@@ -255,7 +263,7 @@ pub fn type_check_program(
          some AST construction path bypassed prepare_frontend"
     );
     analyzer.analyze_with_spans(
-        functions, traits, impls, records, distincts, enums, subranges,
+        functions, traits, impls, records, unions, distincts, enums, subranges,
     )?;
 
     let mut race_detector = RaceDetector::new();
@@ -282,6 +290,7 @@ pub fn type_check_program(
         type_table_id,
         plan,
         records: records.to_vec(),
+        unions: unions.to_vec(),
         nominal_types,
         enum_types,
         subrange_types,
@@ -447,6 +456,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            unions: prep.parsed.unions.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
             subranges: prep.parsed.subranges.clone(),
@@ -496,6 +506,7 @@ impl Compiler {
             traits: parsed.traits,
             impls: parsed.impls,
             records: parsed.records,
+            unions: parsed.unions,
             distincts: parsed.distincts,
             enums: parsed.enums,
             subranges: parsed.subranges,
@@ -561,6 +572,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            unions: parsed.unions.clone(),
             distincts: parsed.distincts.clone(),
             enums: parsed.enums.clone(),
             subranges: parsed.subranges.clone(),
@@ -627,6 +639,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            unions: prep.parsed.unions.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
             subranges: prep.parsed.subranges.clone(),
@@ -753,6 +766,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            unions: prep.parsed.unions.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
             subranges: prep.parsed.subranges.clone(),
@@ -855,6 +869,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            unions: parsed.unions.clone(),
             distincts: parsed.distincts.clone(),
             enums: parsed.enums.clone(),
             subranges: parsed.subranges.clone(),
@@ -911,6 +926,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: parsed.records.clone(),
+            unions: parsed.unions.clone(),
             distincts: parsed.distincts.clone(),
             enums: parsed.enums.clone(),
             subranges: parsed.subranges.clone(),
@@ -954,6 +970,7 @@ impl Compiler {
             traits: program.traits,
             impls: program.impls,
             records: program.records,
+            unions: program.unions,
             distincts: program.distinct_decls,
             enums: program.enum_decls,
             subranges: program.subrange_decls,
@@ -1002,6 +1019,7 @@ impl Compiler {
             traits: parsed.traits.clone(),
             impls: parsed.impls.clone(),
             records: all_records,
+            unions: parsed.unions.clone(),
             distincts: all_distincts,
             enums: all_enums,
             subranges: all_subranges,
@@ -1218,6 +1236,7 @@ impl Compiler {
             traits: prep.parsed.traits.clone(),
             impls: prep.parsed.impls.clone(),
             records: prep.parsed.records.clone(),
+            unions: prep.parsed.unions.clone(),
             distincts: prep.parsed.distincts.clone(),
             enums: prep.parsed.enums.clone(),
             subranges: prep.parsed.subranges.clone(),

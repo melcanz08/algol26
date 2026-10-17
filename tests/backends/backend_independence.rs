@@ -26,6 +26,7 @@ fn build_semantic_ir(source: &str) -> (SemanticProgram, Vec<String>) {
             &[],
             &[],
             &[],
+            &[],
         )
         .unwrap();
 

@@ -24,6 +24,7 @@ fn run(source: &str) -> String {
             &[],
             &[],
             &[],
+            &[],
         )
         .unwrap();
     let type_table = analyzer.take_type_table_id();

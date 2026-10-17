@@ -10,7 +10,7 @@ use crate::common::span::Span;
 use crate::common::types::{NominalTypeId, Type};
 use crate::frontend::ast::{
     BinOp, DistinctDecl, EnumDecl, Expr, ExprId, ExprKind, FunctionDecl, ImplBlock, MatchCaseExpr,
-    Pattern, RecordDecl, Stmt, SubrangeDecl, TraitDecl, WhereClause,
+    Pattern, RecordDecl, Stmt, SubrangeDecl, TraitDecl, UnionDecl, WhereClause,
 };
 use crate::semantics::state::{BorrowKind, BorrowLifetime, SemanticState, VarState};
 use crate::semantics::trait_registry::TraitRegistry;
@@ -72,6 +72,15 @@ pub struct SemanticAnalyzer {
     trait_registry: TraitRegistry,
     deferred_captures: Vec<HashSet<String>>,
     records: HashMap<String, RecordInfo>,
+    /// ADR 0055. Tagged-union declarations (`union J { Null Num(Int) }`),
+    /// keyed by the declared name. Values carry the assigned
+    /// `UnionTypeId`. Identity is the id; name and variants are
+    /// presentation. Registered in two passes so a variant can name
+    /// a union declared later (and so self-reference through an
+    /// indirection resolves).
+    union_types: HashMap<String, Type>,
+    /// Monotonic counter for `UnionTypeId`.
+    next_union_id: u32,
     /// Nominal type declarations (`type X distinct Y`), keyed by the
     /// declared name. Values carry the assigned `NominalTypeId`.
     /// Identity is the id; the name is presentation only. ADR 0029.
@@ -306,6 +315,8 @@ impl SemanticAnalyzer {
             loop_stack: Vec::new(),
             unsafe_depth: 0,
             records: HashMap::new(),
+            union_types: HashMap::new(),
+            next_union_id: 0,
             virtual_calls: HashMap::new(),
             current_module: None,
             nominal_types: HashMap::new(),
@@ -481,7 +492,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, functions: &[FunctionDecl]) -> Result<()> {
-        self.analyze_with_spans(functions, &[], &[], &[], &[], &[], &[])
+        self.analyze_with_spans(functions, &[], &[], &[], &[], &[], &[], &[])
     }
 
     pub fn analyze_with_spans(
@@ -490,6 +501,7 @@ impl SemanticAnalyzer {
         traits: &[TraitDecl],
         impls: &[ImplBlock],
         records: &[RecordDecl],
+        unions: &[UnionDecl],
         distincts: &[DistinctDecl],
         enums: &[EnumDecl],
         subranges: &[SubrangeDecl],
@@ -530,6 +542,17 @@ impl SemanticAnalyzer {
         }
         for rec in records {
             self.resolve_record_fields(rec)?;
+        }
+
+        // ADR 0055 Session 2 Step 4b. Unions register in two passes,
+        // mirroring records: names first (so a variant payload can
+        // name a later union or the union itself through an
+        // indirection), then variant payloads.
+        for union in unions {
+            self.register_union_name(union)?;
+        }
+        for union in unions {
+            self.resolve_union_variants(union)?;
         }
 
         // ADR 0041. Register traits and impls BEFORE user functions
@@ -877,7 +900,7 @@ impl SemanticAnalyzer {
         // nominal and enum types. Callers with `DistinctDecl`s or
         // `EnumDecl`s in scope should call `analyze_with_spans`
         // directly.
-        self.analyze_with_spans(functions, traits, impls, records, &[], &[], &[])
+        self.analyze_with_spans(functions, traits, impls, records, &[], &[], &[], &[])
     }
 
     /// Verify that every `where T: Trait` clause names a trait that

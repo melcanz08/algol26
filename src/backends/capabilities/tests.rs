@@ -692,6 +692,7 @@ fn build_ir(source: &str) -> crate::ir::semantic_ir::SemanticProgram {
             &[],
             &[],
             &[],
+            &[],
         )
         .expect("analyze");
 

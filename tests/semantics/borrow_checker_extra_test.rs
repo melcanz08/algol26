@@ -38,6 +38,7 @@ fn analyze_full(source: &str) -> Result<(), String> {
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
             &program.distinct_decls,
             &program.enum_decls,
             &program.subrange_decls,

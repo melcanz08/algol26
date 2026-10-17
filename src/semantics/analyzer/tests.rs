@@ -21,6 +21,7 @@ fn analyze(source: &str) -> Result<()> {
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
         &program.distinct_decls,
         &program.enum_decls,
         &program.subrange_decls,
@@ -478,6 +479,7 @@ proc main
             &[],
             &[],
             &[],
+            &[],
         )
         .expect("analysis should succeed");
 
@@ -529,6 +531,7 @@ proc main
             &[],
             &[],
             &[],
+            &[],
         )
         .expect("analysis should succeed");
 
@@ -569,6 +572,7 @@ proc main
             &program.traits,
             &program.impls,
             &program.records,
+            &[],
             &[],
             &[],
             &[],
@@ -731,6 +735,7 @@ proc main
         &[],
         &[],
         &[],
+        &[],
     );
 
     let err = result.expect_err("expected immutability error");
@@ -811,6 +816,7 @@ fn analyze_source(source: &str) -> Result<()> {
         &program.traits,
         &program.impls,
         &program.records,
+        &[],
         &program.distinct_decls,
         &program.enum_decls,
         &program.subrange_decls,

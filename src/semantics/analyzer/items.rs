@@ -1,8 +1,9 @@
 // src/semantics/analyzer/items.rs
 
 use super::*;
+use crate::common::types::UnionTypeId;
 use crate::common::types::{EnumTypeId, SubrangeTypeId};
-use crate::frontend::ast::{RecordDecl, TypeSyntax, Visibility};
+use crate::frontend::ast::{RecordDecl, TypeSyntax, UnionDecl, Visibility};
 
 impl SemanticAnalyzer {
     pub(super) fn register_builtin_functions(&mut self) {
@@ -408,6 +409,97 @@ impl SemanticAnalyzer {
     fn is_direct_self_reference(name: &str, ty: &Type) -> bool {
         matches!(ty, Type::Record(n, _) if n == name)
     }
+
+    /// ADR 0055 Session 2 Step 4b. Pass 1: register every union's
+    /// name with an empty placeholder, so variant-payload resolution
+    /// in pass 2 can see the name even when a payload refers to a
+    /// later union or to the union currently being registered.
+    pub(super) fn register_union_name(&mut self, decl: &UnionDecl) -> Result<()> {
+        if self.union_types.contains_key(&decl.name) {
+            return Err(CompileError::at(
+                decl.span,
+                &format!("Duplicate union declaration '{}'", decl.name),
+                ErrorCode::E0009,
+            ));
+        }
+        // Duplicate variant names within one union are an error.
+        let mut seen = HashSet::new();
+        for v in &decl.variants {
+            if !seen.insert(v.name.clone()) {
+                return Err(CompileError::at(
+                    v.span,
+                    &format!("Duplicate variant '{}' in union '{}'", v.name, decl.name),
+                    ErrorCode::E0009,
+                ));
+            }
+        }
+        let id = UnionTypeId(self.next_union_id);
+        self.next_union_id += 1;
+        // Placeholder with empty variants; pass 2 replaces it.
+        let ty = Type::union_type(id, &decl.name, Vec::new());
+        self.union_types.insert(decl.name.clone(), ty);
+        Ok(())
+    }
+
+    /// ADR 0055 Session 2 Step 4b. Pass 2: resolve each variant's
+    /// payload types now that every union name is registered, then
+    /// replace the placeholder from pass 1 with the fully resolved
+    /// union. Rejects direct self-reference (a variant whose payload
+    /// IS the union, with no indirection) as infinitely sized;
+    /// self-reference through `List`, `Option`, `Borrow`, `Pointer`,
+    /// etc. is permitted.
+    pub(super) fn resolve_union_variants(&mut self, decl: &UnionDecl) -> Result<()> {
+        let id = match self.union_types.get(&decl.name) {
+            Some(Type::Union { id, .. }) => *id,
+            _ => {
+                return Err(CompileError::at(
+                    decl.span,
+                    &format!("internal: union '{}' not registered in pass 1", decl.name),
+                    ErrorCode::E0009,
+                ));
+            }
+        };
+
+        // Resolve each variant's payload types.
+        let mut resolved: Vec<(String, Vec<Type>)> = Vec::with_capacity(decl.variants.len());
+        for variant in &decl.variants {
+            let mut payload_types = Vec::with_capacity(variant.payload.len());
+            for payload_syntax in &variant.payload {
+                let ty = self.resolve_type_syntax(payload_syntax)?;
+                if matches!(&ty, Type::Union { name, .. } if name == &decl.name) {
+                    return Err(CompileError::at(
+                        variant.span,
+                        &format!(
+                            "Union '{}' has variant '{}' whose payload is the union \
+                             itself, which would be infinitely sized",
+                            decl.name, variant.name
+                        ),
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "Wrap the payload in an indirection: `List<T>`, `Option<T>`, \
+                         `Borrow<T>`, or a pointer type",
+                    ));
+                }
+                payload_types.push(ty);
+            }
+            resolved.push((variant.name.clone(), payload_types));
+        }
+
+        self.union_types.insert(
+            decl.name.clone(),
+            Type::union_type(id, &decl.name, resolved),
+        );
+        Ok(())
+    }
+
+    /// ADR 0055 Session 2 Step 4b. Hand the resolved union table to
+    /// the IR builder. Same single-source-of-truth discipline as
+    /// `take_nominal_types` / `take_enum_types`.
+    pub fn take_union_types(&mut self) -> HashMap<String, Type> {
+        std::mem::take(&mut self.union_types)
+    }
+
     pub(super) fn analyze_function(&mut self, func: &FunctionDecl) -> Result<()> {
         // ADR 0043. Reset per-function borrow metadata. Borrows do
         // not cross function boundaries; a stale entry from the
@@ -646,6 +738,9 @@ impl SemanticAnalyzer {
                 if let Some(enum_ty) = self.enum_types.get(name.as_str()).cloned() {
                     return Ok(enum_ty);
                 }
+                if let Some(union_ty) = self.union_types.get(name.as_str()).cloned() {
+                    return Ok(union_ty);
+                }
                 if let Some(nominal) = self.nominal_types.get(name.as_str()).cloned() {
                     return Ok(nominal);
                 }
@@ -851,6 +946,14 @@ impl SemanticAnalyzer {
                 if let Some(enum_ty) = enums.get(name.as_str()) {
                     return Ok(enum_ty.clone());
                 }
+                // NOTE: resolve_syntax_with_records does not receive the
+                // union table, so a union name reaching this path
+                // falls through to `syntax.to_type()` and becomes
+                // Unknown. Function signatures that name a union
+                // therefore fail with an unknown-type error at
+                // registration time. This is acceptable for Step 4b
+                // because nothing yet names a union in a signature;
+                // a follow-up will thread the table through.
                 if let Some(nominal) = nominals.get(name.as_str()) {
                     return Ok(nominal.clone());
                 }

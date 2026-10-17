@@ -30,6 +30,7 @@ fn build_and_run(source: &str) -> (SemanticProgram, Vec<String>, String) {
             &[],
             &[],
             &[],
+            &[],
         )
         .expect("semantic analysis failed");
     let type_table = analyzer.take_type_table_id();

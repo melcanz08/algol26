@@ -18,6 +18,9 @@ pub struct AstPayload {
     pub traits: Vec<TraitDecl>,
     pub impls: Vec<ImplBlock>,
     pub records: Vec<crate::frontend::ast::RecordDecl>,
+    /// ADR 0055. Sum-type declarations, threaded from the frontend
+    /// to the analyzer via the type-check pass.
+    pub unions: Vec<crate::frontend::ast::UnionDecl>,
     /// Nominal type declarations (`type X = distinct Y`).
     /// Carried for the analyzer's A3 wiring; ignored by A2.
     pub distincts: Vec<crate::frontend::ast::DistinctDecl>,

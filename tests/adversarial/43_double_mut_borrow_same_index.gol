@@ -1,0 +1,11 @@
+// E0007: cannot pass two `&mut` borrows of the same list
+// element to one call. The `Index` projection is part of the
+// place, so `arr[0]` and `arr[0]` overlap; `arr[0]` and
+// `arr[1]` do not.
+proc set_two(a: &mut Int, b: &mut Int)
+    *a := 1
+    *b := 2
+
+proc main
+    var arr: List<Int> := [0, 0]
+    set_two(&mut arr[0], &mut arr[0])

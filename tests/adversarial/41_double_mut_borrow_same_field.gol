@@ -1,0 +1,16 @@
+// E0007: cannot pass two `&mut` borrows of the same field to
+// one call. The temporary borrow registered by the first
+// argument is still live when the second argument's
+// `check_borrow_rules_place` runs; `Place::overlaps` sees
+// `p.x` vs `p.x` and rejects.
+rec Pair
+    x: Int
+    y: Int
+
+proc set_two(a: &mut Int, b: &mut Int)
+    *a := 1
+    *b := 2
+
+proc main
+    var p := Pair { x: 0, y: 0 }
+    set_two(&mut p.x, &mut p.x)

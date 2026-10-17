@@ -1,0 +1,14 @@
+// Positive companion to 41. Two `&mut` borrows of disjoint
+// fields are accepted; `Place::overlaps(p.x, p.y)` is false.
+rec Pair
+    x: Int
+    y: Int
+
+proc set_two(a: &mut Int, b: &mut Int)
+    *a := 1
+    *b := 2
+
+proc main
+    var p := Pair { x: 0, y: 0 }
+    set_two(&mut p.x, &mut p.y)
+    print(Int.to_string(p.x))

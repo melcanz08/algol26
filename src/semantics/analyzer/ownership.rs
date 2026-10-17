@@ -137,6 +137,29 @@ impl SemanticAnalyzer {
     /// The borrow rules for the argument were already checked by
     /// `Expr::MutBorrow`; this only installs the state entry.
     pub(super) fn register_call_argument_mut_borrow(&mut self, source: &str) {
+        self.register_call_argument_mut_borrow_place(
+            &crate::semantics::state::Place::simple(source),
+        );
+    }
+
+    /// ADR 0044 follow-up. Place-aware variant of
+    /// `register_call_argument_mut_borrow`. A call argument that is
+    /// `&mut record.field` or `&mut arr[0]` registers a borrow of
+    /// the *place* (with its `Field` or `Index` projection), not of
+    /// the base variable. This lets `f(&mut r.x, &mut r.y)` pass
+    /// (disjoint places) while `f(&mut r.x, &mut r.x)` is rejected
+    /// by the second `MutBorrow`'s `check_borrow_rules_place`
+    /// (which sees the first temporary borrow of `r.x` still live).
+    ///
+    /// Registration uses `Place::overlaps`-compatible keys — the
+    /// same shape `check_borrow_rules_place` and
+    /// `is_mutably_borrowed` query against. A place borrow of `r.x`
+    /// is stored as `BorrowState { place: r.x }`, so a later query
+    /// of `r` or `r.x` finds it, while a query of `r.y` does not.
+    pub(super) fn register_call_argument_mut_borrow_place(
+        &mut self,
+        place: &crate::semantics::state::Place,
+    ) {
         let call_id = self.state.fresh_call_id();
         let reference = format!("__tmp_call_{}", call_id.0);
         // ADR 0043. Call-argument temporaries have no AST position
@@ -149,7 +172,7 @@ impl SemanticAnalyzer {
         // by it. No false positive is possible.
         self.state.borrow(
             reference,
-            crate::semantics::state::Place::simple(source),
+            place.clone(),
             BorrowKind::Mutable,
             BorrowLifetime::Temporary(call_id),
             ExprId::UNASSIGNED,
@@ -163,8 +186,21 @@ impl SemanticAnalyzer {
     /// reject the cases we care about (`f(&x, &mut x)`).
     pub(super) fn register_call_arg_temporary(&mut self, arg: &Expr) {
         if let ExprKind::MutBorrow { expr, .. } = &arg.kind {
-            if let ExprKind::Var(name, _) = &expr.as_ref().kind {
-                self.register_call_argument_mut_borrow(name);
+            // ADR 0044 follow-up. Use the place resolver rather than
+            // requiring a bare `Var`. `&mut record.field` produces a
+            // place with a `Field` projection; `&mut arr[0]`
+            // produces one with an `Index`. Both should register a
+            // temporary borrow just like `&mut x` does, so a
+            // subsequent `&mut` of the same place (or an
+            // overlapping place) is rejected by
+            // `check_borrow_rules_place`.
+            //
+            // `place_of_expr` returns `None` for non-place
+            // expressions (arithmetic, literals, nested calls) —
+            // those are already rejected by the `MutBorrow` arm in
+            // `analyze_expr_inner`, so nothing to register here.
+            if let Some(place) = self.place_of_expr(expr) {
+                self.register_call_argument_mut_borrow_place(&place);
             }
         }
     }

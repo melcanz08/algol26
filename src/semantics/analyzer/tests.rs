@@ -1604,3 +1604,135 @@ proc main
         err.message
     );
 }
+
+// ─── ADR 0055: union construction ───────────────────────────────
+
+fn analyze_union_source(source: &str) -> Result<()> {
+    use crate::compiler::assign_expr_ids;
+    use crate::frontend::lexer::Lexer;
+    use crate::frontend::parser::Parser;
+
+    let lexer = Lexer::new(source.to_string()).expect("lex");
+    let mut parser = Parser::new(lexer.tokens);
+    let program = parser.parse_program().expect("parse");
+    let mut functions = program.functions;
+    assign_expr_ids(&mut functions);
+
+    let mut analyzer = SemanticAnalyzer::new();
+    analyzer.analyze_with_spans(
+        &functions,
+        &program.traits,
+        &program.impls,
+        &program.records,
+        &program.unions,
+        &program.distinct_decls,
+        &program.enum_decls,
+        &program.subrange_decls,
+    )
+}
+
+#[test]
+fn union_construct_payloadless_accepted() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+    Str(String)
+
+proc main
+    val j := Json.Null
+    print("ok")
+"#;
+    analyze_union_source(source).expect("Json.Null should typecheck");
+}
+
+#[test]
+fn union_construct_with_payload_accepted() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+    Str(String)
+
+proc main
+    val j := Json.Num(42)
+    print("ok")
+"#;
+    analyze_union_source(source).expect("Json.Num(42) should typecheck");
+}
+
+#[test]
+fn union_construct_unknown_variant_rejected() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+
+proc main
+    val j := Json.Bogus(42)
+    print("ok")
+"#;
+    let err = analyze_union_source(source).expect_err("Json.Bogus should be rejected");
+    assert!(
+        err.message.contains("no variant 'Bogus'"),
+        "expected unknown-variant diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn union_construct_wrong_arity_rejected() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+
+proc main
+    val j := Json.Num()
+    print("ok")
+"#;
+    let err = analyze_union_source(source).expect_err("Json.Num() should be rejected");
+    assert!(
+        err.message.contains("expects 1 payload"),
+        "expected arity diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn union_construct_wrong_payload_type_rejected() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+
+proc main
+    val j := Json.Num("not an int")
+    print("ok")
+"#;
+    let err = analyze_union_source(source).expect_err("Json.Num with String should fail");
+    assert!(
+        err.message.contains("payload type mismatch"),
+        "expected payload-type diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn union_construct_payloadless_wrong_arity_rejected() {
+    let source = r#"
+union Json
+    Null
+    Num(Int)
+
+proc main
+    val j := Json.Null(42)
+    print("ok")
+"#;
+    let err = analyze_union_source(source).expect_err("Json.Null(42) should fail");
+    assert!(
+        err.message.contains("expects 0 payload"),
+        "expected arity diagnostic, got: {}",
+        err.message
+    );
+}

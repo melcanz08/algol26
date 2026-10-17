@@ -1229,6 +1229,14 @@ impl SemanticAnalyzer {
                     return Ok(ty);
                 }
 
+                // ADR 0055: Union variant construction. `Json.Num(42)`
+                // and payloadless `Json.Null`. The parser folds both
+                // into `FunctionCall { name: "Json.Num" | "Json.Null",
+                // args }`, so this tier catches both forms.
+                if let Some(ty) = self.try_union_construct(clean_name, args)? {
+                    return Ok(ty);
+                }
+
                 if clean_name.contains('.') {
                     let parts: Vec<&str> = clean_name.split('.').collect();
                     if parts.len() >= 2 {
@@ -2297,6 +2305,63 @@ impl SemanticAnalyzer {
                 Ok(Type::list(start_type.common_supertype(&end_type)))
             }
             ExprKind::FieldAccess { object, field, .. } => {
+                // ADR 0055. Qualified union variant in expression
+                // position. `Json.Null` (payloadless — with parens it
+                // would reach the FunctionCall arm). The parser
+                // produces FieldAccess { Var("Json"), "Null" };
+                // recognize it before recursing into `object`, which
+                // would fail because `Json` is a type name, not a value.
+                if let ExprKind::Var(name, _) = &object.as_ref().kind {
+                    if let Some(union_ty) = self.union_types.get(name).cloned() {
+                        if let Type::Union { variants, .. } = &union_ty {
+                            if let Some((_, payload)) = variants.iter().find(|(v, _)| v == field) {
+                                if !payload.is_empty() {
+                                    return Err(CompileError::at(
+                                        self.current_span,
+                                        &format!(
+                                            "Union variant '{}.{}' requires {} payload(s); \
+                                             write `{}.{}(...)`",
+                                            name,
+                                            field,
+                                            payload.len(),
+                                            name,
+                                            field
+                                        ),
+                                        ErrorCode::E0002,
+                                    )
+                                    .with_suggestion(&format!(
+                                        "Construct with `{}.{}(...)` (payload: {})",
+                                        name,
+                                        field,
+                                        payload.len()
+                                    )));
+                                }
+                                // Payloadless form: record the union
+                                // type for the `Json` sub-expression
+                                // (which is a type name, not a value)
+                                // so the type-table completeness check
+                                // finds it.
+                                self.type_table_id.insert(object.id, union_ty.clone());
+                                return Ok(union_ty);
+                            }
+                            let available = variants
+                                .iter()
+                                .map(|(v, _)| v.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!("Union '{}' has no variant '{}'", name, field),
+                                ErrorCode::E0004,
+                            )
+                            .with_suggestion(&format!(
+                                "Available variants of '{}': {}",
+                                name, available
+                            )));
+                        }
+                    }
+                }
+
                 // ADR 0032 (A4): qualified enum variant value.
                 // `Day.Saturday` where `Day` is a registered enum and
                 // `Saturday` names one of its variants. The parser
@@ -2772,6 +2837,74 @@ impl SemanticAnalyzer {
         }
 
         Ok(Some(Type::enum_type(id, &name, variants)))
+    }
+
+    /// ADR 0055. If `clean_name` is `Union.Variant` where `Union`
+    /// is a registered union, analyze the payload against the
+    /// variant's declared payload types and produce the union type.
+    /// Returns `Ok(None)` if the name doesn't resolve to a union
+    /// variant.
+    ///
+    /// Both the payloadless form (`Json.Null`) and the payloadful
+    /// form (`Json.Num(42)`) reach this function, because the
+    /// parser folds both into `FunctionCall { name, args }`.
+    fn try_union_construct(&mut self, clean_name: &str, args: &[Expr]) -> Result<Option<Type>> {
+        let Some((union_name, variant_name)) = clean_name.split_once('.') else {
+            return Ok(None);
+        };
+        if variant_name.contains('.') {
+            return Ok(None);
+        }
+        let Some(union_ty) = self.union_types.get(union_name).cloned() else {
+            return Ok(None);
+        };
+        let Type::Union { id, name, variants } = union_ty else {
+            return Ok(None);
+        };
+
+        let Some((_, payload_types)) = variants.iter().find(|(v, _)| v == variant_name) else {
+            let available = variants
+                .iter()
+                .map(|(v, _)| v.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(CompileError::at(
+                self.current_span,
+                &format!("Union '{}' has no variant '{}'", name, variant_name),
+                ErrorCode::E0004,
+            )
+            .with_suggestion(&format!("Available variants of '{}': {}", name, available)));
+        };
+
+        if args.len() != payload_types.len() {
+            return Err(CompileError::at(
+                self.current_span,
+                &format!(
+                    "Union variant '{}.{}' expects {} payload(s), got {}",
+                    name,
+                    variant_name,
+                    payload_types.len(),
+                    args.len()
+                ),
+                ErrorCode::E0002,
+            ));
+        }
+
+        for (arg, expected) in args.iter().zip(payload_types) {
+            let actual = self.analyze_expr_with_context(arg, Some(expected))?;
+            if !actual.can_coerce_to(expected) && *expected != Type::Unknown {
+                return Err(CompileError::at(
+                    self.current_span,
+                    &format!(
+                        "Union variant '{}.{}' payload type mismatch: expected {}, found {}",
+                        name, variant_name, expected, actual
+                    ),
+                    ErrorCode::E0002,
+                ));
+            }
+        }
+
+        Ok(Some(Type::Union { id, name, variants }))
     }
 
     /// ADR 0029. If `clean_name` is `T.from_base` where `T` is a

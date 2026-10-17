@@ -18,6 +18,11 @@ export default grammar({
 
   word: $ => $.identifier,
 
+  externals: $ => [
+    $.indent,
+    $.dedent,
+  ],
+
   rules: {
     source_file: $ => repeat($._item),
 
@@ -93,7 +98,15 @@ export default grammar({
 
     // ---- statements -----------------------------------------------------
 
-    block: $ => seq('{', repeat($._statement), '}'),
+    // ADR 0054. Two block forms, semantically identical:
+    //   brace form:  { stmt stmt ... }
+    //   indentation form:  INDENT stmt stmt ... DEDENT
+    // The external scanner emits INDENT/DEDENT; brace blocks use
+    // the literal '{' '}' tokens. A block is one or the other.
+    block: $ => choice(
+      seq('{', repeat($._statement), '}'),
+      seq($.indent, repeat($._statement), $.dedent),
+    ),
 
     _statement: $ => choice(
       $.variable_declaration,
@@ -107,7 +120,13 @@ export default grammar({
       $.defer_statement,
       $.break_statement,
       $.continue_statement,
-      $.block,
+      // A bare `block` is not a statement. Blocks are always the
+      // body of a control-flow construct, function, or procedure
+      // header, so `_statement` should not accept them directly.
+      // Including `$.block` here caused the parser, when inside
+      // a brace body (`{ expr <newline>`), to attempt to open a
+      // nested indent block at the next statement, emitting a
+      // phantom INDENT. See ADR 0054.
     ),
 
     variable_declaration: $ => seq(

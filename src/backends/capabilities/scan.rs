@@ -452,6 +452,33 @@ pub(super) fn scan_value(
     }
 }
 
+/// ADR 0055. Scan a `SemanticPattern` for features. Guards and
+/// nested patterns are not handled elsewhere — this helper recurses
+/// into `Guarded`'s inner pattern and evaluates its condition.
+pub(super) fn scan_pattern(
+    pat: &SemanticPattern,
+    extern_fns: &HashSet<&str>,
+    used: &mut HashSet<Feature>,
+) {
+    match pat {
+        SemanticPattern::Ok { .. } | SemanticPattern::Error { .. } => {
+            used.insert(Feature::Result);
+        }
+        SemanticPattern::Record { .. } => {
+            used.insert(Feature::Records);
+        }
+        SemanticPattern::VariantWithPayload { .. } => {
+            used.insert(Feature::Unions);
+        }
+        SemanticPattern::Literal(lit) => scan_value(lit, extern_fns, used),
+        SemanticPattern::Guarded { inner, condition } => {
+            scan_value(condition, extern_fns, used);
+            scan_pattern(inner, extern_fns, used);
+        }
+        _ => {}
+    }
+}
+
 pub(super) fn scan_terminator(
     term: &Terminator,
     extern_fns: &HashSet<&str>,
@@ -463,16 +490,7 @@ pub(super) fn scan_terminator(
         Terminator::Switch { value, cases, .. } => {
             scan_value(value, extern_fns, used);
             for (pat, _) in cases {
-                match pat {
-                    SemanticPattern::Ok { .. } | SemanticPattern::Error { .. } => {
-                        used.insert(Feature::Result);
-                    }
-                    SemanticPattern::Record { .. } => {
-                        used.insert(Feature::Records);
-                    }
-                    SemanticPattern::Literal(lit) => scan_value(lit, extern_fns, used),
-                    _ => {}
-                }
+                scan_pattern(pat, extern_fns, used);
             }
         }
         Terminator::Spawn { .. } => {

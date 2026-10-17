@@ -430,7 +430,10 @@ impl<T: Transfer> DataflowEngine<T> {
     /// Retained for tests that construct a `Cfg` directly; production
     /// callers use `run_all`.
     pub fn run(&self, cfg: &Cfg) -> DataflowResult {
-        self.run_with_entry(cfg, SemanticState::new())
+        // Single-CFG entry point: the caller has not provided a
+        // function name, so use the empty string. Block ids remain
+        // unambiguous within this call.
+        self.run_with_entry(cfg, SemanticState::new(), "")
     }
 
     /// ADR 0016: run the dataflow analysis for every function
@@ -439,23 +442,25 @@ impl<T: Transfer> DataflowEngine<T> {
     /// function name and deduplicated, because the worklist may
     /// re-process a block whenever its incoming state changes.
     pub fn run_all(&self, functions: &[FunctionCfg]) -> DataflowResult {
-        let mut all_in: HashMap<BlockId, SemanticState> = HashMap::new();
-        let mut all_out: HashMap<BlockId, SemanticState> = HashMap::new();
-        let mut visited: HashSet<BlockId> = HashSet::new();
+        let mut all_in: HashMap<(String, BlockId), SemanticState> = HashMap::new();
+        let mut all_out: HashMap<(String, BlockId), SemanticState> = HashMap::new();
+        let mut visited: HashSet<(String, BlockId)> = HashSet::new();
         let mut seen: HashSet<(String, BlockId, String)> = HashSet::new();
         let mut diagnostics: Vec<DataflowDiagnostic> = Vec::new();
 
         for func in functions {
             let entry_state = entry_state_for(&func.params);
-            let result = self.run_with_entry(&func.cfg, entry_state);
-            for (id, st) in result.in_states {
-                all_in.insert(id, st);
+            let result = self.run_with_entry(&func.cfg, entry_state, &func.name);
+            // Keys are already (function_name, block_id) — merge
+            // directly. No re-prefixing.
+            for (key, st) in result.in_states {
+                all_in.insert(key, st);
             }
-            for (id, st) in result.out_states {
-                all_out.insert(id, st);
+            for (key, st) in result.out_states {
+                all_out.insert(key, st);
             }
-            for id in result.visited {
-                visited.insert(id);
+            for key in result.visited {
+                visited.insert(key);
             }
             for diag in result.diagnostics {
                 let key = (func.name.clone(), diag.block, diag.message.clone());
@@ -479,7 +484,12 @@ impl<T: Transfer> DataflowEngine<T> {
 
     /// The actual worklist loop, parameterized by an explicit entry
     /// state.
-    fn run_with_entry(&self, cfg: &Cfg, entry_state: SemanticState) -> DataflowResult {
+    fn run_with_entry(
+        &self,
+        cfg: &Cfg,
+        entry_state: SemanticState,
+        function_name: &str,
+    ) -> DataflowResult {
         let mut in_states: HashMap<BlockId, SemanticState> = HashMap::new();
         let mut out_states: HashMap<BlockId, SemanticState> = HashMap::new();
         let mut all_diagnostics = Vec::new();
@@ -531,11 +541,23 @@ impl<T: Transfer> DataflowEngine<T> {
             visited.insert(block_id);
         }
 
+        // Convert the local BlockId-keyed maps to the composite
+        // (function_name, block_id) shape that DataflowResult
+        // requires. Within run_with_entry there is a single CFG,
+        // so bare BlockId keys are unambiguous; only the aggregate
+        // shape changes.
+        let prefix = || function_name.to_string();
         DataflowResult {
-            in_states,
-            out_states,
+            in_states: in_states
+                .into_iter()
+                .map(|(k, v)| ((prefix(), k), v))
+                .collect(),
+            out_states: out_states
+                .into_iter()
+                .map(|(k, v)| ((prefix(), k), v))
+                .collect(),
             diagnostics: all_diagnostics,
-            visited,
+            visited: visited.into_iter().map(|k| (prefix(), k)).collect(),
         }
     }
     fn states_equal(a: &SemanticState, b: &SemanticState) -> bool {
@@ -555,10 +577,13 @@ impl<T: Transfer> DataflowEngine<T> {
     }
 }
 pub struct DataflowResult {
-    pub in_states: HashMap<BlockId, SemanticState>,
-    pub out_states: HashMap<BlockId, SemanticState>,
+    /// Keyed by `(function name, block id)`. Block ids are
+    /// function-local — two functions both having a block 0 must
+    /// not collide.
+    pub in_states: HashMap<(String, BlockId), SemanticState>,
+    pub out_states: HashMap<(String, BlockId), SemanticState>,
     pub diagnostics: Vec<DataflowDiagnostic>,
-    pub visited: HashSet<BlockId>,
+    pub visited: HashSet<(String, BlockId)>,
 }
 /// ADR 0016: seed a function's entry state from its parameter list.
 /// Each parameter starts initialized and owned; mutability is an

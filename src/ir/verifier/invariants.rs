@@ -329,7 +329,7 @@ fn check_value(
 fn is_unresolved(ty: &Type) -> bool {
     match ty {
         Type::TypeVar(_) | Type::Generic { .. } => true,
-        Type::Associated { base, .. } => is_unresolved(base),
+        Type::Associated { .. } => true,
         Type::List(inner)
         | Type::Option(inner)
         | Type::Pointer(inner)

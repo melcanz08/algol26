@@ -17,7 +17,7 @@ fn dataflow_engine_wired() {
         "valid program should pass dataflow: {:?}",
         result.diagnostics
     );
-    assert!(result.visited.contains(&0));
+    assert!(result.visited.contains(&("".to_string(), 0)));
 }
 
 #[test]

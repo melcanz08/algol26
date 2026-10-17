@@ -993,6 +993,8 @@ impl Compiler {
         let mut all_enums = parsed.enums.clone();
         let mut all_subranges = parsed.subranges.clone();
         let mut all_unions = parsed.unions.clone();
+        let mut all_traits: Vec<TraitDecl> = parsed.traits.clone();
+        let mut all_impls: Vec<ImplBlock> = parsed.impls.clone();
         let mut visited: HashSet<PathBuf> = HashSet::new();
 
         // Collect every import this file names: top-level declarations
@@ -1020,14 +1022,16 @@ impl Compiler {
                 &mut all_enums,
                 &mut all_subranges,
                 &mut all_unions,
+                &mut all_traits,
+                &mut all_impls,
                 &mut visited,
             )?;
         }
 
         Ok(ParsedProgram {
             functions: Rc::new(all_functions),
-            traits: parsed.traits.clone(),
-            impls: parsed.impls.clone(),
+            traits: all_traits,
+            impls: all_impls,
             records: all_records,
             unions: all_unions,
             distincts: all_distincts,
@@ -1058,6 +1062,8 @@ impl Compiler {
         all_enums: &mut Vec<crate::frontend::ast::EnumDecl>,
         all_subranges: &mut Vec<crate::frontend::ast::SubrangeDecl>,
         all_unions: &mut Vec<crate::frontend::ast::UnionDecl>,
+        all_traits: &mut Vec<TraitDecl>,
+        all_impls: &mut Vec<ImplBlock>,
         visited: &mut HashSet<PathBuf>,
     ) -> Result<()> {
         // Resolve, then canonicalize. `resolve_import` joins relative
@@ -1167,6 +1173,34 @@ impl Compiler {
                     all_unions.push(u);
                 }
             }
+            for t in imported.traits {
+                if !all_traits.iter().any(|x| x.name == t.name) {
+                    all_traits.push(t);
+                }
+            }
+            for i in imported.impls {
+                // Impls have no unique name field, so dedupe on
+                // (target_type, trait_name, module). Two impls of
+                // the same trait for the same type in the same
+                // module would be a genuine duplicate; across
+                // modules they are legal (different trait
+                // namespaces).
+                let key = (
+                    i.target_type.clone(),
+                    i.trait_name.clone(),
+                    i.module.clone(),
+                );
+                let already = all_impls.iter().any(|x| {
+                    (
+                        x.target_type.clone(),
+                        x.trait_name.clone(),
+                        x.module.clone(),
+                    ) == key
+                });
+                if !already {
+                    all_impls.push(i);
+                }
+            }
 
             // Recurse. The `current_file` for nested imports is this
             // file's canonical path, so its imports resolve relative to
@@ -1183,6 +1217,8 @@ impl Compiler {
                     all_enums,
                     all_subranges,
                     all_unions,
+                    all_traits,
+                    all_impls,
                     visited,
                 )?;
             }

@@ -1,7 +1,6 @@
-\
 # ADR 0051: Scope-exit cleanup for heap-backed lists
 
-Status: Proposed (design; implementation multi-phase)
+Status: Current
 
 ## Context
 

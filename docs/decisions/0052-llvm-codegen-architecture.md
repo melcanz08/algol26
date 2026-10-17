@@ -1,7 +1,6 @@
-\
 # ADR 0052: LLVM codegen — structural gaps and a phased architecture
 
-Status: Proposed (design; implementation phased)
+Status: Current
 
 ## Context
 

@@ -1,7 +1,6 @@
-\
 # ADR 0050: Region cleanup for heap-backed lists
 
-Status: Proposed (design; implementation deferred)
+Status: Current
 
 ## Context
 

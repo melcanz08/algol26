@@ -598,6 +598,11 @@ fn format_pattern(out: &mut String, pat: &SemanticPattern) {
         } => {
             write!(out, "{}({}) tag={}", variant_name, bindings.join(", "), tag).unwrap();
         }
+        SemanticPattern::Guarded { inner, condition } => {
+            format_pattern(out, inner);
+            out.push_str(" if ");
+            format_value(out, condition);
+        }
     }
 }
 

@@ -1787,6 +1787,69 @@ impl SemanticIRBuilder {
                                 bindings: bindings.clone(),
                             }
                         }
+                        crate::frontend::ast::Pattern::Guarded {
+                            pattern: inner_pattern,
+                            condition,
+                        } => {
+                            // ADR 0055 Session 3 follow-up. A guarded
+                            // pattern wraps an inner pattern; the
+                            // condition is a `TypedIRValue` that the
+                            // interpreter evaluates after binding the
+                            // inner pattern's payload.
+                            let inner_sem = match &**inner_pattern {
+                                crate::frontend::ast::Pattern::VariantWithBinding {
+                                    variant,
+                                    payload,
+                                } => {
+                                    let tag = match &matched_type {
+                                        Type::Union { variants, .. } => variants
+                                            .iter()
+                                            .position(|(v, _)| v == variant)
+                                            .map(|i| i as u32)
+                                            .unwrap_or(u32::MAX),
+                                        _ => u32::MAX,
+                                    };
+                                    SemanticPattern::VariantWithPayload {
+                                        tag,
+                                        variant_name: variant.clone(),
+                                        bindings: payload.clone(),
+                                    }
+                                }
+                                crate::frontend::ast::Pattern::Variant(name) => match &matched_type
+                                {
+                                    Type::Union { variants, .. } => {
+                                        let tag = variants
+                                            .iter()
+                                            .position(|(v, _)| v == name)
+                                            .map(|i| i as u32)
+                                            .unwrap_or(u32::MAX);
+                                        SemanticPattern::VariantWithPayload {
+                                            tag,
+                                            variant_name: name.clone(),
+                                            bindings: Vec::new(),
+                                        }
+                                    }
+                                    Type::Enum { variants, .. } => {
+                                        let ordinal = variants
+                                            .iter()
+                                            .position(|v| v == name)
+                                            .map(|i| i as i64)
+                                            .unwrap_or(-1);
+                                        SemanticPattern::Variant {
+                                            name: name.clone(),
+                                            ordinal,
+                                        }
+                                    }
+                                    _ => SemanticPattern::Wildcard,
+                                },
+                                _ => SemanticPattern::Wildcard,
+                            };
+                            let cond = self.translate_expr(program, func, current_block, condition);
+                            SemanticPattern::Guarded {
+                                inner: Box::new(inner_sem),
+                                condition: cond,
+                            }
+                        }
                         crate::frontend::ast::Pattern::Wildcard => SemanticPattern::Wildcard,
                         crate::frontend::ast::Pattern::Binding(_) => SemanticPattern::Wildcard,
                         crate::frontend::ast::Pattern::Literal(e) => SemanticPattern::Literal(
@@ -1945,8 +2008,22 @@ impl SemanticIRBuilder {
                     // declare each binding with its type (not Unknown),
                     // so `Int.to_string(n)` sees `n : Int` rather than
                     // `Unknown`, and the verifier accepts the case body.
+                    // ADR 0055 Session 3 follow-up. When the case
+                    // pattern is guarded, recurse into the inner
+                    // pattern for payload bindings. Without this,
+                    // `case Pos(n) if n > 0 then ...` doesn't declare
+                    // `n` in the arm's scope, and `Int.to_string(n)`
+                    // fails at IR verification.
+                    let effective_pattern =
+                        if let crate::frontend::ast::Pattern::Guarded { pattern: inner, .. } =
+                            &case.pattern
+                        {
+                            inner.as_ref()
+                        } else {
+                            &case.pattern
+                        };
                     if let crate::frontend::ast::Pattern::VariantWithBinding { variant, payload } =
-                        &case.pattern
+                        effective_pattern
                     {
                         let payload_types = match &matched_type {
                             Type::Union { variants, .. } => variants

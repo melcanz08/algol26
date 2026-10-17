@@ -292,6 +292,34 @@ fn successors_with_envs(term: &Terminator, env: &VerifyEnv) -> Vec<(usize, Verif
                             succ_env.mutability.insert(b.clone(), false);
                         }
                     }
+                    // ADR 0055 Session 3 follow-up. A guarded pattern:
+                    // bind the inner pattern's names into succ_env so
+                    // the arm body and the guard condition type-check.
+                    // The condition is not verified here — the analyzer
+                    // already type-checked it against the inner
+                    // pattern's payload types in `check_pattern_type`,
+                    // and `successors_with_envs` returns `Vec` (not
+                    // `Result`), so we can't propagate verification
+                    // errors even if we tried.
+                    SemanticPattern::Guarded { inner, condition } => {
+                        match inner.as_ref() {
+                            SemanticPattern::Some { binding }
+                            | SemanticPattern::Ok { binding }
+                            | SemanticPattern::Error { binding } => {
+                                succ_env.variables.insert(binding.clone(), Type::Unknown);
+                                succ_env.mutability.insert(binding.clone(), false);
+                            }
+                            SemanticPattern::Record { bindings, .. }
+                            | SemanticPattern::VariantWithPayload { bindings, .. } => {
+                                for b in bindings {
+                                    succ_env.variables.insert(b.clone(), Type::Unknown);
+                                    succ_env.mutability.insert(b.clone(), false);
+                                }
+                            }
+                            _ => {}
+                        }
+                        let _ = condition;
+                    }
                     _ => {}
                 }
                 result.push((*target, succ_env));

@@ -79,6 +79,46 @@ impl Interpreter {
             // element to its corresponding name. Binding is by
             // value (the ADR's design decision) — payload elements
             // are cloned, not moved.
+            // ADR 0055 Session 3 follow-up. A guarded pattern:
+            // match the inner pattern first, then evaluate the
+            // condition with the payload bindings temporarily in
+            // scope. On guard success, return the bindings so the
+            // caller's arm body sees them; on failure, return None
+            // so the switch falls through to the next case.
+            SemanticPattern::Guarded { inner, condition } => {
+                let bindings = match self.try_pattern_match(inner, value)? {
+                    Some(b) => b,
+                    None => return Ok(None),
+                };
+                let mut saved: Vec<(String, Option<RuntimeValue>)> = Vec::new();
+                for (name, val) in &bindings {
+                    saved.push((
+                        name.clone(),
+                        self.variables.insert(name.clone(), val.clone()),
+                    ));
+                }
+                let cond_result = self.eval_value(condition);
+                for (name, old) in saved {
+                    match old {
+                        Some(v) => {
+                            self.variables.insert(name, v);
+                        }
+                        None => {
+                            self.variables.remove(&name);
+                        }
+                    }
+                }
+                let cond = cond_result?;
+                match cond {
+                    RuntimeValue::Bool(true) => Ok(Some(bindings)),
+                    RuntimeValue::Bool(false) => Ok(None),
+                    other => Err(EvalError::TypeMismatch {
+                        op: "Guarded condition",
+                        left: super::runtime::runtime_kind(&other),
+                        right: "Bool",
+                    }),
+                }
+            }
             SemanticPattern::VariantWithPayload { tag, bindings, .. } => match value {
                 RuntimeValue::Union {
                     tag: value_tag,

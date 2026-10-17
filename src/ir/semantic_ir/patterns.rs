@@ -40,4 +40,12 @@ pub enum SemanticPattern {
         name: String,
         ordinal: i64,
     },
+    /// ADR 0055 Session 3 follow-up. A pattern with a boolean guard.
+    /// `inner` is matched first; if it succeeds, `condition` is
+    /// evaluated in the resulting scope. If `condition` is true,
+    /// the arm runs; if false, the switch falls through.
+    Guarded {
+        inner: Box<SemanticPattern>,
+        condition: TypedIRValue,
+    },
 }

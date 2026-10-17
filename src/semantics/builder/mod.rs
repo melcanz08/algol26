@@ -237,6 +237,14 @@ impl SemanticIRBuilder {
                 if let Some(enum_ty) = self.enum_types.get(name.as_str()) {
                     return enum_ty.clone();
                 }
+                // ADR 0055. Union types — check before nominal,
+                // subrange, and record. Without this, `List<Json>`
+                // in a type annotation resolves its arg through
+                // `syntax.to_type()`, which returns `Unknown` for
+                // user-defined union names.
+                if let Some(union_ty) = self.union_types.get(name.as_str()) {
+                    return union_ty.clone();
+                }
                 if let Some(nominal) = self.nominal_types.get(name.as_str()) {
                     return nominal.clone();
                 }

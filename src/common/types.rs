@@ -696,6 +696,14 @@ impl Type {
             return true;
         }
 
+        // ADR 0055. Same-id unions are the same type, regardless of
+        // what the `variants` vectors contain. See can_coerce_to.
+        if let (Type::Union { id: a, .. }, Type::Union { id: b, .. }) = (self, target) {
+            if a == b {
+                return true;
+            }
+        }
+
         // TypeVar can cast to/from anything
         if matches!(self, Type::TypeVar(_)) || matches!(target, Type::TypeVar(_)) {
             return true;
@@ -798,6 +806,19 @@ impl Type {
             return true;
         }
 
+        // ADR 0055. Two Type::Union with the same id are the same
+        // type, even if their `variants` vectors differ. `variants`
+        // may contain the union's own placeholder (empty) when
+        // embedded in a recursive payload like `Arr(List<Json>)`,
+        // while `union_types.get` returns the fully resolved value.
+        // Structural equality rejects this, so identity must be
+        // checked on `id` alone.
+        if let (Type::Union { id: a, .. }, Type::Union { id: b, .. }) = (self, target) {
+            if a == b {
+                return true;
+            }
+        }
+
         // TypeVar can coerce to/from anything (it's generic)
         if matches!(self, Type::TypeVar(_)) || matches!(target, Type::TypeVar(_)) {
             return true;
@@ -866,6 +887,14 @@ impl Type {
     pub fn common_supertype(&self, other: &Type) -> Type {
         if self == other {
             return self.clone();
+        }
+
+        // ADR 0055. Same-id unions have a common supertype — either
+        // one. See can_coerce_to.
+        if let (Type::Union { id: a, .. }, Type::Union { id: b, .. }) = (self, other) {
+            if a == b {
+                return self.clone();
+            }
         }
 
         match (self, other) {

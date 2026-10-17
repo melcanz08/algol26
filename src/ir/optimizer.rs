@@ -489,6 +489,13 @@ impl Optimizer {
                     Instruction::ReceiveChannel { target, .. } => {
                         used_variables.insert(target.clone());
                     }
+                    // ADR 0055. A UnionConstruct's payload values
+                    // each contribute their own variable uses.
+                    Instruction::UnionConstruct { payload, .. } => {
+                        for p in payload {
+                            collect_variables_from_value(p, &mut used_variables);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -684,6 +691,17 @@ fn collect_variables_from_value(value: &TypedIRValue, vars: &mut HashSet<String>
             for (k, v) in entries {
                 collect_variables_from_value(k, vars);
                 collect_variables_from_value(v, vars);
+            }
+        }
+        // ADR 0055. A union construction's payload values each
+        // contribute their own variable uses. Without this arm,
+        // a variable used only inside a union construction's
+        // payload is treated as unused and its Declare is dropped
+        // by DCE, failing verification with "use of undefined
+        // variable".
+        TypedIRValue::UnionConstruct { payload, .. } => {
+            for p in payload {
+                collect_variables_from_value(p, vars);
             }
         }
         _ => {}

@@ -30,6 +30,27 @@
   function declaration, closing a cross-function state leak.
   `tests/adr_examples/0057_boundaries/pass_op_at_end_of_line.gol`
   flips from `EXPECT: REJECT` to `EXPECT: COMPILE`. (commit `123de0b`)
+- **`String.substring` now indexes by codepoint, not bytes, on LLVM.**
+  The interpreter's `substring` uses `chars().skip(start).take(length)`
+  — codepoint-indexed. LLVM's inline IR used `strlen` + `memcpy` —
+  byte-indexed. On non-ASCII input the two backends disagreed:
+  `"héllo".substring(2, 1)` returned `"l"` on the interpreter and
+  the second byte of `"é"` (invalid UTF-8) on LLVM. The old lowering
+  was replaced by a C codepoint walker in `runtime/string.c`; the
+  Rust side keeps only the declaration. Corpus was all ASCII and
+  missed the divergence — `tests/corpus/corpus_49_string_substring_utf8.gol`
+  now pins the UTF-8 cases. (commit `8518ca7`)
+- **Differential test harness prefers the debug binary.** An
+  in-test `find_compiler()` preferred `target/release/algol26`,
+  which is only rebuilt on explicit `cargo build --release`. Any
+  source change between a release build and a `cargo test` run was
+  invisible to the differential tests — the harness ran against a
+  stale binary. Surfaced while fixing the `substring` divergence
+  (six differential tests failed on a `multiple definition` linker
+  error caused by the stale binary still emitting the deleted
+  inline IR). Candidate order flipped to debug-first, matching
+  `differential_true.rs`. (commit `ea60478`)
+
 
 ### Changed
 

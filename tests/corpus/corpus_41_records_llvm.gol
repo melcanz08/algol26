@@ -1,0 +1,18 @@
+// Records on LLVM. Pins the end-to-end status of `rec` on
+// the native backend.
+// OUTPUT: 7
+// OUTPUT: 8
+
+rec Point
+    x: Int
+    y: Int
+
+impl Point
+    fn sum(self: &Point) -> Int
+        self.x + self.y
+
+proc main
+    val p := Point { x: 3, y: 4 }
+    print(Int.to_string(p.sum()))
+    var q := Point { x: 3, y: 5 }
+    print(Int.to_string(q.x + q.y))

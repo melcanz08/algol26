@@ -1,0 +1,18 @@
+// Option match on LLVM. Pins the end-to-end status of Option
+// on the native backend (was documented as refused; actually
+// works since at least 2026-10).
+// OUTPUT: 5
+// OUTPUT: none
+
+fn find(x: Int) -> Option<Int>
+    if x > 0 then Some(x) else None
+
+proc main
+    val a := find(5)
+    match a
+        case Some(v) then print(Int.to_string(v))
+        case None then print("none")
+    val b := find(-1)
+    match b
+        case Some(v) then print(Int.to_string(v))
+        case None then print("none")

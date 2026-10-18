@@ -1,0 +1,10 @@
+// List.append on LLVM. Pins the end-to-end status of append
+// on the native backend.
+// OUTPUT: 3
+// OUTPUT: 4
+
+proc main
+    var xs: List<Int> := [1, 2, 3]
+    print(Int.to_string(List.length(xs)))
+    xs.append(4)
+    print(Int.to_string(List.length(xs)))

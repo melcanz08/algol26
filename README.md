@@ -108,10 +108,13 @@ proc main
 >   Run a WASM build with `runtime/wasm/run.sh <file.gol>`.
 >
 > Several features are interpreter-only in the current version —
-> `Map<K, V>`, `List.append`, `Option`, `Result` with `try`/`catch`,
-> `String.*` conversions, and **union types** among them. LLVM and
-> WASM refuse these at the capability boundary and print an `E0002`
-> error suggesting `--interpreter`. The matrix below is the authoritative list.
+> `Map<K, V>`, `Result` with `try`/`catch`, most `String.*` conversions,
+> and **union types** among them. LLVM and WASM refuse these at the
+> capability boundary and print an `E0002` error suggesting
+> `--interpreter`. The matrix below is the authoritative list.
+>
+> `rec` records, `Option<T>`, and `List.append` are **not** on this
+> list — all three work natively on LLVM and WASM.
 >
 > `rec` records are **no longer** on this list. Every record
 > boundary — parameter, return, nested field, in a list, method

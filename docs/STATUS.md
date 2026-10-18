@@ -124,8 +124,11 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   `Person { name: String, age: Int }` moves. The property is a
   compile-time predicate on the type, not a declaration the
   programmer writes.
-- **Interpreter-only.** LLVM and WASM refuse programs using maps
-  at the capability check (`Feature::Records`).
+- **LLVM and WASM support** (ADR 0036). Records lower to LLVM
+  structs. Construction, field read/write, and the ABI for
+  parameters, returns, and nested fields all work on both
+  compiled backends. Verified end-to-end with `Point { x: 3, y: 4 }
+  → p.x + p.y` printing `7` natively.
 - **Cross-module merge** (`c8c15fc`). `process_imports` merges
   `imported_program.records` alongside imported functions. A record
   declared in an imported file is visible to the importing module.
@@ -155,8 +158,13 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   `var` receiver. Invalidates the analyzer's statically-tracked
   length for that binding so a now-valid index past the old length
   isn't falsely rejected.
-- **Interpreter-only.** LLVM and WASM refuse both at the capability
-  check (`Feature::Map`, `Feature::ListAppend`).
+- **`List.append` is supported on LLVM and WASM** (ADR 0042
+  phase 4). It grows a stack-backed buffer to the heap, reallocates
+  when full, and mutates in place when spare capacity exists.
+  Verified end-to-end with `var xs: List<Int> := [1,2,3]; xs.append(4)`
+  printing the updated length natively.
+- **`Map<K, V>` is still interpreter-only.** LLVM and WASM refuse
+  it at the capability check (`Feature::Map`).
 
 ### Traits and generics in real programs
 
@@ -349,7 +357,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | Bare call statements | ✅ | ✅ | ✅ | ✅ | 33 |
 | Lists + indexing | ✅ | ✅ | ✅ | ✅ | 01, 07, 15 |
 | `List.length` / `List.sum` | ✅ | ✅ | ✅ | ✅ | 07, 15 |
-| `List.append(x)` | ✅ | ✅ | ✅ | ⛔ | — |
+| `List.append(x)` | ✅ | ✅ | ✅ | ✅ | — |
 | `Map<K, V>` | ✅ | ✅ | ✅ | ⛔ | — |
 | Strings | ✅ | ✅ | ✅ | ✅ | 08, 15 |
 | `String.length` | ✅ | ✅ | ✅ | ✅ | 08 |
@@ -358,7 +366,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `String.to_int` / `Int.to_string` | ✅ | ✅ | ✅ | ⛔ | — |
 | `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ⛔ | — |
 | `Math.*` | ✅ | ✅ | ✅ | ✅ | — |
-| `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ⛔ | 13 |
+| `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ✅ | 13 |
 | `match` (literal patterns) | ✅ | ✅ | ✅ | ✅ | — |
 | `match` (binding patterns) | ✅ | ✅ | ✅ | ⛔ | 13 |
 | `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ⛔ | 14 |
@@ -368,8 +376,8 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | Visibility (`pub`) | ✅ | ✅ | ✅ | ✅ | — |
 | Associated types | ✅ | ✅ | ✅ | ✅ | — |
 | Generics | ✅ | ✅ | ✅ | ✅ | — |
-| `rec` records | ✅ | ✅ | ✅ | ⛔ | — |
-| Structural `Copy` | ✅ | ✅ | ✅ | ⛔ | — |
+| `rec` records | ✅ | ✅ | ✅ | ✅ | — |
+| Structural `Copy` | ✅ | ✅ | ✅ | ✅ | — |
 | `region` | ✅ | ✅ | ✅ | ✅ | 30, 31 |
 | `unsafe` | ✅ | ✅ | ✅ | ✅ | 32, 33 |
 | `affirm(cond, msg)` | ✅ | ✅ | ✅ | ✅ | — |
@@ -508,9 +516,7 @@ Open (not fixed):
   setup is only done for locally-created list literals.
 - **`try` / `catch` and `Result` values** (`corpus_14`). No LLVM
   lowering; refused cleanly.
-- **Records** (ADR 0024). Refused at the capability check.
 - **`Map<K, V>`** (ADR 0027). Refused at the capability check.
-- **`List.append`** (ADR 0028). Refused at the capability check.
 - **Track B builtins.** Refused at the capability check
   (`Feature::Conversions` for `Int.to_string` / `String.to_int`;
   `StringFunctions` for the others).

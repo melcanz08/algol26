@@ -147,7 +147,19 @@ fn run_compiler(source: &str) -> String {
 }
 
 fn find_compiler() -> PathBuf {
-    let candidates = ["target/release/algol26", "target/debug/algol26"];
+    // Prefer `target/debug` — `cargo test` rebuilds it, so tests
+    // reflect the current source. If `target/release` is preferred
+    // (as this function previously had it), tests silently run
+    // against a stale release binary unless the user remembered to
+    // `cargo build --release` after every source change. That bit
+    // us during the String.substring codepoint fix: the release
+    // binary still emitted the old inline IR, so tests failed with
+    // "multiple definition of algol26_string_substring" even
+    // though the source was correct.
+    //
+    // TODO: this function duplicates `differential_true::find_compiler`.
+    // Unify them (single source of truth, debug-first order).
+    let candidates = ["target/debug/algol26", "target/release/algol26"];
 
     for candidate in candidates {
         if std::path::Path::new(candidate).exists() {

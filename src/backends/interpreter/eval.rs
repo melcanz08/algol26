@@ -846,9 +846,9 @@ impl Interpreter {
                     return Ok(RuntimeValue::Option(None));
                 }
                 match s.chars().nth(i as usize) {
-                    Some(c) => Ok(RuntimeValue::Option(Some(Box::new(
-                        RuntimeValue::String(c.to_string()),
-                    )))),
+                    Some(c) => Ok(RuntimeValue::Option(Some(Box::new(RuntimeValue::String(
+                        c.to_string(),
+                    ))))),
                     None => Ok(RuntimeValue::Option(None)),
                 }
             }

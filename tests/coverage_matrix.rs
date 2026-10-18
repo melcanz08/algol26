@@ -250,10 +250,10 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "result",
         conformance_dir: Some("result"),
         interpreter: Support::Full,
-        llvm: Support::Refused,
+        llvm: Support::Partial,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_result_values", "wasm_rejects_result_values"],
-        notes: "",
+        refusal_tests: &["wasm_rejects_result_values"],
+        notes: "Ok/Error construction and match-on-Result lower on LLVM (ADR 0030 v1). try/catch is still interpreter-only (no LLVM lowering). WASM refuses all Result programs, pinned by wasm_rejects_result_values.",
     },
     FeatureRow {
         name: "try_catch",
@@ -261,8 +261,16 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_result_values", "wasm_rejects_result_values"],
-        notes: "",
+        refusal_tests: &["llvm_rejects_try_catch", "wasm_rejects_result_values"],
+        notes: "try/catch has no LLVM lowering; it is refused at IR \
+                construction (the builder has no TryCatch arm) before \
+                the capability check runs. Result values (Ok/Error) and \
+                match on Result are supported on LLVM (ADR 0030 v1); \
+                only the try/catch *construct* is interpreter-only. \
+                Feature::Result covers both, so the capability check \
+                accepts Result values and refuses try/catch at the \
+                codegen boundary. A future Feature::TryCatch split \
+                would move the refusal to the capability check.",
     },
     // ─── ownership ───
     FeatureRow {

@@ -230,6 +230,14 @@ impl BackendCapabilities {
         // Other key/value combinations are refused at codegen
         // with a targeted error, not at the capability boundary.
         supported.insert(Feature::Map);
+        // ADR 0030. `Result<T, E>` lowers to `{ i1, T, E }`;
+        // `Ok`/`Error` construct the struct, and `match` on a
+        // `Result` value switches on the tag. `try`/`catch` is
+        // part of the same feature flag but is not lowered yet
+        // (see known gap) — the capability is flipped here so
+        // that Result *values* work; a program using try/catch
+        // will still fail at codegen with a specific error.
+        supported.insert(Feature::Result);
         BackendCapabilities {
             name: "LLVM",
             supported,

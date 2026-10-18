@@ -600,7 +600,13 @@ impl SemanticAnalyzer {
 
                 let (then_result, then_exit) = self.in_branch(|a| {
                     a.push_scope();
-                    let r = a.analyze_expr(then_branch);
+                    // Bidirectional hint from the enclosing context
+                    // (e.g. a function return type) reaches the
+                    // then-branch. Without this, `Ok(x)` in a
+                    // then-branch inside a `fn -> Result<Int, String>`
+                    // infers as `Result<Int, Unknown>`, which fails
+                    // at LLVM codegen.
+                    let r = a.analyze_expr_with_context(then_branch, expected_type);
                     a.pop_scope();
                     r
                 });
@@ -608,17 +614,21 @@ impl SemanticAnalyzer {
 
                 let (else_type_opt, else_exit) = match else_branch {
                     Some(else_expr) => {
-                        // Bidirectional hint: pass the then-branch's
-                        // type as the else-branch's expected type.
-                        // Without this, a `None` in the else arm
-                        // sees no expectation and produces
-                        // `Option<Unknown>`, which the LLVM codegen
-                        // cannot lower (`map_type(Unknown)` panics).
-                        // Same for an empty `[]` and other
-                        // context-dependent literals.
+                        // Bidirectional hint, in priority order:
+                        // 1. The if expression's own expected type
+                        //    (from the enclosing fn return type or
+                        //    another `Some(Result<...>)` context).
+                        // 2. The then-branch's type as a fallback.
+                        //
+                        // Without (1), an `else Error("x")` in a
+                        // `fn -> Result<Int, String>` infers as
+                        // `Result<Unknown, String>` because the
+                        // only hint came from a then-branch that
+                        // itself had an Unknown half.
+                        let hint = expected_type.or(Some(&then_type));
                         let (r, s) = self.in_branch(|a| {
                             a.push_scope();
-                            let r = a.analyze_expr_with_context(else_expr, Some(&then_type));
+                            let r = a.analyze_expr_with_context(else_expr, hint);
                             a.pop_scope();
                             r
                         });
@@ -686,7 +696,7 @@ impl SemanticAnalyzer {
                                 }
                             }
 
-                            a.analyze_expr(&case.body)
+                            a.analyze_expr_with_context(&case.body, expected_type)
                         })();
                         a.pop_scope();
                         r

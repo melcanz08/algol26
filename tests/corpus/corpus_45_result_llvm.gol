@@ -1,0 +1,32 @@
+// Result<T, E> on LLVM. ADR 0030 v1: `Ok`/`Error` construct the
+// tagged union `{ i1 is_ok, T ok, E err }`, and `match` on a
+// Result switches on the tag and extracts the payload. `try`/
+// `catch` is still interpreter-only (no LLVM lowering).
+// OUTPUT: ok: 8
+// OUTPUT: ok: 14
+// OUTPUT: err: div by zero
+// OUTPUT: err: unknown op
+
+fn div(a: Int, b: Int) -> Result<Int, String>
+    if b = 0 then
+        Error("div by zero")
+    else
+        Ok(a / b)
+
+fn apply(op: Int, a: Int, b: Int) -> Result<Int, String>
+    match op
+        case 1 then Ok(a + b)
+        case 4 then div(a, b)
+        case _ then Error("unknown op")
+
+proc run_case(op: Int, a: Int, b: Int)
+    val r := apply(op, a, b)
+    match r
+        case Ok(v) then print("ok: " + Int.to_string(v))
+        case Error(e) then print("err: " + e)
+
+proc main
+    run_case(1, 5, 3)
+    run_case(4, 100, 7)
+    run_case(4, 5, 0)
+    run_case(99, 1, 2)

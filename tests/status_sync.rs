@@ -83,7 +83,13 @@ const STATUS_ROW_TO_FEATURES: &[(&str, &[Feature])] = &[
     ("`File.read`", &[Feature::FileFunctions]),
     ("`Option` / `Some`", &[Feature::Option]),
     ("`Result` / `Ok`", &[Feature::Result]),
-    ("`try` / `catch`", &[Feature::Result]),
+    // try/catch is refused at IR construction (the builder has no
+    // TryCatch arm), not at the capability boundary. The
+    // `Feature::Result` flag covers Result *values* (Ok/Error/match),
+    // which are supported. So this row maps to `&[]` — the LLVM
+    // column in STATUS.md is ⛔ for the construct, and the
+    // capability check has no separate flag for it.
+    ("`try` / `catch`", &[]),
     ("`&dyn Trait`", &[Feature::DynamicDispatch]),
     ("`rec` records", &[Feature::Records]),
     ("`union` types", &[Feature::Unions]),

@@ -1339,17 +1339,96 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .into_struct_value();
                 with_tag.into()
             }
-            TypedIRValue::Ok { .. } => {
-                return Err(CompileError::unsupported_operation(
-                    "Ok(...) (Result<T, E> has no LLVM lowering)",
-                    "llvm",
-                ));
+            // ADR 0030 (Result). `Ok(v)` and `Error(e)` construct
+            // a `{ i1 is_ok, T ok_payload, E err_payload }` struct.
+            // Mirrors the `Option` lowering above: fill the tag,
+            // fill the live payload, leave the dead payload as
+            // `undef`. The struct type comes from
+            // `map_type(Type::Result { ok, error })`.
+            TypedIRValue::Ok { value, result_type } => {
+                let Type::Result { ok, error } = result_type else {
+                    unreachable!("TypedIRValue::Ok has non-Result result_type");
+                };
+                let struct_ty = match self.map_type(result_type) {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "Result<T, E> did not map to an LLVM struct type",
+                            "llvm",
+                        ));
+                    }
+                };
+                let ok_llvm_ty = self.map_type(ok);
+                let err_llvm_ty = self.map_type(error);
+
+                // Compile the payload. If the payload's declared
+                // type is a struct (record/list/Option/Result) and
+                // the value compiled to a pointer to that struct,
+                // load the struct value first — the field slot
+                // holds the struct itself, not a pointer.
+                let payload_val = self.compile_value(value)?;
+                let payload_val = match (payload_val, &ok_llvm_ty) {
+                    (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => {
+                        self.builder.build_load(*st, p, "ok_payload_load").unwrap()
+                    }
+                    (v, _) => v,
+                };
+
+                // tag = 1
+                let tag = self.context.bool_type().const_int(1, false);
+                let with_tag = self
+                    .builder
+                    .build_insert_value(struct_ty.get_undef(), tag, 0, "ok_tag")
+                    .unwrap()
+                    .into_struct_value();
+                let with_ok = self
+                    .builder
+                    .build_insert_value(with_tag, payload_val, 1, "ok_payload")
+                    .unwrap()
+                    .into_struct_value();
+                // Dead error payload: undef.
+                let _ = err_llvm_ty;
+                with_ok.into()
             }
-            TypedIRValue::Error { .. } => {
-                return Err(CompileError::unsupported_operation(
-                    "Error(...) (Result<T, E> has no LLVM lowering)",
-                    "llvm",
-                ));
+            TypedIRValue::Error { value, result_type } => {
+                let Type::Result { ok, error } = result_type else {
+                    unreachable!("TypedIRValue::Error has non-Result result_type");
+                };
+                let struct_ty = match self.map_type(result_type) {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "Result<T, E> did not map to an LLVM struct type",
+                            "llvm",
+                        ));
+                    }
+                };
+                let ok_llvm_ty = self.map_type(ok);
+                let err_llvm_ty = self.map_type(error);
+
+                let payload_val = self.compile_value(value)?;
+                let payload_val = match (payload_val, &err_llvm_ty) {
+                    (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => {
+                        self.builder.build_load(*st, p, "err_payload_load").unwrap()
+                    }
+                    (v, _) => v,
+                };
+
+                // tag = 0
+                let tag = self.context.bool_type().const_zero();
+                let with_tag = self
+                    .builder
+                    .build_insert_value(struct_ty.get_undef(), tag, 0, "err_tag")
+                    .unwrap()
+                    .into_struct_value();
+                // Dead ok payload: undef. Field 2 is the error slot.
+                let _ = ok_llvm_ty;
+                let with_err = self
+                    .builder
+                    .build_insert_value(with_tag, payload_val, 2, "err_payload")
+                    .unwrap()
+                    .into_struct_value();
+                with_err.into()
             }
 
             // These variants have no LLVM lowering. The capability

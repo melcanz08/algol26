@@ -170,6 +170,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                     return self.compile_option_switch(val, value, cases, default_block);
                 }
 
+                // ADR 0030. Fast path: Result match. All patterns are
+                // Ok/Error and the scrutinee has type `Type::Result`.
+                // Dispatch on the struct's `is_ok` tag; extract the
+                // Ok payload (field 1) or the Error payload (field 2)
+                // into the binding's slot before jumping to the body.
+                if matches!(value.type_of(), Type::Result { .. })
+                    && !cases.is_empty()
+                    && cases.iter().all(|(p, _)| {
+                        matches!(
+                            p,
+                            SemanticPattern::Ok { .. } | SemanticPattern::Error { .. }
+                        )
+                    })
+                {
+                    return self.compile_result_switch(val, value, cases, default_block);
+                }
+
                 // Literal and Variant patterns lower to integer comparisons.
                 // Enum variants carry their ordinal in the IR (see ADR 0030),
                 // so they're switch cases like literals. The rest -
@@ -806,6 +823,149 @@ impl<'ctx> IRCodeGen<'ctx> {
                 other => {
                     return Err(CompileError::unsupported_operation(
                         &format!("unexpected pattern in Option switch: {:?}", other),
+                        "llvm",
+                    ));
+                }
+            }
+        }
+
+        self.builder
+            .build_switch(tag, default_bb, &case_pairs)
+            .unwrap();
+        Ok(())
+    }
+
+    /// ADR 0030. Lower a `match` whose scrutinee is `Result<T, E>`
+    /// and whose patterns are all `Ok`/`Error`. Mirrors
+    /// `compile_option_switch` but switches on the `is_ok` tag
+    /// (field 0), extracts the Ok payload from field 1 for the
+    /// `Ok` case, and the Error payload from field 2 for the
+    /// `Error` case.
+    fn compile_result_switch(
+        &mut self,
+        val: inkwell::values::BasicValueEnum<'ctx>,
+        value: &TypedIRValue,
+        cases: &[(SemanticPattern, usize)],
+        default_block: &Option<usize>,
+    ) -> Result<()> {
+        let (ok_ty, err_ty) = match value.type_of() {
+            Type::Result { ok, error } => ((*ok).clone(), (*error).clone()),
+            _ => {
+                return Err(CompileError::unsupported_operation(
+                    "compile_result_switch: scrutinee is not Result-typed",
+                    "llvm",
+                ));
+            }
+        };
+
+        if !val.is_struct_value() {
+            return Err(CompileError::unsupported_operation(
+                "Result value did not lower to an LLVM struct",
+                "llvm",
+            ));
+        }
+        let sv = val.into_struct_value();
+
+        let tag = self
+            .builder
+            .build_extract_value(sv, 0, "res_tag")
+            .unwrap()
+            .into_int_value();
+
+        let default_bb = if let Some(id) = default_block {
+            self.blocks.get(id).cloned().ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!("switch default block {} not found", id),
+                    "llvm",
+                )
+            })?
+        } else {
+            let saved = self.builder.get_insert_block().unwrap();
+            let un = self
+                .context
+                .append_basic_block(self.current_function.unwrap(), "res_unmatched");
+            self.builder.position_at_end(un);
+            self.builder.build_unreachable().unwrap();
+            self.builder.position_at_end(saved);
+            un
+        };
+
+        let bool_ty = self.context.bool_type();
+        let mut case_pairs: Vec<(
+            inkwell::values::IntValue<'ctx>,
+            inkwell::basic_block::BasicBlock<'ctx>,
+        )> = Vec::new();
+
+        for (pat, body_id) in cases {
+            let body_bb = self.blocks.get(body_id).cloned().ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!("switch case block {} not found", body_id),
+                    "llvm",
+                )
+            })?;
+
+            match pat {
+                SemanticPattern::Ok { binding } => {
+                    let proxy = self.context.append_basic_block(
+                        self.current_function.unwrap(),
+                        &format!("ok_bind_{}", binding),
+                    );
+                    case_pairs.push((bool_ty.const_int(1, false), proxy));
+
+                    let saved = self.builder.get_insert_block().unwrap();
+                    self.builder.position_at_end(proxy);
+
+                    // Ok payload lives at struct field 1.
+                    let payload = self
+                        .builder
+                        .build_extract_value(sv, 1, "ok_payload")
+                        .unwrap();
+
+                    let binding_ptr = if let Some(p) = self.variables.get(binding).copied() {
+                        p
+                    } else {
+                        let alloca = self.create_entry_alloca(binding, &ok_ty);
+                        self.variables.insert(binding.clone(), alloca);
+                        self.var_types.insert(binding.clone(), ok_ty.clone());
+                        alloca
+                    };
+                    self.builder.build_store(binding_ptr, payload).unwrap();
+                    self.builder.build_unconditional_branch(body_bb).unwrap();
+
+                    self.builder.position_at_end(saved);
+                }
+                SemanticPattern::Error { binding } => {
+                    let proxy = self.context.append_basic_block(
+                        self.current_function.unwrap(),
+                        &format!("err_bind_{}", binding),
+                    );
+                    case_pairs.push((bool_ty.const_zero(), proxy));
+
+                    let saved = self.builder.get_insert_block().unwrap();
+                    self.builder.position_at_end(proxy);
+
+                    // Error payload lives at struct field 2.
+                    let payload = self
+                        .builder
+                        .build_extract_value(sv, 2, "err_payload")
+                        .unwrap();
+
+                    let binding_ptr = if let Some(p) = self.variables.get(binding).copied() {
+                        p
+                    } else {
+                        let alloca = self.create_entry_alloca(binding, &err_ty);
+                        self.variables.insert(binding.clone(), alloca);
+                        self.var_types.insert(binding.clone(), err_ty.clone());
+                        alloca
+                    };
+                    self.builder.build_store(binding_ptr, payload).unwrap();
+                    self.builder.build_unconditional_branch(body_bb).unwrap();
+
+                    self.builder.position_at_end(saved);
+                }
+                other => {
+                    return Err(CompileError::unsupported_operation(
+                        &format!("unexpected pattern in Result switch: {:?}", other),
                         "llvm",
                     ));
                 }

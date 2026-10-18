@@ -33,7 +33,44 @@ impl<'ctx> IRCodeGen<'ctx> {
 
         let result = match op {
             SemanticBinOp::Add => {
-                if left.is_int_value() && right.is_int_value() {
+                // ADR 0029 / string concatenation. `String + String`
+                // concatenates via the runtime helper that
+                // `String.concat` already lowers to. Both operands
+                // are `char*` at the LLVM level, so the int/float
+                // branches below would reject them with the
+                // "non-numeric operands" error. Dispatch here
+                // *before* the numeric path.
+                if left.is_pointer_value() && right.is_pointer_value() {
+                    let concat_fn = self
+                        .module
+                        .get_function("algol26_string_concat")
+                        .ok_or_else(|| {
+                            CompileError::simple(
+                                "codegen: algol26_string_concat not registered in stdlib \
+                                 (needed for `String + String`)",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            )
+                        })?;
+                    let concat_call = self
+                        .builder
+                        .build_call(concat_fn, &[left.into(), right.into()], "str_concat")
+                        .unwrap();
+                    match concat_call.try_as_basic_value() {
+                        inkwell::values::ValueKind::Basic(v) => v,
+                        inkwell::values::ValueKind::Instruction(_) => {
+                            return Err(CompileError::simple(
+                                "codegen: algol26_string_concat returned void",
+                                0,
+                                0,
+                                "",
+                                ErrorCode::E0009,
+                            ));
+                        }
+                    }
+                } else if left.is_int_value() && right.is_int_value() {
                     self.builder
                         .build_int_add(left.into_int_value(), right.into_int_value(), "add")
                         .unwrap()

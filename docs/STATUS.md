@@ -42,6 +42,22 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
 - **Not yet supported:** associated type bounds, associated type
   defaults, supertrait associated types, generic associated types.
 
+### Result and error handling (ADR 0030)
+
+- **`Result<T, E>`** — `Ok(v)` / `Error(e)` construct the tagged
+  union `{ i1 is_ok, T ok, E err }`. `match` on a `Result`
+  switches on the tag and extracts the payload into the arm's
+  binding. Both interpreter and LLVM support the construction
+  and matching.
+- **`try` / `catch`** — interpreter-only. LLVM has no lowering
+  for `try`/`catch`; programs using it are refused at the
+  capability boundary (`Feature::Result` covers both, but
+  `try`/`catch` is checked separately and currently only runs
+  through `--interpreter`).
+- **Not yet supported:** `?`-style propagation (not part of the
+  language), converting between `Result` and `Option` (both exist
+  but no builtin), LLVM lowering for `try`/`catch`.
+
 ### Sum types (ADR 0055)
 
 - **Union declarations.** `union Json { Null Num(Int) Str(String) }`
@@ -380,7 +396,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ✅ | 13 |
 | `match` (literal patterns) | ✅ | ✅ | ✅ | ✅ | — |
 | `match` (binding patterns) | ✅ | ✅ | ✅ | ✅ | 13 |
-| `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ⛔ | 14 |
+| `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ✅ | 14 |
 | `try` / `catch` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | Traits + impls | ✅ | ✅ | ✅ | ✅ | 28, 29, 37 |
 | `&dyn Trait` / `&mut dyn Trait` | ✅ | ✅ | ✅ | ✅ | — |

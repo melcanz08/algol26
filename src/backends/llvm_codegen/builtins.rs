@@ -84,6 +84,24 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_strlen_utf8".to_string(), utf8_len_fn);
 
+        // ── algol26_string_to_int ──
+        // Strict i64 parser matching the interpreter's
+        // `str::parse::<i64>()`. Returns 1 on success (value
+        // written through the out-pointer), 0 on parse failure.
+        // Same out-pointer convention as algol26_map_get_int.
+        // See runtime/string.c for the contract.
+        //
+        //   int32_t algol26_string_to_int(const char *s, int64_t *out)
+        let s2i_ty = self
+            .context
+            .i32_type()
+            .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+        let s2i_fn = self
+            .module
+            .add_function("algol26_string_to_int", s2i_ty, None);
+        self.functions
+            .insert("algol26_string_to_int".to_string(), s2i_fn);
+
         // ── algol26_string_concat ──
         // Allocates strlen(a)+strlen(b)+1 bytes, copies both strings
         // into the buffer, NUL-terminates. Used by `String.concat`.
@@ -1096,6 +1114,96 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ErrorCode::E0009,
                     )),
                 }
+            }
+            "String.to_int" => {
+                // Strict i64 parser. The C runtime (runtime/string.c)
+                // returns 1 on success with the value written through
+                // an out-pointer, 0 on parse failure. The 0/1 becomes
+                // an i1 tag, packed with the i64 payload into the
+                // { i1, i64 } Option<Int> struct — same shape as the
+                // Map.get lowering above. The interpreter's
+                // `str::parse::<i64>()` is the contract: no
+                // whitespace, no trailing garbage, no overflow.
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "String.to_int expects exactly 1 argument, got {}",
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s_val = self.compile_value(&args[0])?;
+                if !s_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.to_int argument did not lower to a pointer",
+                        "llvm",
+                    ));
+                }
+                let to_int_fn = self
+                    .module
+                    .get_function("algol26_string_to_int")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c is not linked — \
+                             algol26_string_to_int missing",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let out_slot = self.create_entry_alloca("__s2i_out", &Type::Int);
+                let call = self
+                    .builder
+                    .build_call(to_int_fn, &[s_val.into(), out_slot.into()], "")
+                    .unwrap();
+                let ok_i32 = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_string_to_int returned void",
+                            "llvm",
+                        ));
+                    }
+                };
+                let ok_bool = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::NE,
+                        ok_i32,
+                        self.context.i32_type().const_zero(),
+                        "s2i_ok",
+                    )
+                    .unwrap();
+                let opt_ty = match self.map_type(&Type::option(Type::Int)) {
+                    inkwell::types::BasicTypeEnum::StructType(s) => s,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "Option<Int> did not map to a struct",
+                            "llvm",
+                        ));
+                    }
+                };
+                let loaded = self
+                    .builder
+                    .build_load(self.context.i64_type(), out_slot, "s2i_val")
+                    .unwrap();
+                let undef = opt_ty.get_undef();
+                let with_tag = self
+                    .builder
+                    .build_insert_value(undef, ok_bool, 0, "s2i_tag")
+                    .unwrap()
+                    .into_struct_value();
+                let with_payload = self
+                    .builder
+                    .build_insert_value(with_tag, loaded, 1, "s2i_payload")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((with_payload.into(), Type::option(Type::Int)))
             }
             "Int.to_string" => {
                 let arg = args.first().ok_or_else(|| {

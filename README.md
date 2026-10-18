@@ -108,10 +108,12 @@ proc main
 >   Run a WASM build with `runtime/wasm/run.sh <file.gol>`.
 >
 > Several features are interpreter-only in the current version —
-> `Map<K, V>`, `Result` with `try`/`catch`, most `String.*` conversions,
-> and **union types** among them. LLVM and WASM refuse these at the
-> capability boundary and print an `E0002` error suggesting
-> `--interpreter`. The matrix below is the authoritative list.
+> `String.trim`/`.split`/`.join`, `File.*`, `args()`, `Result` with
+> `try`/`catch`, and **union types** among them. LLVM and WASM refuse
+> these at the capability boundary and print an `E0002` error
+> suggesting `--interpreter`. The matrix below is the authoritative
+> list. (`Map<K, V>` and `String.to_int` are no longer on this list —
+> both work on LLVM as of ADR 0027 and the `String.to_int` lowering.)
 >
 > `rec` records, `Option<T>`, and `List.append` are **not** on this
 > list — all three work natively on LLVM and WASM.
@@ -171,16 +173,18 @@ Plus `--timing` for per-phase compile durations, on the LLVM path:
 
 These are verified gaps in the current version.
 
-- **Chained method calls on field accesses fail on LLVM.**
-  `x.field.method()` and `a.b.c.method()` parse and run on the
-  interpreter, but LLVM codegen emits malformed IR for the field-
-  access receiver shape and fails with an `E0002` "Call parameter
-  type" error. Workaround: bind the field to a local first
-  (`val tmp := x.field; tmp.method()`). Index-receiver and
-  method-then-field chains (`arr[0].method()`, `x.m().field`) work
-  on both backends. The parser is not the problem — the README
-  previously described this as a parse limitation, which was
-  stale.
+- **~~Inherent impls on primitive types are not dispatched.~~**
+  Fixed. `p.x.inc()` and `x.inc()` both work on the interpreter
+  and LLVM. The defect was two analyzer method-resolution arms
+  (`MethodCall`, `FunctionCall`) whose inherent-method tiers
+  omitted the `{Base}_{method}` lookup the builder's
+  `resolve_method_call` already performed; both now match the
+  builder. **Still open:** `<literal>.method()` — e.g. `5.inc()`
+  or `"abc".to_upper()` — parses the dot-adjacent literal as a
+  separate argument to the enclosing call
+  (`to_string(5, inc())`), an argument-list parse bug independent
+  of method resolution. Bind the literal first
+  (`val n := 5; n.inc()`).
 - **Nested `import` inside a `procedure` works; top-level imports
   work; imported files' own imports are followed recursively.**
   Only circular imports are rejected.

@@ -1,0 +1,29 @@
+// String.to_int on LLVM: strict i64 parser. Must match the
+// interpreter's `str::parse::<i64>()` exactly (no whitespace,
+// no trailing garbage, no overflow). Differential pin:
+// interpreter and LLVM must produce identical output.
+//
+// runtime/string.c + compile_builtin_value arm + capability flip.
+
+// OUTPUT: 43
+// OUTPUT: not a number
+// OUTPUT: not a number
+// OUTPUT: not a number
+// OUTPUT: -9223372036854775808
+
+proc main
+    match String.to_int("42")
+        case Some(n) then print(Int.to_string(n + 1))
+        case None then print("not a number")
+    match String.to_int("abc")
+        case Some(n) then print(Int.to_string(n))
+        case None then print("not a number")
+    match String.to_int(" 42")
+        case Some(n) then print(Int.to_string(n))
+        case None then print("not a number")
+    match String.to_int("9223372036854775808")
+        case Some(n) then print(Int.to_string(n))
+        case None then print("not a number")
+    match String.to_int("-9223372036854775808")
+        case Some(n) then print(Int.to_string(n))
+        case None then print("not a number")

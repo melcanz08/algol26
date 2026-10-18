@@ -208,6 +208,8 @@ impl BackendCapabilities {
         supported.insert(Feature::References);
         supported.insert(Feature::Records);
         supported.insert(Feature::IntToString);
+        // String.to_int: strict i64 parser (runtime/string.c).
+        supported.insert(Feature::StringToInt);
         supported.insert(Feature::StringOps);
         supported.insert(Feature::Option);
         // By-value record parameters and returns use the LLVM

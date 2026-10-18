@@ -51,6 +51,27 @@ pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> 
         ));
     }
     cmd.arg(&map_runtime);
+
+    // runtime/string.c — String.to_int (strict i64 parser) and
+    // future string runtime helpers. Same pattern as map_runtime:
+    // fail closed if missing, since a program that reaches a
+    // string-runtime call must have one to call.
+    let string_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("runtime")
+        .join("string.c");
+    if !string_runtime.exists() {
+        return Err(CompileError::simple(
+            &format!(
+                "runtime/string.c not found at {} — required for String.to_int lowering",
+                string_runtime.display()
+            ),
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
+        ));
+    }
+    cmd.arg(&string_runtime);
     // Each extern declaration that used `from "lib"` becomes a
     // `-l<lib>` flag. The linker searches the standard library
     // paths plus anything the user added to LIBRARY_PATH.

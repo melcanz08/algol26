@@ -835,8 +835,7 @@ fn interpreter_accepts_conversions() {
 #[test]
 fn llvm_accepts_int_to_string() {
     // ADR 00XX: LLVM lowers Int.to_string via sprintf into a
-    // stack buffer. The other direction, String.to_int, still
-    // returns Option<Int> and stays refused.
+    // stack buffer.
     let program = program_with(
         Instruction::Print {
             value: TypedIRValue::Call {
@@ -849,6 +848,27 @@ fn llvm_accepts_int_to_string() {
     );
     check_backend(&program, &BackendCapabilities::llvm())
         .expect("LLVM should accept Int.to_string");
+}
+
+#[test]
+fn llvm_accepts_string_to_int() {
+    // Symmetric pin for the flip: LLVM lowers String.to_int via
+    // runtime/string.c (strict i64 parser matching the
+    // interpreter's `str::parse::<i64>()`). If Feature::StringToInt
+    // is ever removed from `BackendCapabilities::llvm().supported`,
+    // this test fails and points at the regression.
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "String.to_int".to_string(),
+                args: vec![TypedIRValue::String("42".to_string())],
+                return_type: Type::option(Type::Int),
+            },
+        },
+        simple_return(),
+    );
+    check_backend(&program, &BackendCapabilities::llvm())
+        .expect("LLVM should accept String.to_int");
 }
 
 #[test]

@@ -213,12 +213,13 @@ Five conversion and string-manipulation builtins landed.
   buffer) and works on both native backends.
 - `String.to_upper` / `.to_lower` / `.concat` / `.substring` have
   LLVM lowerings and work on both native backends.
-- `String.to_int`, `String.trim`, `String.split`, and `String.join`
-  are interpreter-only. `String.to_int` returns `Option<Int>` and
-  is refused at the capability check; `String.trim` / `.split` /
-  `.join` are refused (the first two because `Feature::StringSplit`
-  is not in the LLVM capability set, the last because it has no
-  codegen arm — see "Known Gaps" below).
+- `String.to_int` has an LLVM lowering (`runtime/string.c`, strict
+  i64 parser matching the interpreter's `str::parse::<i64>()`) and
+  works on both native backends.
+- `String.trim`, `String.split`, and `String.join` are
+  interpreter-only. `String.trim` / `.split` are refused because
+  `Feature::StringSplit` is not in the LLVM capability set; `String.join`
+  has no codegen arm — see "Known Gaps" below.
 
 | Builtin | Signature | Commit |
 |---------|-----------|--------|
@@ -390,7 +391,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.trim` / `.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
 | `Int.to_string` | ✅ | ✅ | ✅ | ✅ | — |
-| `String.to_int` | ✅ | ✅ | ✅ | ⛔ | — |
+| `String.to_int` | ✅ | ✅ | ✅ | ✅ | — |
 | `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ⛔ | — |
 | `Math.*` | ✅ | ✅ | ✅ | ✅ | — |
 | `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ✅ | 13 |

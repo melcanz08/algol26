@@ -805,6 +805,53 @@ impl Interpreter {
                 let end = start.saturating_add(length).min(chars.len());
                 Ok(RuntimeValue::String(chars[start..end].iter().collect()))
             }
+            "String.charAt" => {
+                // Option<String>: Some(1-codepoint string) for a valid
+                // index, None for out-of-range (negative or >= count).
+                // Codepoint-indexed (chars().nth), matching the
+                // interpreter's own String.length and String.substring.
+                // runtime/string.c's algol26_string_char_at is the
+                // LLVM-side implementation of the same contract.
+                let s = match arg_vals.first() {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.charAt",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.charAt: missing string argument".into(),
+                        ))
+                    }
+                };
+                let i = match arg_vals.get(1) {
+                    Some(RuntimeValue::Int(i)) => *i,
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.charAt.index",
+                            left: runtime_kind(other),
+                            right: "Int",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.charAt: missing index argument".into(),
+                        ))
+                    }
+                };
+                if i < 0 {
+                    return Ok(RuntimeValue::Option(None));
+                }
+                match s.chars().nth(i as usize) {
+                    Some(c) => Ok(RuntimeValue::Option(Some(Box::new(
+                        RuntimeValue::String(c.to_string()),
+                    )))),
+                    None => Ok(RuntimeValue::Option(None)),
+                }
+            }
             "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp" | "Math.log"
             | "Math.floor" | "Math.ceil" | "Math.abs" => {
                 let x = match arg_vals.first() {

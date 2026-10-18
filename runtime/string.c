@@ -111,3 +111,44 @@ char *algol26_string_substring(const char *s, int64_t start, int64_t length) {
     return buf;
 }
 
+// ── algol26_string_char_at(s, i) ──
+//
+// Returns a 1-codepoint string for the i-th codepoint of s, or NULL
+// if i is out of range (negative, or >= the codepoint count). The
+// LLVM codegen arm wraps the result in Option<String>.
+//
+// Codepoint-indexed, like algol26_string_substring and
+// algol26_strlen_utf8. Matches the interpreter's
+// `s.chars().nth(i as usize)`.
+//
+// Distinct from substring(s, i, 1): substring CLAMPS — an out-of-
+// range start returns "" (non-NULL). charAt must return NULL so
+// the caller's Option is None, not Some(""). Hence the explicit
+// walker here rather than a delegation.
+char *algol26_string_char_at(const char *s, int64_t i) {
+    if (s == NULL || i < 0) return NULL;
+
+    // Walk to the i-th codepoint.
+    const char *p = s;
+    int64_t cp = 0;
+    while (*p != '\0' && cp < i) {
+        p++;
+        while ((*p & 0xC0) == 0x80) p++;
+        cp++;
+    }
+
+    // If we ran out of string before reaching i, i is past the end.
+    if (*p == '\0') return NULL;
+
+    // The codepoint at p is one lead byte plus any continuation bytes.
+    const char *q = p + 1;
+    while ((*q & 0xC0) == 0x80) q++;
+    size_t nbytes = (size_t)(q - p);
+
+    char *buf = (char *)malloc(nbytes + 1);
+    if (buf == NULL) return NULL;
+    memcpy(buf, p, nbytes);
+    buf[nbytes] = '\0';
+    return buf;
+}
+

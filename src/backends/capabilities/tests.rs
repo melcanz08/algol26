@@ -911,6 +911,29 @@ fn llvm_accepts_file_write() {
 }
 
 #[test]
+fn llvm_accepts_string_char_at() {
+    // Symmetric pin: String.charAt classifies as StringOps, which
+    // is in llvm().supported. If either classification changes,
+    // this test fails.
+    use crate::ir::semantic_ir::Instruction;
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "String.charAt".to_string(),
+                args: vec![
+                    TypedIRValue::String("hello".to_string()),
+                    TypedIRValue::Int(0),
+                ],
+                return_type: Type::option(Type::String),
+            },
+        },
+        simple_return(),
+    );
+    check_backend(&program, &BackendCapabilities::llvm())
+        .expect("LLVM should accept String.charAt");
+}
+
+#[test]
 fn wasm_rejects_conversions() {
     let program = program_with(
         Instruction::Print {

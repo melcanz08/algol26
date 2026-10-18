@@ -84,6 +84,11 @@ pub fn builtins() -> Vec<BuiltinSig> {
         return_type: Type::String,
     });
     v.push(BuiltinSig {
+        name: "String.charAt",
+        params: vec![("s", Type::String), ("i", Type::Int)],
+        return_type: Type::option(Type::String),
+    });
+    v.push(BuiltinSig {
         name: "String.to_upper",
         params: vec![("s", Type::String)],
         return_type: Type::String,

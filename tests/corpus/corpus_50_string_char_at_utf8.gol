@@ -1,0 +1,29 @@
+// String.charAt returns Option<String>, codepoint-indexed.
+// Valid index -> Some(1-codepoint string); out-of-range -> None.
+// Pins the { i1 is_some, i8* payload } tag direction (a bug where
+// the tag was inverted — is_null instead of is_not_null — sent all
+// valid indices to the None arm). Also pins codepoint indexing:
+// "héllo" index 1 must be "é" (2 bytes), not byte 1 or byte 2.
+
+// OUTPUT: h
+// OUTPUT: é
+// OUTPUT: l
+// OUTPUT: none
+// OUTPUT: none
+
+proc main
+    match String.charAt("héllo", 0)
+        case Some(c) then print(c)
+        case None then print("none")
+    match String.charAt("héllo", 1)
+        case Some(c) then print(c)
+        case None then print("none")
+    match String.charAt("héllo", 2)
+        case Some(c) then print(c)
+        case None then print("none")
+    match String.charAt("héllo", 5)
+        case Some(c) then print(c)
+        case None then print("none")
+    match String.charAt("héllo", -1)
+        case Some(c) then print(c)
+        case None then print("none")

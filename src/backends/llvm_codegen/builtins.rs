@@ -506,6 +506,18 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_string_substring".to_string(), sub_fn);
 
+        // ── algol26_string_char_at ──
+        // Returns a 1-codepoint string for the i-th codepoint, or
+        // NULL if i is out of range. Body lives in runtime/string.c;
+        // codepoint-indexed like substring and strlen_utf8. The
+        // codegen arm wraps NULL/non-NULL into Option<String>.
+        let char_at_ty = i8_ptr.fn_type(&[i8_ptr.into(), i64_loc.into()], false);
+        let char_at_fn = self
+            .module
+            .add_function("algol26_string_char_at", char_at_ty, None);
+        self.functions
+            .insert("algol26_string_char_at".to_string(), char_at_fn);
+
         let i64_ty = self.context.i64_type();
         let i8_ty = self.context.i8_type();
 
@@ -950,6 +962,94 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ErrorCode::E0009,
                     )),
                 }
+            }
+            "String.charAt" => {
+                // Option<String>: { i1 has_value, i8* char }.
+                // runtime/string.c's algol26_string_char_at returns
+                // NULL for out-of-range (negative or >= codepoint
+                // count) — NOT the clamped "" that substring gives
+                // — so is_null is the correct tag source.
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "String.charAt expects exactly 2 arguments (s, i), got {}",
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s_val = self.compile_value(&args[0])?;
+                let i_val = self.compile_value(&args[1])?;
+                if !s_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.charAt: first argument did not lower to a pointer",
+                        "llvm",
+                    ));
+                }
+                if !i_val.is_int_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.charAt: second argument did not lower to an integer",
+                        "llvm",
+                    ));
+                }
+                let char_at_fn = self
+                    .module
+                    .get_function("algol26_string_char_at")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c not linked (algol26_string_char_at missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self
+                    .builder
+                    .build_call(char_at_fn, &[s_val.into(), i_val.into()], "char_at")
+                    .unwrap();
+                let ptr = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_string_char_at returned void",
+                            "llvm",
+                        ));
+                    }
+                };
+                // The Option tag convention is { i1 is_some, T payload }
+                // — 1 means Some. `charAt` returns a non-NULL pointer
+                // for valid indices, so the tag is "is_not_null", NOT
+                // "is_null". Using is_null here inverted the match,
+                // sending valid indices to the None arm.
+                let is_some = self
+                    .builder
+                    .build_is_not_null(ptr, "char_at_some")
+                    .unwrap();
+                let opt_ty = match self.map_type(&Type::option(Type::String)) {
+                    inkwell::types::BasicTypeEnum::StructType(s) => s,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "Option<String> did not map to a struct",
+                            "llvm",
+                        ));
+                    }
+                };
+                let undef = opt_ty.get_undef();
+                let with_tag = self
+                    .builder
+                    .build_insert_value(undef, is_some, 0, "char_at_tag")
+                    .unwrap()
+                    .into_struct_value();
+                let with_payload = self
+                    .builder
+                    .build_insert_value(with_tag, ptr, 1, "char_at_payload")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((with_payload.into(), Type::option(Type::String)))
             }
             "String.substring" => {
                 if args.len() != 3 {

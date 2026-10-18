@@ -368,7 +368,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | Lists + indexing | ✅ | ✅ | ✅ | ✅ | 01, 07, 15 |
 | `List.length` / `List.sum` | ✅ | ✅ | ✅ | ✅ | 07, 15 |
 | `List.append(x)` | ✅ | ✅ | ✅ | ✅ | — |
-| `Map<K, V>` | ✅ | ✅ | ✅ | ⛔ | — |
+| `Map<K, V>` | ✅ | ✅ | ✅ | ✅ | — |
 | Strings | ✅ | ✅ | ✅ | ✅ | 08, 15 |
 | `String.length` | ✅ | ✅ | ✅ | ✅ | 08 |
 | `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ✅ | — |
@@ -520,6 +520,18 @@ Open (not fixed):
   `data/parser.gol` reported a location in `sales.gol`.
 
 ### LLVM backend gaps (interpreter works)
+
+- **`Map<K, V>` v1 partial lowering.** ADR 0027 v1 lowers only
+  `Map<Int, Int>` on LLVM (via `runtime/map.c`, an int-keyed
+  open-addressing hash table). Other key/value combinations
+  (`Map<String, Int>`, `Map<Int, String>`, etc.) are refused at
+  codegen with `E0004 "only Map<Int, Int> is supported in v1"`.
+  `Map.keys` and `Map.values` are also unimplemented (they return
+  `List<K>` / `List<V>`, needing a list-descriptor builder).
+  Workaround: run through `--interpreter`. Next step: extend
+  `runtime/map.c` with `_str` key and value variants, plus
+  `keys` / `values` returning `List`. Full dynamic growth is
+  already implemented (load factor 2×).
 
 - **`String.join` codegen.** The builtin is accepted by the
   capability check but has no `compile_builtin_value` arm in the

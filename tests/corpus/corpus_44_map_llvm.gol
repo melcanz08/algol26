@@ -1,0 +1,30 @@
+// Map<Int, Int> on LLVM. ADR 0027 v1: the runtime (runtime/map.c)
+// supports Int keys and Int values only. This pins the end-to-end
+// behavior of the six fully-lowered methods:
+//   .insert, .get, .contains, .length  (working)
+//   .keys, .values                     (refused — see known gap)
+// OUTPUT: 2
+// OUTPUT: 42
+// OUTPUT: none
+// OUTPUT: has 2
+// OUTPUT: no 99
+
+proc main
+    var m: Map<Int, Int> := Map {}
+    m.insert(1, 42)
+    m.insert(2, 99)
+    print(Int.to_string(m.length()))
+    match m.get(1)
+        case Some(v) then print(Int.to_string(v))
+        case None then print("none")
+    match m.get(99)
+        case Some(v) then print(Int.to_string(v))
+        case None then print("none")
+    if m.contains(2) then
+        print("has 2")
+    else
+        print("no 2")
+    if m.contains(99) then
+        print("has 99")
+    else
+        print("no 99")

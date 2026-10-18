@@ -822,22 +822,24 @@ fn wasm_rejects_conversions() {
 }
 
 #[test]
-fn llvm_rejects_map_method_calls_without_literal() {
-    // No `Map { ... }` literal in the source; the only Map usage
-    // is a method call on a map-typed variable. Before the scan
-    // fix, `Feature::Map` would not fire and LLVM would accept
-    // this program, then panic in codegen.
+fn llvm_accepts_map_int_int_method_calls() {
+    // ADR 0027 v1. `Map<Int, Int>` (and its methods) now has a
+    // working LLVM lowering via `runtime/map.c`. The capability
+    // accepts it; non-Int/Int shapes are refused at *codegen*
+    // time with a targeted "only Map<Int, Int>" error (verified
+    // in the corpus and by manual testing of Map<String, Int>).
     const SOURCE: &str = r#"
-fn get_first(m: Map<String, Int>) -> Option<Int>
-    m.get("first")
+fn get_first(m: Map<Int, Int>) -> Option<Int>
+    m.get(1)
 proc main
     print("x")
 "#;
     let program = build_ir(SOURCE);
     let result = super::check_backend(&program, &super::BackendCapabilities::llvm());
     assert!(
-        result.is_err(),
-        "LLVM should refuse Map methods even without a literal"
+        result.is_ok(),
+        "LLVM should accept Map<Int, Int> after v1 lowering; got: {:?}",
+        result.err()
     );
 }
 

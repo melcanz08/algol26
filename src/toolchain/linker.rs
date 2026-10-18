@@ -30,6 +30,27 @@ pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> 
         .arg("-O2")
         .arg("-lm")
         .arg("-lpthread");
+
+    // ADR 0027. The LLVM backend lowers `Map<K, V>` by calling into
+    // a small C runtime. Compile it inline here (clang handles mixed
+    // .ll + .c input). Fails closed if the runtime is missing — the
+    // capability claims that use Map must have a runtime to call.
+    let map_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("runtime")
+        .join("map.c");
+    if !map_runtime.exists() {
+        return Err(CompileError::simple(
+            &format!(
+                "runtime/map.c not found at {} — required for Map<K, V> lowering",
+                map_runtime.display()
+            ),
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
+        ));
+    }
+    cmd.arg(&map_runtime);
     // Each extern declaration that used `from "lib"` becomes a
     // `-l<lib>` flag. The linker searches the standard library
     // paths plus anything the user added to LIBRARY_PATH.

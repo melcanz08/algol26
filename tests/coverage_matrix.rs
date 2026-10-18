@@ -496,17 +496,20 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "map",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
+        llvm: Support::Partial,
         wasm: Support::Refused,
-        refusal_tests: &[
-            "llvm_rejects_map_method_calls_without_literal",
-            "wasm_rejects_maps",
-        ],
+        refusal_tests: &["wasm_rejects_maps"],
         notes: "No conformance fixture yet. `Map<K, V>` is interpreter-only \
-                (ADR 0027). LLVM and WASM refuse at the capability check \
-                (`Feature::Map`). LLVM refusal is pinned by \
-                `llvm_rejects_map_method_calls_without_literal`; WASM refusal \
-                is untested but follows from WASM's empty supported set.",
+                in full; ADR 0027 v1 lowers `Map<Int, Int>` on LLVM via \
+                `runtime/map.c` (insert/get/contains/length working; \
+                keys/values and non-Int key/value shapes refused at \
+                codegen). WASM still refuses all Map programs at the \
+                capability check (`Feature::Map` not in `wasm().supported`), \
+                pinned by `wasm_rejects_maps`. The prior \
+                `llvm_rejects_map_method_calls_without_literal` test was \
+                rewritten to `llvm_accepts_map_int_int_method_calls` \
+                (asserting acceptance, since Map is now supported for \
+                Int/Int).",
     },
     FeatureRow {
         name: "list_append",

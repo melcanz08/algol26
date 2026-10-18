@@ -541,11 +541,88 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let _ = rec_decl;
                 alloca.into()
             }
-            TypedIRValue::Map { .. } => {
-                unreachable!(
-                    "LLVM codegen reached TypedIRValue::Map — \
-                     maps should have been refused by check_backend"
-                );
+            TypedIRValue::Map {
+                entries, map_type, ..
+            } => {
+                // ADR 0027. `Map {}` / `Map { k: v, ... }` lowers to:
+                //   1. Allocate an AlgoIntMap via the runtime.
+                //   2. For each entry, call algol26_map_insert_int.
+                //   3. Return the map pointer.
+                //
+                // v1 supports only `Map<Int, Int>`: any other key or
+                // value type is refused here. The capability matrix
+                // still refuses ALL Map<K,V> (Feature::Map is not in
+                // llvm().supported), so this arm is unreachable until
+                // a future commit flips the capability. The v1 scope
+                // limitation is enforced here so a premature flip
+                // fails loudly.
+                let Type::Map(key_ty, value_ty) = map_type else {
+                    unreachable!("TypedIRValue::Map has non-Map map_type");
+                };
+                if !matches!(**key_ty, Type::Int) || !matches!(**value_ty, Type::Int) {
+                    return Err(CompileError::unsupported_operation(
+                        &format!(
+                            "Map<{}, {}> is not yet lowered by the LLVM backend; \
+                             only Map<Int, Int> is supported in v1",
+                            key_ty, value_ty
+                        ),
+                        "llvm",
+                    ));
+                }
+
+                let new_fn = self
+                    .module
+                    .get_function("algol26_map_new_int")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/map.c is not linked — algol26_map_new_int missing",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let insert_fn = self
+                    .module
+                    .get_function("algol26_map_insert_int")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/map.c is not linked — algol26_map_insert_int missing",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+
+                // Capacity: 16 as a starting heuristic. Real growth
+                // would need a resize helper; v1 refuses to exceed
+                // capacity via the runtime's silent-overflow guard
+                // (currently the runtime assumes capacity never
+                // overflows — see runtime/map.c).
+                let cap = self.context.i64_type().const_int(16, false);
+                let new_call = self
+                    .builder
+                    .build_call(new_fn, &[cap.into()], "map_new")
+                    .unwrap();
+                let map_ptr = match new_call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v,
+                    inkwell::values::ValueKind::Instruction(_) => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_map_new_int returned void (should return ptr)",
+                            "llvm",
+                        ));
+                    }
+                };
+
+                for (k, v) in entries {
+                    let key = self.compile_value(k)?;
+                    let val = self.compile_value(v)?;
+                    self.builder
+                        .build_call(insert_fn, &[map_ptr.into(), key.into(), val.into()], "")
+                        .unwrap();
+                }
+                map_ptr
             }
             TypedIRValue::Variable(name, _) => {
                 // ALGOL26: UNDEFINED VARIABLE IS AN ERROR, not 0.0!

@@ -225,6 +225,11 @@ impl BackendCapabilities {
         // exists, and reallocs when full. Descriptor mutation via
         // the shared alloca propagates to the caller.
         supported.insert(Feature::ListAppend);
+        // ADR 0027 v1. Map<Int, Int> now has a working LLVM
+        // lowering (runtime/map.c + builtins in llvm_codegen).
+        // Other key/value combinations are refused at codegen
+        // with a targeted error, not at the capability boundary.
+        supported.insert(Feature::Map);
         BackendCapabilities {
             name: "LLVM",
             supported,

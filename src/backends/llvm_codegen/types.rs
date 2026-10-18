@@ -235,14 +235,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .into()
             }
             Type::Map(..) => {
-                // Maps are refused by the capability check (`Feature::Map` is
-                // not in `BackendCapabilities::llvm()`), so this arm should
-                // never be reached. If it is, the capability matrix got out
-                // of sync with the IR.
-                unreachable!(
-                    "LLVM codegen reached Type::Map — \
-                     maps should have been refused by check_backend"
-                );
+                // ADR 0027. A Map's runtime value is an opaque
+                // `AlgoIntMap*` (see runtime/map.c). The key and value
+                // types are compile-time properties used by the
+                // builtins; the LLVM representation is just `ptr`.
+                //
+                // Feature::Map is still NOT in
+                // BackendCapabilities::llvm() — the capability check
+                // continues to refuse Map<K,V> programs until the
+                // partial lowering here handles all key/value
+                // combinations. This arm exists so that a future
+                // capability flip doesn't require regenerating
+                // codegen; it is unreachable today.
+                self.context.ptr_type(AddressSpace::default()).into()
             }
             // LLVM uses opaque pointers, so every pointer-like type
             // maps to the same LLVM `ptr`. The inner type is preserved

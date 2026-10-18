@@ -228,6 +228,10 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.ffi_symbols = program.ffi_symbols.clone();
         self.variadic_functions = program.variadic_functions.clone();
         self.register_stdlib();
+        // ADR 0027. Declare the Map<K, V> runtime functions
+        // (runtime/map.c) so codegen can find them. v1 supports
+        // only Map<Int, Int>; the declarations are int-keyed.
+        self.register_map_runtime();
         for func in &program.functions {
             self.declare_function(func)?;
         }
@@ -303,6 +307,53 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
 
         Ok(())
+    }
+
+    /// ADR 0027. Declare the Map<K, V> runtime functions from
+    /// `runtime/map.c`. These are external symbols resolved by the
+    /// linker; the declarations give LLVM IR something to call.
+    ///
+    /// v1 supports `Map<Int, Int>` only, so the declarations use
+    /// `i64` for keys and values. A future session adding `String`
+    /// keys or record values would add `_str` / other variants.
+    fn register_map_runtime(&mut self) {
+        let i64_ty = self.context.i64_type();
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+
+        // AlgoIntMap *algol26_map_new_int(int64_t capacity)
+        let new_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+        let new_fn = self
+            .module
+            .add_function("algol26_map_new_int", new_ty, None);
+
+        // void algol26_map_insert_int(AlgoIntMap *m, int64_t k, int64_t v)
+        let insert_ty = self
+            .context
+            .void_type()
+            .fn_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+        self.module
+            .add_function("algol26_map_insert_int", insert_ty, None);
+
+        // int algol26_map_get_int(AlgoIntMap *m, int64_t k, int64_t *out)
+        let i32_ty = self.context.i32_type();
+        let get_ty = i32_ty.fn_type(&[ptr_ty.into(), i64_ty.into(), ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_get_int", get_ty, None);
+
+        // int algol26_map_contains_int(AlgoIntMap *m, int64_t k)
+        let contains_ty = i32_ty.fn_type(&[ptr_ty.into(), i64_ty.into()], false);
+        self.module
+            .add_function("algol26_map_contains_int", contains_ty, None);
+
+        // int64_t algol26_map_length_int(AlgoIntMap *m)
+        let length_ty = i64_ty.fn_type(&[ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_length_int", length_ty, None);
+
+        // Keep a handle to the constructor so codegen avoids
+        // re-looking it up on every literal.
+        self.functions
+            .insert("algol26_map_new_int".to_string(), new_fn);
     }
 
     fn declare_function(&mut self, func: &SemanticFunction) -> Result<()> {

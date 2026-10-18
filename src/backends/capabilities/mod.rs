@@ -205,6 +205,9 @@ impl BackendCapabilities {
         let mut supported = HashSet::new();
         supported.insert(Feature::Ffi);
         supported.insert(Feature::RawMemory);
+        // File.*: runtime/file.c (read returns String, write/append
+        // return byte count; errors abort via printf + exit(1)).
+        supported.insert(Feature::FileFunctions);
         supported.insert(Feature::References);
         supported.insert(Feature::Records);
         supported.insert(Feature::IntToString);

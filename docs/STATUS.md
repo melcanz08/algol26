@@ -220,6 +220,10 @@ Five conversion and string-manipulation builtins landed.
   interpreter-only. `String.trim` / `.split` are refused because
   `Feature::StringSplit` is not in the LLVM capability set; `String.join`
   has no codegen arm — see "Known Gaps" below.
+- `File.read` / `.write` / `.append` work on both native backends
+  via `runtime/file.c`. Signatures match the interpreter: read
+  returns `String`, write/append return the byte count as `Int`.
+  See "Known Gaps" for the UTF-8 divergence below.
 
 | Builtin | Signature | Commit |
 |---------|-----------|--------|
@@ -392,7 +396,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `String.trim` / `.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
 | `Int.to_string` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.to_int` | ✅ | ✅ | ✅ | ✅ | — |
-| `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ⛔ | — |
+| `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ✅ | — |
 | `Math.*` | ✅ | ✅ | ✅ | ✅ | — |
 | `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ✅ | 13 |
 | `match` (literal patterns) | ✅ | ✅ | ✅ | ✅ | — |
@@ -438,6 +442,22 @@ implementation that returns a `String` is fine; one that
 constructs a record would be refused because records are refused.
 
 ## Known Gaps
+
+### `File.read` UTF-8 validation
+
+The interpreter uses `std::fs::read_to_string`, which rejects
+invalid UTF-8 with an error. LLVM's `File.read` (via `runtime/file.c`)
+is byte-transparent — it returns whatever bytes are in the file
+without validating. Reading a binary file or a file with malformed
+UTF-8 succeeds on LLVM and aborts on the interpreter.
+
+This is a deliberate v1 simplification. A UTF-8 validator in C
+(~40 lines, rejecting overlong encodings, surrogates, and
+truncated sequences) would close the gap; it's tracked as a
+follow-up. Programs that read only well-formed UTF-8 (source files,
+configuration, generated data) see identical behavior on both
+backends.
+
 
 Gaps are documented by `tests/corpus/*.gol` programs marked
 `// KNOWN_FAILURE:` or `// BACKEND: interpreter`, or by capability

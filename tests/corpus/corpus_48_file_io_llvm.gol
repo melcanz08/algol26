@@ -1,0 +1,25 @@
+// File.read / .write / .append on LLVM (runtime/file.c).
+//
+// Signatures match the interpreter exactly: write/append return
+// the byte count as Int, read returns String. Errors abort via
+// printf + exit(1) — not tested here because the corpus harness
+// compares stdout only and an abort would show as a mismatch on
+// subsequent lines. Error-path behavior is verified manually in
+// the "Known Gaps" section of docs/STATUS.md.
+//
+// Uses /tmp paths so both backends write to the same location and
+// the read-back sees what was just written.
+
+// OUTPUT: 12
+// OUTPUT: 12
+// OUTPUT: hello, file
+// OUTPUT: second line
+// OUTPUT:
+
+proc main
+    val n := File.write("/tmp/algol26_corpus48.txt", "hello, file\n")
+    print(Int.to_string(n))
+    val m := File.append("/tmp/algol26_corpus48.txt", "second line\n")
+    print(Int.to_string(m))
+    val content := File.read("/tmp/algol26_corpus48.txt")
+    print(content)

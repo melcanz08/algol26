@@ -872,6 +872,45 @@ fn llvm_accepts_string_to_int() {
 }
 
 #[test]
+fn llvm_accepts_file_io() {
+    // Symmetric pin for the File.* flip: LLVM lowers File.read /
+    // .write / .append via runtime/file.c. If Feature::FileFunctions
+    // is ever removed from BackendCapabilities::llvm().supported,
+    // this test fails.
+    use crate::ir::semantic_ir::Instruction;
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "File.read".to_string(),
+                args: vec![TypedIRValue::String("/tmp/x".to_string())],
+                return_type: Type::String,
+            },
+        },
+        simple_return(),
+    );
+    check_backend(&program, &BackendCapabilities::llvm()).expect("LLVM should accept File.read");
+}
+
+#[test]
+fn llvm_accepts_file_write() {
+    use crate::ir::semantic_ir::Instruction;
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "File.write".to_string(),
+                args: vec![
+                    TypedIRValue::String("/tmp/x".to_string()),
+                    TypedIRValue::String("hi".to_string()),
+                ],
+                return_type: Type::Int,
+            },
+        },
+        simple_return(),
+    );
+    check_backend(&program, &BackendCapabilities::llvm()).expect("LLVM should accept File.write");
+}
+
+#[test]
 fn wasm_rejects_conversions() {
     let program = program_with(
         Instruction::Print {

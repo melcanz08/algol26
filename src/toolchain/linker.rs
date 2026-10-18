@@ -72,6 +72,25 @@ pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> 
         ));
     }
     cmd.arg(&string_runtime);
+
+    // runtime/file.c — File.read / .write / .append. Same pattern
+    // as map_runtime and string_runtime.
+    let file_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("runtime")
+        .join("file.c");
+    if !file_runtime.exists() {
+        return Err(CompileError::simple(
+            &format!(
+                "runtime/file.c not found at {} — required for File.* lowering",
+                file_runtime.display()
+            ),
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
+        ));
+    }
+    cmd.arg(&file_runtime);
     // Each extern declaration that used `from "lib"` becomes a
     // `-l<lib>` flag. The linker searches the standard library
     // paths plus anything the user added to LIBRARY_PATH.

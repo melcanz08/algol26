@@ -102,6 +102,37 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_string_to_int".to_string(), s2i_fn);
 
+        // ── runtime/file.c ──
+        // File.read(path) -> char*            (NULL on error; caller owns)
+        // File.write(path, content) -> int64_t (byte count, -1 on error)
+        // File.append(path, content) -> int64_t (byte count, -1 on error)
+        //
+        // The C returns an error signal (NULL / -1) and the codegen
+        // arm emits the abort (printf + exit(1)) so
+        // the error policy stays in the LLVM backend, matching how
+        // compile_affirm handles assertion failures.
+        let file_read_ty = i8_ptr.fn_type(&[i8_ptr.into()], false);
+        let file_read_fn = self
+            .module
+            .add_function("algol26_file_read", file_read_ty, None);
+        self.functions
+            .insert("algol26_file_read".to_string(), file_read_fn);
+
+        let i64_ty_loc = self.context.i64_type();
+        let file_write_ty = i64_ty_loc.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+        let file_write_fn = self
+            .module
+            .add_function("algol26_file_write", file_write_ty, None);
+        self.functions
+            .insert("algol26_file_write".to_string(), file_write_fn);
+
+        let file_append_ty = i64_ty_loc.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+        let file_append_fn = self
+            .module
+            .add_function("algol26_file_append", file_append_ty, None);
+        self.functions
+            .insert("algol26_file_append".to_string(), file_append_fn);
+
         // ── algol26_string_concat ──
         // Allocates strlen(a)+strlen(b)+1 bytes, copies both strings
         // into the buffer, NUL-terminates. Used by `String.concat`.
@@ -1114,6 +1145,125 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ErrorCode::E0009,
                     )),
                 }
+            }
+            // ─── File.* (runtime/file.c) ───
+            // The C layer returns NULL (read) or -1 (write/append)
+            // on error; the arm branches to a block that prints a
+            // message and exits(1), matching the interpreter's
+            // Err(EvalError::Runtime(...)) abort-on-error discipline.
+            // Same shape as compile_affirm's failure path.
+            "File.read" => {
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        "File.read expects exactly 1 argument (path)",
+                        0, 0, "", ErrorCode::E0002,
+                    ));
+                }
+                let path_val = self.compile_value(&args[0])?;
+                if !path_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "File.read path did not lower to a pointer", "llvm",
+                    ));
+                }
+                let read_fn = self.module.get_function("algol26_file_read").ok_or_else(|| {
+                    CompileError::simple(
+                        "runtime/file.c not linked (algol26_file_read missing)",
+                        0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+                let call = self.builder.build_call(read_fn, &[path_val.into()], "file_read").unwrap();
+                let buf = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => return Err(CompileError::unsupported_operation(
+                        "algol26_file_read returned void", "llvm",
+                    )),
+                };
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let is_null = self.builder.build_is_null(buf, "file_read_null").unwrap();
+                let current_fn = self.current_function.unwrap();
+                let err_bb = self.context.append_basic_block(current_fn, "file_read_err");
+                let ok_bb = self.context.append_basic_block(current_fn, "file_read_ok");
+                self.builder.build_conditional_branch(is_null, err_bb, ok_bb).unwrap();
+
+                self.builder.position_at_end(err_bb);
+                let msg = self.builder.build_global_string_ptr(
+                    "File.read: cannot read file\n", "file_read_errmsg",
+                ).unwrap();
+                let printf_fn = self.module.get_function("printf").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: printf not registered", 0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+                self.builder.build_call(printf_fn,
+                    &[msg.as_pointer_value().into()], "").unwrap();
+                let exit_fn = self.module.get_function("exit").unwrap();
+                self.builder.build_call(exit_fn,
+                    &[self.context.i32_type().const_int(1, false).into()], "file_read_exit").unwrap();
+                self.builder.build_unreachable().unwrap();
+
+                self.builder.position_at_end(ok_bb);
+                Ok((buf.into(), Type::String))
+            }
+            "File.write" | "File.append" => {
+                let is_write = name == "File.write";
+                let opname = if is_write { "File.write" } else { "File.append" };
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        &format!("{} expects exactly 2 arguments (path, content)", opname),
+                        0, 0, "", ErrorCode::E0002,
+                    ));
+                }
+                let path_val = self.compile_value(&args[0])?;
+                let content_val = self.compile_value(&args[1])?;
+                if !path_val.is_pointer_value() || !content_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        &format!("{} arguments did not lower to pointers", opname), "llvm",
+                    ));
+                }
+                let llvm_fn_name = if is_write { "algol26_file_write" } else { "algol26_file_append" };
+                let write_fn = self.module.get_function(llvm_fn_name).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("runtime/file.c not linked ({} missing)", llvm_fn_name),
+                        0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+                let call = self.builder.build_call(write_fn,
+                    &[path_val.into(), content_val.into()], "file_wr").unwrap();
+                let result = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                    _ => return Err(CompileError::unsupported_operation(
+                        &format!("{} returned void", llvm_fn_name), "llvm",
+                    )),
+                };
+                let negative = self.builder.build_int_compare(
+                    inkwell::IntPredicate::SLT,
+                    result,
+                    self.context.i64_type().const_int(0, false),
+                    "file_wr_err",
+                ).unwrap();
+                let current_fn = self.current_function.unwrap();
+                let err_bb = self.context.append_basic_block(current_fn, "file_wr_err_bb");
+                let ok_bb = self.context.append_basic_block(current_fn, "file_wr_ok_bb");
+                self.builder.build_conditional_branch(negative, err_bb, ok_bb).unwrap();
+
+                self.builder.position_at_end(err_bb);
+                let err_label = if is_write { "File.write: cannot write file\n" }
+                                else          { "File.append: cannot append to file\n" };
+                let msg = self.builder.build_global_string_ptr(err_label, "file_wr_errmsg").unwrap();
+                let printf_fn = self.module.get_function("printf").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: printf not registered", 0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+                self.builder.build_call(printf_fn,
+                    &[msg.as_pointer_value().into()], "").unwrap();
+                let exit_fn = self.module.get_function("exit").unwrap();
+                self.builder.build_call(exit_fn,
+                    &[self.context.i32_type().const_int(1, false).into()], "file_wr_exit").unwrap();
+                self.builder.build_unreachable().unwrap();
+
+                self.builder.position_at_end(ok_bb);
+                Ok((result.into(), Type::Int))
             }
             "String.to_int" => {
                 // Strict i64 parser. The C runtime (runtime/string.c)

@@ -108,8 +108,10 @@ proc main
 >   Run a WASM build with `runtime/wasm/run.sh <file.gol>`.
 >
 > Several features are interpreter-only in the current version —
-> `String.trim`/`.split`/`.join`, `File.*`, `args()`, `Result` with
-> `try`/`catch`, and **union types** among them. LLVM and WASM refuse
+> `String.trim`/`.split`/`.join`, `args()`, `Result` with
+> `try`/`catch`, and **union types** among them. (`File.*` is no
+> longer on this list — `File.read`/`.write`/`.append` work on both
+> native backends via `runtime/file.c`.) LLVM and WASM refuse
 > these at the capability boundary and print an `E0002` error
 > suggesting `--interpreter`. The matrix below is the authoritative
 > list. (`Map<K, V>` and `String.to_int` are no longer on this list —

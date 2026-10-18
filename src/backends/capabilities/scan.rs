@@ -228,6 +228,16 @@ pub(super) fn scan_call_name(name: &str, used: &mut HashSet<Feature>) {
         return;
     }
 
+    // String.join takes a List<String> and returns a String. It
+    // has no LLVM codegen arm yet, so it must be refused at the
+    // capability boundary rather than failing at codegen with an
+    // "unhandled builtin" panic. Classified under StringSplit
+    // because both manipulate strings via dynamic lists.
+    if name == "String.join" {
+        used.insert(Feature::StringSplit);
+        return;
+    }
+
     if name.starts_with("String.") {
         used.insert(Feature::StringOps);
     } else if name.starts_with("File.") {

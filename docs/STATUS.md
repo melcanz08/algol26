@@ -191,8 +191,18 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
 
 ### Track B builtins
 
-Five conversion and string-manipulation builtins landed. All are
-interpreter-only; LLVM and WASM refuse at the capability boundary.
+Five conversion and string-manipulation builtins landed.
+
+- `Int.to_string` has an LLVM lowering (`sprintf` into a stack
+  buffer) and works on both native backends.
+- `String.to_upper` / `.to_lower` / `.concat` / `.substring` have
+  LLVM lowerings and work on both native backends.
+- `String.to_int`, `String.trim`, `String.split`, and `String.join`
+  are interpreter-only. `String.to_int` returns `Option<Int>` and
+  is refused at the capability check; `String.trim` / `.split` /
+  `.join` are refused (the first two because `Feature::StringSplit`
+  is not in the LLVM capability set, the last because it has no
+  codegen arm — see "Known Gaps" below).
 
 | Builtin | Signature | Commit |
 |---------|-----------|--------|
@@ -361,14 +371,15 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `Map<K, V>` | ✅ | ✅ | ✅ | ⛔ | — |
 | Strings | ✅ | ✅ | ✅ | ✅ | 08, 15 |
 | `String.length` | ✅ | ✅ | ✅ | ✅ | 08 |
-| `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ⛔ | — |
+| `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.trim` / `.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
-| `String.to_int` / `Int.to_string` | ✅ | ✅ | ✅ | ⛔ | — |
+| `Int.to_string` | ✅ | ✅ | ✅ | ✅ | — |
+| `String.to_int` | ✅ | ✅ | ✅ | ⛔ | — |
 | `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ⛔ | — |
 | `Math.*` | ✅ | ✅ | ✅ | ✅ | — |
 | `Option` / `Some` / `None` | ✅ | ✅ | ✅ | ✅ | 13 |
 | `match` (literal patterns) | ✅ | ✅ | ✅ | ✅ | — |
-| `match` (binding patterns) | ✅ | ✅ | ✅ | ⛔ | 13 |
+| `match` (binding patterns) | ✅ | ✅ | ✅ | ✅ | 13 |
 | `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | `try` / `catch` | ✅ | ✅ | ✅ | ⛔ | 14 |
 | Traits + impls | ✅ | ✅ | ✅ | ✅ | 28, 29, 37 |
@@ -509,9 +520,15 @@ Open (not fixed):
 
 ### LLVM backend gaps (interpreter works)
 
-- **`match` with pattern bindings** (`corpus_13`). The IR builder
-  records bindings in its internal scope but does not emit
-  `Declare` instructions for them.
+- **`String.join` codegen.** The builtin is accepted by the
+  capability check but has no `compile_builtin_value` arm in the
+  LLVM backend; a program using it fails at codegen with `E0004`
+  "unhandled builtin" rather than a clean `E0002` refusal.
+  Workaround: run through `--interpreter`. Fix: either add a
+  lowering (walk the list, concatenate with the separator) or
+  classify `String.join` under `Feature::StringSplit` in
+  `scan_call_name` so it's refused at the capability boundary.
+
 - **Iterating over a list parameter** (`corpus_10`). Iterator
   setup is only done for locally-created list literals.
 - **`try` / `catch` and `Result` values** (`corpus_14`). No LLVM

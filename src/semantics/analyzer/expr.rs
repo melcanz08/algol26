@@ -1654,6 +1654,66 @@ impl SemanticAnalyzer {
                                 }
                             }
 
+                            // ─── Inherent-on-primitive tier (FunctionCall arm) ───
+                            // Mirror the MethodCall arm's tier and the
+                            // builder's `resolve_method_call`: for a
+                            // primitive receiver, check `{Base}_{method}`
+                            // after the dot-form builtin lookup above.
+                            // Without this, `x.inc()` (parsed as a
+                            // FunctionCall with folded name "x.inc")
+                            // falls straight through to the trait tier
+                            // and then to E0011, even though the same
+                            // call works through a field receiver
+                            // (`p.x.inc()`). Keep all three sites in
+                            // sync with `resolve_method_call` in
+                            // src/semantics/builder/values.rs.
+                            //
+                            // Precedence: inherent user-type impls
+                            // (Record/Enum/Distinct) still win, then
+                            // builtin dot form, then this, then trait
+                            // impls. Argument checking mirrors this
+                            // arm's trait tier (`analyze_expr` plus
+                            // `register_call_arg_temporary`) rather
+                            // than the MethodCall arm's convention.
+                            if let Some(base) = Self::base_type_name(&receiver_type) {
+                                let underscore_form = format!("{}_{}", base, method_name);
+                                if let Some(func_info) =
+                                    self.functions.get(&underscore_form).cloned()
+                                {
+                                    let expected_extra =
+                                        func_info.params.len().saturating_sub(1);
+                                    if args.len() != expected_extra {
+                                        return Err(CompileError::at(
+                                            self.current_span,
+                                            &format!(
+                                                "Method '{}' expects {} argument(s) after the \
+                                                 receiver, got {}",
+                                                method_name, expected_extra, args.len()
+                                            ),
+                                            ErrorCode::E0002,
+                                        ));
+                                    }
+                                    for (arg, (pname, pty)) in args
+                                        .iter()
+                                        .zip(func_info.params.iter().skip(1))
+                                    {
+                                        let arg_ty = self.analyze_expr(arg)?;
+                                        self.register_call_arg_temporary(arg);
+                                        if !arg_ty.can_coerce_to(pty) && *pty != Type::Unknown {
+                                            return Err(CompileError::at(
+                                                self.current_span,
+                                                &format!(
+                                                    "Argument '{}' type mismatch: expected {}, found {}",
+                                                    pname, pty, arg_ty
+                                                ),
+                                                ErrorCode::E0002,
+                                            ));
+                                        }
+                                    }
+                                    return Ok(func_info.return_type);
+                                }
+                            }
+
                             // ─── Trait-based method resolution ───
                             // Use `methods_for` rather than the
                             // first-match `resolve_trait_method` so a
@@ -2239,6 +2299,71 @@ impl SemanticAnalyzer {
                                 ),
                                 ErrorCode::E0002,
                             ));
+                        }
+                        return Ok(func_info.return_type);
+                    }
+                }
+
+                // ─── Inherent-on-primitive tier ───
+                // Mirror the builder's `_` form lookup in
+                // `resolve_method_call` (src/semantics/builder/values.rs).
+                // The builder already accepts `impl Int { fn inc }` —
+                // it checks `Int_inc` after `Int.inc` — but the
+                // analyzer's builtin tier above only checks the dot
+                // form, so a primitive receiver falls through to the
+                // trait tier and then to E0011. Keep the two sides in
+                // sync (see the "Keep in sync with `owner_name`"
+                // comment in values.rs).
+                //
+                // Precedence is unchanged: inherent user-type impls
+                // (Record/Enum/Distinct) still win, then builtin dot
+                // form, then this, then trait impls. Duplicates the
+                // inherent tier's arg-check body deliberately — if
+                // this ever grows, extract a helper.
+                if let Some(base) = Self::base_type_name(&receiver_type) {
+                    let underscore_form = format!("{}_{}", base, method);
+                    if let Some(func_info) = self.functions.get(&underscore_form).cloned() {
+                        if let Some((_, Type::MutBorrow(_))) = func_info.params.first() {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Cannot call `&mut self` method '{}' on a \
+                                     complex receiver; bind the receiver to a \
+                                     variable first",
+                                    method
+                                ),
+                                ErrorCode::E0007,
+                            )
+                            .with_suggestion(
+                                "Assign the receiver to a `var` binding, then \
+                                 call the method on that binding",
+                            ));
+                        }
+                        let expected_extra = func_info.params.len().saturating_sub(1);
+                        if args.len() != expected_extra {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                &format!(
+                                    "Method '{}' expects {} argument(s) after the \
+                                     receiver, got {}",
+                                    method, expected_extra, args.len()
+                                ),
+                                ErrorCode::E0002,
+                            ));
+                        }
+                        for (arg, (pname, pty)) in args.iter().zip(func_info.params.iter().skip(1))
+                        {
+                            let arg_ty = self.analyze_expr_with_context(arg, Some(pty))?;
+                            if !arg_ty.can_coerce_to(pty) && *pty != Type::Unknown {
+                                return Err(CompileError::at(
+                                    self.current_span,
+                                    &format!(
+                                        "Argument '{}' type mismatch: expected {}, found {}",
+                                        pname, pty, arg_ty
+                                    ),
+                                    ErrorCode::E0002,
+                                ));
+                            }
                         }
                         return Ok(func_info.return_type);
                     }

@@ -1,0 +1,21 @@
+// String.substring is codepoint-indexed, matching the interpreter's
+// chars().skip(start).take(length). Differential pin for the
+// byte-vs-codepoint bug found when investigating String.charAt:
+// the previous LLVM version used strlen + memcpy (byte slices),
+// which returned partial UTF-8 sequences on non-ASCII input.
+//
+// Before the fix, line 3 ("héllo" substring (2,1)) returned the
+// second byte of é — invalid UTF-8, garbage output. This test
+// would have caught it.
+
+// OUTPUT: é
+// OUTPUT: él
+// OUTPUT: l
+// OUTPUT: llo
+
+proc main
+    val s := "héllo"
+    print(String.substring(s, 1, 1))
+    print(String.substring(s, 1, 2))
+    print(String.substring(s, 2, 1))
+    print(String.substring(s, 2, 3))

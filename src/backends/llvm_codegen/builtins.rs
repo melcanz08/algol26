@@ -487,140 +487,24 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
         }
 
-        // ── algol26_string_substring(s, start, length) -> i8* ──
-        // Clamps start and length to the string's bounds, mallocs,
-        // memcpy's the slice, NUL-terminates. Straight-line: no
-        // loop, no basic blocks beyond entry.
-        {
-            let i64_loc = self.context.i64_type();
-            let i8_loc = self.context.i8_type();
-
-            let sub_ty = i8_ptr.fn_type(&[i8_ptr.into(), i64_loc.into(), i64_loc.into()], false);
-            let sub_fn = self
-                .module
-                .add_function("algol26_string_substring", sub_ty, None);
-            self.functions
-                .insert("algol26_string_substring".to_string(), sub_fn);
-
-            let saved = self.builder.get_insert_block();
-            let entry = self.context.append_basic_block(sub_fn, "entry");
-            self.builder.position_at_end(entry);
-
-            let s = sub_fn.get_nth_param(0).unwrap().into_pointer_value();
-            let start = sub_fn.get_nth_param(1).unwrap().into_int_value();
-            let len = sub_fn.get_nth_param(2).unwrap().into_int_value();
-            let zero = i64_loc.const_zero();
-            let one = i64_loc.const_int(1, false);
-
-            // n = strlen(s)
-            let strlen_ty = i64_loc.fn_type(&[i8_ptr.into()], false);
-            let strlen_fn = self
-                .module
-                .get_function("strlen")
-                .unwrap_or_else(|| self.module.add_function("strlen", strlen_ty, None));
-            let n_call = self
-                .builder
-                .build_call(strlen_fn, &[s.into()], "n")
-                .unwrap();
-            let n = match n_call.try_as_basic_value() {
-                inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
-                _ => unreachable!(),
-            };
-
-            // Clamp start to [0, n]: start_b = clamp(start, 0, n)
-            let start_neg = self
-                .builder
-                .build_int_compare(inkwell::IntPredicate::SLT, start, zero, "start_neg")
-                .unwrap();
-            let zero_bv: inkwell::values::BasicValueEnum = zero.into();
-            let start_bv: inkwell::values::BasicValueEnum = start.into();
-            let start_a = self
-                .builder
-                .build_select(start_neg, zero_bv, start_bv, "start_a")
-                .unwrap()
-                .into_int_value();
-            let start_over = self
-                .builder
-                .build_int_compare(inkwell::IntPredicate::SGT, start_a, n, "start_over")
-                .unwrap();
-            let n_bv: inkwell::values::BasicValueEnum = n.into();
-            let start_a_bv: inkwell::values::BasicValueEnum = start_a.into();
-            let start_b = self
-                .builder
-                .build_select(start_over, n_bv, start_a_bv, "start_b")
-                .unwrap()
-                .into_int_value();
-
-            // Clamp length to [0, n - start_b]
-            let len_neg = self
-                .builder
-                .build_int_compare(inkwell::IntPredicate::SLT, len, zero, "len_neg")
-                .unwrap();
-            let len_bv: inkwell::values::BasicValueEnum = len.into();
-            let len_a = self
-                .builder
-                .build_select(len_neg, zero_bv, len_bv, "len_a")
-                .unwrap()
-                .into_int_value();
-            let available = self.builder.build_int_sub(n, start_b, "avail").unwrap();
-            let len_over = self
-                .builder
-                .build_int_compare(inkwell::IntPredicate::SGT, len_a, available, "len_over")
-                .unwrap();
-            let available_bv: inkwell::values::BasicValueEnum = available.into();
-            let len_a_bv: inkwell::values::BasicValueEnum = len_a.into();
-            let len_b = self
-                .builder
-                .build_select(len_over, available_bv, len_a_bv, "len_b")
-                .unwrap()
-                .into_int_value();
-
-            // buf = malloc(len_b + 1)
-            let size = self.builder.build_int_add(len_b, one, "size").unwrap();
-            let malloc_ty = i8_ptr.fn_type(&[i64_loc.into()], false);
-            let malloc_fn = self
-                .module
-                .get_function("malloc")
-                .unwrap_or_else(|| self.module.add_function("malloc", malloc_ty, None));
-            let buf_call = self
-                .builder
-                .build_call(malloc_fn, &[size.into()], "buf")
-                .unwrap();
-            let buf = match buf_call.try_as_basic_value() {
-                inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
-                _ => unreachable!(),
-            };
-
-            // memcpy(buf, s + start_b, len_b)
-            let memcpy_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into(), i64_loc.into()], false);
-            let memcpy_fn = self
-                .module
-                .get_function("memcpy")
-                .unwrap_or_else(|| self.module.add_function("memcpy", memcpy_ty, None));
-            let src_p = unsafe {
-                self.builder
-                    .build_gep(i8_loc, s, &[start_b], "src_p")
-                    .unwrap()
-            };
-            self.builder
-                .build_call(memcpy_fn, &[buf.into(), src_p.into(), len_b.into()], "")
-                .unwrap();
-
-            // buf[len_b] = 0
-            let end_p = unsafe {
-                self.builder
-                    .build_gep(i8_loc, buf, &[len_b], "end_p")
-                    .unwrap()
-            };
-            self.builder
-                .build_store(end_p, i8_loc.const_zero())
-                .unwrap();
-            self.builder.build_return(Some(&buf)).unwrap();
-
-            if let Some(bb) = saved {
-                self.builder.position_at_end(bb);
-            }
-        }
+        // ── algol26_string_substring ──
+        // Codepoint-indexed slice: returns the `length` codepoints
+        // starting at codepoint `start`. Matches the interpreter's
+        // `chars().skip(start).take(length).collect()`.
+        //
+        // The body lives in runtime/string.c (see the comment there
+        // for the codepoint-walker rationale). The previous inline
+        // IR used strlen + memcpy, which is byte-indexed — it
+        // returned the bytes of a codepoint rather than the
+        // codepoint itself on non-ASCII input. Corpus was all ASCII
+        // and missed the bug.
+        let i64_loc = self.context.i64_type();
+        let sub_ty = i8_ptr.fn_type(&[i8_ptr.into(), i64_loc.into(), i64_loc.into()], false);
+        let sub_fn = self
+            .module
+            .add_function("algol26_string_substring", sub_ty, None);
+        self.functions
+            .insert("algol26_string_substring".to_string(), sub_fn);
 
         let i64_ty = self.context.i64_type();
         let i8_ty = self.context.i8_type();

@@ -178,6 +178,7 @@ impl Parser {
             if matches!(self.peek(), Token::RBrace) {
                 self.advance();
             }
+
         } else if matches!(self.peek(), Token::LBrace) {
             // ADR 0054: brace-form body. `{ stmts... }`.
             //
@@ -251,21 +252,25 @@ impl Parser {
             statements.push(self.parse_stmt()?);
         }
 
+        // ADR 0054 follow-up. Any expression at the end of a
+        // block in expression position (`allow_trailing == true`)
+        // is the block's value — including `if`, `match`, `while`,
+        // `for`, and `try` (they are expressions in ALGOL26).
+        //
+        // Previously the check was inverted: it excluded exactly
+        // those expression-position constructs, so a nested `if`
+        // at the end of an if-branch block was typed as `Void` and
+        // the outer `if` reported "one branch yields a value, the
+        // other does not."
+        //
+        // A `Void`-valued expression like `print(...)` at the end
+        // of a block still ends up as the block's value, which the
+        // analyzer's Block arm types as `Void` — the same result
+        // as not promoting it. So the promotion is safe for every
+        // expression kind.
         let mut trailing_expr: Option<Box<Expr>> = None;
         if allow_trailing {
-            let can_be_trailing = matches!(
-                statements.last(),
-                Some(Stmt::Expression(expr)) if !matches!(
-                    &expr.kind,
-                    ExprKind::Block { .. }
-                        | ExprKind::If { .. }
-                        | ExprKind::Match { .. }
-                        | ExprKind::For { .. }
-                        | ExprKind::While { .. }
-                        | ExprKind::TryCatch { .. }
-                )
-            );
-            if can_be_trailing {
+            if let Some(Stmt::Expression(_)) = statements.last() {
                 if let Some(Stmt::Expression(expr)) = statements.pop() {
                     trailing_expr = Some(Box::new(expr));
                 }
@@ -286,21 +291,23 @@ impl Parser {
         // not a statement, so `while cond do i := i + 1` produces a
         // trailing expression.
         if matches!(self.peek(), Token::Indent) || matches!(self.peek(), Token::LBrace) {
-            let (body, trailing) = self.parse_body_statements(true)?;
-            // ADR 0054. A brace-form loop body whose content is a
-            // single expression — `for x in xs { return x }`,
-            // `while c { f() }` — is parsed by
-            // `parse_body_statements` as a trailing expression with
-            // no statements. For a loop body the content is a
-            // statement that runs each iteration, not the loop's
-            // value. Move it back into the body so the loop desugar
-            // and IR builder see a non-empty body.
-            if body.is_empty() {
-                if let Some(expr) = trailing {
-                    return Ok((vec![Stmt::Expression(*expr)], None));
-                }
+            let (mut body, trailing) = self.parse_body_statements(true)?;
+            // ADR 0054 follow-up. A loop body runs as a statement
+            // list, one iteration at a time. The last expression of
+            // the block is a *statement* that executes on each
+            // iteration — not the loop's value (loops don't yield
+            // values in ALGOL26; `for`/`while` are always Void). So
+            // any trailing expression that
+            // `parse_body_statements(true)` produced must be moved
+            // back into the body before returning.
+            //
+            // This fixes the case where a `match` or `if` at the end
+            // of a loop body was classified as a trailing value and
+            // silently not executed by the loop desugar.
+            if let Some(expr) = trailing {
+                body.push(Stmt::Expression(*expr));
             }
-            return Ok((body, trailing));
+            return Ok((body, None));
         }
         if matches!(self.peek(), Token::End) {
             self.advance();

@@ -211,8 +211,8 @@ Five conversion and string-manipulation builtins landed.
 
 - `Int.to_string` has an LLVM lowering (`sprintf` into a stack
   buffer) and works on both native backends.
-- `String.to_upper` / `.to_lower` / `.concat` / `.substring` have
-  LLVM lowerings and work on both native backends.
+- `String.to_upper` / `.to_lower` / `.concat` / `.substring` / `.charAt`
+  have LLVM lowerings and work on both native backends.
 - `String.to_int` has an LLVM lowering (`runtime/string.c`, strict
   i64 parser matching the interpreter's `str::parse::<i64>()`) and
   works on both native backends.
@@ -392,6 +392,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `Map<K, V>` | ✅ | ✅ | ✅ | ✅ | — |
 | Strings | ✅ | ✅ | ✅ | ✅ | 08, 15 |
 | `String.length` | ✅ | ✅ | ✅ | ✅ | 08 |
+| `String.charAt` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.trim` / `.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
 | `Int.to_string` | ✅ | ✅ | ✅ | ✅ | — |

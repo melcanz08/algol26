@@ -12,6 +12,16 @@
   the capability boundary. See `examples/json/` for the end-to-end
   demonstration.
 
+- **`String.charAt(s, i) -> Option<String>`** — codepoint-indexed
+  access to a single character. `Some(1-codepoint string)` for
+  valid indices, `None` for out-of-range (negative or past the
+  end). Works on interpreter and LLVM. The C implementation
+  (`algol26_string_char_at` in `runtime/string.c`) shares the
+  codepoint-walking discipline with `substring` and
+  `strlen_utf8`; the LLVM arm wraps the pointer in
+  `{ i1, i8* }`. Corpus pin:
+  `tests/corpus/corpus_50_string_char_at_utf8.gol`.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

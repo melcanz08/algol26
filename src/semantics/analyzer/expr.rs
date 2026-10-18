@@ -1680,22 +1680,22 @@ impl SemanticAnalyzer {
                                 if let Some(func_info) =
                                     self.functions.get(&underscore_form).cloned()
                                 {
-                                    let expected_extra =
-                                        func_info.params.len().saturating_sub(1);
+                                    let expected_extra = func_info.params.len().saturating_sub(1);
                                     if args.len() != expected_extra {
                                         return Err(CompileError::at(
                                             self.current_span,
                                             &format!(
                                                 "Method '{}' expects {} argument(s) after the \
                                                  receiver, got {}",
-                                                method_name, expected_extra, args.len()
+                                                method_name,
+                                                expected_extra,
+                                                args.len()
                                             ),
                                             ErrorCode::E0002,
                                         ));
                                     }
-                                    for (arg, (pname, pty)) in args
-                                        .iter()
-                                        .zip(func_info.params.iter().skip(1))
+                                    for (arg, (pname, pty)) in
+                                        args.iter().zip(func_info.params.iter().skip(1))
                                     {
                                         let arg_ty = self.analyze_expr(arg)?;
                                         self.register_call_arg_temporary(arg);
@@ -2346,7 +2346,9 @@ impl SemanticAnalyzer {
                                 &format!(
                                     "Method '{}' expects {} argument(s) after the \
                                      receiver, got {}",
-                                    method, expected_extra, args.len()
+                                    method,
+                                    expected_extra,
+                                    args.len()
                                 ),
                                 ErrorCode::E0002,
                             ));

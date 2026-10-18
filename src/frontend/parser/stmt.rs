@@ -178,7 +178,6 @@ impl Parser {
             if matches!(self.peek(), Token::RBrace) {
                 self.advance();
             }
-
         } else if matches!(self.peek(), Token::LBrace) {
             // ADR 0054: brace-form body. `{ stmts... }`.
             //

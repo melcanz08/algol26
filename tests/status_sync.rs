@@ -95,6 +95,7 @@ const STATUS_ROW_TO_FEATURES: &[(&str, &[Feature])] = &[
     ("`union` types", &[Feature::Unions]),
     ("Structural `Copy`", &[Feature::Records]),
     ("`args()`", &[Feature::CommandLineArgs]),
+    ("`String.charAt`", &[Feature::StringOps]),
     ("`&x` / `&mut x`", &[Feature::References]),
     ("`spawn` / `parallel`", &[Feature::Spawn, Feature::Fork]),
     ("`channel` / `send`", &[Feature::Channels]),

@@ -215,15 +215,15 @@ Five conversion and string-manipulation builtins landed.
 
 - `Int.to_string` has an LLVM lowering (`sprintf` into a stack
   buffer) and works on both native backends.
-- `String.to_upper` / `.to_lower` / `.concat` / `.substring` / `.charAt`
+- `String.to_upper` / `.to_lower` / `.concat` / `.substring` / `.charAt` / `.trim`
   have LLVM lowerings and work on both native backends.
 - `String.to_int` has an LLVM lowering (`runtime/string.c`, strict
   i64 parser matching the interpreter's `str::parse::<i64>()`) and
   works on both native backends.
-- `String.trim`, `String.split`, and `String.join` are
-  interpreter-only. `String.trim` / `.split` are refused because
-  `Feature::StringSplit` is not in the LLVM capability set; `String.join`
-  has no codegen arm — see "Known Gaps" below.
+- `String.split` and `String.join` are interpreter-only.
+  `String.split` is refused because `Feature::StringSplit` is not in
+  the LLVM capability set; `String.join` has no codegen arm — see
+  "Known Gaps" below.
 - `File.read` / `.write` / `.append` work on both native backends
   via `runtime/file.c`. Signatures match the interpreter: read
   returns `String`, write/append return the byte count as `Int`.
@@ -401,7 +401,8 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `String.length` | ✅ | ✅ | ✅ | ✅ | 08 |
 | `String.charAt` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ✅ | — |
-| `String.trim` / `.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
+| `String.trim` | ✅ | ✅ | ✅ | ✅ | — |
+| `String.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
 | `Int.to_string` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.to_int` | ✅ | ✅ | ✅ | ✅ | — |
 | `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ✅ | — |

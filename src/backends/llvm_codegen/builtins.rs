@@ -538,6 +538,17 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_string_char_at".to_string(), char_at_fn);
 
+        // ── algol26_string_trim ──
+        // Trims leading/trailing Unicode whitespace. Matches the
+        // interpreter's `s.trim()`. Body in runtime/string.c;
+        // codepoint walker shared with substring and char_at.
+        let trim_ty = i8_ptr.fn_type(&[i8_ptr.into()], false);
+        let trim_fn = self
+            .module
+            .add_function("algol26_string_trim", trim_ty, None);
+        self.functions
+            .insert("algol26_string_trim".to_string(), trim_fn);
+
         // ── runtime/args.c ──
         // algol26_args_init(i32 argc, ptr argv) -> void
         //    Called once from the generated main wrapper.
@@ -1291,6 +1302,54 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .unwrap()
                     .into_struct_value();
                 Ok((with_payload.into(), Type::option(Type::String)))
+            }
+            "String.trim" => {
+                // Trim leading/trailing Unicode whitespace. Matches
+                // the interpreter's `str::trim()`. Body in
+                // runtime/string.c; codepoint-walker shared with
+                // substring/char_at.
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "String.trim expects exactly 1 argument, got {}",
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s_val = self.compile_value(&args[0])?;
+                if !s_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.trim argument did not lower to a pointer",
+                        "llvm",
+                    ));
+                }
+                let trim_fn = self
+                    .module
+                    .get_function("algol26_string_trim")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c not linked (algol26_string_trim missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self
+                    .builder
+                    .build_call(trim_fn, &[s_val.into()], "trim")
+                    .unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
+                    _ => Err(CompileError::unsupported_operation(
+                        "algol26_string_trim returned void",
+                        "llvm",
+                    )),
+                }
             }
             "String.substring" => {
                 if args.len() != 3 {

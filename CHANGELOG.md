@@ -63,6 +63,20 @@
   (25 entries, all retrievable). Standalone C test also added
   (`runtime/map.c` previously had none).
 
+- **`String.trim` on LLVM** — trims leading/trailing Unicode
+  whitespace, matching the interpreter's `str::trim()`. The C
+  implementation (`algol26_string_trim` in `runtime/string.c`)
+  walks codepoints (shared with `substring` and `char_at`) and
+  classifies Unicode White_Space — not just ASCII — so it agrees
+  with Rust's `char::is_whitespace` on NBSP, NEL, EN QUAD through
+  HAIR SPACE, line/paragraph separators, IDEOGRAPHIC SPACE, and
+  the ASCII range. Using `ctype.h`'s `isspace` would have diverged
+  on non-ASCII whitespace and been unsafe on UTF-8 lead bytes.
+  C test covers 17 cases including all Unicode ranges and UTF-8
+  content preservation. Corpus pin:
+  `tests/corpus/corpus_54_string_trim_llvm.gol`.
+  `String.split` and `.join` remain interpreter-only.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

@@ -152,3 +152,114 @@ char *algol26_string_char_at(const char *s, int64_t i) {
     return buf;
 }
 
+// ── Unicode whitespace classification ──
+//
+// Matches Rust's `char::is_whitespace`, which is what the
+// interpreter's `String.trim` uses (via `str::trim()`). The
+// Unicode White_Space property covers these codepoints:
+//
+//   0x0009..=0x000D  (tab, LF, VT, FF, CR)
+//   0x0020           (space)
+//   0x0085           (NEL)
+//   0x00A0           (NBSP)
+//   0x1680           (Ogham space mark)
+//   0x2000..=0x200A  (en quad .. hair space)
+//   0x2028, 0x2029   (line separator, paragraph separator)
+//   0x202F           (narrow NBSP)
+//   0x205F           (medium mathematical space)
+//   0x3000           (ideographic space)
+//
+// Using ctype's `isspace` would be simpler but diverges from the
+// interpreter on non-ASCII whitespace (and is unsafe on UTF-8
+// lead bytes, whose argument must be representable as
+// `unsigned char`). Walking codepoints is the correct scope.
+static int is_unicode_whitespace(uint32_t cp) {
+    return (cp >= 0x09 && cp <= 0x0D)
+        || cp == 0x20
+        || cp == 0x85
+        || cp == 0xA0
+        || cp == 0x1680
+        || (cp >= 0x2000 && cp <= 0x200A)
+        || cp == 0x2028
+        || cp == 0x2029
+        || cp == 0x202F
+        || cp == 0x205F
+        || cp == 0x3000;
+}
+
+// Decode the UTF-8 codepoint starting at `p`. `*adv` receives the
+// byte length of the sequence (1..4). Invalid UTF-8: returns the
+// first byte as a codepoint and adv = 1 — same tolerant walk the
+// rest of runtime/string.c uses.
+static uint32_t decode_utf8(const char *p, size_t *adv) {
+    unsigned char b0 = (unsigned char)p[0];
+    if (b0 < 0x80) { *adv = 1; return b0; }
+    if ((b0 & 0xE0) == 0xC0 && p[1] != '\0') {
+        *adv = 2;
+        return ((uint32_t)(b0 & 0x1F) << 6)
+             | ((uint32_t)((unsigned char)p[1] & 0x3F));
+    }
+    if ((b0 & 0xF0) == 0xE0 && p[1] != '\0' && p[2] != '\0') {
+        *adv = 3;
+        return ((uint32_t)(b0 & 0x0F) << 12)
+             | ((uint32_t)((unsigned char)p[1] & 0x3F) << 6)
+             | ((uint32_t)((unsigned char)p[2] & 0x3F));
+    }
+    if ((b0 & 0xF8) == 0xF0 && p[1] != '\0' && p[2] != '\0' && p[3] != '\0') {
+        *adv = 4;
+        return ((uint32_t)(b0 & 0x07) << 18)
+             | ((uint32_t)((unsigned char)p[1] & 0x3F) << 12)
+             | ((uint32_t)((unsigned char)p[2] & 0x3F) << 6)
+             | ((uint32_t)((unsigned char)p[3] & 0x3F));
+    }
+    *adv = 1;
+    return b0;
+}
+
+// ── algol26_string_trim(s) ──
+//
+// Returns a malloc'd copy of `s` with leading and trailing
+// Unicode-whitespace codepoints removed. Matches the interpreter's
+// `str::trim()`. The caller owns the returned buffer.
+//
+// If `s` is all whitespace, returns a fresh empty string (non-NULL,
+// zero-length). If `s` is NULL, returns NULL.
+char *algol26_string_trim(const char *s) {
+    if (s == NULL) return NULL;
+
+    // Walk forward, skipping whitespace.
+    const char *start = s;
+    while (*start != '\0') {
+        size_t adv = 0;
+        uint32_t cp = decode_utf8(start, &adv);
+        if (!is_unicode_whitespace(cp)) break;
+        start += adv;
+    }
+
+    // If start is at the end (all whitespace), return "".
+    if (*start == '\0') {
+        char *empty = (char *)malloc(1);
+        if (empty) empty[0] = '\0';
+        return empty;
+    }
+
+    // Walk backward, skipping whitespace. We can't walk backward
+    // over UTF-8 easily (continuation bytes), so scan forward and
+    // remember the last non-whitespace byte-end.
+    const char *end = start;
+    const char *p = start;
+    while (*p != '\0') {
+        size_t adv = 0;
+        uint32_t cp = decode_utf8(p, &adv);
+        if (!is_unicode_whitespace(cp)) end = p + adv;
+        p += adv;
+    }
+
+    size_t nbytes = (size_t)(end - start);
+    char *buf = (char *)malloc(nbytes + 1);
+    if (buf == NULL) return NULL;
+    if (nbytes > 0) memcpy(buf, start, nbytes);
+    buf[nbytes] = '\0';
+    return buf;
+}
+

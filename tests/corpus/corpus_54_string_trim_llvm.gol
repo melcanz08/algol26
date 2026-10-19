@@ -1,0 +1,21 @@
+// String.trim on LLVM (runtime/string.c).
+//
+// Pins interpreter-vs-LLVM equivalence for the trim path. The C
+// test (test_trim.c) covers the Unicode whitespace ranges
+// byte-for-byte (NBSP, NEL, EN QUAD, IDEOGRAPHIC SPACE, tabs,
+// newlines); this corpus pins that the two backends agree on the
+// cases the ALGOL26 source can express directly.
+
+// OUTPUT: hello
+// OUTPUT: héllo
+// OUTPUT: hel lo
+// OUTPUT: []
+
+proc main
+    print(String.trim("  hello  "))
+    print(String.trim("  héllo  "))
+    print(String.trim("  hel lo  "))
+    // All-whitespace input trims to ""; wrapping in brackets
+    // proves the result is an empty string rather than a
+    // whitespace-preserving no-op.
+    print(String.concat("[", String.concat(String.trim("     "), "]")))

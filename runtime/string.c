@@ -263,3 +263,174 @@ char *algol26_string_trim(const char *s) {
     return buf;
 }
 
+// ── algol26_string_split(s, sep, out_count) ──
+//
+// Matches Rust's `str::split(sep)` as used by the interpreter:
+//
+//   "a,b,c"  / ","  -> ["a", "b", "c"]
+//   "a,,b"   / ","  -> ["a", "", "b"]
+//   "a,b,"   / ","  -> ["a", "b", ""]
+//   ""       / ","  -> [""]                       (one empty)
+//   "abc"    / ""   -> ["", "a", "b", "c", ""]     (leading + trailing
+//                                                    empty, chars between;
+//                                                    codepoints, not bytes)
+//   "héllo"  / ""   -> ["", "h", "é", "l", "l", "o", ""]
+//   "a"      / "a"  -> ["", ""]
+//
+// out_count receives the element count. The returned array is
+// heap-allocated; every element is `strdup`'d and owned by the
+// caller. Returns NULL on allocation failure.
+char **algol26_string_split(const char *s, const char *sep, int64_t *out_count) {
+    if (s == NULL || sep == NULL || out_count == NULL) {
+        if (out_count) *out_count = 0;
+        return NULL;
+    }
+
+    size_t seplen = strlen(sep);
+
+    // ── Empty separator: split by codepoint ──
+    // Result is [""] + each codepoint + [""].
+    if (seplen == 0) {
+        // Count codepoints.
+        int64_t cp_count = 0;
+        const char *p = s;
+        while (*p != '\0') {
+            size_t adv = 0;
+            (void)decode_utf8(p, &adv);
+            p += adv;
+            cp_count++;
+        }
+        int64_t total = cp_count + 2;
+        char **result = (char **)malloc(sizeof(char *) * (size_t)total);
+        if (!result) { *out_count = 0; return NULL; }
+
+        // [0] = ""
+        result[0] = (char *)malloc(1);
+        if (!result[0]) { free(result); *out_count = 0; return NULL; }
+        result[0][0] = '\0';
+
+        // [1..cp_count+1] = each codepoint as its own string
+        p = s;
+        for (int64_t i = 0; i < cp_count; i++) {
+            size_t adv = 0;
+            (void)decode_utf8(p, &adv);
+            char *cp = (char *)malloc(adv + 1);
+            if (!cp) {
+                for (int64_t k = 0; k < i + 1; k++) free(result[k]);
+                free(result);
+                *out_count = 0;
+                return NULL;
+            }
+            memcpy(cp, p, adv);
+            cp[adv] = '\0';
+            result[i + 1] = cp;
+            p += adv;
+        }
+
+        // [cp_count+1] = ""
+        result[cp_count + 1] = (char *)malloc(1);
+        if (!result[cp_count + 1]) {
+            for (int64_t k = 0; k < cp_count + 1; k++) free(result[k]);
+            free(result);
+            *out_count = 0;
+            return NULL;
+        }
+        result[cp_count + 1][0] = '\0';
+
+        *out_count = total;
+        return result;
+    }
+
+    // ── Non-empty separator: byte-substring split (Rust's str::split) ──
+    // Count occurrences to pre-allocate.
+    int64_t count = 1;  // at least one element
+    const char *scan = s;
+    while ((scan = strstr(scan, sep)) != NULL) {
+        count++;
+        scan += seplen;
+    }
+
+    char **result = (char **)malloc(sizeof(char *) * (size_t)count);
+    if (!result) { *out_count = 0; return NULL; }
+
+    // Fill in each slice.
+    int64_t idx = 0;
+    const char *start = s;
+    const char *next;
+    while ((next = strstr(start, sep)) != NULL) {
+        size_t len = (size_t)(next - start);
+        char *slice = (char *)malloc(len + 1);
+        if (!slice) {
+            for (int64_t k = 0; k < idx; k++) free(result[k]);
+            free(result);
+            *out_count = 0;
+            return NULL;
+        }
+        memcpy(slice, start, len);
+        slice[len] = '\0';
+        result[idx++] = slice;
+        start = next + seplen;
+    }
+    // Final slice after the last separator.
+    {
+        size_t len = strlen(start);
+        char *slice = (char *)malloc(len + 1);
+        if (!slice) {
+            for (int64_t k = 0; k < idx; k++) free(result[k]);
+            free(result);
+            *out_count = 0;
+            return NULL;
+        }
+        memcpy(slice, start, len + 1);
+        result[idx++] = slice;
+    }
+
+    *out_count = count;
+    return result;
+}
+
+// ── algol26_string_join(items, count, sep) ──
+//
+// Matches Rust's `slice::join(sep)` on a `Vec<&str>`:
+//
+//   ["a","b","c"] / ","  -> "a,b,c"
+//   []            / ","  -> ""
+//   ["a"]         / ","  -> "a"
+//   ["","", ""]   / ","  -> ",,"
+//
+// Returns a heap-allocated concatenation. Caller owns it.
+char *algol26_string_join(char **items, int64_t count, const char *sep) {
+    if (sep == NULL) return NULL;
+    if (count < 0) count = 0;
+
+    size_t seplen = strlen(sep);
+
+    // Total length: sum of all item lengths + seplen * (count - 1)
+    //               + 1 for NUL.
+    size_t total = 1;
+    for (int64_t i = 0; i < count; i++) {
+        const char *item = (items && items[i]) ? items[i] : "";
+        total += strlen(item);
+    }
+    if (count > 1) {
+        total += seplen * (size_t)(count - 1);
+    }
+
+    char *buf = (char *)malloc(total);
+    if (!buf) return NULL;
+
+    size_t pos = 0;
+    for (int64_t i = 0; i < count; i++) {
+        if (i > 0) {
+            memcpy(buf + pos, sep, seplen);
+            pos += seplen;
+        }
+        const char *item = (items && items[i]) ? items[i] : "";
+        size_t ilen = strlen(item);
+        memcpy(buf + pos, item, ilen);
+        pos += ilen;
+    }
+    buf[pos] = '\0';
+    return buf;
+}
+

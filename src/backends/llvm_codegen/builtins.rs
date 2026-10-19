@@ -549,6 +549,27 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_string_trim".to_string(), trim_fn);
 
+        // ── algol26_string_split / algol26_string_join ──
+        // split: (s, sep, *out_count) -> char**
+        //   Caller owns each strdup'd element.
+        // join: (items, count, sep) -> char*
+        //   Caller owns the result.
+        // Both match Rust's str::split / slice::join in the
+        // interpreter.
+        let split_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into(), i8_ptr.into()], false);
+        let split_fn = self
+            .module
+            .add_function("algol26_string_split", split_ty, None);
+        self.functions
+            .insert("algol26_string_split".to_string(), split_fn);
+
+        let join_ty = i8_ptr.fn_type(&[i8_ptr.into(), i64_loc.into(), i8_ptr.into()], false);
+        let join_fn = self
+            .module
+            .add_function("algol26_string_join", join_ty, None);
+        self.functions
+            .insert("algol26_string_join".to_string(), join_fn);
+
         // ── runtime/args.c ──
         // algol26_args_init(i32 argc, ptr argv) -> void
         //    Called once from the generated main wrapper.
@@ -1302,6 +1323,166 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .unwrap()
                     .into_struct_value();
                 Ok((with_payload.into(), Type::option(Type::String)))
+            }
+            "String.split" => {
+                // Returns List<String> ({ptr, i64, i64}). The C
+                // runtime fills a char** array (each element
+                // strdup'd) and writes the count through the
+                // out-pointer. Codegen wraps those in the list
+                // descriptor — same struct shape as args()'s arm,
+                // but the array is pre-filled by C, no loop
+                // needed.
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "String.split expects exactly 2 arguments (s, sep), got {}",
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s_val = self.compile_value(&args[0])?;
+                let sep_val = self.compile_value(&args[1])?;
+                if !s_val.is_pointer_value() || !sep_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.split: arguments did not lower to pointers",
+                        "llvm",
+                    ));
+                }
+                let split_fn = self
+                    .module
+                    .get_function("algol26_string_split")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c not linked (algol26_string_split missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let i64_ty = self.context.i64_type();
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let count_alloca = self
+                    .builder
+                    .build_alloca(i64_ty, "split_count")
+                    .unwrap();
+                let call = self
+                    .builder
+                    .build_call(
+                        split_fn,
+                        &[s_val.into(), sep_val.into(), count_alloca.into()],
+                        "split_call",
+                    )
+                    .unwrap();
+                let arr = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_string_split returned void",
+                            "llvm",
+                        ));
+                    }
+                };
+                let count = self
+                    .builder
+                    .build_load(i64_ty, count_alloca, "split_count_val")
+                    .unwrap()
+                    .into_int_value();
+                // Build the {ptr, i64, i64} descriptor.
+                let struct_ty = self.context.struct_type(
+                    &[ptr_ty.into(), i64_ty.into(), i64_ty.into()],
+                    false,
+                );
+                let mut sv = struct_ty.get_undef();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, arr, 0, "split_buf")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 1, "split_len")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 2, "split_cap")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((sv.into(), Type::list(Type::String)))
+            }
+            "String.join" => {
+                // Consumes a List<String> (compiled to the
+                // {ptr, i64, i64} descriptor), returns a String.
+                // C side (algol26_string_join) iterates the buffer
+                // and concatenates with the separator between
+                // elements. Matches Rust's slice::join.
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "String.join expects exactly 2 arguments (list, sep), got {}",
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let list_val = self.compile_value(&args[0])?;
+                if !list_val.is_struct_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.join: first argument did not lower to a list descriptor",
+                        "llvm",
+                    ));
+                }
+                let list_struct = list_val.into_struct_value();
+                let buf = self
+                    .builder
+                    .build_extract_value(list_struct, 0, "join_buf")
+                    .unwrap();
+                let len = self
+                    .builder
+                    .build_extract_value(list_struct, 1, "join_len")
+                    .unwrap();
+                let sep_val = self.compile_value(&args[1])?;
+                if !sep_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.join: separator did not lower to a pointer",
+                        "llvm",
+                    ));
+                }
+                let join_fn = self
+                    .module
+                    .get_function("algol26_string_join")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c not linked (algol26_string_join missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self
+                    .builder
+                    .build_call(
+                        join_fn,
+                        &[buf.into(), len.into(), sep_val.into()],
+                        "join",
+                    )
+                    .unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
+                    _ => Err(CompileError::unsupported_operation(
+                        "algol26_string_join returned void",
+                        "llvm",
+                    )),
+                }
             }
             "String.trim" => {
                 // Trim leading/trailing Unicode whitespace. Matches

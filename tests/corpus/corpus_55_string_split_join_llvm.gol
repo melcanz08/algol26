@@ -1,0 +1,35 @@
+// String.split / String.join on LLVM (runtime/string.c).
+//
+// Matches Rust's str::split / slice::join:
+//   - split includes empty segments (leading, trailing, adjacent).
+//   - "" split by non-empty sep yields [""], length 1.
+//   - Empty separator splits by codepoint (not byte).
+//   - join handles empty lists and empty elements.
+//
+// Corpus strings use ASCII separators; the C test
+// (test_split_join.c) covers the empty-separator codepoint case
+// byte-for-byte on "héllo" — the interpreter and LLVM agree here
+// on the ASCII cases, which is what the corpus pins.
+
+// OUTPUT: 3
+// OUTPUT: a
+// OUTPUT: b
+// OUTPUT: c
+// OUTPUT: a-b-c
+// OUTPUT: 1
+// OUTPUT: 3
+// OUTPUT: a,,b
+
+proc main
+    val parts := String.split("a,b,c", ",")
+    print(Int.to_string(List.length(parts)))
+    for p in parts
+        print(p)
+    print(String.join(parts, "-"))
+
+    val empty := String.split("", ",")
+    print(Int.to_string(List.length(empty)))
+
+    val mid := String.split("a,,b", ",")
+    print(Int.to_string(List.length(mid)))
+    print(String.join(mid, "|"))

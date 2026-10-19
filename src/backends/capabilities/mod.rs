@@ -216,6 +216,9 @@ impl BackendCapabilities {
         // String.to_int: strict i64 parser (runtime/string.c).
         supported.insert(Feature::StringToInt);
         supported.insert(Feature::StringOps);
+        // String.split / String.join: runtime/string.c
+        // (codepoint-aware split, byte-exact substring match).
+        supported.insert(Feature::StringSplit);
         supported.insert(Feature::Option);
         // By-value record parameters and returns use the LLVM
         // struct ABI: parameters arrive as struct values, returns

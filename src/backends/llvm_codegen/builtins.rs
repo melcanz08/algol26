@@ -9,6 +9,26 @@ use inkwell::AddressSpace;
 use inkwell::IntPredicate;
 
 impl<'ctx> IRCodeGen<'ctx> {
+    /// Map the `(key_type, value_type)` pair of a Map to the
+    /// symbol-name suffix its runtime functions carry. The runtime
+    /// exposes `algol26_map_<op>_<suffix>` for each shape:
+    ///
+    ///   (Int, Int)       -> "int"      (runtime/map.c)
+    ///   (String, Int)    -> "str_int"  (runtime/map_str_int.c)
+    ///
+    /// Any other shape is unsupported in v1 and refused with a
+    /// targeted error at each `Map.*` call site. Extending the set
+    /// (e.g. (String, String)) means a new C runtime and a new arm
+    /// here; the existing arms' shape only branches on the key's
+    /// LLVM type (i64 vs ptr), so the pattern is mechanical.
+    pub(super) fn map_suffix(key_ty: &Type, value_ty: &Type) -> Option<&'static str> {
+        match (key_ty, value_ty) {
+            (Type::Int, Type::Int) => Some("int"),
+            (Type::String, Type::Int) => Some("str_int"),
+            _ => None,
+        }
+    }
+
     pub(super) fn register_stdlib(&mut self) {
         // Print functions
         let i8_ptr = self.context.ptr_type(AddressSpace::default());
@@ -1683,36 +1703,43 @@ impl<'ctx> IRCodeGen<'ctx> {
             // capability check will refuse maps with other key/value
             // types once we tighten it.
             "Map.length" => {
+                // v1 supports (Int, Int) and (String, Int). The
+                // suffix drives the runtime symbol; the call shape
+                // is identical for both (map_ptr -> i64).
                 let map_ptr = self.compile_value(&args[0])?;
-                // ADR 0027 v1. The runtime is int-keyed and
-                // int-valued; other Map<K, V> shapes must fail at
-                // codegen rather than pass a pointer where an
-                // int64_t is expected.
                 let recv_ty = args[0].type_of();
-                if !matches!(&recv_ty, Type::Map(k, v)
-                    if matches!(**k, Type::Int) && matches!(**v, Type::Int))
-                {
-                    return Err(CompileError::unsupported_operation(
+                let (key_ty, value_ty) = match &recv_ty {
+                    Type::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("Map.length receiver is not a Map: {}", recv_ty),
+                            "llvm",
+                        ));
+                    }
+                };
+                let suffix = Self::map_suffix(&key_ty, &value_ty).ok_or_else(|| {
+                    CompileError::unsupported_operation(
                         &format!(
-                            "Map methods on LLVM require Map<Int, Int> in v1, found {}",
+                            "Map.length on LLVM requires Map<Int, Int> or \
+                             Map<String, Int> in v1, found {}",
                             recv_ty
                         ),
                         "llvm",
-                    ));
-                }
-
-                let len_fn = self
-                    .module
-                    .get_function("algol26_map_length_int")
-                    .ok_or_else(|| {
-                        CompileError::simple(
-                            "runtime/map.c not linked (algol26_map_length_int missing)",
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0009,
-                        )
-                    })?;
+                    )
+                })?;
+                let symbol = format!("algol26_map_length_{}", suffix);
+                let len_fn = self.module.get_function(&symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "runtime for {} not linked ({} missing)",
+                            recv_ty, symbol
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
                 let call = self
                     .builder
                     .build_call(len_fn, &[map_ptr.into()], "map_len")
@@ -1721,7 +1748,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     inkwell::values::ValueKind::Basic(v) => v,
                     _ => {
                         return Err(CompileError::unsupported_operation(
-                            "algol26_map_length_int returned void",
+                            &format!("{} returned void", symbol),
                             "llvm",
                         ));
                     }
@@ -1729,37 +1756,46 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Ok((v, Type::Int))
             }
             "Map.contains" => {
+                // v1 supports (Int, Int) and (String, Int). The key
+                // value's LLVM type follows from compile_value (i64
+                // for Int, ptr for String); the runtime function's
+                // declared signature matches the suffix, so no
+                // branching on the key type is needed here.
                 let map_ptr = self.compile_value(&args[0])?;
-                // ADR 0027 v1. The runtime is int-keyed and
-                // int-valued; other Map<K, V> shapes must fail at
-                // codegen rather than pass a pointer where an
-                // int64_t is expected.
                 let recv_ty = args[0].type_of();
-                if !matches!(&recv_ty, Type::Map(k, v)
-                    if matches!(**k, Type::Int) && matches!(**v, Type::Int))
-                {
-                    return Err(CompileError::unsupported_operation(
+                let (key_ty, value_ty) = match &recv_ty {
+                    Type::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("Map.contains receiver is not a Map: {}", recv_ty),
+                            "llvm",
+                        ));
+                    }
+                };
+                let suffix = Self::map_suffix(&key_ty, &value_ty).ok_or_else(|| {
+                    CompileError::unsupported_operation(
                         &format!(
-                            "Map methods on LLVM require Map<Int, Int> in v1, found {}",
+                            "Map.contains on LLVM requires Map<Int, Int> or \
+                             Map<String, Int> in v1, found {}",
                             recv_ty
                         ),
                         "llvm",
-                    ));
-                }
-
+                    )
+                })?;
                 let key = self.compile_value(&args[1])?;
-                let contains_fn = self
-                    .module
-                    .get_function("algol26_map_contains_int")
-                    .ok_or_else(|| {
-                        CompileError::simple(
-                            "runtime/map.c not linked (algol26_map_contains_int missing)",
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0009,
-                        )
-                    })?;
+                let symbol = format!("algol26_map_contains_{}", suffix);
+                let contains_fn = self.module.get_function(&symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "runtime for {} not linked ({} missing)",
+                            recv_ty, symbol
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
                 let call = self
                     .builder
                     .build_call(contains_fn, &[map_ptr.into(), key.into()], "map_has")
@@ -1768,7 +1804,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
                     _ => {
                         return Err(CompileError::unsupported_operation(
-                            "algol26_map_contains_int returned void",
+                            &format!("{} returned void", symbol),
                             "llvm",
                         ));
                     }
@@ -1785,37 +1821,45 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Ok((v_bool.into(), Type::Bool))
             }
             "Map.get" => {
+                // v1 supports (Int, Int) and (String, Int). Key's
+                // LLVM type comes from compile_value. Out-pointer
+                // and Option<Int> construction are the same shape
+                // for both suffixes.
                 let map_ptr = self.compile_value(&args[0])?;
-                // ADR 0027 v1. The runtime is int-keyed and
-                // int-valued; other Map<K, V> shapes must fail at
-                // codegen rather than pass a pointer where an
-                // int64_t is expected.
                 let recv_ty = args[0].type_of();
-                if !matches!(&recv_ty, Type::Map(k, v)
-                    if matches!(**k, Type::Int) && matches!(**v, Type::Int))
-                {
-                    return Err(CompileError::unsupported_operation(
+                let (key_ty, value_ty) = match &recv_ty {
+                    Type::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("Map.get receiver is not a Map: {}", recv_ty),
+                            "llvm",
+                        ));
+                    }
+                };
+                let suffix = Self::map_suffix(&key_ty, &value_ty).ok_or_else(|| {
+                    CompileError::unsupported_operation(
                         &format!(
-                            "Map methods on LLVM require Map<Int, Int> in v1, found {}",
+                            "Map.get on LLVM requires Map<Int, Int> or \
+                             Map<String, Int> in v1, found {}",
                             recv_ty
                         ),
                         "llvm",
-                    ));
-                }
-
+                    )
+                })?;
                 let key = self.compile_value(&args[1])?;
-                let get_fn = self
-                    .module
-                    .get_function("algol26_map_get_int")
-                    .ok_or_else(|| {
-                        CompileError::simple(
-                            "runtime/map.c not linked (algol26_map_get_int missing)",
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0009,
-                        )
-                    })?;
+                let symbol = format!("algol26_map_get_{}", suffix);
+                let get_fn = self.module.get_function(&symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "runtime for {} not linked ({} missing)",
+                            recv_ty, symbol
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
                 let out_slot = self
                     .builder
                     .build_alloca(self.context.i64_type(), "map_get_out")
@@ -1828,7 +1872,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
                     _ => {
                         return Err(CompileError::unsupported_operation(
-                            "algol26_map_get_int returned void",
+                            &format!("{} returned void", symbol),
                             "llvm",
                         ));
                     }
@@ -1870,40 +1914,46 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
             "Map.insert" => {
                 // Insert is void-returning but can appear in
-                // expression position (rare; e.g. `val x := m.insert(...)`).
-                // Handle it here for completeness.
+                // expression position. v1 supports (Int, Int) and
+                // (String, Int); key and value LLVM types follow
+                // from compile_value, matching the runtime's
+                // declared signature.
                 let map_ptr = self.compile_value(&args[0])?;
-                // ADR 0027 v1. The runtime is int-keyed and
-                // int-valued; other Map<K, V> shapes must fail at
-                // codegen rather than pass a pointer where an
-                // int64_t is expected.
                 let recv_ty = args[0].type_of();
-                if !matches!(&recv_ty, Type::Map(k, v)
-                    if matches!(**k, Type::Int) && matches!(**v, Type::Int))
-                {
-                    return Err(CompileError::unsupported_operation(
+                let (key_ty, value_ty) = match &recv_ty {
+                    Type::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("Map.insert receiver is not a Map: {}", recv_ty),
+                            "llvm",
+                        ));
+                    }
+                };
+                let suffix = Self::map_suffix(&key_ty, &value_ty).ok_or_else(|| {
+                    CompileError::unsupported_operation(
                         &format!(
-                            "Map methods on LLVM require Map<Int, Int> in v1, found {}",
+                            "Map.insert on LLVM requires Map<Int, Int> or \
+                             Map<String, Int> in v1, found {}",
                             recv_ty
                         ),
                         "llvm",
-                    ));
-                }
-
+                    )
+                })?;
                 let key = self.compile_value(&args[1])?;
                 let val = self.compile_value(&args[2])?;
-                let insert_fn = self
-                    .module
-                    .get_function("algol26_map_insert_int")
-                    .ok_or_else(|| {
-                        CompileError::simple(
-                            "runtime/map.c not linked (algol26_map_insert_int missing)",
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0009,
-                        )
-                    })?;
+                let symbol = format!("algol26_map_insert_{}", suffix);
+                let insert_fn = self.module.get_function(&symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "runtime for {} not linked ({} missing)",
+                            recv_ty, symbol
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
                 self.builder
                     .build_call(insert_fn, &[map_ptr.into(), key.into(), val.into()], "")
                     .unwrap();

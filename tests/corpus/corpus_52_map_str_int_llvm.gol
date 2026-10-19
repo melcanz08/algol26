@@ -1,0 +1,47 @@
+// Map<String, Int> on LLVM (runtime/map_str_int.c).
+//
+// Pins the four Map<Int, Int> arms' generalization to String keys
+// via map_suffix dispatch, plus the literal-construction arm.
+// Map<Int, Int> and Map<String, Int> are the two shapes LLVM
+// supports in v1.
+//
+// Capacity note: runtime/map_str_int.c grows on full, so >16
+// entries work here (unlike Map<Int, Int>, which retains the
+// fixed-16 capacity limitation pending a follow-up). The last
+// block exercises 20 inserts to pin that difference.
+
+// OUTPUT: 3
+// OUTPUT: 100
+// OUTPUT: none
+// OUTPUT: has beta
+// OUTPUT: 20
+// OUTPUT: 190
+
+proc main
+    var m := Map<String, Int> {}
+    m.insert("alpha", 1)
+    m.insert("beta", 22)
+    m.insert("gamma", 333)
+    m.insert("alpha", 100)
+    print(Int.to_string(m.length()))
+    match m.get("alpha")
+        case Some(n) then print(Int.to_string(n))
+        case None then print("none")
+    match m.get("missing")
+        case Some(n) then print(Int.to_string(n))
+        case None then print("none")
+    if m.contains("beta")
+        print("has beta")
+    else
+        print("no beta")
+
+    // Capacity: 20 inserts past the initial 16-slot capacity.
+    var m2 := Map<String, Int> {}
+    var i := 0
+    while i < 20
+        m2.insert(Int.to_string(i), i * 10)
+        i := i + 1
+    print(Int.to_string(m2.length()))
+    match m2.get("19")
+        case Some(n) then print(Int.to_string(n))
+        case None then print("none")

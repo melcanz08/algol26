@@ -354,6 +354,45 @@ impl<'ctx> IRCodeGen<'ctx> {
         // re-looking it up on every literal.
         self.functions
             .insert("algol26_map_new_int".to_string(), new_fn);
+
+        // ── Map<String, Int> (runtime/map_str_int.c) ──
+        // Same shape as the _int variants, but the key is a
+        // `const char*` (ptr in LLVM 17 opaque pointers) instead of
+        // int64_t. Values are still int64_t.
+        //
+        // AlgoStrIntMap *algol26_map_new_str_int(int64_t capacity)
+        let new_str_int_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+        let new_str_int_fn =
+            self.module
+                .add_function("algol26_map_new_str_int", new_str_int_ty, None);
+
+        // void algol26_map_insert_str_int(AlgoStrIntMap *m, const char *k, int64_t v)
+        let insert_str_int_ty = self
+            .context
+            .void_type()
+            .fn_type(&[ptr_ty.into(), ptr_ty.into(), i64_ty.into()], false);
+        self.module
+            .add_function("algol26_map_insert_str_int", insert_str_int_ty, None);
+
+        // int algol26_map_get_str_int(AlgoStrIntMap *m, const char *k, int64_t *out)
+        let get_str_int_ty = i32_ty.fn_type(&[ptr_ty.into(), ptr_ty.into(), ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_get_str_int", get_str_int_ty, None);
+
+        // int algol26_map_contains_str_int(AlgoStrIntMap *m, const char *k)
+        let contains_str_int_ty = i32_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_contains_str_int", contains_str_int_ty, None);
+
+        // int64_t algol26_map_length_str_int(AlgoStrIntMap *m)
+        let length_str_int_ty = i64_ty.fn_type(&[ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_length_str_int", length_str_int_ty, None);
+
+        // Keep a handle to the _str_int constructor, matching the
+        // _int case above.
+        self.functions
+            .insert("algol26_map_new_str_int".to_string(), new_str_int_fn);
     }
 
     fn declare_function(&mut self, func: &SemanticFunction) -> Result<()> {

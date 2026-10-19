@@ -559,41 +559,47 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let Type::Map(key_ty, value_ty) = map_type else {
                     unreachable!("TypedIRValue::Map has non-Map map_type");
                 };
-                if !matches!(**key_ty, Type::Int) || !matches!(**value_ty, Type::Int) {
-                    return Err(CompileError::unsupported_operation(
+                // v1 supports (Int, Int) and (String, Int). Any other
+                // shape is refused here with a targeted error. The
+                // capability matrix admits Feature::Map for LLVM (ADR
+                // 0027); shape narrowing happens at codegen.
+                let suffix = Self::map_suffix(key_ty, value_ty).ok_or_else(|| {
+                    CompileError::unsupported_operation(
                         &format!(
                             "Map<{}, {}> is not yet lowered by the LLVM backend; \
-                             only Map<Int, Int> is supported in v1",
+                             Map<Int, Int> and Map<String, Int> are supported in v1",
                             key_ty, value_ty
                         ),
                         "llvm",
-                    ));
-                }
+                    )
+                })?;
 
-                let new_fn = self
-                    .module
-                    .get_function("algol26_map_new_int")
-                    .ok_or_else(|| {
-                        CompileError::simple(
-                            "runtime/map.c is not linked — algol26_map_new_int missing",
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0009,
-                        )
-                    })?;
-                let insert_fn = self
-                    .module
-                    .get_function("algol26_map_insert_int")
-                    .ok_or_else(|| {
-                        CompileError::simple(
-                            "runtime/map.c is not linked — algol26_map_insert_int missing",
-                            0,
-                            0,
-                            "",
-                            ErrorCode::E0009,
-                        )
-                    })?;
+                let new_symbol = format!("algol26_map_new_{}", suffix);
+                let insert_symbol = format!("algol26_map_insert_{}", suffix);
+                let new_fn = self.module.get_function(&new_symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "runtime for Map literal not linked ({} missing)",
+                            new_symbol
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let insert_fn = self.module.get_function(&insert_symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "runtime for Map literal not linked ({} missing)",
+                            insert_symbol
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
 
                 // Capacity: 16 as a starting heuristic. Real growth
                 // would need a resize helper; v1 refuses to exceed

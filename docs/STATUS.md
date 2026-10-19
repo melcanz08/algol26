@@ -179,8 +179,12 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   when full, and mutates in place when spare capacity exists.
   Verified end-to-end with `var xs: List<Int> := [1,2,3]; xs.append(4)`
   printing the updated length natively.
-- **`Map<K, V>` is still interpreter-only.** LLVM and WASM refuse
-  it at the capability check (`Feature::Map`).
+- **`Map<K, V>` on LLVM and WASM.** LLVM supports `Map<Int, Int>`
+  and `Map<String, Int>` (ADR 0027 + a `_str_int` extension of the
+  runtime). Other key/value shapes — `Map<String, String>`,
+  `Map<Int, String>`, `Map<Bool, T>` — are refused at codegen with
+  a targeted error. WASM refuses all `Map` shapes at the capability
+  check. `Map.keys` / `.values` are interpreter-only on LLVM.
 
 ### Traits and generics in real programs
 
@@ -562,17 +566,18 @@ Open (not fixed):
 
 ### LLVM backend gaps (interpreter works)
 
-- **`Map<K, V>` v1 partial lowering.** ADR 0027 v1 lowers only
-  `Map<Int, Int>` on LLVM (via `runtime/map.c`, an int-keyed
-  open-addressing hash table). Other key/value combinations
-  (`Map<String, Int>`, `Map<Int, String>`, etc.) are refused at
-  codegen with `E0004 "only Map<Int, Int> is supported in v1"`.
-  `Map.keys` and `Map.values` are also unimplemented (they return
-  `List<K>` / `List<V>`, needing a list-descriptor builder).
-  Workaround: run through `--interpreter`. Next step: extend
-  `runtime/map.c` with `_str` key and value variants, plus
-  `keys` / `values` returning `List`. Full dynamic growth is
-  already implemented (load factor 2×).
+- **`Map<K, V>` v1 partial lowering.** LLVM lowers two shapes:
+  `Map<Int, Int>` (via `runtime/map.c`, an int-keyed
+  open-addressing hash table) and `Map<String, Int>` (via
+  `runtime/map_str_int.c`, a string-keyed table with `strdup`'d
+  keys and grow-on-full). Other key/value combinations
+  (`Map<String, String>`, `Map<Int, String>`, `Map<Bool, T>`) are
+  refused at codegen with a targeted error. `Map.keys` and
+  `Map.values` remain unimplemented (they return `List<K>` /
+  `List<V>`, needing a list-descriptor builder). `Map<Int, Int>`
+  retains the fixed-16 capacity limitation from `runtime/map.c`;
+  `Map<String, Int>` grows via rehashing. Workaround for
+  unsupported shapes: run through `--interpreter`.
 
 - **`String.join` codegen.** The builtin is accepted by the
   capability check but has no `compile_builtin_value` arm in the
@@ -587,7 +592,6 @@ Open (not fixed):
   setup is only done for locally-created list literals.
 - **`try` / `catch` and `Result` values** (`corpus_14`). No LLVM
   lowering; refused cleanly.
-- **`Map<K, V>`** (ADR 0027). Refused at the capability check.
 - **Track B builtins.** Refused at the capability check
   (`Feature::Conversions` for `Int.to_string` / `String.to_int`;
   `StringFunctions` for the others).

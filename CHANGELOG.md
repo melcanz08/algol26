@@ -35,6 +35,21 @@
   list-shape descriptor registration. Corpus pin:
   `tests/corpus/corpus_51_args_llvm.gol`.
 
+- **`Map<String, Int>` on LLVM** — extends the Map lowering beyond
+  the initial `Map<Int, Int>` shape. `runtime/map_str_int.c` is a
+  new typed runtime (strdup'd keys, FNV-1a hashing over the string
+  bytes, `strcmp` equality, grow-on-full via rehashing — unlike
+  `runtime/map.c`, which retains its fixed-16 capacity limitation).
+  The four `Map.*` arms and the literal construction in `value.rs`
+  now dispatch via a shared `map_suffix(key_ty, value_ty)` helper,
+  so adding a third shape is one arm in the helper plus one C file.
+  `Map<String, String>` and `Map.keys`/`.values` remain
+  unimplemented on LLVM. Corpus pin:
+  `tests/corpus/corpus_52_map_str_int_llvm.gol` (exercises insert,
+  overwrite, get hit/miss, contains, length, and a 20-entry
+  capacity-growth case). Also corrects stale STATUS.md prose that
+  still described `Map` as interpreter-only.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

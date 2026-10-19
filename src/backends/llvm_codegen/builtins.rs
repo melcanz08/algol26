@@ -518,6 +518,41 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_string_char_at".to_string(), char_at_fn);
 
+        // ── runtime/args.c ──
+        // algol26_args_init(i32 argc, ptr argv) -> void
+        //    Called once from the generated main wrapper.
+        // algol26_args_count() -> i64
+        //    Number of user arguments (argv[0] skipped).
+        // algol26_args_get(i64 i) -> ptr
+        //    The i-th user argument, or NULL if out of range.
+        //
+        // Declared unconditionally: the main wrapper calls
+        // args_init for every program so argc/argv are stashed
+        // in the C runtime before user main runs.
+        let args_init_ty = self
+            .context
+            .void_type()
+            .fn_type(&[self.context.i32_type().into(), i8_ptr.into()], false);
+        let args_init_fn = self
+            .module
+            .add_function("algol26_args_init", args_init_ty, None);
+        self.functions
+            .insert("algol26_args_init".to_string(), args_init_fn);
+
+        let args_count_ty = i64_loc.fn_type(&[], false);
+        let args_count_fn = self
+            .module
+            .add_function("algol26_args_count", args_count_ty, None);
+        self.functions
+            .insert("algol26_args_count".to_string(), args_count_fn);
+
+        let args_get_ty = i8_ptr.fn_type(&[i64_loc.into()], false);
+        let args_get_fn = self
+            .module
+            .add_function("algol26_args_get", args_get_ty, None);
+        self.functions
+            .insert("algol26_args_get".to_string(), args_get_fn);
+
         let i64_ty = self.context.i64_type();
         let i8_ty = self.context.i8_type();
 
@@ -962,6 +997,192 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ErrorCode::E0009,
                     )),
                 }
+            }
+            "args" => {
+                // List<String>: one entry per user argument, argv[0]
+                // skipped. runtime/args.c holds the (argc, argv) the
+                // main wrapper stashed via algol26_args_init.
+                //
+                // First runtime-length list construction in codegen:
+                // the count comes from algol26_args_count(), the
+                // buffer is malloc(count * sizeof(i8*)), and a loop
+                // fills it with borrowed pointers from
+                // algol26_args_get(i). The descriptor uses
+                // { ptr, i64, i64 } = { buf, count, count } — cap
+                // == len so a subsequent List.append can write in
+                // place without growing.
+                //
+                // The interpreter rejects `args(x)` with "takes no
+                // arguments"; match that arity check here.
+                if !args.is_empty() {
+                    return Err(CompileError::simple(
+                        &format!("args: takes no arguments, got {}", args.len()),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+
+                let count_fn = self
+                    .module
+                    .get_function("algol26_args_count")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/args.c not linked (algol26_args_count missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let get_fn = self
+                    .module
+                    .get_function("algol26_args_get")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/args.c not linked (algol26_args_get missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let malloc_fn = self.module.get_function("malloc").ok_or_else(|| {
+                    CompileError::simple(
+                        "LLVM codegen: malloc not registered in stdlib",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+
+                let i64_ty = self.context.i64_type();
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+
+                // count = algol26_args_count()
+                let count_call = self
+                    .builder
+                    .build_call(count_fn, &[], "args_count")
+                    .unwrap();
+                let count = match count_call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_args_count returned void",
+                            "llvm",
+                        ));
+                    }
+                };
+
+                // buf = malloc(count * 8)
+                let slot_bytes = self
+                    .builder
+                    .build_int_mul(
+                        count,
+                        i64_ty.const_int(8, false),
+                        "args_bytes",
+                    )
+                    .unwrap();
+                let buf_call = self
+                    .builder
+                    .build_call(malloc_fn, &[slot_bytes.into()], "args_buf")
+                    .unwrap();
+                let buf = match buf_call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "malloc returned no value",
+                            "llvm",
+                        ));
+                    }
+                };
+
+                // Loop: for i in [0, count) { buf[i] = algol26_args_get(i) }
+                let current_fn = self.current_function.unwrap();
+                let idx_alloca = self
+                    .builder
+                    .build_alloca(i64_ty, "args_i")
+                    .unwrap();
+                self.builder
+                    .build_store(idx_alloca, i64_ty.const_zero())
+                    .unwrap();
+
+                let loop_bb = self.context.append_basic_block(current_fn, "args_loop");
+                let body_bb = self.context.append_basic_block(current_fn, "args_body");
+                let done_bb = self.context.append_basic_block(current_fn, "args_done");
+                self.builder.build_unconditional_branch(loop_bb).unwrap();
+
+                self.builder.position_at_end(loop_bb);
+                let i = self
+                    .builder
+                    .build_load(i64_ty, idx_alloca, "args_i_val")
+                    .unwrap()
+                    .into_int_value();
+                let in_range = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::SLT,
+                        i,
+                        count,
+                        "args_in_range",
+                    )
+                    .unwrap();
+                self.builder
+                    .build_conditional_branch(in_range, body_bb, done_bb)
+                    .unwrap();
+
+                self.builder.position_at_end(body_bb);
+                let s_call = self
+                    .builder
+                    .build_call(get_fn, &[i.into()], "args_get")
+                    .unwrap();
+                let s_ptr = match s_call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_args_get returned void",
+                            "llvm",
+                        ));
+                    }
+                };
+                let slot = unsafe {
+                    self.builder
+                        .build_gep(ptr_ty, buf, &[i], "args_slot")
+                        .unwrap()
+                };
+                self.builder.build_store(slot, s_ptr).unwrap();
+                let next_i = self
+                    .builder
+                    .build_int_add(i, i64_ty.const_int(1, false), "args_i_next")
+                    .unwrap();
+                self.builder.build_store(idx_alloca, next_i).unwrap();
+                self.builder.build_unconditional_branch(loop_bb).unwrap();
+
+                self.builder.position_at_end(done_bb);
+
+                // Build the { ptr, i64, i64 } descriptor.
+                let struct_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+                let mut sv = struct_ty.get_undef();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, buf, 0, "args_buf_field")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 1, "args_len_field")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 2, "args_cap_field")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((sv.into(), Type::list(Type::String)))
             }
             "String.charAt" => {
                 // Option<String>: { i1 has_value, i8* char }.
@@ -1736,7 +1957,46 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let alloca = self.create_entry_alloca(res_name, &val_ty);
                 self.builder.build_store(alloca, val).unwrap();
                 self.variables.insert(res_name.clone(), alloca);
-                self.var_types.insert(res_name.clone(), val_ty);
+                // ADR 0042 phase 1b (ext). A list-returning
+                // *builtin* (currently `args()`, the first one)
+                // yields the same {ptr, i64, i64} descriptor shape
+                // a list-returning *function* does. The function
+                // path (`Instruction::Call`'s else branch) already
+                // registers the descriptor in `list_structs` /
+                // `list_arrays`; this path drifted and skipped it,
+                // so the subsequent `Declare` — which expects to
+                // adopt the source's descriptor — errored with
+                // "list `argv` has no descriptor struct". Mirror
+                // the function-path logic here.
+                //
+                // var_types is set to List<Unknown> (not val_ty)
+                // when the shape is a list descriptor, matching
+                // the function path; the Declare updates it with
+                // the concrete element type.
+                let mut is_list_shape = false;
+                if let inkwell::types::BasicTypeEnum::StructType(st) = val.get_type() {
+                    if st.count_fields() == 3 {
+                        is_list_shape = true;
+                        self.list_structs.insert(res_name.clone(), alloca);
+                        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                        let buf_slot = self
+                            .builder
+                            .build_struct_gep(st, alloca, 0, &format!("{}_buf_slot", res_name))
+                            .unwrap();
+                        let buf = self
+                            .builder
+                            .build_load(ptr_ty, buf_slot, &format!("{}_buf", res_name))
+                            .unwrap()
+                            .into_pointer_value();
+                        self.list_arrays.insert(res_name.clone(), buf);
+                    }
+                }
+                if is_list_shape {
+                    self.var_types
+                        .insert(res_name.clone(), Type::list(Type::Unknown));
+                } else {
+                    self.var_types.insert(res_name.clone(), val_ty);
+                }
             }
         }
         Ok(())

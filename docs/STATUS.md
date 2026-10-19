@@ -240,8 +240,11 @@ Five conversion and string-manipulation builtins landed.
   `EvalError::Runtime` on false; LLVM emits a conditional branch to
   `printf` + `exit(1)`.
 - **`args()`** (ADR 0023). Command-line arguments as
-  `List<String>`. Interpreter-only. The CLI passes program arguments
-  after a `--` separator.
+  `List<String>`. Works on both native backends: the interpreter
+  reads from its `command_line_args`; LLVM forwards `(argc, argv)`
+  through the generated `main` wrapper to `runtime/args.c`. The CLI
+  passes program arguments after a `--` separator. `argv[0]` (the
+  program name) is skipped on both backends.
 - **Diagnostics: filename in errors** (`95329e0`). `CompileError`
   gained an `Option<String> file` field. Errors render
   `--> file:12:5` instead of `--> 12:5`.
@@ -415,7 +418,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `region` | ✅ | ✅ | ✅ | ✅ | 30, 31 |
 | `unsafe` | ✅ | ✅ | ✅ | ✅ | 32, 33 |
 | `affirm(cond, msg)` | ✅ | ✅ | ✅ | ✅ | — |
-| `args()` | ✅ | ✅ | ✅ | ⛔ | — |
+| `args()` | ✅ | ✅ | ✅ | ✅ | — |
 | `&x` / `&mut x` / `*r` / `AddrOf` | ✅ | ✅ | ⛔ | ✅ | — |
 | `spawn` / `parallel` | ✅ | ✅ | ✅ | ⛔ | — |
 | `channel` / `send` / `receive` | ✅ | ✅ | ⛔ | ⛔ | 23–26 |

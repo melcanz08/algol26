@@ -671,29 +671,6 @@ fn interpreter_accepts_args() {
 }
 
 #[test]
-fn llvm_rejects_args() {
-    let program = program_with(
-        Instruction::Declare {
-            name: "xs".to_string(),
-            mutable: false,
-            type_: Type::list(Type::String),
-            value: TypedIRValue::Call {
-                function: "args".to_string(),
-                args: vec![],
-                return_type: Type::list(Type::String),
-            },
-        },
-        simple_return(),
-    );
-    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
-    assert!(
-        err.message.contains("command-line"),
-        "expected args diagnostic, got: {}",
-        err.message
-    );
-}
-
-#[test]
 fn wasm_rejects_args() {
     let program = program_with(
         Instruction::Declare {
@@ -931,6 +908,29 @@ fn llvm_accepts_string_char_at() {
     );
     check_backend(&program, &BackendCapabilities::llvm())
         .expect("LLVM should accept String.charAt");
+}
+
+#[test]
+fn llvm_accepts_args() {
+    // Symmetric pin for the CommandLineArgs flip. The args() call
+    // is wrapped in Declare rather than Print: `print(args())`
+    // would classify as ListPrint (which LLVM correctly refuses),
+    // masking the CommandLineArgs classification we're testing.
+    use crate::ir::semantic_ir::Instruction;
+    let program = program_with(
+        Instruction::Declare {
+            name: "x".to_string(),
+            type_: Type::list(Type::String),
+            value: TypedIRValue::Call {
+                function: "args".to_string(),
+                args: vec![],
+                return_type: Type::list(Type::String),
+            },
+            mutable: false,
+        },
+        simple_return(),
+    );
+    check_backend(&program, &BackendCapabilities::llvm()).expect("LLVM should accept args()");
 }
 
 #[test]

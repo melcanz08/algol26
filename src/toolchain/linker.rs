@@ -91,6 +91,25 @@ pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> 
         ));
     }
     cmd.arg(&file_runtime);
+
+    // runtime/args.c — command-line arguments. Same pattern as
+    // map_runtime, string_runtime, file_runtime.
+    let args_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("runtime")
+        .join("args.c");
+    if !args_runtime.exists() {
+        return Err(CompileError::simple(
+            &format!(
+                "runtime/args.c not found at {} — required for args() lowering",
+                args_runtime.display()
+            ),
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
+        ));
+    }
+    cmd.arg(&args_runtime);
     // Each extern declaration that used `from "lib"` becomes a
     // `-l<lib>` flag. The linker searches the standard library
     // paths plus anything the user added to LIBRARY_PATH.
@@ -128,8 +147,8 @@ pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> 
 /// Run a compiled executable, forwarding its stdout/stderr to the
 /// parent process. A non-zero exit status is not treated as a compiler
 /// error — the program ran successfully, it just returned a failure.
-pub fn run_binary(path: &Path) -> Result<()> {
-    Command::new(path).status().map_err(|e| {
+pub fn run_binary(path: &Path, args: &[String]) -> Result<()> {
+    Command::new(path).args(args).status().map_err(|e| {
         let err =
             CompileError::simple(&format!("Failed to run: {}", e), 0, 0, "", ErrorCode::E0001);
         err.display();

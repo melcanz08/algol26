@@ -1,0 +1,14 @@
+// args() on LLVM. The main wrapper forwards (argc, argv) to
+// runtime/args.c, which skips argv[0] to match the interpreter.
+// Returns List<String>.
+//
+// Run under the corpus harness, no program arguments are passed
+// (the harness invokes `algol26 build <file>`), so the expected
+// output is 0. This pins the codegen path — that args() compiles
+// on LLVM and produces an empty list rather than erroring.
+
+// OUTPUT: 0
+
+proc main
+    val argv := args()
+    print(Int.to_string(List.length(argv)))

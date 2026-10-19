@@ -492,7 +492,7 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_args", "wasm_rejects_args"],
+        refusal_tests: &["wasm_rejects_args"],
         notes: "No conformance fixture — `args()` returns the process's \
                 command-line arguments, which cannot be reproduced by a \
                 static fixture. The interpreter returns the process's \

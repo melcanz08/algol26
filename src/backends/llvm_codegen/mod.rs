@@ -702,10 +702,38 @@ impl<'ctx> IRCodeGen<'ctx> {
             None => return Ok(()),
         };
         let i32_ty = self.context.i32_type();
-        let wrapper_ty = i32_ty.fn_type(&[], false);
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+        // C ABI: `int main(int argc, char **argv)`.
+        let wrapper_ty = i32_ty.fn_type(&[i32_ty.into(), ptr_ty.into()], false);
         let wrapper = self.module.add_function("main", wrapper_ty, None);
         let entry = self.context.append_basic_block(wrapper, "entry");
         self.builder.position_at_end(entry);
+
+        // Forward (argc, argv) to the runtime before user main
+        // runs, so args() sees the user arguments. Matches the
+        // interpreter's std::env::args().skip(1) contract —
+        // algol26_args_init handles the argv[0] skip. The
+        // function is declared unconditionally in register_stdlib
+        // and this call runs for every program, whether or not it
+        // uses args(); the cost is one void call at startup.
+        let argc_param = wrapper.get_nth_param(0).unwrap();
+        let argv_param = wrapper.get_nth_param(1).unwrap();
+        let args_init = self
+            .module
+            .get_function("algol26_args_init")
+            .ok_or_else(|| {
+                CompileError::simple(
+                    "algol26_args_init not registered in stdlib",
+                    0,
+                    0,
+                    "",
+                    ErrorCode::E0009,
+                )
+            })?;
+        self.builder
+            .build_call(args_init, &[argc_param.into(), argv_param.into()], "")
+            .unwrap();
+
         // User `main` has signature `void ()` — no args, no return
         // value. Ignore the CallSiteValue.
         self.builder.build_call(user_main, &[], "").unwrap();

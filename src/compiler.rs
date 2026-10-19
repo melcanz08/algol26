@@ -771,6 +771,7 @@ impl Compiler {
         emit_llvm: bool,
         run_after_compile: bool,
         timing: bool,
+        program_args: &[String],
     ) -> Result<()> {
         use crate::compiler::pass::PassId;
         use std::time::Instant;
@@ -812,6 +813,7 @@ impl Compiler {
             output_name,
             emit_llvm,
             run_after_compile,
+            program_args,
         )?;
         let lower_time = phase_start.elapsed();
 
@@ -1253,6 +1255,7 @@ impl Compiler {
         output_name: &str,
         emit_llvm: bool,
         run_after_compile: bool,
+        program_args: &[String],
     ) -> Result<()> {
         use crate::backends::backend::{Backend, BackendOutput};
         use crate::backends::llvm_backend::LlvmBackend;
@@ -1286,7 +1289,13 @@ impl Compiler {
         eprintln!("[Successfully compiled to {}]", output_path.display());
 
         if run_after_compile {
-            crate::toolchain::run_binary(&output_path)?;
+            // Forward post-`--` program arguments so the compiled
+            // binary's C main sees them in (argc, argv). This is
+            // what makes `args()` work end-to-end on LLVM: the
+            // generated wrapper stashes argc/argv via
+            // algol26_args_init, and args() reads from the C
+            // runtime's globals.
+            crate::toolchain::run_binary(&output_path, program_args)?;
         }
 
         Ok(())

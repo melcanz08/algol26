@@ -208,6 +208,8 @@ impl BackendCapabilities {
         // File.*: runtime/file.c (read returns String, write/append
         // return byte count; errors abort via printf + exit(1)).
         supported.insert(Feature::FileFunctions);
+        // args(): runtime/args.c; main wrapper stashes argc/argv.
+        supported.insert(Feature::CommandLineArgs);
         supported.insert(Feature::References);
         supported.insert(Feature::Records);
         supported.insert(Feature::IntToString);

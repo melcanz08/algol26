@@ -22,6 +22,19 @@
   `{ i1, i8* }`. Corpus pin:
   `tests/corpus/corpus_50_string_char_at_utf8.gol`.
 
+- **`args()` on LLVM** — command-line arguments now work on both
+  native backends. The `main` wrapper (`i32 @main(i32, ptr)`)
+  forwards `(argc, argv)` to `runtime/args.c` via
+  `algol26_args_init` before user main runs; `args()` returns a
+  `List<String>` of user arguments (`argv[0]` skipped, matching
+  the interpreter). The CLI now forwards post-`--` program
+  arguments to the compiled binary (`Compiler::compile` and
+  `run_binary` take `program_args`). First builtin to return a
+  `List<T>` on LLVM — surfaced a gap in `compile_builtin_call`'s
+  result-storage path, which now mirrors `Instruction::Call`'s
+  list-shape descriptor registration. Corpus pin:
+  `tests/corpus/corpus_51_args_llvm.gol`.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

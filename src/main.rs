@@ -212,7 +212,15 @@ fn main() {
         }
     } else {
         let mut compiler = Compiler::new();
-        if let Err(e) = compiler.compile(&source, &filename, &output_name, emit_llvm, run, timing) {
+        if let Err(e) = compiler.compile(
+            &source,
+            &filename,
+            &output_name,
+            emit_llvm,
+            run,
+            timing,
+            &program_args,
+        ) {
             let e = e.with_file(&filename);
             eprint!("{}", render_one_with_source(&e, Some(&source)));
             std::process::exit(1);

@@ -18,7 +18,7 @@
 // OUTPUT: a-b-c
 // OUTPUT: 1
 // OUTPUT: 3
-// OUTPUT: a,,b
+// OUTPUT: a||b
 
 proc main
     val parts := String.split("a,b,c", ",")

@@ -574,10 +574,10 @@ Open (not fixed):
   (`Map<String, String>`, `Map<Int, String>`, `Map<Bool, T>`) are
   refused at codegen with a targeted error. `Map.keys` and
   `Map.values` remain unimplemented (they return `List<K>` /
-  `List<V>`, needing a list-descriptor builder). `Map<Int, Int>`
-  retains the fixed-16 capacity limitation from `runtime/map.c`;
-  `Map<String, Int>` grows via rehashing. Workaround for
-  unsupported shapes: run through `--interpreter`.
+  `List<V>`, needing a list-descriptor builder). Both supported
+  shapes grow via rehashing when full, matching the interpreter's
+  unbounded `HashMap`. Workaround for unsupported shapes: run
+  through `--interpreter`.
 
 - **`String.join` codegen.** The builtin is accepted by the
   capability check but has no `compile_builtin_value` arm in the

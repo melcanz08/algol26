@@ -1,0 +1,32 @@
+// Map<Int, Int> capacity growth on LLVM.
+//
+// Regression pin for the pre-existing fixed-16 limit in
+// runtime/map.c: inserting a 17th entry hit the linear-probe
+// loop with no empty slot and hung forever. The interpreter's
+// HashMap grows unboundedly, so this was a differential failure
+// the corpus never caught (corpus_44 uses < 16 entries).
+//
+// runtime/map.c now grows by doubling, matching
+// runtime/map_str_int.c and the interpreter.
+
+// OUTPUT: 25
+// OUTPUT: 0
+// OUTPUT: 240
+// OUTPUT: 100
+
+proc main
+    var m := Map<Int, Int> {}
+    var i := 0
+    while i < 25
+        m.insert(i, i * 10)
+        i := i + 1
+    print(Int.to_string(m.length()))
+    match m.get(0)
+        case Some(n) then print(Int.to_string(n))
+        case None then print("none")
+    match m.get(24)
+        case Some(n) then print(Int.to_string(n))
+        case None then print("none")
+    match m.get(10)
+        case Some(n) then print(Int.to_string(n))
+        case None then print("none")

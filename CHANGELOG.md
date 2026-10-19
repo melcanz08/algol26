@@ -50,6 +50,19 @@
   capacity-growth case). Also corrects stale STATUS.md prose that
   still described `Map` as interpreter-only.
 
+- **`Map<Int, Int>` capacity growth.** `runtime/map.c` had a
+  fixed 16-entry capacity; inserting a 17th entry entered an
+  infinite loop in the linear-probe search (no empty slot to
+  terminate on). The interpreter's `HashMap` grows unboundedly,
+  so `Map<Int, Int>` with more than 16 entries worked on the
+  interpreter and hung on LLVM — a differential failure the
+  corpus never caught (`corpus_44_map_llvm` uses fewer than 16
+  entries). `runtime/map.c` now doubles capacity and rehashes,
+  matching `runtime/map_str_int.c` and the interpreter. New
+  corpus pin: `tests/corpus/corpus_53_map_int_int_growth.gol`
+  (25 entries, all retrievable). Standalone C test also added
+  (`runtime/map.c` previously had none).
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

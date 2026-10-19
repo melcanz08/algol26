@@ -1,9 +1,15 @@
-// runtime/map.c — minimal Map<Int, Int> runtime for ALGOL26 LLVM backend.
+// runtime/map.c — Map<Int, Int> runtime for ALGOL26 LLVM backend.
 //
-// Fixed-capacity open-addressing hash table with linear probing.
-// No resizing in v1; capacity is chosen at construction and grows
-// the map is refused if it exceeds it. This is a prototype — the
-// real implementation needs dynamic growth.
+// Open-addressing hash table with linear probing, growing by
+// doubling when the map is full. Matches runtime/map_str_int.c's
+// growth strategy so both shapes behave the same past the initial
+// capacity — and match the interpreter's HashMap, which grows
+// unboundedly.
+//
+// (Prior to this, insert past capacity looped forever: the
+// linear-probe loop had no empty slot to terminate on. A 20-entry
+// program hung on LLVM while working on the interpreter. See
+// corpus_53_map_int_int_growth.gol for the regression pin.)
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -50,8 +56,46 @@ void algol26_map_free_int(AlgoIntMap *m) {
     free(m);
 }
 
+// Forward declaration: grow() re-inserts every entry, and grow is
+// defined before insert to keep the file's top-down structure
+// (new/free/grow/insert/get/contains/length).
+void algol26_map_insert_int(AlgoIntMap *m, int64_t k, int64_t v);
+
+// Double the capacity and rehash. Called from insert when the map
+// is full, so the linear-probe loop always has at least one empty
+// slot to land on.
+static void grow(AlgoIntMap *m) {
+    int64_t old_cap = m->cap;
+    int64_t *old_keys = m->keys;
+    int64_t *old_values = m->values;
+
+    m->cap = old_cap * 2;
+    m->keys = malloc(sizeof(int64_t) * (size_t)m->cap);
+    m->values = malloc(sizeof(int64_t) * (size_t)m->cap);
+    if (!m->keys || !m->values) {
+        // OOM: restore old arrays, drop new. Insert becomes a no-op.
+        free(m->keys);
+        free(m->values);
+        m->keys = old_keys;
+        m->values = old_values;
+        m->cap = old_cap;
+        return;
+    }
+    for (int64_t i = 0; i < m->cap; i++) m->keys[i] = EMPTY_KEY;
+    m->len = 0;
+    for (int64_t i = 0; i < old_cap; i++) {
+        if (old_keys[i] != EMPTY_KEY) {
+            algol26_map_insert_int(m, old_keys[i], old_values[i]);
+        }
+    }
+    free(old_keys);
+    free(old_values);
+}
+
 void algol26_map_insert_int(AlgoIntMap *m, int64_t k, int64_t v) {
-    if (k == EMPTY_KEY) return;  // silent reject; fix with error code later
+    if (k == EMPTY_KEY) return;
+    if (m->len >= m->cap) grow(m);
+    if (m->len >= m->cap) return;  // grow failed (OOM); drop the insert
     uint64_t h = hash_i64(k);
     int64_t i = (int64_t)(h & (m->cap - 1));
     while (m->keys[i] != EMPTY_KEY) {

@@ -393,6 +393,43 @@ impl<'ctx> IRCodeGen<'ctx> {
         // _int case above.
         self.functions
             .insert("algol26_map_new_str_int".to_string(), new_str_int_fn);
+
+        // ── Map<String, String> (runtime/map_str_str.c) ──
+        // Value is const char* (ptr) instead of int64_t. The C
+        // get() returns an owned strdup'd copy (caller frees).
+        //
+        // AlgoStrStrMap *algol26_map_new_str_str(int64_t capacity)
+        let new_str_str_ty = ptr_ty.fn_type(&[i64_ty.into()], false);
+        let new_str_str_fn =
+            self.module
+                .add_function("algol26_map_new_str_str", new_str_str_ty, None);
+
+        // void algol26_map_insert_str_str(AlgoStrStrMap *m, const char *k, const char *v)
+        let insert_str_str_ty = self
+            .context
+            .void_type()
+            .fn_type(&[ptr_ty.into(), ptr_ty.into(), ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_insert_str_str", insert_str_str_ty, None);
+
+        // int algol26_map_get_str_str(AlgoStrStrMap *m, const char *k, char **out)
+        let get_str_str_ty = i32_ty.fn_type(&[ptr_ty.into(), ptr_ty.into(), ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_get_str_str", get_str_str_ty, None);
+
+        // int algol26_map_contains_str_str(AlgoStrStrMap *m, const char *k)
+        let contains_str_str_ty = i32_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_contains_str_str", contains_str_str_ty, None);
+
+        // int64_t algol26_map_length_str_str(AlgoStrStrMap *m)
+        let length_str_str_ty = i64_ty.fn_type(&[ptr_ty.into()], false);
+        self.module
+            .add_function("algol26_map_length_str_str", length_str_str_ty, None);
+
+        // Keep a handle to the _str_str constructor.
+        self.functions
+            .insert("algol26_map_new_str_str".to_string(), new_str_str_fn);
     }
 
     fn declare_function(&mut self, func: &SemanticFunction) -> Result<()> {

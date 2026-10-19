@@ -569,13 +569,13 @@ Open (not fixed):
 
 ### LLVM backend gaps (interpreter works)
 
-- **`Map<K, V>` v1 partial lowering.** LLVM lowers two shapes:
-  `Map<Int, Int>` (via `runtime/map.c`, an int-keyed
-  open-addressing hash table) and `Map<String, Int>` (via
-  `runtime/map_str_int.c`, a string-keyed table with `strdup`'d
-  keys and grow-on-full). Other key/value combinations
-  (`Map<String, String>`, `Map<Int, String>`, `Map<Bool, T>`) are
-  refused at codegen with a targeted error. `Map.keys` and
+- **`Map<K, V>` v1 partial lowering.** LLVM lowers three shapes:
+  `Map<Int, Int>` (via `runtime/map.c`), `Map<String, Int>` (via
+  `runtime/map_str_int.c`), and `Map<String, String>` (via
+  `runtime/map_str_str.c`, which `strdup`s both keys and values
+  and returns owned copies from `get`). Other key/value
+  combinations (`Map<Int, String>`, `Map<Bool, T>`) are refused at
+  codegen with a targeted error. `Map.keys` and
   `Map.values` remain unimplemented (they return `List<K>` /
   `List<V>`, needing a list-descriptor builder). Both supported
   shapes grow via rehashing when full, matching the interpreter's

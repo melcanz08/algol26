@@ -1,0 +1,51 @@
+// Map<String, String> on LLVM (runtime/map_str_str.c).
+//
+// Extends the map family to the third realistic shape. Pins:
+//   - insert / get / length / contains round-trip
+//   - overwrite (same key, new value, length unchanged)
+//   - get returns an owned copy: mutating the map after a get does
+//     not invalidate the returned string
+//   - grow past the initial 16-slot capacity
+//
+// The C test (test_map_str_str.c) proves the copy-semantics case
+// at the pointer level; this corpus pins the interpreter-vs-LLVM
+// differential on the cases the source can express directly.
+
+// OUTPUT: 3
+// OUTPUT: Bob
+// OUTPUT: Manila
+// OUTPUT: none
+// OUTPUT: has city
+// OUTPUT: 20
+// OUTPUT: v190
+
+proc main
+    var m := Map<String, String> {}
+    m.insert("name", "Alice")
+    m.insert("city", "Manila")
+    m.insert("country", "PH")
+    m.insert("name", "Bob")
+    print(Int.to_string(m.length()))
+    match m.get("name")
+        case Some(v) then print(v)
+        case None then print("none")
+    match m.get("city")
+        case Some(v) then print(v)
+        case None then print("none")
+    match m.get("missing")
+        case Some(v) then print(v)
+        case None then print("none")
+    if m.contains("city")
+        print("has city")
+    else
+        print("no city")
+
+    var big := Map<String, String> {}
+    var i := 0
+    while i < 20
+        big.insert(Int.to_string(i), String.concat("v", Int.to_string(i * 10)))
+        i := i + 1
+    print(Int.to_string(big.length()))
+    match big.get("19")
+        case Some(v) then print(v)
+        case None then print("none")

@@ -72,6 +72,25 @@ pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> 
     }
     cmd.arg(&map_str_int_runtime);
 
+    // runtime/map_str_str.c — Map<String, String> runtime. Same
+    // pattern as map_str_int.
+    let map_str_str_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("runtime")
+        .join("map_str_str.c");
+    if !map_str_str_runtime.exists() {
+        return Err(CompileError::simple(
+            &format!(
+                "runtime/map_str_str.c not found at {} — required for Map<String, String> lowering",
+                map_str_str_runtime.display()
+            ),
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
+        ));
+    }
+    cmd.arg(&map_str_str_runtime);
+
     // runtime/string.c — String.to_int (strict i64 parser) and
     // future string runtime helpers. Same pattern as map_runtime:
     // fail closed if missing, since a program that reaches a

@@ -99,6 +99,21 @@
   keys, `Map.keys`/`.values`, and the documented `File.read`
   UTF-8 divergence).
 
+- **`Map<String, String>` on LLVM** — extends the map family to
+  a third realistic shape. `runtime/map_str_str.c` owns both keys
+  and values (both `strdup`'d); insert-overwrite frees the old
+  value, grow-rehash frees old key/value pairs. `get` returns an
+  owned copy (the interpreter's `entries.get(&key).clone()`
+  semantics), so subsequent map mutations cannot invalidate a
+  previously-returned string — verified by the C test's explicit
+  copy-semantics case. The `.get` codegen arm now branches on the
+  value type to choose the out-pointer type (`i64` vs `ptr`) and
+  the `Option<Int>` / `Option<String>` construction; the other
+  three `Map.*` arms were already shape-agnostic via
+  `map_suffix`. `Map<Int, String>` and `Map<Bool, T>` remain
+  refused at codegen. Corpus pin:
+  `tests/corpus/corpus_56_map_str_str_llvm.gol`.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

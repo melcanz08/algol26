@@ -25,6 +25,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         match (key_ty, value_ty) {
             (Type::Int, Type::Int) => Some("int"),
             (Type::String, Type::Int) => Some("str_int"),
+            (Type::String, Type::String) => Some("str_str"),
             _ => None,
         }
     }
@@ -2100,10 +2101,29 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ErrorCode::E0009,
                     )
                 })?;
-                let out_slot = self
-                    .builder
-                    .build_alloca(self.context.i64_type(), "map_get_out")
-                    .unwrap();
+                // Out-pointer type follows the value type:
+                // i64 for Int values, ptr (char**) for String.
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let out_slot = match &value_ty {
+                    Type::Int => self
+                        .builder
+                        .build_alloca(self.context.i64_type(), "map_get_out")
+                        .unwrap(),
+                    Type::String => self
+                        .builder
+                        .build_alloca(ptr_ty, "map_get_out")
+                        .unwrap(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!(
+                                "Map.get on LLVM: value type {} not supported \
+                                 (Int and String are)",
+                                value_ty
+                            ),
+                            "llvm",
+                        ));
+                    }
+                };
                 let call = self
                     .builder
                     .build_call(get_fn, &[map_ptr.into(), key.into(), out_slot.into()], "")
@@ -2126,19 +2146,29 @@ impl<'ctx> IRCodeGen<'ctx> {
                         "map_get_found",
                     )
                     .unwrap();
-                let opt_ty = match self.map_type(&Type::option(Type::Int)) {
+                let opt_ty = match self.map_type(&Type::option(value_ty.clone())) {
                     inkwell::types::BasicTypeEnum::StructType(s) => s,
                     _ => {
                         return Err(CompileError::unsupported_operation(
-                            "Option<Int> did not map to a struct",
+                            &format!(
+                                "Option<{}> did not map to a struct",
+                                value_ty
+                            ),
                             "llvm",
                         ));
                     }
                 };
-                let loaded = self
-                    .builder
-                    .build_load(self.context.i64_type(), out_slot, "map_get_val")
-                    .unwrap();
+                let loaded = match &value_ty {
+                    Type::Int => self
+                        .builder
+                        .build_load(self.context.i64_type(), out_slot, "map_get_val")
+                        .unwrap(),
+                    Type::String => self
+                        .builder
+                        .build_load(ptr_ty, out_slot, "map_get_val")
+                        .unwrap(),
+                    _ => unreachable!("checked above"),
+                };
                 let undef = opt_ty.get_undef();
                 let with_tag = self
                     .builder
@@ -2150,7 +2180,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_insert_value(with_tag, loaded, 1, "opt_payload")
                     .unwrap()
                     .into_struct_value();
-                Ok((with_payload.into(), Type::option(Type::Int)))
+                Ok((with_payload.into(), Type::option(value_ty.clone())))
             }
             "Map.insert" => {
                 // Insert is void-returning but can appear in

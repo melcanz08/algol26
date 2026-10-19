@@ -1,7 +1,8 @@
-// supported: interpreter
-// String.split returns List<String>, which needs the dynamic-list
-// model LLVM does not yet have. Change the header above to include
-// `llvm` and `wasm` when the compiled backends lower it.
+// supported: interpreter llvm
+// String.split returns List<String>. LLVM lowers it via
+// runtime/string.c (algol26_string_split); WASM still refuses at
+// the capability boundary (Feature::StringSplit is not in
+// wasm().supported).
 proc main
     val parts := "a,b,c".split(",")
     print(Int.to_string(parts.length()))

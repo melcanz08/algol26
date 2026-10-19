@@ -220,10 +220,12 @@ Five conversion and string-manipulation builtins landed.
 - `String.to_int` has an LLVM lowering (`runtime/string.c`, strict
   i64 parser matching the interpreter's `str::parse::<i64>()`) and
   works on both native backends.
-- `String.split` and `String.join` are interpreter-only.
-  `String.split` is refused because `Feature::StringSplit` is not in
-  the LLVM capability set; `String.join` has no codegen arm — see
-  "Known Gaps" below.
+- `String.split` and `String.join` work on both native backends.
+  `runtime/string.c`'s `algol26_string_split` (codepoint-aware on
+  empty separator, byte-exact substring match otherwise) and
+  `algol26_string_join` (iterates a `List<String>`, concatenates
+  with separator) match the interpreter's Rust `str::split` and
+  `slice::join` behavior.
 - `File.read` / `.write` / `.append` work on both native backends
   via `runtime/file.c`. Signatures match the interpreter: read
   returns `String`, write/append return the byte count as `Int`.
@@ -402,7 +404,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `String.charAt` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.to_upper` / `.to_lower` / `.concat` / `.substring` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.trim` | ✅ | ✅ | ✅ | ✅ | — |
-| `String.split` / `.join` | ✅ | ✅ | ✅ | ⛔ | — |
+| `String.split` / `.join` | ✅ | ✅ | ✅ | ✅ | — |
 | `Int.to_string` | ✅ | ✅ | ✅ | ✅ | — |
 | `String.to_int` | ✅ | ✅ | ✅ | ✅ | — |
 | `File.read` / `.write` / `.append` | ✅ | ✅ | ✅ | ✅ | — |

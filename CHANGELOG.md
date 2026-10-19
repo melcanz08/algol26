@@ -77,6 +77,28 @@
   `tests/corpus/corpus_54_string_trim_llvm.gol`.
   `String.split` and `.join` remain interpreter-only.
 
+- **`String.split` and `String.join` on LLVM** — the last two
+  interpreter-only builtins now work on LLVM. `runtime/string.c`
+  gains `algol26_string_split` (codepoint-aware when the separator
+  is empty, byte-exact substring match otherwise, includes empty
+  segments — matching Rust's `str::split`) and
+  `algol26_string_join` (iterates a `List<String>` descriptor,
+  concatenates with separator between elements — matching Rust's
+  `slice::join`). The C test covers 20 cases including empty
+  separator on UTF-8 input (`"héllo".split("")` → 7 codepoints
+  with leading/trailing empties) and empty-list/empty-element join
+  behavior. The `.split` arm returns a `{ptr, i64, i64}`
+  descriptor built from the C's pre-filled `char**`; the `.join`
+  arm extracts buffer and length from the compiled `List<String>`
+  and calls the C. `Feature::StringSplit` moves into
+  `llvm().supported`. Corpus pin:
+  `tests/corpus/corpus_55_string_split_join_llvm.gol`. After this,
+  no language feature is interpreter-only — every construct works
+  on LLVM except those the capability matrix explicitly refuses
+  (unions, channels, `try`/`catch`, `Map` shapes beyond Int/String
+  keys, `Map.keys`/`.values`, and the documented `File.read`
+  UTF-8 divergence).
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

@@ -90,6 +90,8 @@ impl std::error::Error for EvalError {}
 #[derive(Debug, Clone)]
 pub enum RuntimeValue {
     Int(i64),
+    /// A Unicode scalar value, stored as its codepoint.
+    Char(u32),
     Float(f64),
     String(String),
     Bool(bool),
@@ -136,6 +138,9 @@ impl RuntimeValue {
     pub fn as_bool(&self) -> bool {
         match self {
             RuntimeValue::Bool(b) => *b,
+            // A Char is always truthy: even '\0' is a
+            // well-defined character value, not a null reference.
+            RuntimeValue::Char(_) => true,
             RuntimeValue::Int(i) => *i != 0,
             RuntimeValue::Float(f) => *f != 0.0,
             RuntimeValue::String(s) => !s.is_empty(),
@@ -160,6 +165,11 @@ impl RuntimeValue {
     pub fn display(&self) -> String {
         match self {
             RuntimeValue::Int(i) => crate::common::types::print::format_int(*i),
+            // print a Char as the character itself, not as a
+            // codepoint. Mirrors Rust's Display for char.
+            RuntimeValue::Char(c) => char::from_u32(*c)
+                .map(|ch| ch.to_string())
+                .unwrap_or_default(),
             RuntimeValue::Float(f) => crate::common::types::print::format_float(*f),
             RuntimeValue::String(s) => s.clone(),
             RuntimeValue::Bool(b) => crate::common::types::print::format_bool(*b),
@@ -236,6 +246,7 @@ impl RuntimeValue {
             // codegen, which emits an `sitofp` before comparing.
             (Int(a), Float(b)) => (*a as f64) == *b,
             (Float(a), Int(b)) => *a == (*b as f64),
+            (Char(a), Char(b)) => a == b,
             (Bool(a), Bool(b)) => a == b,
             (String(a), String(b)) => a == b,
             (List(a), List(b)) => {
@@ -319,6 +330,7 @@ impl RuntimeValue {
 pub(super) fn runtime_kind(v: &RuntimeValue) -> &'static str {
     match v {
         RuntimeValue::Int(_) => "Int",
+        RuntimeValue::Char(_) => "Char",
         RuntimeValue::Float(_) => "Float",
         RuntimeValue::String(_) => "String",
         RuntimeValue::Bool(_) => "Bool",

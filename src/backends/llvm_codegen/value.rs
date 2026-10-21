@@ -214,6 +214,10 @@ impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_value(&self, val: &TypedIRValue) -> Result<BasicValueEnum<'ctx>> {
         Ok(match val {
             TypedIRValue::Int(i) => self.context.i64_type().const_int(*i as u64, true).into(),
+            // A Char lowers to its codepoint as i32. This matches
+            // map_type(Type::Char) and the Option<Char> payload
+            // field ({ i1, i32 }).
+            TypedIRValue::Char(c) => self.context.i32_type().const_int(*c as u64, false).into(),
             TypedIRValue::Float(f) => self.context.f64_type().const_float(*f).into(),
             TypedIRValue::Bool(b) => self
                 .context

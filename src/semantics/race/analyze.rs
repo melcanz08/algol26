@@ -232,6 +232,9 @@ impl RaceDetector {
 
     pub(super) fn analyze_expr(&mut self, expr: &Expr, in_spawn: bool) {
         match &expr.kind {
+            // Char literals reference nothing, so they contribute
+            // no race information.
+            ExprKind::Char(_, _) => {}
             ExprKind::Var(name, _) => {
                 let target = if in_spawn {
                     if let Some(accesses) = self.spawned_accesses.last_mut() {

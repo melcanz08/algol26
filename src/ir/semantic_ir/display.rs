@@ -318,6 +318,7 @@ fn format_instruction(out: &mut String, instr: &Instruction) {
 fn format_value(out: &mut String, value: &TypedIRValue) {
     match value {
         TypedIRValue::Int(i) => write!(out, "{}", i).unwrap(),
+        TypedIRValue::Char(c) => write!(out, "'{}'", char::from_u32(*c).unwrap_or('?')).unwrap(),
         TypedIRValue::Float(f) => write!(out, "{}", f).unwrap(),
         TypedIRValue::String(s) => write!(out, "{:?}", s).unwrap(),
         TypedIRValue::Bool(b) => write!(out, "{}", b).unwrap(),

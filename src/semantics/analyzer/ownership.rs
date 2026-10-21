@@ -718,6 +718,7 @@ impl SemanticAnalyzer {
             }
             ExprKind::Number(_, _)
             | ExprKind::Int(_, _)
+            | ExprKind::Char(_, _)
             | ExprKind::String(_, _)
             | ExprKind::Bool(_, _)
             | ExprKind::NullPtr(_)

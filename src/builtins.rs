@@ -88,6 +88,22 @@ pub fn builtins() -> Vec<BuiltinSig> {
         params: vec![("s", Type::String), ("i", Type::Int)],
         return_type: Type::option(Type::String),
     });
+    // Char bridge: codepoint access and UTF-8 encoding.
+    v.push(BuiltinSig {
+        name: "String.char_at",
+        params: vec![("s", Type::String), ("i", Type::Int)],
+        return_type: Type::option(Type::Char),
+    });
+    v.push(BuiltinSig {
+        name: "Char.to_string",
+        params: vec![("c", Type::Char)],
+        return_type: Type::String,
+    });
+    v.push(BuiltinSig {
+        name: "Char.to_int",
+        params: vec![("c", Type::Char)],
+        return_type: Type::Int,
+    });
     v.push(BuiltinSig {
         name: "String.to_upper",
         params: vec![("s", Type::String)],

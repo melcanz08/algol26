@@ -5,6 +5,7 @@ use super::*;
 pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type, String> {
     Ok(match value {
         TypedIRValue::Int(_) => Type::Int,
+        TypedIRValue::Char(_) => Type::Char,
         TypedIRValue::Float(_) => Type::Float,
         TypedIRValue::Bool(_) => Type::Bool,
         TypedIRValue::String(_) => Type::String,
@@ -564,7 +565,14 @@ pub(super) fn compute_binop_type(op: &SemanticBinOp, lt: &Type, rt: &Type) -> Re
         | SemanticBinOp::Less
         | SemanticBinOp::GreaterEqual
         | SemanticBinOp::LessEqual => {
-            if (lt.is_numeric() && rt.is_numeric()) || lt.is_unknown() || rt.is_unknown() {
+            // Char is ordered but not numeric: `'a' <= c` is a
+            // valid digit-range check. Same rule as the analyzer's
+            // ordered-comparison arm.
+            let comparable = (lt.is_numeric() && rt.is_numeric())
+                || (matches!(lt, Type::Char) && matches!(rt, Type::Char))
+                || lt.is_unknown()
+                || rt.is_unknown();
+            if comparable {
                 Ok(Type::Bool)
             } else {
                 Err(format!(

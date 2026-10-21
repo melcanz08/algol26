@@ -1392,6 +1392,8 @@ fn number_expr(expr: &mut Expr, next: &mut u32) {
     expr.id = ExprId(*next);
     *next += 1;
     match &mut expr.kind {
+        // Char literal: no children to number.
+        ExprKind::Char(_, _) => {}
         ExprKind::Block {
             statements,
             trailing_expr,

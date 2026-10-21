@@ -73,6 +73,8 @@ impl RaceDetector {
         accesses: &mut HashMap<String, AccessType>,
     ) {
         match &expr.kind {
+            // Char literals read nothing.
+            ExprKind::Char(_, _) => {}
             ExprKind::Var(name, _) => {
                 Self::merge_access_map(accesses, name, AccessType::Read);
             }

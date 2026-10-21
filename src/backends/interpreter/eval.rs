@@ -44,6 +44,7 @@ impl Interpreter {
     pub(super) fn eval_value(&mut self, v: &TypedIRValue) -> Result<RuntimeValue, EvalError> {
         Ok(match v {
             TypedIRValue::Int(i) => RuntimeValue::Int(*i),
+            TypedIRValue::Char(c) => RuntimeValue::Char(*c),
             TypedIRValue::Float(f) => RuntimeValue::Float(*f),
             TypedIRValue::Bool(b) => RuntimeValue::Bool(*b),
             TypedIRValue::String(s) => RuntimeValue::String(s.clone()),
@@ -596,21 +597,25 @@ impl Interpreter {
             SemanticBinOp::Greater => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(a > b)),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(a > b)),
+                (RuntimeValue::Char(a), RuntimeValue::Char(b)) => Ok(RuntimeValue::Bool(a > b)),
                 _ => Err(mismatch("Greater")),
             },
             SemanticBinOp::Less => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(a < b)),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(a < b)),
+                (RuntimeValue::Char(a), RuntimeValue::Char(b)) => Ok(RuntimeValue::Bool(a < b)),
                 _ => Err(mismatch("Less")),
             },
             SemanticBinOp::GreaterEqual => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(a >= b)),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(a >= b)),
+                (RuntimeValue::Char(a), RuntimeValue::Char(b)) => Ok(RuntimeValue::Bool(a >= b)),
                 _ => Err(mismatch("GreaterEqual")),
             },
             SemanticBinOp::LessEqual => match (l, r) {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(a <= b)),
                 (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(a <= b)),
+                (RuntimeValue::Char(a), RuntimeValue::Char(b)) => Ok(RuntimeValue::Bool(a <= b)),
                 _ => Err(mismatch("LessEqual")),
             },
             // ADR 0032 A5d: set operations on the u64 bit pattern,
@@ -851,6 +856,89 @@ impl Interpreter {
                     ))))),
                     None => Ok(RuntimeValue::Option(None)),
                 }
+            }
+            "String.char_at" => {
+                // Option<Char>: codepoint-indexed, same indexing
+                // as String.charAt but the payload is a u32
+                // codepoint rather than a 1-char String.
+                let s = match arg_vals.first() {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.char_at",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.char_at: missing string argument".into(),
+                        ))
+                    }
+                };
+                let i = match arg_vals.get(1) {
+                    Some(RuntimeValue::Int(i)) => *i,
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.char_at.index",
+                            left: runtime_kind(other),
+                            right: "Int",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.char_at: missing index argument".into(),
+                        ))
+                    }
+                };
+                if i < 0 {
+                    return Ok(RuntimeValue::Option(None));
+                }
+                match s.chars().nth(i as usize) {
+                    Some(c) => Ok(RuntimeValue::Option(Some(Box::new(RuntimeValue::Char(
+                        c as u32,
+                    ))))),
+                    None => Ok(RuntimeValue::Option(None)),
+                }
+            }
+            "Char.to_string" => {
+                // UTF-8 encode a codepoint.
+                let c = match arg_vals.first() {
+                    Some(RuntimeValue::Char(c)) => *c,
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Char.to_string",
+                            left: runtime_kind(other),
+                            right: "Char",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "Char.to_string: missing argument".into(),
+                        ))
+                    }
+                };
+                let s = char::from_u32(c)
+                    .map(|ch| ch.to_string())
+                    .unwrap_or_else(|| "\u{FFFD}".to_string());
+                Ok(RuntimeValue::String(s))
+            }
+            "Char.to_int" => {
+                // Codepoint as i64. Direct cast; no validation,
+                // since RuntimeValue::Char is always a valid
+                // codepoint by construction.
+                let c = match arg_vals.first() {
+                    Some(RuntimeValue::Char(c)) => *c,
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "Char.to_int",
+                            left: runtime_kind(other),
+                            right: "Char",
+                        })
+                    }
+                    None => return Err(EvalError::Runtime("Char.to_int: missing argument".into())),
+                };
+                Ok(RuntimeValue::Int(c as i64))
             }
             "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp" | "Math.log"
             | "Math.floor" | "Math.ceil" | "Math.abs" => {

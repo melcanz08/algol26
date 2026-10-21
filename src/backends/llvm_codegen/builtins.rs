@@ -550,6 +550,27 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_string_trim".to_string(), trim_fn);
 
+        // ── Char bridge ──
+        // algol26_char_to_string(u32) -> i8*
+        // algol26_string_char_at_cp(s, i, *out) -> i32
+        let c2s_ty = i8_ptr.fn_type(&[self.context.i32_type().into()], false);
+        let c2s_fn = self
+            .module
+            .add_function("algol26_char_to_string", c2s_ty, None);
+        self.functions
+            .insert("algol26_char_to_string".to_string(), c2s_fn);
+
+        let i64_loc2 = self.context.i64_type();
+        let char_at_cp_ty = self
+            .context
+            .i32_type()
+            .fn_type(&[i8_ptr.into(), i64_loc2.into(), i8_ptr.into()], false);
+        let char_at_cp_fn =
+            self.module
+                .add_function("algol26_string_char_at_cp", char_at_cp_ty, None);
+        self.functions
+            .insert("algol26_string_char_at_cp".to_string(), char_at_cp_fn);
+
         // ── algol26_string_split / algol26_string_join ──
         // split: (s, sep, *out_count) -> char**
         //   Caller owns each strdup'd element.
@@ -1461,6 +1482,163 @@ impl<'ctx> IRCodeGen<'ctx> {
                         "llvm",
                     )),
                 }
+            }
+            "String.char_at" => {
+                if args.len() != 2 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "String.char_at expects exactly 2 arguments, got {}",
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let s_val = self.compile_value(&args[0])?;
+                let i_val = self.compile_value(&args[1])?;
+                if !s_val.is_pointer_value() || !i_val.is_int_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.char_at arguments must be (String, Int)",
+                        "llvm",
+                    ));
+                }
+                let char_at_fn = self
+                    .module
+                    .get_function("algol26_string_char_at_cp")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c not linked (algol26_string_char_at_cp missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let i32_ty = self.context.i32_type();
+                let out_slot = self.builder.build_alloca(i32_ty, "char_at_cp_out").unwrap();
+                let call = self
+                    .builder
+                    .build_call(
+                        char_at_fn,
+                        &[s_val.into(), i_val.into(), out_slot.into()],
+                        "char_at_cp",
+                    )
+                    .unwrap();
+                let found_i32 = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_string_char_at_cp returned void",
+                            "llvm",
+                        ))
+                    }
+                };
+                let found_bool = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::NE,
+                        found_i32,
+                        i32_ty.const_zero(),
+                        "char_at_found",
+                    )
+                    .unwrap();
+                let opt_ty = match self.map_type(&Type::option(Type::Char)) {
+                    inkwell::types::BasicTypeEnum::StructType(st) => st,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "Option<Char> did not map to a struct",
+                            "llvm",
+                        ))
+                    }
+                };
+                let loaded = self
+                    .builder
+                    .build_load(i32_ty, out_slot, "char_at_val")
+                    .unwrap();
+                let undef = opt_ty.get_undef();
+                let with_tag = self
+                    .builder
+                    .build_insert_value(undef, found_bool, 0, "char_at_tag")
+                    .unwrap()
+                    .into_struct_value();
+                let with_payload = self
+                    .builder
+                    .build_insert_value(with_tag, loaded, 1, "char_at_payload")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((with_payload.into(), Type::option(Type::Char)))
+            }
+            "Char.to_string" => {
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "Char.to_string expects exactly 1 argument, got {}",
+                            args.len()
+                        ),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let c_val = self.compile_value(&args[0])?;
+                if !c_val.is_int_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "Char.to_string argument must be a Char",
+                        "llvm",
+                    ));
+                }
+                let c2s_fn = self
+                    .module
+                    .get_function("algol26_char_to_string")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c not linked (algol26_char_to_string missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self
+                    .builder
+                    .build_call(c2s_fn, &[c_val.into()], "char_to_string")
+                    .unwrap();
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
+                    _ => Err(CompileError::unsupported_operation(
+                        "algol26_char_to_string returned void",
+                        "llvm",
+                    )),
+                }
+            }
+            "Char.to_int" => {
+                // Zero-extend i32 codepoint to i64 Int. No C
+                // runtime function — the cast is entirely in IR.
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!("Char.to_int expects exactly 1 argument, got {}", args.len()),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let c_val = self.compile_value(&args[0])?;
+                if !c_val.is_int_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "Char.to_int argument must be a Char",
+                        "llvm",
+                    ));
+                }
+                let c_int = c_val.into_int_value();
+                let widened = self
+                    .builder
+                    .build_int_z_extend(c_int, self.context.i64_type(), "char_to_int")
+                    .unwrap();
+                Ok((widened.into(), Type::Int))
             }
             "String.trim" => {
                 // Trim leading/trailing Unicode whitespace. Matches

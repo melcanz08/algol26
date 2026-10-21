@@ -286,6 +286,7 @@ impl SemanticIRBuilder {
             Type::Int => Some("Int"),
             Type::Float => Some("Float"),
             Type::String => Some("String"),
+            Type::Char => Some("Char"),
             Type::Bool => Some("Bool"),
             Type::Void => Some("Void"),
             Type::List(_) => Some("List"),

@@ -38,6 +38,9 @@ pub enum SemanticBinOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedIRValue {
     Int(i64),
+    /// A char literal: exactly one Unicode scalar value, stored as
+    /// its codepoint (u32). Lowered to i32 in LLVM.
+    Char(u32),
     Float(f64),
     String(String),
     Bool(bool),
@@ -196,6 +199,7 @@ impl TypedIRValue {
     pub fn type_of(&self) -> Type {
         match self {
             TypedIRValue::Int(_) => Type::Int,
+            TypedIRValue::Char(_) => Type::Char,
             TypedIRValue::Float(_) => Type::Float,
             TypedIRValue::String(_) => Type::String,
             TypedIRValue::Bool(_) => Type::Bool,

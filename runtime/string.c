@@ -434,3 +434,76 @@ char *algol26_string_join(char **items, int64_t count, const char *sep) {
     return buf;
 }
 
+// ── algol26_char_to_string(cp) ──
+//
+// Encode a Unicode scalar value (u32) to a malloc'd
+// NUL-terminated UTF-8 string. The caller owns the result.
+//
+// Surrogate codepoints (0xD800..=0xDFFF) and values above
+// 0x10FFFF are not valid scalar values; the language's Char
+// literals always come from Rust's `char` (which is guaranteed
+// valid), so this path shouldn't see them. If it does (a
+// constructed Char from an untrusted Int), we return the
+// replacement character U+FFFD rather than emit invalid UTF-8.
+char *algol26_char_to_string(uint32_t cp) {
+    // Encode to UTF-8, up to 4 bytes.
+    unsigned char buf[4];
+    size_t n;
+
+    if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+        // Replacement character U+FFFD = EF BF BD.
+        buf[0] = 0xEF; buf[1] = 0xBF; buf[2] = 0xBD;
+        n = 3;
+    } else if (cp < 0x80) {
+        buf[0] = (unsigned char)cp;
+        n = 1;
+    } else if (cp < 0x800) {
+        buf[0] = (unsigned char)(0xC0 | (cp >> 6));
+        buf[1] = (unsigned char)(0x80 | (cp & 0x3F));
+        n = 2;
+    } else if (cp < 0x10000) {
+        buf[0] = (unsigned char)(0xE0 | (cp >> 12));
+        buf[1] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[2] = (unsigned char)(0x80 | (cp & 0x3F));
+        n = 3;
+    } else {
+        buf[0] = (unsigned char)(0xF0 | (cp >> 18));
+        buf[1] = (unsigned char)(0x80 | ((cp >> 12) & 0x3F));
+        buf[2] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[3] = (unsigned char)(0x80 | (cp & 0x3F));
+        n = 4;
+    }
+
+    char *out = (char *)malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, buf, n);
+    out[n] = '\0';
+    return out;
+}
+
+// ── algol26_string_char_at_cp(s, i, *out) ──
+//
+// Codepoint-indexed char access. Writes the i-th codepoint to
+// *out (u32) and returns 1, or returns 0 if i is out of range.
+// Same contract as algol26_string_char_at but the payload is a
+// codepoint, not a 1-character string. The LLVM codegen wraps
+// this in Option<Char> = { i1, i32 }.
+int algol26_string_char_at_cp(const char *s, int64_t i, uint32_t *out) {
+    if (s == NULL || out == NULL || i < 0) return 0;
+
+    const char *p = s;
+    int64_t cp = 0;
+    while (*p != '\0' && cp < i) {
+        p++;
+        while ((*p & 0xC0) == 0x80) p++;
+        cp++;
+    }
+    if (*p == '\0') return 0;
+
+    // Decode one codepoint.
+    size_t adv = 0;
+    uint32_t codepoint = decode_utf8(p, &adv);
+    *out = codepoint;
+    return 1;
+}
+

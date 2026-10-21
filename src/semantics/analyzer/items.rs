@@ -1052,7 +1052,7 @@ fn is_likely_user_type(name: &str) -> bool {
     // the identifier and the file the user wrote.
     !matches!(
         name,
-        "Int" | "Float" | "String" | "Bool" | "Void" | "Ptr" | "Never" | "Self"
+        "Int" | "Float" | "String" | "Char" | "Bool" | "Void" | "Ptr" | "Never" | "Self"
     )
 }
 

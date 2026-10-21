@@ -36,6 +36,9 @@ pub enum Token {
     Identifier(String),
     FloatLit(f64),
     IntLit(i64),
+    /// A char literal: exactly one Unicode scalar value between
+    /// single quotes. `u32` is the codepoint (Rust's `char as u32`).
+    CharLit(u32),
     StringLit(String),
 
     // Operators
@@ -677,6 +680,13 @@ impl Lexer {
                 let string_content =
                     Lexer::read_string(&mut chars, &mut position, line_number, line)?;
                 tokens.push(Token::StringLit(string_content));
+                positions.push((start, position));
+            } else if c == '\'' {
+                let start = position;
+                chars.next();
+                position += 1;
+                let tok = Lexer::read_char(&mut chars, &mut position, line_number, line)?;
+                tokens.push(tok);
                 positions.push((start, position));
             } else if c.is_alphabetic() || c == '_' {
                 let start = position;

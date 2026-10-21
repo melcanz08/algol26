@@ -140,6 +140,7 @@ impl SemanticAnalyzer {
         expected_type: Option<&Type>,
     ) -> Result<Type> {
         match &expr.kind {
+            ExprKind::Char(_, _) => Ok(Type::Char),
             ExprKind::Borrow { expr: operand, .. } => {
                 // ADR 0044 stage 2. Track the borrow on a `Place`,
                 // not on a bare name — `&p.x` is a borrow of the
@@ -1153,7 +1154,14 @@ impl SemanticAnalyzer {
                         }
                     }
                     BinOp::Greater | BinOp::Less | BinOp::GreaterEqual | BinOp::LessEqual => {
-                        if left_type.is_numeric() && right_type.is_numeric() {
+                        // Char is ordered but not numeric: `'a' <= c`
+                        // is valid (a digit-range check), `'a' + c`
+                        // is not. Allow comparisons when both sides
+                        // are Char, in addition to the numeric case.
+                        let comparable = (left_type.is_numeric() && right_type.is_numeric())
+                            || (matches!(left_type, Type::Char)
+                                && matches!(right_type, Type::Char));
+                        if comparable {
                             Ok(Type::Bool)
                         } else {
                             Err(CompileError::at(

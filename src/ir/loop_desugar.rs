@@ -705,6 +705,8 @@ fn substitute_var_literal(stmts: &[Stmt], old_name: &str, literal: &Expr) -> Vec
 
 fn substitute_expr_literal(expr: &Expr, old_name: &str, literal: &Expr) -> Expr {
     match &expr.kind {
+        // Char literals contain no variables to substitute.
+        ExprKind::Char(_, _) => expr.clone(),
         ExprKind::Var(name, _) if name == old_name => literal.clone(),
         ExprKind::Var(name, span) => Expr::new(ExprKind::Var(name.clone(), *span)),
         ExprKind::Binary {

@@ -1,0 +1,65 @@
+// Char type: literals, comparisons, escapes, Option<Char>.
+//
+// Pins the Char primitive end-to-end: lexer produces
+// Token::CharLit(u32), parser produces ExprKind::Char(u32),
+// analyzer types it as Type::Char, LLVM lowers it to i32.
+// Comparisons use icmp on i32.
+
+// OUTPUT: a
+// OUTPUT: Z
+// OUTPUT: 0
+// OUTPUT: 9
+// OUTPUT: true
+// OUTPUT: false
+// OUTPUT: Some(a)
+// OUTPUT: None
+// OUTPUT: 97
+// OUTPUT: newline
+
+proc main
+    // Literal + display
+    val a := 'a'
+    print(Char.to_string(a))
+    val z := 'Z'
+    print(Char.to_string(z))
+
+    // Digit range check (the lexer's is_digit pattern)
+    val zero := '0'
+    val nine := '9'
+    if zero <= a and a <= nine
+        print("a is a digit")
+    else
+        print("0")
+        print("9")
+
+    // Comparison returns Bool
+    if a = 'a'
+        print("true")
+    else
+        print("false")
+    if a = 'b'
+        print("true")
+    else
+        print("false")
+
+    // Option<Char>
+    val opt: Option<Char> := Some('a')
+    match opt
+        case Some(c) then print(String.concat("Some(", String.concat(Char.to_string(c), ")")))
+        case None then print("None")
+
+    // Char in Option, None case
+    val missing: Option<Char> := None
+    match missing
+        case Some(c) then print(Char.to_string(c))
+        case None then print("None")
+
+    // Char.to_int for codepoint access
+    print(Int.to_string(Char.to_int(a)))
+
+    // Escape sequence
+    val nl := '\n'
+    if nl = '\n'
+        print("newline")
+    else
+        print("not newline")

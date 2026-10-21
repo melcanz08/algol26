@@ -185,6 +185,7 @@ impl<'a> Walker<'a> {
         match &expr.kind {
             ExprKind::Number(_, _)
             | ExprKind::Int(_, _)
+            | ExprKind::Char(_, _)
             | ExprKind::String(_, _)
             | ExprKind::Bool(_, _)
             | ExprKind::Var(_, _)
@@ -382,6 +383,7 @@ fn expr_kind(e: &Expr) -> &'static str {
     match &e.kind {
         ExprKind::Number(_, _) => "number",
         ExprKind::Int(_, _) => "int",
+        ExprKind::Char(_, _) => "char",
         ExprKind::String(_, _) => "string",
         ExprKind::Bool(_, _) => "bool",
         ExprKind::Var(_, _) => "var",

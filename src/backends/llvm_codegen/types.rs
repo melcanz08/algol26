@@ -77,6 +77,10 @@ impl<'ctx> IRCodeGen<'ctx> {
         match ty {
             Type::Int => self.context.i64_type().into(),
             Type::Float => self.context.f64_type().into(),
+            // A Char is a Unicode scalar value; i32 matches
+            // LLVM's representation of a codepoint and the
+            // option struct's payload field ({ i1, i32 }).
+            Type::Char => self.context.i32_type().into(),
             Type::Bool => self.context.bool_type().into(),
             // ADR 0055. Unions have no LLVM lowering: a tagged union
             // with variable-sized payloads requires boxing or a fat

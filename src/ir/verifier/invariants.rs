@@ -268,6 +268,8 @@ fn check_value(
     errors: &mut Vec<InvariantError>,
 ) {
     match value {
+        // Char is a scalar and cannot contain a TypeVar.
+        TypedIRValue::Char(_) => {}
         TypedIRValue::Call {
             args, return_type, ..
         } => {

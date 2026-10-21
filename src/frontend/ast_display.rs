@@ -360,6 +360,8 @@ fn format_stmt(out: &mut String, level: usize, stmt: &Stmt) {
 fn format_expr(out: &mut String, level: usize, expr: &Expr) {
     match &expr.kind {
         ExprKind::Int(i, _) => write!(out, "{}", i).unwrap(),
+        // Char literals render in source form (single quotes).
+        ExprKind::Char(c, _) => write!(out, "'{}'", char::from_u32(*c).unwrap_or('?')).unwrap(),
         ExprKind::Number(f, _) => write!(out, "{}", f).unwrap(),
         ExprKind::String(s, _) => write!(out, "{:?}", s).unwrap(),
         ExprKind::Bool(b, _) => write!(out, "{}", b).unwrap(),

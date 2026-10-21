@@ -207,6 +207,7 @@ fn expr_kind(e: &Expr) -> &'static str {
         ExprKind::MapLiteral { .. } => "MapLiteral",
         ExprKind::SetLiteral { .. } => "SetLiteral",
         ExprKind::MethodCall { .. } => "MethodCall",
+        ExprKind::Char(..) => "Char",
     }
 }
 

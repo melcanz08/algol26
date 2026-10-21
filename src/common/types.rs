@@ -61,6 +61,12 @@ pub enum Type {
     Int,
     Float,
     String,
+    /// A Unicode scalar value (codepoint). Represented as an i32
+    /// in LLVM; distinct from Int (no implicit conversion) to
+    /// prevent accidental codepoint arithmetic. Comparisons
+    /// (`=`, `<`, `<=`, `>`, `>=`) are supported; arithmetic is
+    /// not (use `Char.to_int` for codepoint arithmetic).
+    Char,
     Bool,
     Void,
 
@@ -666,7 +672,7 @@ impl Type {
     /// `docs/decisions/0007-region-memory.md`.
     pub fn is_copy(&self) -> bool {
         match self {
-            Type::Int | Type::Float | Type::Bool | Type::Ptr => true,
+            Type::Int | Type::Float | Type::Char | Type::Bool | Type::Ptr => true,
             // Nominality does not alter ownership semantics: a
             // `distinct Int` is Copy, a `distinct String` is not.
             // See ADR 0029.
@@ -1151,6 +1157,7 @@ impl fmt::Display for Type {
             Type::Int => "Int".to_string(),
             Type::Float => "Float".to_string(),
             Type::String => "String".to_string(),
+            Type::Char => "Char".to_string(),
             Type::Bool => "Bool".to_string(),
             Type::Void => "Void".to_string(),
             Type::Ptr => "Ptr".to_string(),

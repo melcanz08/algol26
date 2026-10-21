@@ -675,6 +675,7 @@ impl SemanticIRBuilder {
         expr: &Expr,
     ) -> TypedIRValue {
         match &expr.kind {
+            ExprKind::Char(c, _) => TypedIRValue::Char(*c),
             ExprKind::Unary { op, expr, .. } => {
                 let inner = self.translate_expr(program, func, current_block, expr);
                 let inner_type = inner.type_of();

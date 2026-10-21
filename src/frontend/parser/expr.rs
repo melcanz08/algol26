@@ -285,6 +285,7 @@ impl Parser {
             Token::While => self.parse_while_expr(),
             Token::Try => self.parse_try_catch_expr(),
             Token::Match => self.parse_match_expr(),
+            Token::CharLit(c) => Ok(Expr::new(ExprKind::Char(c, start_span))),
             Token::IntLit(start) => {
                 if matches!(self.peek(), Token::DotDot) {
                     self.advance();

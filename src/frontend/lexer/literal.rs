@@ -66,6 +66,105 @@ impl Lexer {
         ))
     }
 
+    /// Read a char literal: `'a'`, `'\n'`, `'😀'`. Exactly one
+    /// Unicode scalar value between the single quotes. Escapes
+    /// match the string reader's set plus `\'` (which is invalid
+    /// in a string but necessary for the quote char itself).
+    pub(super) fn read_char(
+        chars: &mut Peekable<Chars>,
+        position: &mut usize,
+        line_number: usize,
+        line: &str,
+    ) -> Result<Token> {
+        // Opening `'` already consumed by the caller.
+        let mut scalar: Option<char> = None;
+
+        while let Some(&ch) = chars.peek() {
+            if ch == '\'' {
+                chars.next();
+                *position += 1;
+                match scalar {
+                    Some(c) => return Ok(Token::CharLit(c as u32)),
+                    None => {
+                        return Err(CompileError::simple(
+                            "Empty char literal",
+                            line_number,
+                            *position,
+                            line,
+                            ErrorCode::E0001,
+                        ));
+                    }
+                }
+            } else if ch == '\\' {
+                chars.next();
+                *position += 1;
+
+                let Some(&escaped) = chars.peek() else {
+                    return Err(CompileError::simple(
+                        "Unterminated escape sequence in char literal",
+                        line_number,
+                        *position,
+                        line,
+                        ErrorCode::E0001,
+                    ));
+                };
+                chars.next();
+                *position += 1;
+
+                let escaped_char: char = match escaped {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '\'' => '\'',
+                    '\\' => '\\',
+                    '0' => '\0',
+                    _ => {
+                        return Err(CompileError::simple(
+                            &format!("Invalid escape sequence: \\{}", escaped),
+                            line_number,
+                            *position,
+                            line,
+                            ErrorCode::E0001,
+                        ));
+                    }
+                };
+
+                if scalar.is_some() {
+                    return Err(CompileError::simple(
+                        "Char literal may contain exactly one character",
+                        line_number,
+                        *position,
+                        line,
+                        ErrorCode::E0001,
+                    ));
+                }
+                scalar = Some(escaped_char);
+            } else {
+                chars.next();
+                *position += 1;
+
+                if scalar.is_some() {
+                    return Err(CompileError::simple(
+                        "Char literal may contain exactly one character",
+                        line_number,
+                        *position,
+                        line,
+                        ErrorCode::E0001,
+                    ));
+                }
+                scalar = Some(ch);
+            }
+        }
+
+        Err(CompileError::simple(
+            "Unterminated char literal",
+            line_number,
+            *position,
+            line,
+            ErrorCode::E0001,
+        ))
+    }
+
     pub(super) fn read_number(chars: &mut Peekable<Chars>) -> Result<(Token, usize)> {
         let mut num_str = String::new();
         let mut is_float = false;

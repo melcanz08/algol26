@@ -412,6 +412,7 @@ pub fn mangled_type_name(ty: &Type) -> String {
         Type::Int => "Int".to_string(),
         Type::Float => "Float".to_string(),
         Type::String => "String".to_string(),
+        Type::Char => "Char".to_string(),
         Type::Bool => "Bool".to_string(),
         Type::Void => "Void".to_string(),
         Type::Ptr => "Ptr".to_string(),

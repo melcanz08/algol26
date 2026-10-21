@@ -1087,6 +1087,9 @@ fn type_str(ty: &TypeSyntax) -> String {
 fn expr_inline(expr: &Expr) -> String {
     match &expr.kind {
         ExprKind::Int(i, _) => format!("{}", i),
+        ExprKind::Char(c, _) => {
+            format!("'{}'", char::from_u32(*c).unwrap_or('?'))
+        }
         ExprKind::Number(f, _) => format_float(*f),
         ExprKind::String(s, _) => format!("{:?}", s),
         ExprKind::Bool(b, _) => format!("{}", b),

@@ -67,6 +67,9 @@ pub enum ExprKind {
     Number(f64, Span),
     Int(i64, Span),
     String(String, Span),
+    /// A char literal: exactly one Unicode scalar value, stored
+    /// as its codepoint. Adjacent to the other scalar literals.
+    Char(u32, Span),
     Bool(bool, Span),
     NullPtr(Span),
     PtrLiteral(usize, Span),
@@ -212,6 +215,7 @@ impl ExprKind {
         match self {
             ExprKind::Number(_, s) => *s,
             ExprKind::Int(_, s) => *s,
+            ExprKind::Char(_, s) => *s,
             ExprKind::String(_, s) => *s,
             ExprKind::Bool(_, s) => *s,
             ExprKind::NullPtr(s) => *s,
@@ -685,6 +689,7 @@ impl TypeSyntax {
                 "Int" | "int" => Type::Int,
                 "Float" | "float" => Type::Float,
                 "String" | "string" => Type::String,
+                "Char" | "char" => Type::Char,
                 "Bool" | "bool" => Type::Bool,
                 "Void" | "void" => Type::Void,
                 "Self" => Type::TypeVar("Self".to_string()),

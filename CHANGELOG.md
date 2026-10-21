@@ -133,6 +133,18 @@
   Corpus pin: `tests/corpus/corpus_57_map_keys_values_llvm.gol`
   (all three shapes in one program).
 
+- **`<literal>.method()` now parses as a method call.** Prior to
+  this fix, `5.inc()` lexed as `Float(5.0) Ident(inc)` — the dot
+  after a numeric literal was always consumed as a decimal point,
+  which made the enclosing call see two arguments instead of one
+  method call. The lexer now treats `.` as a decimal point only
+  when followed by a digit, `e`/`E`, or EOF, preserving `5.0`,
+  `5.e3`, `5.0e3`, `5.`, and `1..5` while letting `5.inc` lex as
+  `Int(5) Dot Ident(inc)`. The parser and analyzer already
+  handled the method-call form correctly — the bug was entirely
+  in `read_number`. Corpus pin:
+  `tests/corpus/corpus_58_literal_method_llvm.gol`.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

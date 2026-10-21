@@ -181,12 +181,18 @@ These are verified gaps in the current version.
   (`MethodCall`, `FunctionCall`) whose inherent-method tiers
   omitted the `{Base}_{method}` lookup the builder's
   `resolve_method_call` already performed; both now match the
-  builder. **Still open:** `<literal>.method()` — e.g. `5.inc()`
-  or `"abc".to_upper()` — parses the dot-adjacent literal as a
-  separate argument to the enclosing call
-  (`to_string(5, inc())`), an argument-list parse bug independent
-  of method resolution. Bind the literal first
-  (`val n := 5; n.inc()`).
+  builder.
+- **~~`<literal>.method()` argument-list parse bug.~~** Fixed.
+  `5.inc()`, `"abc".to_upper()`, and `[1,2,3].length()` all
+  parse as method calls now. The bug was in the lexer, not the
+  parser: `read_number` consumed the dot after a numeric literal
+  as a decimal point without checking whether the next character
+  was a digit, so `5.inc` lexed as `Float(5.0) Ident(inc)` and
+  the enclosing call saw two arguments. The lexer now treats `.`
+  as a decimal point only when followed by a digit, `e`/`E`, or
+  end-of-input — preserving `5.0`, `5.e3`, `5.0e3`, `5.`, and
+  `1..5` while letting `5.inc` lex as `Int(5) Dot Ident(inc)`.
+  Corpus pin: `tests/corpus/corpus_58_literal_method_llvm.gol`.
 - **Nested `import` inside a `procedure` works; top-level imports
   work; imported files' own imports are followed recursively.**
   Only circular imports are rejected.

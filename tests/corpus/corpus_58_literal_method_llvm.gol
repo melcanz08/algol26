@@ -1,0 +1,64 @@
+// Literal receivers for method calls.
+//
+// Regression pin for the lexer bug where `5.inc()` lexed as
+// `Float(5.0) Ident(inc)` — the dot after a numeric literal was
+// always consumed as a decimal point, splitting the intended
+// method call into two arguments to the enclosing call. The
+// lexer now treats `.` as a decimal point only when followed by
+// a digit, an exponent marker (e/E), or end-of-input. `5.inc`
+// lexes as `Int(5) Dot Ident(inc)` and the parser produces a
+// MethodCall.
+//
+// Also pins the regression cases: floats (5.0, 5.e3, 5.0e3, 5.)
+// and ranges (1..5) still lex correctly. Floats are printed
+// directly (no cast) so the expected output shows their display
+// form. `List.length(1..5)` returns 2 — the range value is a
+// two-element representation (start, end), not an expanded list;
+// this pins the range lexer's behavior regardless.
+
+// OUTPUT: 6
+// OUTPUT: 100
+// OUTPUT: 42
+// OUTPUT: 7
+// OUTPUT: 5000.0
+// OUTPUT: 5000.0
+// OUTPUT: 5.0
+// OUTPUT: 5.0
+// OUTPUT: 2
+// OUTPUT: X
+
+impl Int
+    fn inc(self: Int) -> Int
+        self + 1
+
+    fn times_ten(self: Int) -> Int
+        self * 10
+
+rec P
+    x: Int
+
+impl P
+    fn get(self: P) -> Int
+        self.x
+
+rec Outer
+    inner: P
+
+proc main
+    print(Int.to_string(5.inc()))
+    print(Int.to_string(10.times_ten()))
+    val p := P { x: 42 }
+    print(Int.to_string(p.get()))
+    val o := Outer { inner: P { x: 7 } }
+    print(Int.to_string(o.inner.get()))
+    val f1 := 5.e3
+    print(f1)
+    val f2 := 5.0e3
+    print(f2)
+    val f3 := 5.
+    print(f3)
+    val f4 := 5.0
+    print(f4)
+    val r := 1..5
+    print(Int.to_string(List.length(r)))
+    print("x".to_upper())

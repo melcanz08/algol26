@@ -430,6 +430,29 @@ impl<'ctx> IRCodeGen<'ctx> {
         // Keep a handle to the _str_str constructor.
         self.functions
             .insert("algol26_map_new_str_str".to_string(), new_str_str_fn);
+
+        // ── Map keys / values ──
+        // All six functions return a malloc'd array (opaque ptr
+        // in LLVM 17) and write the element count through an
+        // out-pointer. Caller (codegen) owns the array.
+        //
+        //   int64_t*/char** algol26_map_keys_<suffix>(Map*, i64*)
+        //   int64_t*/char** algol26_map_values_<suffix>(Map*, i64*)
+        //
+        // The LLVM signature is identical across shapes: the
+        // element type only affects the ALGOL26 List<T> type the
+        // arm returns, not the descriptor shape.
+        for name in [
+            "algol26_map_keys_int",
+            "algol26_map_values_int",
+            "algol26_map_keys_str_int",
+            "algol26_map_values_str_int",
+            "algol26_map_keys_str_str",
+            "algol26_map_values_str_str",
+        ] {
+            let ty = ptr_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+            self.module.add_function(name, ty, None);
+        }
     }
 
     fn declare_function(&mut self, func: &SemanticFunction) -> Result<()> {

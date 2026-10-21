@@ -123,3 +123,82 @@ int algol26_map_contains_int(AlgoIntMap *m, int64_t k) {
 }
 
 int64_t algol26_map_length_int(AlgoIntMap *m) { return m->len; }
+
+// ── qsort comparators ──
+// Ascending int64_t. Matches MapKey::Int's derived Ord.
+static int cmp_i64(const void *a, const void *b) {
+    int64_t x = *(const int64_t *)a;
+    int64_t y = *(const int64_t *)b;
+    return (x > y) - (x < y);
+}
+
+// Pair struct used by values_int to sort by key then project
+// the value. Kept local to the function file; not exported.
+typedef struct { int64_t k; int64_t v; } IntKvPair;
+
+// Ascending by key. Matches the interpreter's
+// sorted.sort_by(|a, b| a.0.cmp(b.0)).
+static int cmp_i64_pair_by_key(const void *a, const void *b) {
+    int64_t x = ((const IntKvPair *)a)->k;
+    int64_t y = ((const IntKvPair *)b)->k;
+    return (x > y) - (x < y);
+}
+
+// ── algol26_map_keys_int(m, out_count) ──
+//
+// Returns a malloc'd array of the map's keys, sorted ascending.
+// Caller owns the array. On empty map: *out_count = 0, returns
+// NULL (caller treats count=0 as empty and never dereferences).
+// Matches the interpreter's `keys().sort()`.
+int64_t *algol26_map_keys_int(AlgoIntMap *m, int64_t *out_count) {
+    if (out_count) *out_count = 0;
+    if (!m || m->len == 0) return NULL;
+
+    int64_t *keys = (int64_t *)malloc(sizeof(int64_t) * (size_t)m->len);
+    if (!keys) return NULL;
+
+    int64_t n = 0;
+    for (int64_t i = 0; i < m->cap; i++) {
+        if (m->keys[i] != EMPTY_KEY) {
+            keys[n++] = m->keys[i];
+        }
+    }
+    qsort(keys, (size_t)n, sizeof(int64_t), cmp_i64);
+    if (out_count) *out_count = n;
+    return keys;
+}
+
+// ── algol26_map_values_int(m, out_count) ──
+//
+// Returns a malloc'd array of the map's values, sorted by their
+// corresponding keys (ascending). Caller owns the array. On
+// empty map: *out_count = 0, returns NULL.
+//
+// Matches the interpreter's
+// `entries.iter().collect(); sorted.sort_by(|a, b| a.0.cmp(b.0));
+//  sorted.into_iter().map(|(_, v)| v.clone()).collect()`.
+int64_t *algol26_map_values_int(AlgoIntMap *m, int64_t *out_count) {
+    if (out_count) *out_count = 0;
+    if (!m || m->len == 0) return NULL;
+
+    IntKvPair *pairs = (IntKvPair *)malloc(sizeof(IntKvPair) * (size_t)m->len);
+    if (!pairs) return NULL;
+    int64_t n = 0;
+    for (int64_t i = 0; i < m->cap; i++) {
+        if (m->keys[i] != EMPTY_KEY) {
+            pairs[n].k = m->keys[i];
+            pairs[n].v = m->values[i];
+            n++;
+        }
+    }
+    qsort(pairs, (size_t)n, sizeof(IntKvPair), cmp_i64_pair_by_key);
+
+    int64_t *values = (int64_t *)malloc(sizeof(int64_t) * (size_t)n);
+    if (!values) { free(pairs); return NULL; }
+    for (int64_t i = 0; i < n; i++) values[i] = pairs[i].v;
+    free(pairs);
+
+    if (out_count) *out_count = n;
+    return values;
+}
+

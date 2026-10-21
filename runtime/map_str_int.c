@@ -162,3 +162,79 @@ int algol26_map_contains_str_int(AlgoStrIntMap *m, const char *k) {
 int64_t algol26_map_length_str_int(AlgoStrIntMap *m) {
     return m ? m->len : 0;
 }
+
+// ── qsort comparators ──
+// Ascending char* by strcmp. Matches MapKey::String's derived Ord
+// (Rust's str::cmp, byte-lexicographic — identical to strcmp for
+// well-formed UTF-8).
+static int cmp_str(const void *a, const void *b) {
+    const char *x = *(const char *const *)a;
+    const char *y = *(const char *const *)b;
+    return strcmp(x, y);
+}
+
+typedef struct { char *k; int64_t v; } StrIntKvPair;
+
+static int cmp_str_int_pair_by_key(const void *a, const void *b) {
+    return strcmp(((const StrIntKvPair *)a)->k, ((const StrIntKvPair *)b)->k);
+}
+
+// ── algol26_map_keys_str_int(m, out_count) ──
+//
+// Returns a malloc'd array of strdup'd key copies, sorted by
+// strcmp. Caller owns the array and every element. On empty map:
+// *out_count = 0, NULL.
+char **algol26_map_keys_str_int(AlgoStrIntMap *m, int64_t *out_count) {
+    if (out_count) *out_count = 0;
+    if (!m || m->len == 0) return NULL;
+
+    char **keys = (char **)malloc(sizeof(char *) * (size_t)m->len);
+    if (!keys) return NULL;
+    int64_t n = 0;
+    for (int64_t i = 0; i < m->cap; i++) {
+        if (m->keys[i] != NULL) {
+            size_t len = strlen(m->keys[i]);
+            char *copy = (char *)malloc(len + 1);
+            if (!copy) {
+                for (int64_t j = 0; j < n; j++) free(keys[j]);
+                free(keys);
+                return NULL;
+            }
+            memcpy(copy, m->keys[i], len + 1);
+            keys[n++] = copy;
+        }
+    }
+    qsort(keys, (size_t)n, sizeof(char *), cmp_str);
+    if (out_count) *out_count = n;
+    return keys;
+}
+
+// ── algol26_map_values_str_int(m, out_count) ──
+//
+// Returns values (int64_t) sorted by their corresponding keys
+// (strcmp ascending). Caller owns the array.
+int64_t *algol26_map_values_str_int(AlgoStrIntMap *m, int64_t *out_count) {
+    if (out_count) *out_count = 0;
+    if (!m || m->len == 0) return NULL;
+
+    StrIntKvPair *pairs = (StrIntKvPair *)malloc(sizeof(StrIntKvPair) * (size_t)m->len);
+    if (!pairs) return NULL;
+    int64_t n = 0;
+    for (int64_t i = 0; i < m->cap; i++) {
+        if (m->keys[i] != NULL) {
+            pairs[n].k = m->keys[i];
+            pairs[n].v = m->values[i];
+            n++;
+        }
+    }
+    qsort(pairs, (size_t)n, sizeof(StrIntKvPair), cmp_str_int_pair_by_key);
+
+    int64_t *values = (int64_t *)malloc(sizeof(int64_t) * (size_t)n);
+    if (!values) { free(pairs); return NULL; }
+    for (int64_t i = 0; i < n; i++) values[i] = pairs[i].v;
+    free(pairs);
+
+    if (out_count) *out_count = n;
+    return values;
+}
+

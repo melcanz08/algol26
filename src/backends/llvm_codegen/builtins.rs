@@ -1132,11 +1132,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // buf = malloc(count * 8)
                 let slot_bytes = self
                     .builder
-                    .build_int_mul(
-                        count,
-                        i64_ty.const_int(8, false),
-                        "args_bytes",
-                    )
+                    .build_int_mul(count, i64_ty.const_int(8, false), "args_bytes")
                     .unwrap();
                 let buf_call = self
                     .builder
@@ -1154,10 +1150,7 @@ impl<'ctx> IRCodeGen<'ctx> {
 
                 // Loop: for i in [0, count) { buf[i] = algol26_args_get(i) }
                 let current_fn = self.current_function.unwrap();
-                let idx_alloca = self
-                    .builder
-                    .build_alloca(i64_ty, "args_i")
-                    .unwrap();
+                let idx_alloca = self.builder.build_alloca(i64_ty, "args_i").unwrap();
                 self.builder
                     .build_store(idx_alloca, i64_ty.const_zero())
                     .unwrap();
@@ -1175,12 +1168,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .into_int_value();
                 let in_range = self
                     .builder
-                    .build_int_compare(
-                        inkwell::IntPredicate::SLT,
-                        i,
-                        count,
-                        "args_in_range",
-                    )
+                    .build_int_compare(inkwell::IntPredicate::SLT, i, count, "args_in_range")
                     .unwrap();
                 self.builder
                     .build_conditional_branch(in_range, body_bb, done_bb)
@@ -1299,10 +1287,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // for valid indices, so the tag is "is_not_null", NOT
                 // "is_null". Using is_null here inverted the match,
                 // sending valid indices to the None arm.
-                let is_some = self
-                    .builder
-                    .build_is_not_null(ptr, "char_at_some")
-                    .unwrap();
+                let is_some = self.builder.build_is_not_null(ptr, "char_at_some").unwrap();
                 let opt_ty = match self.map_type(&Type::option(Type::String)) {
                     inkwell::types::BasicTypeEnum::StructType(s) => s,
                     _ => {
@@ -1367,10 +1352,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     })?;
                 let i64_ty = self.context.i64_type();
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
-                let count_alloca = self
-                    .builder
-                    .build_alloca(i64_ty, "split_count")
-                    .unwrap();
+                let count_alloca = self.builder.build_alloca(i64_ty, "split_count").unwrap();
                 let call = self
                     .builder
                     .build_call(
@@ -1394,10 +1376,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .unwrap()
                     .into_int_value();
                 // Build the {ptr, i64, i64} descriptor.
-                let struct_ty = self.context.struct_type(
-                    &[ptr_ty.into(), i64_ty.into(), i64_ty.into()],
-                    false,
-                );
+                let struct_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
                 let mut sv = struct_ty.get_undef();
                 sv = self
                     .builder
@@ -1471,11 +1452,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     })?;
                 let call = self
                     .builder
-                    .build_call(
-                        join_fn,
-                        &[buf.into(), len.into(), sep_val.into()],
-                        "join",
-                    )
+                    .build_call(join_fn, &[buf.into(), len.into(), sep_val.into()], "join")
                     .unwrap();
                 match call.try_as_basic_value() {
                     inkwell::values::ValueKind::Basic(v) => Ok((v, Type::String)),
@@ -1492,10 +1469,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // substring/char_at.
                 if args.len() != 1 {
                     return Err(CompileError::simple(
-                        &format!(
-                            "String.trim expects exactly 1 argument, got {}",
-                            args.len()
-                        ),
+                        &format!("String.trim expects exactly 1 argument, got {}", args.len()),
                         0,
                         0,
                         "",
@@ -1622,49 +1596,78 @@ impl<'ctx> IRCodeGen<'ctx> {
                 if args.len() != 1 {
                     return Err(CompileError::simple(
                         "File.read expects exactly 1 argument (path)",
-                        0, 0, "", ErrorCode::E0002,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
                     ));
                 }
                 let path_val = self.compile_value(&args[0])?;
                 if !path_val.is_pointer_value() {
                     return Err(CompileError::unsupported_operation(
-                        "File.read path did not lower to a pointer", "llvm",
+                        "File.read path did not lower to a pointer",
+                        "llvm",
                     ));
                 }
-                let read_fn = self.module.get_function("algol26_file_read").ok_or_else(|| {
-                    CompileError::simple(
-                        "runtime/file.c not linked (algol26_file_read missing)",
-                        0, 0, "", ErrorCode::E0009,
-                    )
-                })?;
-                let call = self.builder.build_call(read_fn, &[path_val.into()], "file_read").unwrap();
+                let read_fn = self
+                    .module
+                    .get_function("algol26_file_read")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/file.c not linked (algol26_file_read missing)",
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
+                        )
+                    })?;
+                let call = self
+                    .builder
+                    .build_call(read_fn, &[path_val.into()], "file_read")
+                    .unwrap();
                 let buf = match call.try_as_basic_value() {
                     inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
-                    _ => return Err(CompileError::unsupported_operation(
-                        "algol26_file_read returned void", "llvm",
-                    )),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_file_read returned void",
+                            "llvm",
+                        ))
+                    }
                 };
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
                 let is_null = self.builder.build_is_null(buf, "file_read_null").unwrap();
                 let current_fn = self.current_function.unwrap();
                 let err_bb = self.context.append_basic_block(current_fn, "file_read_err");
                 let ok_bb = self.context.append_basic_block(current_fn, "file_read_ok");
-                self.builder.build_conditional_branch(is_null, err_bb, ok_bb).unwrap();
+                self.builder
+                    .build_conditional_branch(is_null, err_bb, ok_bb)
+                    .unwrap();
 
                 self.builder.position_at_end(err_bb);
-                let msg = self.builder.build_global_string_ptr(
-                    "File.read: cannot read file\n", "file_read_errmsg",
-                ).unwrap();
+                let msg = self
+                    .builder
+                    .build_global_string_ptr("File.read: cannot read file\n", "file_read_errmsg")
+                    .unwrap();
                 let printf_fn = self.module.get_function("printf").ok_or_else(|| {
                     CompileError::simple(
-                        "LLVM codegen: printf not registered", 0, 0, "", ErrorCode::E0009,
+                        "LLVM codegen: printf not registered",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )
                 })?;
-                self.builder.build_call(printf_fn,
-                    &[msg.as_pointer_value().into()], "").unwrap();
+                self.builder
+                    .build_call(printf_fn, &[msg.as_pointer_value().into()], "")
+                    .unwrap();
                 let exit_fn = self.module.get_function("exit").unwrap();
-                self.builder.build_call(exit_fn,
-                    &[self.context.i32_type().const_int(1, false).into()], "file_read_exit").unwrap();
+                self.builder
+                    .build_call(
+                        exit_fn,
+                        &[self.context.i32_type().const_int(1, false).into()],
+                        "file_read_exit",
+                    )
+                    .unwrap();
                 self.builder.build_unreachable().unwrap();
 
                 self.builder.position_at_end(ok_bb);
@@ -1672,60 +1675,103 @@ impl<'ctx> IRCodeGen<'ctx> {
             }
             "File.write" | "File.append" => {
                 let is_write = name == "File.write";
-                let opname = if is_write { "File.write" } else { "File.append" };
+                let opname = if is_write {
+                    "File.write"
+                } else {
+                    "File.append"
+                };
                 if args.len() != 2 {
                     return Err(CompileError::simple(
                         &format!("{} expects exactly 2 arguments (path, content)", opname),
-                        0, 0, "", ErrorCode::E0002,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
                     ));
                 }
                 let path_val = self.compile_value(&args[0])?;
                 let content_val = self.compile_value(&args[1])?;
                 if !path_val.is_pointer_value() || !content_val.is_pointer_value() {
                     return Err(CompileError::unsupported_operation(
-                        &format!("{} arguments did not lower to pointers", opname), "llvm",
+                        &format!("{} arguments did not lower to pointers", opname),
+                        "llvm",
                     ));
                 }
-                let llvm_fn_name = if is_write { "algol26_file_write" } else { "algol26_file_append" };
+                let llvm_fn_name = if is_write {
+                    "algol26_file_write"
+                } else {
+                    "algol26_file_append"
+                };
                 let write_fn = self.module.get_function(llvm_fn_name).ok_or_else(|| {
                     CompileError::simple(
                         &format!("runtime/file.c not linked ({} missing)", llvm_fn_name),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )
                 })?;
-                let call = self.builder.build_call(write_fn,
-                    &[path_val.into(), content_val.into()], "file_wr").unwrap();
+                let call = self
+                    .builder
+                    .build_call(write_fn, &[path_val.into(), content_val.into()], "file_wr")
+                    .unwrap();
                 let result = match call.try_as_basic_value() {
                     inkwell::values::ValueKind::Basic(v) => v.into_int_value(),
-                    _ => return Err(CompileError::unsupported_operation(
-                        &format!("{} returned void", llvm_fn_name), "llvm",
-                    )),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("{} returned void", llvm_fn_name),
+                            "llvm",
+                        ))
+                    }
                 };
-                let negative = self.builder.build_int_compare(
-                    inkwell::IntPredicate::SLT,
-                    result,
-                    self.context.i64_type().const_int(0, false),
-                    "file_wr_err",
-                ).unwrap();
+                let negative = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::SLT,
+                        result,
+                        self.context.i64_type().const_int(0, false),
+                        "file_wr_err",
+                    )
+                    .unwrap();
                 let current_fn = self.current_function.unwrap();
-                let err_bb = self.context.append_basic_block(current_fn, "file_wr_err_bb");
+                let err_bb = self
+                    .context
+                    .append_basic_block(current_fn, "file_wr_err_bb");
                 let ok_bb = self.context.append_basic_block(current_fn, "file_wr_ok_bb");
-                self.builder.build_conditional_branch(negative, err_bb, ok_bb).unwrap();
+                self.builder
+                    .build_conditional_branch(negative, err_bb, ok_bb)
+                    .unwrap();
 
                 self.builder.position_at_end(err_bb);
-                let err_label = if is_write { "File.write: cannot write file\n" }
-                                else          { "File.append: cannot append to file\n" };
-                let msg = self.builder.build_global_string_ptr(err_label, "file_wr_errmsg").unwrap();
+                let err_label = if is_write {
+                    "File.write: cannot write file\n"
+                } else {
+                    "File.append: cannot append to file\n"
+                };
+                let msg = self
+                    .builder
+                    .build_global_string_ptr(err_label, "file_wr_errmsg")
+                    .unwrap();
                 let printf_fn = self.module.get_function("printf").ok_or_else(|| {
                     CompileError::simple(
-                        "LLVM codegen: printf not registered", 0, 0, "", ErrorCode::E0009,
+                        "LLVM codegen: printf not registered",
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )
                 })?;
-                self.builder.build_call(printf_fn,
-                    &[msg.as_pointer_value().into()], "").unwrap();
+                self.builder
+                    .build_call(printf_fn, &[msg.as_pointer_value().into()], "")
+                    .unwrap();
                 let exit_fn = self.module.get_function("exit").unwrap();
-                self.builder.build_call(exit_fn,
-                    &[self.context.i32_type().const_int(1, false).into()], "file_wr_exit").unwrap();
+                self.builder
+                    .build_call(
+                        exit_fn,
+                        &[self.context.i32_type().const_int(1, false).into()],
+                        "file_wr_exit",
+                    )
+                    .unwrap();
                 self.builder.build_unreachable().unwrap();
 
                 self.builder.position_at_end(ok_bb);
@@ -1971,10 +2017,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let symbol = format!("algol26_map_length_{}", suffix);
                 let len_fn = self.module.get_function(&symbol).ok_or_else(|| {
                     CompileError::simple(
-                        &format!(
-                            "runtime for {} not linked ({} missing)",
-                            recv_ty, symbol
-                        ),
+                        &format!("runtime for {} not linked ({} missing)", recv_ty, symbol),
                         0,
                         0,
                         "",
@@ -2027,10 +2070,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let symbol = format!("algol26_map_contains_{}", suffix);
                 let contains_fn = self.module.get_function(&symbol).ok_or_else(|| {
                     CompileError::simple(
-                        &format!(
-                            "runtime for {} not linked ({} missing)",
-                            recv_ty, symbol
-                        ),
+                        &format!("runtime for {} not linked ({} missing)", recv_ty, symbol),
                         0,
                         0,
                         "",
@@ -2091,10 +2131,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let symbol = format!("algol26_map_get_{}", suffix);
                 let get_fn = self.module.get_function(&symbol).ok_or_else(|| {
                     CompileError::simple(
-                        &format!(
-                            "runtime for {} not linked ({} missing)",
-                            recv_ty, symbol
-                        ),
+                        &format!("runtime for {} not linked ({} missing)", recv_ty, symbol),
                         0,
                         0,
                         "",
@@ -2109,10 +2146,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                         .builder
                         .build_alloca(self.context.i64_type(), "map_get_out")
                         .unwrap(),
-                    Type::String => self
-                        .builder
-                        .build_alloca(ptr_ty, "map_get_out")
-                        .unwrap(),
+                    Type::String => self.builder.build_alloca(ptr_ty, "map_get_out").unwrap(),
                     _ => {
                         return Err(CompileError::unsupported_operation(
                             &format!(
@@ -2150,10 +2184,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     inkwell::types::BasicTypeEnum::StructType(s) => s,
                     _ => {
                         return Err(CompileError::unsupported_operation(
-                            &format!(
-                                "Option<{}> did not map to a struct",
-                                value_ty
-                            ),
+                            &format!("Option<{}> did not map to a struct", value_ty),
                             "llvm",
                         ));
                     }
@@ -2214,10 +2245,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let symbol = format!("algol26_map_insert_{}", suffix);
                 let insert_fn = self.module.get_function(&symbol).ok_or_else(|| {
                     CompileError::simple(
-                        &format!(
-                            "runtime for {} not linked ({} missing)",
-                            recv_ty, symbol
-                        ),
+                        &format!("runtime for {} not linked ({} missing)", recv_ty, symbol),
                         0,
                         0,
                         "",
@@ -2229,14 +2257,164 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .unwrap();
                 Ok((self.context.i64_type().const_zero().into(), Type::Void))
             }
-            "Map.keys" | "Map.values" => {
-                Err(CompileError::unsupported_operation(
-                    &format!(
-                        "`{}` on LLVM is not yet implemented (v1 Map lowering supports insert/get/contains/length)",
-                        name
-                    ),
-                    "llvm",
-                ))
+            "Map.keys" => {
+                // Returns List<K>, sorted ascending by key. Matches
+                // the interpreter's `keys().sort()`: integer
+                // ascending for Int keys, byte-lex for String keys
+                // (strcmp ≡ Rust's str::cmp for well-formed UTF-8).
+                let map_ptr = self.compile_value(&args[0])?;
+                let recv_ty = args[0].type_of();
+                let (key_ty, value_ty) = match &recv_ty {
+                    Type::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("Map.keys receiver is not a Map: {}", recv_ty),
+                            "llvm",
+                        ));
+                    }
+                };
+                let suffix = Self::map_suffix(&key_ty, &value_ty).ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!(
+                            "Map.keys on LLVM requires one of the three \
+                             supported map shapes; found {}",
+                            recv_ty
+                        ),
+                        "llvm",
+                    )
+                })?;
+                let symbol = format!("algol26_map_keys_{}", suffix);
+                let keys_fn = self.module.get_function(&symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("runtime for Map.keys not linked ({} missing)", symbol),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let i64_ty = self.context.i64_type();
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let count_alloca = self.builder.build_alloca(i64_ty, "keys_count").unwrap();
+                let call = self
+                    .builder
+                    .build_call(keys_fn, &[map_ptr.into(), count_alloca.into()], "keys_call")
+                    .unwrap();
+                let arr = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("{} returned void", symbol),
+                            "llvm",
+                        ));
+                    }
+                };
+                let count = self
+                    .builder
+                    .build_load(i64_ty, count_alloca, "keys_count_val")
+                    .unwrap()
+                    .into_int_value();
+                let struct_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+                let mut sv = struct_ty.get_undef();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, arr, 0, "keys_buf")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 1, "keys_len")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 2, "keys_cap")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((sv.into(), Type::list(key_ty)))
+            }
+            "Map.values" => {
+                // Returns List<V>, sorted by key so zip(keys,
+                // values) aligns. Same shape as Map.keys but the
+                // element type is value_ty.
+                let map_ptr = self.compile_value(&args[0])?;
+                let recv_ty = args[0].type_of();
+                let (key_ty, value_ty) = match &recv_ty {
+                    Type::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("Map.values receiver is not a Map: {}", recv_ty),
+                            "llvm",
+                        ));
+                    }
+                };
+                let suffix = Self::map_suffix(&key_ty, &value_ty).ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!(
+                            "Map.values on LLVM requires one of the three \
+                             supported map shapes; found {}",
+                            recv_ty
+                        ),
+                        "llvm",
+                    )
+                })?;
+                let symbol = format!("algol26_map_values_{}", suffix);
+                let values_fn = self.module.get_function(&symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("runtime for Map.values not linked ({} missing)", symbol),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let i64_ty = self.context.i64_type();
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let count_alloca = self.builder.build_alloca(i64_ty, "values_count").unwrap();
+                let call = self
+                    .builder
+                    .build_call(
+                        values_fn,
+                        &[map_ptr.into(), count_alloca.into()],
+                        "values_call",
+                    )
+                    .unwrap();
+                let arr = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("{} returned void", symbol),
+                            "llvm",
+                        ));
+                    }
+                };
+                let count = self
+                    .builder
+                    .build_load(i64_ty, count_alloca, "values_count_val")
+                    .unwrap()
+                    .into_int_value();
+                let struct_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
+                let mut sv = struct_ty.get_undef();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, arr, 0, "values_buf")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 1, "values_len")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 2, "values_cap")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((sv.into(), Type::list(value_ty)))
             }
             other => Err(CompileError::simple(
                 &format!(

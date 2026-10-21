@@ -114,6 +114,25 @@
   refused at codegen. Corpus pin:
   `tests/corpus/corpus_56_map_str_str_llvm.gol`.
 
+- **`Map.keys` / `Map.values` on LLVM** — the last two map
+  methods now work on all three supported shapes. Six new C
+  functions (`algol26_map_{keys,values}_{int,str_int,str_str}`)
+  collect the map's contents, `qsort` ascending (int64 numeric,
+  string `strcmp` — matching the interpreter's `MapKey` derived
+  `Ord` / Rust's `str::cmp` byte-lex), and return a malloc'd
+  array with an out-pointer count. String elements are `strdup`'d
+  so the caller owns them (per the `String.split` convention —
+  the resulting `List<String>` holds owned pointers that are
+  never freed, matching the existing leak trade-off). `values`
+  sorts by key, so `zip(keys, values)` aligns. Six standalone C
+  tests confirm empty-map, sort order, alignment, overwrite, and
+  grow-past-capacity behavior. Codegen splits the previously
+  combined `Map.keys | Map.values` arm into two, each dispatching
+  by `map_suffix` and building a `List<K>` / `List<V>`
+  descriptor from the returned array and out-pointer count.
+  Corpus pin: `tests/corpus/corpus_57_map_keys_values_llvm.gol`
+  (all three shapes in one program).
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

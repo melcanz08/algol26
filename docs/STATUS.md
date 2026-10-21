@@ -576,8 +576,10 @@ Open (not fixed):
   and returns owned copies from `get`). Other key/value
   combinations (`Map<Int, String>`, `Map<Bool, T>`) are refused at
   codegen with a targeted error. `Map.keys` and
-  `Map.values` remain unimplemented (they return `List<K>` /
-  `List<V>`, needing a list-descriptor builder). Both supported
+  `Map.values` are supported on all three shapes: keys sort
+  ascending (int numeric, string byte-lex, matching the
+  interpreter's `keys().sort()`), and values are sorted by key
+  so `zip(keys, values)` aligns. Both supported
   shapes grow via rehashing when full, matching the interpreter's
   unbounded `HashMap`. Workaround for unsupported shapes: run
   through `--interpreter`.

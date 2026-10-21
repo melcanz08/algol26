@@ -1,0 +1,63 @@
+// Map.keys / Map.values on LLVM (all three supported shapes).
+//
+// Pins:
+//   - keys() returns sorted ascending (int ascending, string
+//     byte-lex — matching the interpreter's keys().sort()).
+//   - values() returns values sorted BY KEY so zip(keys, values)
+//     aligns.
+//   - All three supported shapes: Map<String, Int>,
+//     Map<String, String>, Map<Int, Int>.
+//
+// The C test (test_map_str_kv.c + test_map_int_kv.c) proves the
+// sort and alignment byte-for-byte; this corpus pins the
+// interpreter-vs-LLVM differential.
+
+// OUTPUT: apple
+// OUTPUT: banana
+// OUTPUT: cherry
+// OUTPUT: 1
+// OUTPUT: 2
+// OUTPUT: 3
+// OUTPUT: x
+// OUTPUT: y
+// OUTPUT: XRAY
+// OUTPUT: YANKEE
+// OUTPUT: 10
+// OUTPUT: 20
+// OUTPUT: 30
+// OUTPUT: 100
+// OUTPUT: 200
+// OUTPUT: 300
+
+proc main
+    var m := Map<String, Int> {}
+    m.insert("banana", 2)
+    m.insert("apple", 1)
+    m.insert("cherry", 3)
+    val ks := m.keys()
+    for k in ks
+        print(k)
+    val vs := m.values()
+    for vi in vs
+        print(Int.to_string(vi))
+
+    var m3 := Map<String, String> {}
+    m3.insert("y", "YANKEE")
+    m3.insert("x", "XRAY")
+    val ks3 := m3.keys()
+    for k3 in ks3
+        print(k3)
+    val vs3 := m3.values()
+    for vsi in vs3
+        print(vsi)
+
+    var m4 := Map<Int, Int> {}
+    m4.insert(30, 300)
+    m4.insert(10, 100)
+    m4.insert(20, 200)
+    val ks4 := m4.keys()
+    for k4 in ks4
+        print(Int.to_string(k4))
+    val vs4 := m4.values()
+    for v4 in vs4
+        print(Int.to_string(v4))

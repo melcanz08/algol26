@@ -145,6 +145,24 @@
   in `read_number`. Corpus pin:
   `tests/corpus/corpus_58_literal_method_llvm.gol`.
 
+- **`Char` primitive type.** A Unicode scalar value, lowered to
+  `i32`, distinct from `Int` (no implicit conversion). Literals
+  use single quotes (`'a'`, `'\n'`, `'😀'`) with the same
+  escapes as strings plus `\'`. The six comparison operators
+  work on `Char`/`Char`; arithmetic does not. Bridge builtins:
+  `Char.to_string` (UTF-8 encode), `Char.to_int` (codepoint as
+  `Int`), and `String.char_at(s, i) -> Option<Char>`
+  (codepoint-indexed, alongside the existing string-returning
+  `String.charAt`). Both backends; the C implementations
+  (`algol26_char_to_string`, `algol26_string_char_at_cp` in
+  `runtime/string.c`) are covered by 19 standalone C test
+  cases. Corpus pin:
+  `tests/corpus/corpus_59_char_literals_llvm.gol` — the
+  interpreter and LLVM produce byte-identical output.
+  This is the first new primitive since `Bool`, and it makes a
+  lexer in ALGOL26 practical: character comparison is scalar,
+  with no `String` allocation per character.
+
 ### Fixed
 
 - **ADR 0043 — shared borrows are now checked at last use.** Prior

@@ -60,8 +60,13 @@ proc main
   `tests/brace_examples.rs`.
 - **Immutable by default** (`val`), opt-in mutability (`var`)
 - **Statically typed** with inference. Scalar types: `Int`, `Float`,
-  `Bool`, `String`. Container and structured types: `List<T>`,
+  `Char`, `Bool`, `String`. Container and structured types: `List<T>`,
   `Map<K, V>`, `Option<T>`, `Result<T, E>`, and `rec`-declared records.
+- **`Char`** — a Unicode scalar value, distinct from `Int`. Literals
+  are `'a'`, `'\n'`, `'😀'`; comparisons (`=`, `<`, `<=`, `>`, `>=`)
+  work; no arithmetic (use `Char.to_int` for codepoint math).
+  `String.char_at(s, i)` returns `Option<Char>`;
+  `Char.to_string` encodes to UTF-8.
 - **`rec` structured data types** — declared fields, construction literals,
   field access, field assignment, pattern matching, cross-module use
 - **`Map<K, V>`** — key-value container with `insert`, `get`, `contains`,

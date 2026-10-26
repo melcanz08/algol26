@@ -1667,13 +1667,17 @@ impl<'ctx> IRCodeGen<'ctx> {
                             "String.to_chars expects exactly 1 argument, got {}",
                             args.len()
                         ),
-                        0, 0, "", ErrorCode::E0002,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
                     ));
                 }
                 let s_val = self.compile_value(&args[0])?;
                 if !s_val.is_pointer_value() {
                     return Err(CompileError::unsupported_operation(
-                        "String.to_chars argument did not lower to a pointer", "llvm",
+                        "String.to_chars argument did not lower to a pointer",
+                        "llvm",
                     ));
                 }
                 let to_chars_fn = self
@@ -1682,7 +1686,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .ok_or_else(|| {
                         CompileError::simple(
                             "runtime/string.c not linked (algol26_string_to_chars missing)",
-                            0, 0, "", ErrorCode::E0009,
+                            0,
+                            0,
+                            "",
+                            ErrorCode::E0009,
                         )
                     })?;
                 let i64_ty = self.context.i64_type();
@@ -1690,13 +1697,18 @@ impl<'ctx> IRCodeGen<'ctx> {
                 let count_alloca = self.builder.build_alloca(i64_ty, "to_chars_count").unwrap();
                 let call = self
                     .builder
-                    .build_call(to_chars_fn, &[s_val.into(), count_alloca.into()], "to_chars")
+                    .build_call(
+                        to_chars_fn,
+                        &[s_val.into(), count_alloca.into()],
+                        "to_chars",
+                    )
                     .unwrap();
                 let arr = match call.try_as_basic_value() {
                     inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
                     _ => {
                         return Err(CompileError::unsupported_operation(
-                            "algol26_string_to_chars returned void", "llvm",
+                            "algol26_string_to_chars returned void",
+                            "llvm",
                         ));
                     }
                 };
@@ -1705,9 +1717,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_load(i64_ty, count_alloca, "to_chars_count_val")
                     .unwrap()
                     .into_int_value();
-                let struct_ty = self.context.struct_type(
-                    &[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false,
-                );
+                let struct_ty = self
+                    .context
+                    .struct_type(&[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false);
                 let mut sv = struct_ty.get_undef();
                 sv = self
                     .builder

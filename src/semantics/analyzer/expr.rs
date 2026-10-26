@@ -334,9 +334,7 @@ impl SemanticAnalyzer {
                         &format!("Cannot dereference value of type {}", other),
                         ErrorCode::E0002,
                     )
-                    .with_suggestion(
-                        "`*` requires a pointer, reference, or mut-borrow",
-                    )),
+                    .with_suggestion("`*` requires a pointer, reference, or mut-borrow")),
                 }
             }
             ExprKind::AddrOf { expr, .. } => {

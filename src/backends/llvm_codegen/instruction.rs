@@ -1241,7 +1241,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                 self.emit_print(v, value.type_of())?;
                 Ok(())
             }
-            Instruction::Call { func, args, result } => {
+            Instruction::Call {
+                func, args, result, ..
+            } => {
                 // Propagate errors from argument compilation — was
                 // previously `.unwrap()`, which panicked on any
                 // nested codegen failure instead of surfacing it.

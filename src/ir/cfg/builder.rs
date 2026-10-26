@@ -309,6 +309,7 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
                         func: callee,
                         args,
                         result,
+                        ..
                     } => {
                         for arg in args {
                             if let Some((place, mutable)) = is_borrow(arg) {

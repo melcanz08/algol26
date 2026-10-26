@@ -78,10 +78,7 @@ fn llvm_rejects_try_catch() {
     // carries the marker is refused at the capability boundary —
     // before the codegen's `map_type(Unknown)` can panic on the
     // intermediate Result<Unknown, Unknown> declare.
-    let program = program_with(
-        Instruction::TryCatchMarker,
-        simple_return(),
-    );
+    let program = program_with(Instruction::TryCatchMarker, simple_return());
     let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
     assert!(
         err.message.contains("try/catch"),
@@ -92,10 +89,7 @@ fn llvm_rejects_try_catch() {
 
 #[test]
 fn wasm_rejects_try_catch() {
-    let program = program_with(
-        Instruction::TryCatchMarker,
-        simple_return(),
-    );
+    let program = program_with(Instruction::TryCatchMarker, simple_return());
     let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
     assert!(
         err.message.contains("try/catch"),
@@ -111,10 +105,7 @@ fn interpreter_accepts_try_catch() {
     // still accept TryCatch programs on the interpreter side —
     // otherwise `algol26 run --interpreter` would refuse to run
     // a valid try/catch program. Pin the acceptance.
-    let program = program_with(
-        Instruction::TryCatchMarker,
-        simple_return(),
-    );
+    let program = program_with(Instruction::TryCatchMarker, simple_return());
     assert!(
         check_backend(&program, &BackendCapabilities::interpreter()).is_ok(),
         "interpreter should accept try/catch"
@@ -249,6 +240,7 @@ fn llvm_accepts_ffi() {
                 func: "puts".to_string(),
                 args: vec![TypedIRValue::String("hi".to_string())],
                 result: None,
+                result_type: None,
             }],
             terminator: Some(simple_return()),
         }],
@@ -424,6 +416,7 @@ fn wasm_rejects_ffi() {
                 func: "puts".to_string(),
                 args: vec![TypedIRValue::String("hi".to_string())],
                 result: None,
+                result_type: None,
             }],
             terminator: Some(simple_return()),
         }],

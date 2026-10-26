@@ -238,7 +238,9 @@ fn format_instruction(out: &mut String, instr: &Instruction) {
             format_value(out, value);
             out.push(')');
         }
-        Instruction::Call { func, args, result } => {
+        Instruction::Call {
+            func, args, result, ..
+        } => {
             if let Some(r) = result {
                 write!(out, "{} := ", r).unwrap();
             }

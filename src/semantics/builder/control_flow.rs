@@ -577,6 +577,7 @@ impl SemanticIRBuilder {
                             func: function,
                             args,
                             result: None,
+                            result_type: None,
                         },
                         TypedIRValue::VirtualCall {
                             receiver,
@@ -687,6 +688,7 @@ impl SemanticIRBuilder {
                             func: function,
                             args,
                             result: None,
+                            result_type: None,
                         },
                         TypedIRValue::VirtualCall {
                             receiver,
@@ -936,6 +938,7 @@ impl SemanticIRBuilder {
                             func: function,
                             args,
                             result: None,
+                            result_type: None,
                         },
                         TypedIRValue::VirtualCall {
                             receiver,
@@ -1071,6 +1074,7 @@ impl SemanticIRBuilder {
                             func: function,
                             args,
                             result: None,
+                            result_type: None,
                         },
                         TypedIRValue::VirtualCall {
                             receiver,

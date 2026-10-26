@@ -341,7 +341,9 @@ impl Interpreter {
                     return Err(EvalError::Runtime(message.clone()));
                 }
             }
-            Instruction::Call { func, args, result } => {
+            Instruction::Call {
+                func, args, result, ..
+            } => {
                 let val = self.eval_call(func, args)?;
                 if let Some(res_name) = result {
                     self.variables.insert(res_name.clone(), val);

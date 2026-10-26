@@ -956,10 +956,8 @@ impl Interpreter {
                         ))
                     }
                 };
-                let out: Vec<RuntimeValue> = s
-                    .chars()
-                    .map(|c| RuntimeValue::Char(c as u32))
-                    .collect();
+                let out: Vec<RuntimeValue> =
+                    s.chars().map(|c| RuntimeValue::Char(c as u32)).collect();
                 Ok(RuntimeValue::List(out))
             }
             "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp" | "Math.log"

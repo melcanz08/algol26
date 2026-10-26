@@ -212,6 +212,7 @@ pub(super) fn verify_instruction(
             func: callee,
             args,
             result,
+            result_type,
         } => {
             // ─── Map method calls (ADR 0027) ───
             // See verify_value's Call arm. Arg verification still runs;
@@ -222,7 +223,14 @@ pub(super) fn verify_instruction(
                     verify_value(a, env)?;
                 }
                 if let Some(name) = result {
-                    env.variables.insert(name.clone(), Type::Unknown);
+                    // Prefer the builder's claimed type when present.
+                    // For `Map.get` this is `Option<V>`; for
+                    // `Map.keys` it's `List<K>`; for the `List.append`
+                    // statement form it's `Void`. Falling back to
+                    // `Unknown` matches the pre-`result_type` behavior
+                    // for any legacy IR shape.
+                    let result_ty = result_type.clone().unwrap_or(Type::Unknown);
+                    env.variables.insert(name.clone(), result_ty);
                     env.mutability.insert(name.clone(), false);
                 }
                 return Ok(());
@@ -272,7 +280,26 @@ pub(super) fn verify_instruction(
             }
 
             if let Some(name) = result {
-                let result_ty = if contains_type_var(&sig.return_type) {
+                let result_ty = if let Some(declared) = result_type {
+                    // Self-consistency: the builder's claim must match
+                    // the signature, unless one side is generic or
+                    // unknown. A mismatch here means the builder
+                    // populated `result_type` with the wrong type for
+                    // this call site — exactly the class of bug the
+                    // verifier exists to catch before codegen.
+                    if !contains_type_var(&sig.return_type)
+                        && sig.return_type != Type::Unknown
+                        && *declared != Type::Unknown
+                        && !types_compatible_for_call(declared, &sig.return_type)
+                    {
+                        return Err(format!(
+                            "Function '{}': Call to '{}' declares result_type {:?} \
+                             but signature says {:?}",
+                            func.name, callee, declared, sig.return_type
+                        ));
+                    }
+                    declared.clone()
+                } else if contains_type_var(&sig.return_type) {
                     Type::Unknown
                 } else {
                     sig.return_type.clone()

@@ -227,6 +227,12 @@ impl SemanticIRBuilder {
                                 func: function,
                                 args: call_args,
                                 result: Some(name.clone()),
+                                // The declared type is the
+                                // call's return type with the
+                                // current specialization's
+                                // bindings substituted in. See
+                                // `value_type` / `type_` above.
+                                result_type: Some(type_.clone()),
                             },
                         );
                         TypedIRValue::Variable(name.clone(), type_.clone())
@@ -612,6 +618,7 @@ impl SemanticIRBuilder {
                                     func: function,
                                     args: call_args,
                                     result: None,
+                                    result_type: None,
                                 },
                             );
                         }
@@ -2158,11 +2165,7 @@ impl SemanticIRBuilder {
                 // Emit the try/catch marker so the capability scan
                 // can see the construct. See `Instruction::TryCatchMarker`
                 // in `ir/semantic_ir/instructions.rs`.
-                self.safe_push_instruction(
-                    func,
-                    current_block,
-                    Instruction::TryCatchMarker,
-                );
+                self.safe_push_instruction(func, current_block, Instruction::TryCatchMarker);
 
                 // Fresh names for the try-body's value and the Ok payload.
                 let try_value_name = format!("__try_value_{}", self.iter_counter);

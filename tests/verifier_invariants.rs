@@ -111,6 +111,7 @@ fn well_formed_program_passes() {
         func: "helper".to_string(),
         args: vec![],
         result: None,
+        result_type: None,
     });
 
     let program = program_with(vec![main_fn, trivial_function("helper")]);
@@ -126,6 +127,7 @@ fn generic_specialization_passes() {
         func: "identity_Int".to_string(),
         args: vec![],
         result: None,
+        result_type: None,
     });
 
     let program = program_with(vec![main_fn, trivial_function("identity_Int")]);

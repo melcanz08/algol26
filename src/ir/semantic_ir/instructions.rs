@@ -50,6 +50,30 @@ pub enum Instruction {
         func: String,
         args: Vec<TypedIRValue>,
         result: Option<String>,
+        /// The ALGOL26 type of the call's return value, when
+        /// `result` is `Some`. `None` for void calls in statement
+        /// position, or for IR built by tests that do not need to
+        /// pin the result type (the verifier falls back to the
+        /// function's declared return type).
+        ///
+        /// Before this field existed, `Instruction::Call` carried
+        /// only the result *variable name*, not its type. The LLVM
+        /// codegen stored the call's return value into a freshly
+        /// allocated `f64` (8-byte) alloca regardless of the actual
+        /// return type; the subsequent `Declare` then re-aliased
+        /// that alloca with the correct type by detecting a
+        /// `Type::Float` sentinel in `var_types`. That pattern
+        /// worked for scalars but is fragile — a struct-returning
+        /// call would have written 8-byte-truncated garbage into
+        /// the slot before the `Declare` could correct it.
+        ///
+        /// Making the result type part of the IR matches what
+        /// `TypedIRValue::Call` already carries (`return_type`).
+        /// The verifier uses it as a self-consistency check
+        /// against the function signature; the codegen will use it
+        /// (in a follow-up commit) to size the result alloca
+        /// correctly and drop the sentinel.
+        result_type: Option<Type>,
     },
     IteratorInit {
         iterator: String,

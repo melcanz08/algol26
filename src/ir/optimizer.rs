@@ -987,6 +987,7 @@ mod tests {
                         func: "Math.abs".to_string(),
                         args: vec![TypedIRValue::Float(-1.0)],
                         result: Some("unused".to_string()),
+                        result_type: None,
                     },
                     Instruction::Declare {
                         name: "unused".to_string(),

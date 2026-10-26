@@ -1,0 +1,44 @@
+// String.to_chars: decode UTF-8 into List<Char>, one codepoint per
+// element. Pins the multi-byte decode shared with String.trim /
+// String.char_at / String.substring — the 2-byte (é), 3-byte (€),
+// and 4-byte (😀) sequences prove the codepoint walker counts and
+// slices correctly, and the Char.to_int round-trips prove the
+// decoded scalar values are the real codepoints (é = 0xE9,
+// € = 0x20AC, 😀 = 0x1F600).
+//
+// Differential against the interpreter: same source, same output.
+
+// OUTPUT: 4
+// OUTPUT: a
+// OUTPUT: é
+// OUTPUT: €
+// OUTPUT: 😀
+// OUTPUT: 0
+// OUTPUT: 1
+// OUTPUT: x
+// OUTPUT: 233
+// OUTPUT: 8364
+// OUTPUT: 128512
+
+proc main
+    // Multi-byte UTF-8: 2-byte (é), 3-byte (€), 4-byte (😀).
+    val mixed := String.to_chars("aé€😀")
+    print(Int.to_string(List.length(mixed)))
+    for c in mixed
+        print(Char.to_string(c))
+
+    // Empty.
+    val empty := String.to_chars("")
+    print(Int.to_string(List.length(empty)))
+
+    // Pure ASCII, single char.
+    val one := String.to_chars("x")
+    print(Int.to_string(List.length(one)))
+    for c in one
+        print(Char.to_string(c))
+
+    // Round-trip through Char.to_int to prove codepoints decode
+    // (é = 0xE9, € = 0x20AC, 😀 = 0x1F600).
+    val cps := String.to_chars("é€😀")
+    for c in cps
+        print(Int.to_string(Char.to_int(c)))

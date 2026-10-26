@@ -507,3 +507,48 @@ int algol26_string_char_at_cp(const char *s, int64_t i, uint32_t *out) {
     return 1;
 }
 
+// ── algol26_string_to_chars(s, out_count) ──
+//
+// Decode a UTF-8 string into an array of codepoints (int32_t).
+// Returns a malloc'd array; the caller owns it. *out_count is
+// set to the number of codepoints (0 for an empty string, in
+// which case NULL is returned and the caller must not
+// dereference).
+//
+// Two passes over the input: one to count codepoints, one to
+// fill. This is O(n) with a constant per-byte cost and avoids
+// realloc-in-a-loop (which would allocate once per codepoint).
+// The existing decode_utf8 helper — shared with String.trim and
+// String.char_at — is used for both passes, so the classification
+// of continuation bytes matches the other String.* builtins.
+int32_t *algol26_string_to_chars(const char *s, int64_t *out_count) {
+    if (out_count) *out_count = 0;
+    if (s == NULL) return NULL;
+
+    // Pass 1: count codepoints.
+    int64_t n = 0;
+    const char *p = s;
+    while (*p != '\0') {
+        size_t adv = 0;
+        (void)decode_utf8(p, &adv);
+        p += adv;
+        n++;
+    }
+    if (n == 0) return NULL;
+
+    // Allocate.
+    int32_t *buf = (int32_t *)malloc(sizeof(int32_t) * (size_t)n);
+    if (!buf) return NULL;
+
+    // Pass 2: fill.
+    p = s;
+    for (int64_t i = 0; i < n; i++) {
+        size_t adv = 0;
+        buf[i] = (int32_t)decode_utf8(p, &adv);
+        p += adv;
+    }
+
+    if (out_count) *out_count = n;
+    return buf;
+}
+

@@ -680,3 +680,17 @@ is no longer the only mechanism.
    row to `tests/coverage_matrix.rs` and an entry to
    `tests/coverage_maturity.rs`'s `EXPECTED_MATURITY`.
 6. Update the "Last updated" date.
+
+### WASM string UTF-8 gap
+
+`String.char_at`, `String.trim`, `String.to_chars`, and
+`Char.to_string` lower to `algol26_string_char_at`,
+`algol26_string_trim`, `algol26_string_to_chars`, and
+`algol26_char_to_string` on the WASM backend (see the host's
+unresolved-import diagnostics). None of these symbols are
+exported by `runtime/wasm/host.js`,
+so a WASM build of any program using them compiles (`algol26 wasm`
+emits the .wasm) but cannot run under the WASM host. Closing this
+requires exporting the three functions from `runtime/wasm/host.js`
+with the same contracts as the C implementations, or adding a
+WASM capability gate to refuse these builtins at scan time.

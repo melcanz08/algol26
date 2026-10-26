@@ -571,6 +571,21 @@ impl<'ctx> IRCodeGen<'ctx> {
         self.functions
             .insert("algol26_string_char_at_cp".to_string(), char_at_cp_fn);
 
+        // ── algol26_string_to_chars ──
+        // Decode a UTF-8 string into a heap array of i32 codepoints.
+        //   int32_t *algol26_string_to_chars(const char *s, int64_t *out_count)
+        // Returns NULL for empty input (out_count = 0), else a
+        // malloc'd array of *out_count codepoints. Body in
+        // runtime/string.c; used by `String.to_chars` (List<Char>).
+        // The compile_builtin_value arm wraps the array in the
+        // {ptr, i64, i64} list descriptor.
+        let to_chars_ty = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+        let to_chars_fn = self
+            .module
+            .add_function("algol26_string_to_chars", to_chars_ty, None);
+        self.functions
+            .insert("algol26_string_to_chars".to_string(), to_chars_fn);
+
         // ── algol26_string_split / algol26_string_join ──
         // split: (s, sep, *out_count) -> char**
         //   Caller owns each strdup'd element.
@@ -1639,6 +1654,77 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_int_z_extend(c_int, self.context.i64_type(), "char_to_int")
                     .unwrap();
                 Ok((widened.into(), Type::Int))
+            }
+            "String.to_chars" => {
+                // Returns List<Char> ({ptr, i64, i64}), with i32
+                // elements. The C function allocates the array;
+                // codegen wraps it in the descriptor. Mirrors
+                // Map.keys exactly, except the element type is
+                // i32 (Char) and the symbol is fixed.
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!(
+                            "String.to_chars expects exactly 1 argument, got {}",
+                            args.len()
+                        ),
+                        0, 0, "", ErrorCode::E0002,
+                    ));
+                }
+                let s_val = self.compile_value(&args[0])?;
+                if !s_val.is_pointer_value() {
+                    return Err(CompileError::unsupported_operation(
+                        "String.to_chars argument did not lower to a pointer", "llvm",
+                    ));
+                }
+                let to_chars_fn = self
+                    .module
+                    .get_function("algol26_string_to_chars")
+                    .ok_or_else(|| {
+                        CompileError::simple(
+                            "runtime/string.c not linked (algol26_string_to_chars missing)",
+                            0, 0, "", ErrorCode::E0009,
+                        )
+                    })?;
+                let i64_ty = self.context.i64_type();
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let count_alloca = self.builder.build_alloca(i64_ty, "to_chars_count").unwrap();
+                let call = self
+                    .builder
+                    .build_call(to_chars_fn, &[s_val.into(), count_alloca.into()], "to_chars")
+                    .unwrap();
+                let arr = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            "algol26_string_to_chars returned void", "llvm",
+                        ));
+                    }
+                };
+                let count = self
+                    .builder
+                    .build_load(i64_ty, count_alloca, "to_chars_count_val")
+                    .unwrap()
+                    .into_int_value();
+                let struct_ty = self.context.struct_type(
+                    &[ptr_ty.into(), i64_ty.into(), i64_ty.into()], false,
+                );
+                let mut sv = struct_ty.get_undef();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, arr, 0, "to_chars_buf")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 1, "to_chars_len")
+                    .unwrap()
+                    .into_struct_value();
+                sv = self
+                    .builder
+                    .build_insert_value(sv, count, 2, "to_chars_cap")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((sv.into(), Type::list(Type::Char)))
             }
             "String.trim" => {
                 // Trim leading/trailing Unicode whitespace. Matches

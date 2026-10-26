@@ -940,6 +940,28 @@ impl Interpreter {
                 };
                 Ok(RuntimeValue::Int(c as i64))
             }
+            "String.to_chars" => {
+                let s = match arg_vals.first() {
+                    Some(RuntimeValue::String(s)) => s.clone(),
+                    Some(other) => {
+                        return Err(EvalError::TypeMismatch {
+                            op: "String.to_chars",
+                            left: runtime_kind(other),
+                            right: "String",
+                        })
+                    }
+                    None => {
+                        return Err(EvalError::Runtime(
+                            "String.to_chars: missing argument".into(),
+                        ))
+                    }
+                };
+                let out: Vec<RuntimeValue> = s
+                    .chars()
+                    .map(|c| RuntimeValue::Char(c as u32))
+                    .collect();
+                Ok(RuntimeValue::List(out))
+            }
             "Math.sqrt" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.exp" | "Math.log"
             | "Math.floor" | "Math.ceil" | "Math.abs" => {
                 let x = match arg_vals.first() {

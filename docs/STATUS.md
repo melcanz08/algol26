@@ -695,3 +695,21 @@ using them succeeds at compile time (`algol26 wasm` emits the
 requires exporting all four functions from `runtime/wasm/host.js`
 with the same contracts as the C implementations, or adding a
 WASM capability gate to refuse these builtins at scan time.
+
+### Result<T, E> codegen gap (LLVM)
+
+Three conformance fixtures fail on the LLVM backend with an
+`unreachable!` in `src/backends/llvm_codegen/types.rs` on
+`Type::Unknown`:
+
+  - tests/conformance/valid/result/result_try.gol
+  - tests/conformance/valid/result/catch_named_binding.gol
+  - (one more; run `bash tools/verify_all_backends.sh` for the full list)
+
+The interpreter produces correct output for all three. Reaching
+codegen with an unresolved type means the IR verifier accepted a
+program whose `Result`-propagation shapes it does not actually
+model. The fix is to tighten `verify_ir` to reject the shapes,
+or to teach the analyzer to normalize `Type::Unknown` before IR
+construction. Pre-existing; not caused by the String.to_chars
+landing.

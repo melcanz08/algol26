@@ -49,14 +49,18 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   switches on the tag and extracts the payload into the arm's
   binding. Both interpreter and LLVM support the construction
   and matching.
-- **`try` / `catch`** — interpreter-only. LLVM has no lowering
-  for `try`/`catch`; programs using it are refused at the
-  capability boundary (`Feature::Result` covers both, but
-  `try`/`catch` is checked separately and currently only runs
-  through `--interpreter`).
+- **`try` / `catch`** — interpreter-only. LLVM and WASM refuse
+  programs using `try`/`catch` at the capability boundary via
+  `Feature::TryCatch`, before codegen runs. Result *values*
+  (`Ok`/`Error` construction, `match` on `Result`) remain
+  supported on LLVM via the separate `Feature::Result` gate; only
+  the `try`/`catch` construct is interpreter-only. The builder
+  emits `Instruction::TryCatchMarker` at the top of the lowering
+  so the capability scan can distinguish the construct from a
+  hand-written `match` on a `Result`.
 - **Not yet supported:** `?`-style propagation (not part of the
   language), converting between `Result` and `Option` (both exist
-  but no builtin), LLVM lowering for `try`/`catch`.
+  but no builtin), LLVM/WASM lowering for `try`/`catch`.
 
 ### Sum types (ADR 0055)
 

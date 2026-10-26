@@ -1,0 +1,32 @@
+// Enum match on LLVM. Pins the fact that `match` on a plain
+// (payloadless) enum lowers on LLVM — the `Switch` terminator
+// on the enum's ordinal (an i64) with `SemanticPattern::Variant`
+// arms. Companion to corpus_43 (Option match) and corpus_45
+// (Result match): together they pin the `match` mechanism across
+// all four scrutinee shapes (Option / Result / enum / literal).
+//
+// Note: bare variant names are OK in *pattern* position
+// (`case Monday` — the scrutinee type gives the enum) but not
+// in *expression* position (`Day.Monday` is required there —
+// no context to disambiguate). This fixture uses both forms to
+// pin the asymmetry.
+
+// OUTPUT: mon
+// OUTPUT: tue
+// OUTPUT: wed
+
+enum Day
+    Monday
+    Tuesday
+    Wednesday
+
+proc label(d: Day) -> String
+    match d
+        case Monday then return "mon"
+        case Tuesday then return "tue"
+        case Wednesday then return "wed"
+
+proc main
+    print(label(Day.Monday))
+    print(label(Day.Tuesday))
+    print(label(Day.Wednesday))

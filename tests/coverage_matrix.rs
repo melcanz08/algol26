@@ -569,19 +569,19 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "enum_types",
         conformance_dir: Some("enum_types"),
         interpreter: Support::Full,
-        llvm: Support::Refused,
-        wasm: Support::Refused,
+        llvm: Support::Full,
+        wasm: Support::Full,
         refusal_tests: &[],
-        notes: "Enum declaration, resolution, and the from_ordinal / \
-                to_ordinal intrinsics compile through all three backends: \
-                at runtime an enum is an i64, and the Cast is a no-op. \
-                However, any program that MATCHES on an enum cannot run \
-                on LLVM or WASM, because those backends refuse `match` \
-                at the capability check, independent of the pattern's \
-                shape. Same limitation applies to Option/Result/Bool \
-                matches today. No conformance fixture exists because \
-                the harness does not support per-fixture backend \
-                selection. Same shape as `records` and `map`.",
+        notes: "All three backends support enum declarations, resolution, \
+                from_ordinal / to_ordinal, and match on enum values. At \
+                runtime an enum is an i64; the Cast is a no-op; match on \
+                an enum lowers to a Switch on the ordinal with \
+                SemanticPattern::Variant arms. Pinned by \
+                corpus_61_enum_match_llvm on both native backends. WASM \
+                inherits LLVM's IRCodeGen, so the same lowering applies. \
+                Bare variant names are valid in pattern position \
+                (`case Monday`) but require qualification in expression \
+                position (`Day.Monday`) — the fixture exercises both.",
     },
     FeatureRow {
         name: "subrange_types",

@@ -329,7 +329,14 @@ impl SemanticAnalyzer {
                     }
                     Type::Borrow(t) => Ok(*t),
                     Type::MutBorrow(t) => Ok(*t),
-                    _ => Ok(Type::Unknown),
+                    other => Err(CompileError::at(
+                        self.current_span,
+                        &format!("Cannot dereference value of type {}", other),
+                        ErrorCode::E0002,
+                    )
+                    .with_suggestion(
+                        "`*` requires a pointer, reference, or mut-borrow",
+                    )),
                 }
             }
             ExprKind::AddrOf { expr, .. } => {
@@ -2148,8 +2155,31 @@ impl SemanticAnalyzer {
                 // FunctionCall arm handles. Mirror the container
                 // block from that arm for the complex-receiver
                 // form.
+                //
+                // ADR 0059. Mutability follows the receiver path's
+                // base variable, same as the FunctionCall arm and
+                // Map's dispatch. Without this check, `f().append(x)`
+                // or `val xs := [...]; xs.field.append(x)` type-checks
+                // and then fails at codegen with a shape error
+                // ("List.append requires a variable or field
+                // receiver") — the failure names the receiver's
+                // shape, not the real problem (mutability), so the
+                // diagnostic is misleading. Checking here gives the
+                // right error at the right layer.
                 if let Type::List(elem_ty) = &receiver_type {
                     if method == "append" {
+                        if !self.receiver_is_mutable(receiver) {
+                            return Err(CompileError::at(
+                                self.current_span,
+                                "Cannot call 'append' on a non-mutable receiver",
+                                ErrorCode::E0007,
+                            )
+                            .with_suggestion(
+                                "Bind the receiver to a `var` first, or use a \
+                                 mutable variable as the base of the field \
+                                 chain",
+                            ));
+                        }
                         if args.len() != 1 {
                             return Err(CompileError::at(
                                 self.current_span,
@@ -2600,16 +2630,21 @@ impl SemanticAnalyzer {
 
                 // ADR 0029: Nominal type instance conversion, no-parens
                 // form. `x.to_base` where x has a Distinct type.
+                //
+                // ADR 0059. `to_base` is a type-level unwrap, not a
+                // runtime move. The interpreter represents a
+                // `Distinct` value as its underlying runtime value,
+                // so unwrapping does not consume anything. Marking
+                // the receiver moved here would make `x.to_base`
+                // reject programs that `x.to_base()` (the
+                // parenthesized, FunctionCall form) accepts — the
+                // two forms have identical semantics, so they must
+                // agree. The FunctionCall arm's comment is the
+                // authority: "The nominal binding remains available
+                // after to_base."
                 if let Type::Distinct { base, .. } = &obj_ty {
                     if field == "to_base" {
-                        let base_ty = (**base).clone();
-                        if !self.is_type_copy(&base_ty) {
-                            if let ExprKind::Var(name, _) = &object.as_ref().kind {
-                                let span = self.current_span;
-                                self.mark_moved(name, span);
-                            }
-                        }
-                        return Ok(base_ty);
+                        return Ok((**base).clone());
                     }
                 }
 

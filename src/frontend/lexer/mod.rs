@@ -645,7 +645,7 @@ impl Lexer {
         tokens: &mut Vec<Token>,
         positions: &mut Vec<(usize, usize)>,
     ) -> Result<()> {
-        if trimmed.starts_with("proc") {
+        if starts_with_keyword(trimmed, "proc") {
             Lexer::parse_declaration(Token::Proc, "proc".len(), trimmed, tokens, positions);
         } else if starts_with_keyword(trimmed, "fn") {
             // ADR 0048. `fn` is only two characters, so a bare

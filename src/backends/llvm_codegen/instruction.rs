@@ -589,35 +589,22 @@ impl<'ctx> IRCodeGen<'ctx> {
                     return Ok(());
                 }
 
-                // Call-result handoff. A struct-returning call —
-                // `val a := find(5)` where `find() -> Option<Int>`
-                // — is emitted by the IR builder as
-                //     Call { result: Some("__t") }
-                //     Declare { a, value: Variable("__t") }
-                // The Call handler stores the struct into a fresh
-                // alloca but registers `var_types["__t"] = Float` —
-                // a placeholder from before struct returns existed,
-                // because the Call instruction carries no ALGOL26
-                // type. If the Declare's annotation is *not* Float
-                // but the source's recorded type *is*, the source
-                // is that placeholder. Alias the two names to the
-                // same alloca and give the new name the correct
-                // type: no load, no store, no reinterpretation.
-                //
-                // The proper fix is for `Instruction::Call` to carry
-                // its result's ALGOL26 type; until then, this detects
-                // the placeholder by the mismatch.
-                if let TypedIRValue::Variable(src, _) = value {
-                    if matches!(self.var_types.get(src), Some(Type::Float))
-                        && !matches!(type_, Type::Float)
-                    {
-                        if let Some(src_alloca) = self.variables.get(src).copied() {
-                            self.variables.insert(name.clone(), src_alloca);
-                            self.var_types.insert(name.clone(), type_.clone());
-                            return Ok(());
-                        }
-                    }
-                }
+                // (E-3: the pre-E-1 Call-result sentinel that lived
+                // here aliased a `__t` variable's alloca to the
+                // declared variable when the sentinel detected a
+                // `Type::Float` in `var_types`. It was needed because
+                // `Instruction::Call` did not carry the return type,
+                // so the codegen allocated an `f64` (8-byte) alloca
+                // for every scalar call result. E-1 added
+                // `result_type` to `Instruction::Call`; E-2 sized
+                // the alloca from that type. Both the sentinel and
+                // its `Type::Float` registration are now dead code.
+                // The normal path below — create an alloca for
+                // `name`, `compile_value(Variable(src))` (a load
+                // from src's alloca), and store — copies the value
+                // through an extra load/store. That is correct, and
+                // is what every non-call declaration path already
+                // does.)
 
                 // List move: `var b := a` where `a` is a list
                 // variable. `List<T>` is non-Copy and the analyzer
@@ -1242,7 +1229,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Ok(())
             }
             Instruction::Call {
-                func, args, result, ..
+                func,
+                args,
+                result,
+                result_type,
             } => {
                 // Propagate errors from argument compilation — was
                 // previously `.unwrap()`, which panicked on any
@@ -1282,19 +1272,33 @@ impl<'ctx> IRCodeGen<'ctx> {
                                 if let Some(ptr) = self.variables.get(res_name).cloned() {
                                     self.builder.build_store(ptr, ret).unwrap();
                                 } else {
-                                    // Struct-returning calls (records,
-                                    // Option, Result) need an alloca of
-                                    // the actual struct type — a `f64`
-                                    // scratch slot is only 8 bytes and
-                                    // overflows on multi-field records.
-                                    // The subsequent `Declare` copies
-                                    // through a properly-typed alloca;
-                                    // this one just has to be big enough.
-                                    let alloca = if ret.is_struct_value() {
-                                        self.create_entry_alloca_llvm(res_name, ret.get_type())
-                                    } else {
-                                        self.create_entry_alloca(res_name, &Type::Float)
+                                    // Size the result alloca from the
+                                    // builder's declared result type
+                                    // when available; otherwise fall
+                                    // back to the LLVM value's own
+                                    // type (always correct for
+                                    // scalars, structs, pointers).
+                                    //
+                                    // Before E-1 added result_type,
+                                    // this code used `Type::Float`
+                                    // (an 8-byte f64) for every
+                                    // scalar return and relied on a
+                                    // `Type::Float` sentinel in
+                                    // `Declare` to re-alias the
+                                    // alloca with the correct type.
+                                    // That sentinel is being removed
+                                    // in E-3 now that the alloca is
+                                    // correctly sized here.
+                                    let alloca_llvm_ty = match result_type {
+                                        Some(declared) if *declared != Type::Void => {
+                                            self.map_type(declared)
+                                        }
+                                        _ => ret.get_type(),
                                     };
+                                    let alloca = self.create_entry_alloca_llvm(
+                                        res_name,
+                                        alloca_llvm_ty,
+                                    );
                                     self.builder.build_store(alloca, ret).unwrap();
                                     self.variables.insert(res_name.clone(), alloca);
                                     // ADR 0042 phase 1b (ext). A
@@ -1340,7 +1344,19 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     if is_list_shape {
                                         self.var_types
                                             .insert(res_name.clone(), Type::list(Type::Unknown));
+                                    } else if let Some(declared) = result_type {
+                                        // The builder's declared
+                                        // return type is authoritative.
+                                        self.var_types
+                                            .insert(res_name.clone(), declared.clone());
                                     } else {
+                                        // Fallback for legacy/test IR
+                                        // without result_type. This
+                                        // was the pre-E-1 default;
+                                        // only reached by IR that
+                                        // constructs Instruction::Call
+                                        // directly without setting
+                                        // result_type.
                                         self.var_types.insert(res_name.clone(), Type::Float);
                                     }
                                 }

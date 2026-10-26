@@ -163,21 +163,35 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "string_substring",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Unknown,
+        llvm: Support::Full,
         wasm: Support::Unknown,
         refusal_tests: &[],
-        notes: "No dedicated conformance fixture. substring exercised via \
-                strings.gol but not asserted. Also unverified: LLVM/WASM lowering.",
+        notes: "LLVM: full. Lowered via `String.substring` arm in \
+                `builtins.rs` (calls `algol26_string_substring` from \
+                `runtime/string.c`, codepoint-indexed); pinned by \
+                `corpus_49_string_substring_utf8`. WASM: unverified. \
+                WASM shares IRCodeGen with LLVM, so the lowering is \
+                present, but the WASM host's exports for the \
+                `algol26_string_*` family have not been audited — \
+                see `docs/STATUS.md` 'WASM string UTF-8 gap'. Move \
+                WASM to Full once `runtime/wasm/host.js` is confirmed \
+                to export `algol26_string_substring`, or once a WASM \
+                corpus run of `corpus_49` is added.",
     },
     FeatureRow {
         name: "string_case_conversion",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Unknown,
+        llvm: Support::Full,
         wasm: Support::Unknown,
         refusal_tests: &[],
-        notes: "No dedicated conformance fixture for to_upper/to_lower. \
-                LLVM/WASM lowering unverified.",
+        notes: "LLVM: full. `String.to_upper` and `String.to_lower` have \
+                working `builtins.rs` arms (call `algol26_string_to_upper` \
+                / `_lower` in `runtime/string.c`, byte-wise ctype-based). \
+                No dedicated corpus fixture yet — should add one \
+                (`corpus_*_string_case_conversion`) to match the pattern \
+                of the other String.* rows. WASM: unverified, same \
+                rationale as `string_substring`.",
     },
     // ─── lists ───
     FeatureRow {
@@ -438,11 +452,20 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "string_to_int",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
+        llvm: Support::Full,
         wasm: Support::Refused,
         refusal_tests: &["wasm_rejects_conversions"],
-        notes: "`String.to_int` returns `Option<Int>`; blocked on \
-                Option lowering for LLVM/WASM.",
+        notes: "LLVM: full. `String.to_int` lowers via \
+                `algol26_string_to_int` in `runtime/string.c` (strict \
+                i64 parser matching the interpreter's \
+                `str::parse::<i64>()`); pinned by \
+                `corpus_47_string_to_int_llvm` and by \
+                `llvm_accepts_string_to_int` in \
+                `capabilities/tests.rs`. The Option wrapper is \
+                handled by the `String.to_int` arm, not by a generic \
+                Option lowering. WASM: refused because `Feature::StringToInt` \
+                is not in `wasm().supported` — no `host.js` export for \
+                the runtime symbol. Pinned by `wasm_rejects_conversions`.",
     },
     FeatureRow {
         name: "string_ops",
@@ -494,15 +517,21 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "command_line_args",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
+        llvm: Support::Full,
         wasm: Support::Refused,
         refusal_tests: &["wasm_rejects_args"],
-        notes: "No conformance fixture — `args()` returns the process's \
-                command-line arguments, which cannot be reproduced by a \
-                static fixture. The interpreter returns the process's \
-                arguments. LLVM and WASM refuse via the capability check \
-                (`Feature::CommandLineArgs`); neither has a mechanism to \
-                expose C `argc`/`argv` to the language's `main`.",
+        notes: "LLVM: full. The generated `main` wrapper forwards \
+                `(argc, argv)` to `algol26_args_init` in \
+                `runtime/args.c`; `args()` lowers to \
+                `algol26_args_count` / `algol26_args_get` calls in \
+                `builtins.rs`, building a `List<String>` descriptor. \
+                Pinned by `corpus_51_args_llvm` and by \
+                `llvm_accepts_args` in `capabilities/tests.rs`. No \
+                static conformance fixture is possible — `args()` \
+                returns the process's arguments. WASM: refused via \
+                `Feature::CommandLineArgs` not being in \
+                `wasm().supported` (the WASM host has no argc/argv \
+                mechanism). Pinned by `wasm_rejects_args`.",
     },
     FeatureRow {
         name: "map",

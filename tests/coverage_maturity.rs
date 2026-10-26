@@ -102,8 +102,8 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("string_length", Maturity::AllBackends),
     ("string_ops", Maturity::Universal),
     ("string_concat", Maturity::AllBackends),
-    ("string_substring", Maturity::InterpreterOnly),
-    ("string_case_conversion", Maturity::InterpreterOnly),
+    ("string_substring", Maturity::InterpreterAndLlvm),
+    ("string_case_conversion", Maturity::InterpreterAndLlvm),
     // lists
     ("list_literal", Maturity::AllBackends),
     ("list_length", Maturity::AllBackends),
@@ -145,9 +145,9 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     // unsafe / range
     ("unsafe", Maturity::Universal),
     ("range", Maturity::Unfinished),
-    ("command_line_args", Maturity::InterpreterOnly),
+    ("command_line_args", Maturity::InterpreterAndLlvm),
     ("int_to_string", Maturity::Universal),
-    ("string_to_int", Maturity::InterpreterOnly),
+    ("string_to_int", Maturity::InterpreterAndLlvm),
 ];
 
 // ─────────────────────────────────────────────────────────────────────

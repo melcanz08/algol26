@@ -83,7 +83,13 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   function signatures.
 - **Interpreter-only.** LLVM and WASM refuse union programs at the
   capability boundary (`Feature::Unions`) with an `E0002` error.
-  See `examples/json/` for the end-to-end demonstration.
+  See `examples/json/` for the end-to-end demonstration. This
+  refusal covers the union *representation*; the `match`
+  mechanism itself works on all three backends for plain enums,
+  `Option`, `Result`, and literal patterns — see
+  `corpus_61_enum_match_llvm`, `corpus_43_match_bindings_llvm`,
+  `corpus_45_result_llvm`. "Match on unions with payloads is
+  refused on LLVM" is really "union values are refused on LLVM."
 - **Not yet supported:** nested patterns (`case Pair(Some(x), _)`),
   reference patterns (`case &Num(n)`), LLVM/WASM codegen for
   unions.
@@ -623,18 +629,22 @@ v1 requires distinct names.
 - **Chained method calls on field accesses.** `x.field.method()`
   is rejected by the parser. Workaround: bind the field to a
   local (`val tmp := x.field`), then call the method.
-- **Recursive structured data (sum types).** The language has no
-  sum types; a recursive value like a JSON tree is not
-  expressible. This is the last item on the outsider's proposal
-  that is blocked on a language feature rather than a runtime
-  or backend.
+- **`proc` ending in a `match` is rejected by return-path
+  analysis.** A `proc f(x: T) -> U` whose body is `match x
+  case A then <expr> case B then <expr>` (no explicit `return`
+  in the arms) is rejected with "may not return a value on all
+  paths": `check_all_paths_return` doesn't recognize that a
+  trailing `match` whose arms all produce values counts as
+  returning on all paths. Workaround: use `case X then return
+  expr` in each arm — confirmed to work by
+  `corpus_61_enum_match_llvm`. Fix is a follow-up in the
+  analyzer.
 
 ### Unimplemented features
 
 - **Channels** (`corpus_23`–`corpus_26`). All three backends
   refuse channel programs at the capability boundary. See
   ADR 0020.
-- **Sum types.** Not designed yet. No ADR.
 
 ## Conventions
 

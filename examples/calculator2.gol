@@ -1,0 +1,48 @@
+// calculator.gol — a basic four-operation calculator.
+//
+// Runs on both interpreter and LLVM (uses only features supported
+// on both: fn/proc, Result, Option, match, integer arithmetic,
+// Int.to_string).
+//
+// Error handling: unknown operators and division-by-zero produce
+// Error(...) rather than crashing.
+
+fn div(a: Int, b: Int) -> Result<Int, String>
+    if b = 0 then
+        Error("division by zero")
+    else
+        Ok(a / b)
+
+fn apply(op: Int, a: Int, b: Int) -> Result<Int, String>
+    if op = 1 then
+        Ok(a + b)
+    else if op = 2 then
+        Ok(a - b)
+    else if op = 3 then
+        Ok(a * b)
+    else if op = 4 then
+        div(a, b)
+    else
+        Error("unknown operation")
+
+fn op_symbol(op: Int) -> String
+    if op = 1 then "+"
+    else if op = 2 then "-"
+    else if op = 3 then "*"
+    else if op = 4 then "/"
+    else "?"
+
+proc run_case(op: Int, a: Int, b: Int)
+    print(Int.to_string(a) + " " + op_symbol(op) + " " + Int.to_string(b))
+    val r := apply(op, a, b)
+    match r
+        case Ok(v) then print("  = " + Int.to_string(v))
+        case Error(e) then print("  error: " + e)
+
+proc main
+    run_case(1, 5, 3)
+    run_case(2, 10, 4)
+    run_case(3, 42, 7)
+    run_case(4, 100, 7)
+    run_case(4, 5, 0)
+    run_case(99, 1, 2)

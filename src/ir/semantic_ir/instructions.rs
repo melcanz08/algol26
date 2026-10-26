@@ -135,4 +135,16 @@ pub enum Instruction {
         tag: u32,
         payload: Vec<TypedIRValue>,
     },
+
+    /// Marker emitted at the top of the try/catch lowering. The
+    /// actual lowering produces a `Switch` on a Result value plus
+    /// per-branch blocks; the shape is not distinguishable from a
+    /// hand-written `match` on a Result by inspection alone. This
+    /// instruction makes the try/catch *construct* visible to the
+    /// capability scan so `Feature::TryCatch` can be refused on
+    /// backends that do not support it. The codegen never sees
+    /// this instruction — the capability check refuses first, and
+    /// `compile_instruction` treats it as a compile-internal
+    /// unreachable to match that contract.
+    TryCatchMarker,
 }

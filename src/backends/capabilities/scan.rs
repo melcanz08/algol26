@@ -359,6 +359,14 @@ pub(super) fn scan_instruction(
                 scan_value(p, extern_fns, used);
             }
         }
+        // TryCatch: emitted as a marker because the actual
+        // lowering (Switch + per-branch blocks) is indistinguishable
+        // from a hand-written match on a Result. The marker makes
+        // the try/catch *construct* visible so `Feature::TryCatch`
+        // can refuse it on backends without a lowering.
+        Instruction::TryCatchMarker => {
+            used.insert(Feature::TryCatch);
+        }
         Instruction::Nop => {}
     }
 }

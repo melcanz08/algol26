@@ -9,6 +9,11 @@ pub(super) fn verify_instruction(
 ) -> Result<(), String> {
     match instr {
         Instruction::Nop => Ok(()),
+        // TryCatchMarker: capability-scan-only marker. No
+        // operands, no side effects. Its presence in the IR is
+        // what `scan_features` reads to refuse try/catch on
+        // LLVM/WASM; the verifier has nothing to check.
+        Instruction::TryCatchMarker => Ok(()),
         Instruction::UnionConstruct {
             target, payload, ..
         } => {

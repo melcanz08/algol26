@@ -205,6 +205,10 @@ fn check_instruction(
                 check_value(p, function, &location("UnionConstruct payload"), errors);
             }
         }
+        // TryCatchMarker: a capability-scan-only marker. No
+        // sub-values to check; its presence is what matters, and
+        // the capability scan reads it.
+        Instruction::TryCatchMarker => {}
         Instruction::Nop => {}
     }
 }

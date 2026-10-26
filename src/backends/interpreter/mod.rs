@@ -301,6 +301,12 @@ impl Interpreter {
                 );
             }
             Instruction::Nop => {}
+            // TryCatchMarker: capability-scan-only marker.
+            // The interpreter walks the AST, not the IR, so this
+            // arm is unreachable in practice — included for
+            // exhaustiveness only. No-op is correct: the marker
+            // has no runtime semantics.
+            Instruction::TryCatchMarker => {}
 
             Instruction::Declare { name, value, .. } => {
                 let val = self.eval_value(value)?;

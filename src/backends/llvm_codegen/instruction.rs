@@ -484,6 +484,10 @@ impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
         match instr {
             Instruction::Nop => Ok(()),
+            Instruction::TryCatchMarker => unreachable!(
+                "try/catch marker reached LLVM codegen — the capability \
+                 scan should have refused this program (Feature::TryCatch)"
+            ),
             Instruction::UnionConstruct { .. } => unreachable!(
                 "union construction reached LLVM codegen — the capability \
                  scan should have refused this program (ADR 0055)"

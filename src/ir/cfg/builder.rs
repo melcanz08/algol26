@@ -414,6 +414,10 @@ pub fn build_cfgs_from_semantic_program(program: &SemanticProgram) -> Vec<Functi
                         instrs.push(CfgInstruction::Nop);
                     }
                     I::Nop => instrs.push(CfgInstruction::Nop),
+                    // TryCatchMarker has no CFG semantics — it is a
+                    // capability-scan marker, not control flow.
+                    // Lower it to Nop in the CFG view.
+                    I::TryCatchMarker => instrs.push(CfgInstruction::Nop),
                 }
             }
 

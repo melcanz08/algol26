@@ -2155,6 +2155,15 @@ impl SemanticIRBuilder {
 
                 let result_var = self.allocate_result_var(func, current_block, result_type.clone());
 
+                // Emit the try/catch marker so the capability scan
+                // can see the construct. See `Instruction::TryCatchMarker`
+                // in `ir/semantic_ir/instructions.rs`.
+                self.safe_push_instruction(
+                    func,
+                    current_block,
+                    Instruction::TryCatchMarker,
+                );
+
                 // Fresh names for the try-body's value and the Ok payload.
                 let try_value_name = format!("__try_value_{}", self.iter_counter);
                 self.iter_counter += 1;

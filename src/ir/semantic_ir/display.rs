@@ -178,6 +178,7 @@ fn format_block_cfg(out: &mut String, block: &SemanticBlock, entry_id: usize) {
 fn format_instruction(out: &mut String, instr: &Instruction) {
     match instr {
         Instruction::Nop => out.push_str("nop"),
+        Instruction::TryCatchMarker => out.push_str("try/catch"),
         Instruction::UnionConstruct {
             target,
             tag,

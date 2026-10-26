@@ -261,16 +261,20 @@ pub const MATRIX: &[FeatureRow] = &[
         interpreter: Support::Full,
         llvm: Support::Refused,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_try_catch", "wasm_rejects_result_values"],
-        notes: "try/catch has no LLVM lowering; it is refused at IR \
-                construction (the builder has no TryCatch arm) before \
-                the capability check runs. Result values (Ok/Error) and \
-                match on Result are supported on LLVM (ADR 0030 v1); \
-                only the try/catch *construct* is interpreter-only. \
-                Feature::Result covers both, so the capability check \
-                accepts Result values and refuses try/catch at the \
-                codegen boundary. A future Feature::TryCatch split \
-                would move the refusal to the capability check.",
+        refusal_tests: &["llvm_rejects_try_catch", "wasm_rejects_try_catch"],
+        notes: "try/catch is interpreter-only. The builder lowers it \
+                to a Switch on a Result value plus per-branch blocks, \
+                but emits an `Instruction::TryCatchMarker` at the top \
+                of the lowering so the capability scan can see the \
+                construct. `Feature::TryCatch` is absent from \
+                llvm().supported and wasm().supported, so a program \
+                using try/catch is refused at the capability \
+                boundary — before codegen. Result *values* \
+                (Ok/Error construction, match on Result) remain \
+                supported on LLVM via `Feature::Result`, which is a \
+                separate feature. See \
+                `Instruction::TryCatchMarker` in \
+                `ir/semantic_ir/instructions.rs`.",
     },
     // ─── ownership ───
     FeatureRow {

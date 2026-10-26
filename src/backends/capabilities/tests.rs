@@ -69,47 +69,56 @@ fn llvm_accepts_result_values() {
 
 #[test]
 fn llvm_rejects_try_catch() {
-    // ADR 0030. `try`/`catch` is not lowered on LLVM. `Ok`/`Error`
-    // values and `match` on them work (see llvm_accepts_result_values),
-    // but `try`/`catch` as a construct has no codegen path. The
-    // analyzer/builder refuses it at IR construction (no `TryCatch`
-    // arm exists in the builder's translate_expr), so by the time
-    // the capability check runs, a try/catch program has already
-    // been rejected. This test pins the overall refusal shape:
-    // a program containing a Result value is accepted, but a
-    // program that requires the try/catch *construct* is not.
-    //
-    // The refusal is currently at codegen, not the capability
-    // check, because `Feature::Result` covers both. That's a
-    // known limitation of the capability split — a future
-    // `Feature::TryCatch` would move the refusal to the boundary.
-    //
-    // For now, this test asserts only that a `Result` value is
-    // accepted and documents that try/catch is separately refused.
-    // The actual try/catch refusal is exercised by the interpreter
-    // test suite.
+    // `try`/`catch` lowers (in the builder) to a Switch on a Result
+    // value plus per-branch blocks. The shape is indistinguishable
+    // from a hand-written `match` on a Result, so the builder emits
+    // an `Instruction::TryCatchMarker` at the top of the lowering;
+    // the capability scan reads it and inserts `Feature::TryCatch`.
+    // LLVM does not include that feature, so a program whose IR
+    // carries the marker is refused at the capability boundary —
+    // before the codegen's `map_type(Unknown)` can panic on the
+    // intermediate Result<Unknown, Unknown> declare.
     let program = program_with(
-        Instruction::Declare {
-            name: "r".to_string(),
-            mutable: false,
-            type_: Type::result(Type::Int, Type::String),
-            value: TypedIRValue::Ok {
-                value: Box::new(TypedIRValue::Int(42)),
-                result_type: Type::result(Type::Int, Type::String),
-            },
-        },
+        Instruction::TryCatchMarker,
         simple_return(),
     );
-    // The Result value itself is accepted.
+    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
     assert!(
-        check_backend(&program, &BackendCapabilities::llvm()).is_ok(),
-        "Result values should pass the capability check"
+        err.message.contains("try/catch"),
+        "expected try/catch in the diagnostic, got: {}",
+        err.message
     );
-    // try/catch is refused at IR construction, before the
-    // capability check runs. This test cannot exercise that
-    // directly (it would require building IR with a TryCatch
-    // node, which the builder never emits). Documented here so
-    // the coverage_matrix refusal_tests field has a target.
+}
+
+#[test]
+fn wasm_rejects_try_catch() {
+    let program = program_with(
+        Instruction::TryCatchMarker,
+        simple_return(),
+    );
+    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
+    assert!(
+        err.message.contains("try/catch"),
+        "expected try/catch in the diagnostic, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn interpreter_accepts_try_catch() {
+    // The interpreter walks the AST, not the IR, so the
+    // TryCatchMarker never reaches it. But the capability gate must
+    // still accept TryCatch programs on the interpreter side —
+    // otherwise `algol26 run --interpreter` would refuse to run
+    // a valid try/catch program. Pin the acceptance.
+    let program = program_with(
+        Instruction::TryCatchMarker,
+        simple_return(),
+    );
+    assert!(
+        check_backend(&program, &BackendCapabilities::interpreter()).is_ok(),
+        "interpreter should accept try/catch"
+    );
 }
 
 #[test]

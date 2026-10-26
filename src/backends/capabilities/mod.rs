@@ -23,16 +23,28 @@ mod contract_tests;
 #[cfg(test)]
 mod tests;
 
-// When adding a variant, three things must change together:
+// When adding a variant, five things must change together:
 //   1. This enum
 //   2. src/backends/capabilities/tests.rs (accept/reject per backend)
 //   3. tests/coverage_matrix.rs (a FeatureRow claiming the tests)
 //   4. tests/coverage_maturity.rs (EXPECTED_MATURITY entry)
+//   5. tests/status_sync.rs (STATUS_ROW_TO_FEATURES entry) AND a
+//      row in docs/STATUS.md if the feature isn't covered by an
+//      existing row. Enforced by
+//      `status_matrix_matches_llvm_capabilities`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Feature {
-    /// `Result<T, E>` values and any use of `try/catch` (which lowers
-    /// to a switch over a Result value).
+    /// `Result<T, E>` values: `Ok`/`Error` construction, and any
+    /// `match` on a Result (which lowers to a Switch terminator).
+    /// Does not cover the `try`/`catch` construct — that is
+    /// `Feature::TryCatch`, a separate gate.
     Result,
+    /// `try`/`catch` construct. Lowered by the builder to a Switch
+    /// on a Result plus per-branch blocks; the shape is not
+    /// distinguishable from a hand-written match on a Result without
+    /// an explicit marker. Interpreter-only. See
+    /// `Instruction::TryCatchMarker`.
+    TryCatch,
     /// `spawn` blocks.
     Spawn,
     /// `parallel` blocks (Fork terminator).
@@ -108,6 +120,7 @@ impl Feature {
     pub fn all() -> &'static [Feature] {
         &[
             Feature::Result,
+            Feature::TryCatch,
             Feature::Spawn,
             Feature::Fork,
             Feature::Channels,
@@ -137,6 +150,7 @@ impl Feature {
     pub fn name(&self) -> &'static str {
         match self {
             Feature::Result => "result",
+            Feature::TryCatch => "try_catch",
             Feature::Spawn => "spawn",
             Feature::Fork => "fork",
             Feature::Channels => "channels",
@@ -163,7 +177,8 @@ impl Feature {
     }
     pub fn description(&self) -> &'static str {
         match self {
-            Feature::Result => "Result / try-catch",
+            Feature::Result => "Result values (Ok / Error, match on Result)",
+            Feature::TryCatch => "try/catch",
             Feature::Spawn => "spawn",
             Feature::Fork => "parallel",
             Feature::Channels => "channels",
@@ -280,6 +295,12 @@ impl BackendCapabilities {
     pub fn interpreter() -> Self {
         let mut supported = HashSet::new();
         supported.insert(Feature::Result);
+        // TryCatch: interpreter-only. The interpreter walks the AST,
+        // not the IR, so it implements try/catch as a direct
+        // evaluation step — no `TryCatchMarker` reaches it. The
+        // capability gate exists for the IR-consuming backends
+        // (LLVM, WASM), which do not lower try/catch.
+        supported.insert(Feature::TryCatch);
         supported.insert(Feature::Spawn);
         supported.insert(Feature::Fork);
         supported.insert(Feature::StringOps);

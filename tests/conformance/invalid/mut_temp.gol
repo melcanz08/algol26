@@ -1,0 +1,21 @@
+// Mutation of a temporary: `make().bump()` where `bump` takes
+// `&mut self`. The analyzer refuses with E0007 at the
+// MethodCall arm's "complex receiver" check: a `&mut self`
+// method needs a stable binding to mutate, and a call result
+// isn't one. Mutation of a temporary would be discarded when
+// the temporary dies, so the refusal is correct.
+
+// ERROR_CODE: E0007
+
+rec C
+    n: Int
+
+impl C
+    proc bump(self: &mut C)
+        self.n := self.n + 1
+
+fn make() -> C
+    C { n: 0 }
+
+proc main
+    make().bump()

@@ -121,6 +121,17 @@ pub struct IRCodeGen<'ctx> {
     /// lazily populated on first use.
     pub(super) record_struct_types:
         std::cell::RefCell<HashMap<String, inkwell::types::StructType<'ctx>>>,
+    /// ADR 0060. Cache of LLVM named struct types built from
+    /// `Type::Union { .. }` values. Keyed by `UnionTypeId` (not
+    /// by name) so same-name unions from different modules get
+    /// distinct LLVM types. `RefCell` because `map_type` takes
+    /// `&self` but the cache is lazily populated on first use.
+    /// The cached type has the shape
+    /// `{ i32 tag, [N x i64] payload }`, where N = ceil(max
+    /// payload size / 8). See ADR 0060 for the rationale behind
+    /// `[N x i64]` rather than `[N x i8]`.
+    pub(super) union_struct_types:
+        std::cell::RefCell<HashMap<crate::common::types::UnionTypeId, inkwell::types::StructType<'ctx>>>,
     /// ADR 0038. Emitted vtable globals, keyed by the `vtable_id`
     /// string from `SemanticProgram::vtables`. Populated by
     /// `emit_vtables` before function bodies are compiled. The
@@ -217,6 +228,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             enum_types: HashMap::new(),
             subrange_types: HashMap::new(),
             record_struct_types: std::cell::RefCell::new(HashMap::new()),
+            union_struct_types: std::cell::RefCell::new(HashMap::new()),
             vtables: HashMap::new(),
             c_abi_main: false,
         }

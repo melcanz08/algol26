@@ -61,8 +61,7 @@ Represent a union value on LLVM and WASM as a named LLVM struct
 with two fields:
 
 ```llvm
-%Union_<Name> = type { i32 tag, %Union_<Name>.Payload payload }
-%Union_<Name>.Payload = type { [N x i8] }
+%Union_<Name> = type { i32 tag, [N x i64] payload }
 ```
 
 Where:
@@ -70,13 +69,23 @@ Where:
 - `tag` is the variant's ordinal (a `u32`, matching
   `SemanticPattern::VariantWithPayload { tag, .. }` and the
   `UnionConstruct` instruction's `tag` field).
-- `N` is the maximum size, in bytes, of any variant's payload,
-  aligned to the maximum alignment requirement across all
-  variants. For a payloadless-only union, `N = 0` (a zero-length
-  array — LLVM handles this as a placeholder).
-- The payload buffer is untyped storage. At construction and at
-  pattern-match time, the codegen casts it to the specific
-  variant's payload type via `bitcast` + GEP.
+- `N` is `ceil(max_payload_size / 8)`, where `max_payload_size`
+  is the largest payload size (in bytes) across all variants.
+  For a payloadless-only union, `N = 0` (a zero-length array —
+  LLVM handles this as a placeholder).
+- The payload buffer is `[N x i64]`. The choice of `i64` (rather
+  than `i8`) is deliberate: an `[N x i8]` field has alignment 1,
+  so the payload buffer would not be 8-aligned, and storing an
+  `i64`-sized payload (e.g. `Int`, `Float`, `String` pointer,
+  list descriptor) into it would be misaligned UB. `[N x i64]`
+  is naturally 8-aligned, matching the maximum alignment of any
+  ALGOL26 type. Every ALGOL26 type has alignment <= 8. So
+  `[N x i64]` suffices for every payload.
+- The payload buffer is untyped storage (a repeated `i64`, not a
+  typed struct). At construction and at pattern-match time, the
+  codegen GEPs into the buffer to get an `i64*`, then bitcasts
+  to the specific variant's payload type and performs a
+  load/store at offset 0.
 
 A variant with no payloads (`Null`) writes only the tag; the
 payload buffer is left `undef`. A variant with one payload

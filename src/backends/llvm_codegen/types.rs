@@ -82,18 +82,171 @@ impl<'ctx> IRCodeGen<'ctx> {
             // option struct's payload field ({ i1, i32 }).
             Type::Char => self.context.i32_type().into(),
             Type::Bool => self.context.bool_type().into(),
-            // ADR 0055. Unions have no LLVM lowering: a tagged union
-            // with variable-sized payloads requires boxing or a fat
-            // pointer, which is deferred to a follow-up ADR. The
-            // capability scan refuses any program containing a
-            // union declaration before reaching codegen, so this
-            // arm should never fire. If it does, the scan missed a
-            // case, and a loud panic is the correct signal.
-            Type::Union { name, .. } => unreachable!(
-                "union `{}` reached LLVM codegen — the capability scan \
-                 should have refused this program (ADR 0055)",
-                name
-            ),
+            // ADR 0060. A union value is a named LLVM struct
+            // `{ i32 tag, [N x i64] payload }` where N = ceil(max
+            // payload size / 8). The `[N x i64]` payload buffer
+            // is 8-aligned, matching the maximum alignment of
+            // any ALGOL26 type; stores into the buffer are
+            // misaligned-UB-free for every payload shape.
+            //
+            // The struct type is cached by `UnionTypeId` so
+            // same-name unions from different modules get
+            // distinct LLVM types (mirroring `record_struct_types`
+            // at ADR 0036).
+            //
+            // Nothing calls `map_type(Type::Union)` today —
+            // `Feature::Unions` still refuses union programs at
+            // the capability check. Session 2 and Session 3 of
+            // ADR 0060 will reach this arm once the refusal is
+            // lifted.
+            Type::Union {
+                id,
+                name: _,
+                variants,
+            } => {
+                // ADR 0060. A union value is a named LLVM struct
+                // `{ i32 tag, [N x i64] payload }` where N = ceil(max
+                // payload size / 8). The `[N x i64]` buffer is
+                // 8-aligned, matching the maximum alignment of any
+                // ALGOL26 type; stores into it are
+                // misaligned-UB-free for every payload shape.
+                //
+                // The struct type is cached by `UnionTypeId` so
+                // same-name unions from different modules get
+                // distinct LLVM types (mirroring `record_struct_types`
+                // at ADR 0036).
+                //
+                // Nothing calls `map_type(Type::Union)` today —
+                // `Feature::Unions` still refuses union programs at
+                // the capability check. Session 2 and Session 3 of
+                // ADR 0060 will reach this arm once the refusal is
+                // lifted.
+                if let Some(cached) = self.union_struct_types.borrow().get(id).copied() {
+                    return cached.into();
+                }
+
+                // Two local `fn`s, in dependency order:
+                // `size_align` is used by `size_bytes`, so it
+                // must come first. Rust requires local `fn`s to be
+                // defined before their first use site, unlike
+                // top-level items.
+                //
+                // Sizes are computed structurally from the LLVM
+                // type's shape, not via `BasicTypeEnum::size_of()`
+                // (whose return value's `get_zero_extended_constant`
+                // can be `None` for compound constant
+                // representations). The structural computation
+                // handles struct padding by aligning each field to
+                // its own alignment, then aligning the whole struct
+                // to its max alignment.
+                //
+                // Pointer size is assumed to be 8 (native x86-64
+                // / ARM64). WASM32 has 4-byte pointers, so WASM
+                // union structs are slightly oversized but
+                // functionally correct. Acceptable for v1.
+                fn size_align(ty: BasicTypeEnum) -> u64 {
+                    match ty {
+                        BasicTypeEnum::IntType(t) => ((t.get_bit_width() as u64) + 7) / 8,
+                        BasicTypeEnum::FloatType(_) => 8,
+                        BasicTypeEnum::PointerType(_) => 8,
+                        BasicTypeEnum::StructType(st) => {
+                            let mut m = 1u64;
+                            for i in 0..st.count_fields() {
+                                let ft = st.get_field_type_at_index(i).unwrap();
+                                m = m.max(size_align(ft));
+                            }
+                            m
+                        }
+                        BasicTypeEnum::ArrayType(at) => size_align(at.get_element_type()),
+                        BasicTypeEnum::VectorType(_) => 8,
+                        BasicTypeEnum::ScalableVectorType(_) => 8,
+                    }
+                }
+
+                #[allow(clippy::manual_checked_ops)]
+                fn size_bytes(ty: BasicTypeEnum) -> u64 {
+                    match ty {
+                        BasicTypeEnum::IntType(t) => ((t.get_bit_width() as u64) + 7) / 8,
+                        BasicTypeEnum::FloatType(_) => 8,
+                        BasicTypeEnum::PointerType(_) => 8,
+                        BasicTypeEnum::StructType(st) => {
+                            // Padding-aware struct size: align each
+                            // field to its own alignment, sum, then
+                            // round up to the struct's max
+                            // alignment.
+                            let mut offset: u64 = 0;
+                            let mut max_align: u64 = 1;
+                            for i in 0..st.count_fields() {
+                                let ft = st.get_field_type_at_index(i).unwrap();
+                                let falign = size_align(ft);
+                                if falign != 0 {
+                                    // Manual ceil-division. `div_ceil`
+                                    // would be clearer but requires MSRV
+                                    // 1.73, which this crate does not yet
+                                    // target. The `#[allow(...)]` above
+                                    // silences the resulting
+                                    // `manual_checked_ops` lint.
+                                    offset = (offset + falign - 1) / falign * falign;
+                                }
+                                offset += size_bytes(ft);
+                                max_align = max_align.max(falign);
+                            }
+                            if max_align == 0 {
+                                offset
+                            } else {
+                                (offset + max_align - 1) / max_align * max_align
+                            }
+                        }
+                        BasicTypeEnum::ArrayType(at) => {
+                            size_bytes(at.get_element_type()) * (at.len() as u64)
+                        }
+                        BasicTypeEnum::VectorType(_) => 16,
+                        BasicTypeEnum::ScalableVectorType(_) => 16,
+                    }
+                }
+
+                let i32_ty = self.context.i32_type();
+                let i64_ty = self.context.i64_type();
+
+                // Compute max payload size across all variants.
+                // Payloadless variants (`Null`) contribute 0 and
+                // do not affect the max.
+                let mut max_size: u64 = 0;
+                for (_variant_name, payload_types) in variants {
+                    if payload_types.is_empty() {
+                        continue;
+                    }
+                    let payload_ty = if payload_types.len() == 1 {
+                        self.map_type(&payload_types[0])
+                    } else {
+                        let field_types: Vec<BasicTypeEnum<'ctx>> = payload_types
+                            .iter()
+                            .map(|t| self.map_type(t))
+                            .collect();
+                        self.context.struct_type(&field_types, false).into()
+                    };
+                    max_size = max_size.max(size_bytes(payload_ty));
+                }
+
+                // `N = ceil(max_size / 8)`. Payloadless-only
+                // unions produce N = 0 and `[0 x i64]`.
+                let n_words = if max_size == 0 {
+                    0
+                } else {
+                    (max_size + 7) / 8
+                };
+                let payload_array_ty = i64_ty.array_type(n_words as u32);
+
+                // `{ i32 tag, [N x i64] payload }`. Not packed, so
+                // LLVM inserts 4 bytes of padding after the tag.
+                // Payload field is at offset 8.
+                let struct_ty = self
+                    .context
+                    .struct_type(&[i32_ty.into(), payload_array_ty.into()], false);
+
+                self.union_struct_types.borrow_mut().insert(*id, struct_ty);
+                struct_ty.into()
+            }
             // Strings are `char*` — a pointer to a null-terminated
             // UTF-8 buffer.
             Type::String => self.context.ptr_type(AddressSpace::default()).into(),
@@ -300,5 +453,133 @@ impl<'ctx> IRCodeGen<'ctx> {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod union_type_tests {
+    use super::*;
+    use crate::common::types::{Type, UnionTypeId};
+    use inkwell::context::Context;
+
+    fn make_codegen<'ctx>(ctx: &'ctx Context) -> IRCodeGen<'ctx> {
+        IRCodeGen::new(ctx, "test_module")
+    }
+
+    #[test]
+    fn union_payloadless_only_is_zero_sized_payload() {
+        let ctx = Context::create();
+        let cg = make_codegen(&ctx);
+        let ty = Type::Union {
+            id: UnionTypeId(1),
+            name: "Empty".to_string(),
+            variants: vec![
+                ("A".to_string(), vec![]),
+                ("B".to_string(), vec![]),
+            ],
+        };
+        let llvm_ty = cg.map_type(&ty);
+        let st = match llvm_ty {
+            BasicTypeEnum::StructType(st) => st,
+            other => panic!("expected struct, got {:?}", other),
+        };
+        assert_eq!(st.count_fields(), 2, "tag + payload");
+        let payload_arr = match st.get_field_type_at_index(1).unwrap() {
+            BasicTypeEnum::ArrayType(a) => a,
+            other => panic!("expected array payload, got {:?}", other),
+        };
+        assert_eq!(payload_arr.len(), 0, "N = 0 for payloadless-only union");
+        assert_eq!(
+            payload_arr.get_element_type(),
+            BasicTypeEnum::IntType(cg.context.i64_type()),
+            "payload element type is i64"
+        );
+    }
+
+    #[test]
+    fn union_with_int_payload_is_one_i64_word() {
+        let ctx = Context::create();
+        let cg = make_codegen(&ctx);
+        let ty = Type::Union {
+            id: UnionTypeId(2),
+            name: "MaybeInt".to_string(),
+            variants: vec![
+                ("None".to_string(), vec![]),
+                ("Some".to_string(), vec![Type::Int]),
+            ],
+        };
+        let llvm_ty = cg.map_type(&ty);
+        let st = match llvm_ty {
+            BasicTypeEnum::StructType(st) => st,
+            other => panic!("expected struct, got {:?}", other),
+        };
+        let payload_arr = match st.get_field_type_at_index(1).unwrap() {
+            BasicTypeEnum::ArrayType(a) => a,
+            other => panic!("expected array payload, got {:?}", other),
+        };
+        assert_eq!(payload_arr.len(), 1);
+    }
+
+    #[test]
+    fn union_with_string_and_int_payload_is_one_i64_word() {
+        let ctx = Context::create();
+        let cg = make_codegen(&ctx);
+        let ty = Type::Union {
+            id: UnionTypeId(3),
+            name: "Json".to_string(),
+            variants: vec![
+                ("Null".to_string(), vec![]),
+                ("Num".to_string(), vec![Type::Int]),
+                ("Str".to_string(), vec![Type::String]),
+            ],
+        };
+        let llvm_ty = cg.map_type(&ty);
+        let st = match llvm_ty {
+            BasicTypeEnum::StructType(st) => st,
+            other => panic!("expected struct, got {:?}", other),
+        };
+        let payload_arr = match st.get_field_type_at_index(1).unwrap() {
+            BasicTypeEnum::ArrayType(a) => a,
+            other => panic!("expected array payload, got {:?}", other),
+        };
+        assert_eq!(payload_arr.len(), 1);
+    }
+
+    #[test]
+    fn union_with_list_descriptor_payload_is_three_i64_words() {
+        let ctx = Context::create();
+        let cg = make_codegen(&ctx);
+        let ty = Type::Union {
+            id: UnionTypeId(4),
+            name: "JsonArr".to_string(),
+            variants: vec![
+                ("Null".to_string(), vec![]),
+                ("Arr".to_string(), vec![Type::list(Type::Int)]),
+            ],
+        };
+        let llvm_ty = cg.map_type(&ty);
+        let st = match llvm_ty {
+            BasicTypeEnum::StructType(st) => st,
+            other => panic!("expected struct, got {:?}", other),
+        };
+        let payload_arr = match st.get_field_type_at_index(1).unwrap() {
+            BasicTypeEnum::ArrayType(a) => a,
+            other => panic!("expected array payload, got {:?}", other),
+        };
+        assert_eq!(payload_arr.len(), 3, "24 bytes / 8 = 3 i64 words");
+    }
+
+    #[test]
+    fn union_type_is_cached() {
+        let ctx = Context::create();
+        let cg = make_codegen(&ctx);
+        let ty = Type::Union {
+            id: UnionTypeId(5),
+            name: "Cached".to_string(),
+            variants: vec![("X".to_string(), vec![Type::Int])],
+        };
+        let first = cg.map_type(&ty);
+        let second = cg.map_type(&ty);
+        assert_eq!(first, second);
     }
 }

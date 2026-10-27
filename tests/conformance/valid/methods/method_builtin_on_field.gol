@@ -1,0 +1,7 @@
+rec Wrapper
+    s: String
+
+proc main
+    val w := Wrapper { s: "  hello  " }
+    print(w.s.trim())
+    print(w.s.length())

@@ -1,0 +1,10 @@
+rec Address
+    city: String
+
+rec User
+    name: String
+    address: Address
+
+proc main
+    val u := User { name: "Alice", address: Address { city: "Paris" } }
+    print(u.address.city)

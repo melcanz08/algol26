@@ -1,0 +1,14 @@
+rec Address
+    city: String
+
+rec User
+    name: String
+    address: Address
+
+impl Address
+    fn describe(self: &Address) -> String
+        self.city
+
+proc main
+    val u := User { name: "Alice", address: Address { city: "Paris" } }
+    print(u.address.describe())

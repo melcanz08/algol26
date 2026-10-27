@@ -186,7 +186,10 @@ proc main
     for func in &ir.functions {
         for block in &func.blocks {
             for instr in &block.instructions {
-                if let Instruction::Call { func, args, result, .. } = instr {
+                if let Instruction::Call {
+                    func, args, result, ..
+                } = instr
+                {
                     if func == "List.length" && args.len() == 1 && result.as_deref() == Some("n") {
                         found = true;
                     }

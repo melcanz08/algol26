@@ -1295,10 +1295,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                                         }
                                         _ => ret.get_type(),
                                     };
-                                    let alloca = self.create_entry_alloca_llvm(
-                                        res_name,
-                                        alloca_llvm_ty,
-                                    );
+                                    let alloca =
+                                        self.create_entry_alloca_llvm(res_name, alloca_llvm_ty);
                                     self.builder.build_store(alloca, ret).unwrap();
                                     self.variables.insert(res_name.clone(), alloca);
                                     // ADR 0042 phase 1b (ext). A
@@ -1347,8 +1345,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                                     } else if let Some(declared) = result_type {
                                         // The builder's declared
                                         // return type is authoritative.
-                                        self.var_types
-                                            .insert(res_name.clone(), declared.clone());
+                                        self.var_types.insert(res_name.clone(), declared.clone());
                                     } else {
                                         // Fallback for legacy/test IR
                                         // without result_type. This

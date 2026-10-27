@@ -626,9 +626,17 @@ v1 requires distinct names.
 
 ### Language gaps
 
-- **Chained method calls on field accesses.** `x.field.method()`
-  is rejected by the parser. Workaround: bind the field to a
-  local (`val tmp := x.field`), then call the method.
+- **`&mut self` method calls on complex receivers.**
+  `x.field.bump()` where `bump` takes `&mut self` is rejected
+  by the analyzer with E0007. Workaround: bind the field to a
+  `var` local (`var tmp := x.field`), then call the method on
+  that binding. `&self` and builtin methods on field-access
+  receivers (`x.field.read()`, `x.field.trim()`) work without
+  workaround. Regression coverage:
+  tests/conformance/valid/methods/method_on_field.gol,
+  method_on_field_literal.gol, method_on_field_control.gol,
+  method_builtin_on_field.gol. Negative case:
+  tests/conformance/invalid/method_on_field_mut_rejected.gol.
 - **`proc` ending in a `match` is rejected by return-path
   analysis.** A `proc f(x: T) -> U` whose body is `match x
   case A then <expr> case B then <expr>` (no explicit `return`

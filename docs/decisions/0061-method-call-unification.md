@@ -370,3 +370,45 @@ the `MethodCall` order because containers aren't user types
 and can't have inherent impls, so the difference is
 invisible in practice.
 
+
+
+## Addendum (post-Session-1a, at commit f801774)
+
+The `x.field.method()` LLVM verifier failure described in
+§Context no longer reproduces at f801774. Regression fixtures
+in `tests/conformance/valid/methods/` exercise `&self` method
+calls on `FieldAccess` receivers (`method_on_field.gol`,
+`method_on_field_literal.gol`), plain field access
+(`method_on_field_control.gol`), and builtin method calls on
+`FieldAccess` receivers (`method_builtin_on_field.gol`). All
+four pass on both LLVM and interpreter.
+
+The one remaining gap — `&mut self` methods on complex
+receivers — is rejected by the analyzer with E0007 (see
+`tests/conformance/invalid/method_on_field_mut_rejected.gol`).
+That's a deliberate design restriction, not the ADR's bug.
+Workaround: bind the field to a `var` local first.
+
+The bug was fixed incidentally by ADR 0059's container-dispatch
+work, which routed complex-receiver method calls through
+`resolve_method_call` in the builder's `MethodCall` arm.
+`resolve_method_call` is type-driven (`fn resolve_method_call(&self,
+receiver_type: &Type, method_name: &str) -> Option<String>`),
+so it resolves correctly for `Var`, `FieldAccess`, `Call`, and
+`ArrayAccess` receivers alike — there's no receiver-name
+dependency that could diverge by receiver shape.
+
+**Session 2's motivation is now purely architectural.**
+Deleting the bridges (analyzer and builder) and consolidating
+the tier dispatch into the `MethodCall` arm is still a real
+maintenance improvement: one dispatch site per layer instead of
+two, and the "Keep in sync" comment at
+`analyzer/expr.rs:1524` becomes obsolete. But no user-visible
+behavior depends on it, and no drift currently exists between
+the two sites (all 478 lib tests + 63 corpus fixtures + the
+new FieldAccess fixtures are green with the bridge in place).
+
+Session 2 is deferred pending maintenance pressure — the next
+time a new method-dispatch rule needs to be added at two sites,
+or a drift bug appears between the bridge path and the complex-
+receiver path, the refactor pays for itself.

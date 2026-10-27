@@ -229,10 +229,34 @@ impl<'ctx> IRCodeGen<'ctx> {
                 global.as_pointer_value().into()
             }
             TypedIRValue::Void => self.context.f64_type().const_float(0.0).into(),
-            TypedIRValue::UnionConstruct { .. } => unreachable!(
-                "union construction value reached LLVM codegen — the \
-                 capability scan should have refused this program (ADR 0055)"
-            ),
+            TypedIRValue::UnionConstruct {
+                union_name: _,
+                variant_name: _,
+                tag,
+                payload,
+                target_type,
+            } => {
+                // ADR 0060. The value form of a union construction
+                // is a nested occurrence — a union literal inside a
+                // list, a record field, or another union's payload.
+                // Build the struct value via the shared helper
+                // (same code path as the top-level
+                // Instruction::UnionConstruct arm).
+                let (variant_payload_types, variant_ordinal) =
+                    Self::union_variant_meta(target_type, *tag)?;
+                let payload_vals: Vec<BasicValueEnum> = payload
+                    .iter()
+                    .map(|p| self.compile_value(p))
+                    .collect::<Result<Vec<_>>>()?;
+                let struct_val = self.build_union_value(
+                    target_type,
+                    *tag,
+                    variant_ordinal,
+                    &variant_payload_types,
+                    payload_vals,
+                )?;
+                struct_val.into()
+            }
             TypedIRValue::NullPtr => self
                 .context
                 .ptr_type(AddressSpace::default())

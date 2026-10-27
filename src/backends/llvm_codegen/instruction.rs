@@ -481,6 +481,217 @@ impl<'ctx> IRCodeGen<'ctx> {
         alloca
     }
 
+    /// ADR 0060. Look up a union variant's payload types and its
+    /// ordinal from the union type. Verifies that the passed-in
+    /// `tag` matches the derived ordinal (they should agree; a
+    /// mismatch means the builder emitted a wrong tag or the
+    /// union type's variant order is wrong).
+    pub(super) fn union_variant_meta(
+        union_ty: &Type,
+        tag: u32,
+    ) -> Result<(Vec<Type>, u32)> {
+        let variants = match union_ty {
+            Type::Union { variants, .. } => variants,
+            other => {
+                return Err(CompileError::unsupported_operation(
+                    &format!(
+                        "LLVM codegen: UnionConstruct target has \
+                         non-union type {}. This is a builder bug.",
+                        other
+                    ),
+                    "llvm",
+                ));
+            }
+        };
+
+        let (payload_types, ordinal) = variants
+            .iter()
+            .enumerate()
+            .find(|(i, (_, _))| (*i as u32) == tag)
+            .map(|(i, (_, pt))| (pt.clone(), i as u32))
+            .ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!(
+                        "LLVM codegen: UnionConstruct tag {} is out of \
+                         range for union type {} (has {} variants)",
+                        tag, union_ty, variants.len()
+                    ),
+                    "llvm",
+                )
+            })?;
+
+        Ok((payload_types, ordinal))
+    }
+
+    /// ADR 0060. Build a `%Union_<Name>` struct value with the
+    /// given tag and payload. Shared by the top-level
+    /// `Instruction::UnionConstruct` arm and the nested
+    /// `TypedIRValue::UnionConstruct` arm in `compile_value`.
+    ///
+    /// Both arms need the same sequence:
+    /// 1. Compose the payload (single value, or anonymous
+    ///    struct for multi-payload variants).
+    /// 2. Allocate a stack `%Union_<Name>`.
+    /// 3. Store tag into field 0.
+    /// 4. Store composed payload into field 1 (bitcast the
+    ///    payload buffer to the composed payload type).
+    /// 5. Load the struct back out and return it.
+    ///
+    /// Passing the payload values as `Vec<BasicValueEnum>` lets
+    /// both call sites handle their own arg compilation
+    /// conventions (the instruction form iterates
+    /// `Instruction::UnionConstruct`'s payload field; the value
+    /// form has the values inline in `TypedIRValue::UnionConstruct`).
+    pub(super) fn build_union_value(
+        &self,
+        union_ty: &Type,
+        tag: u32,
+        variant_ordinal: u32,
+        variant_payload_types: &[Type],
+        payload_vals: Vec<BasicValueEnum<'ctx>>,
+    ) -> Result<inkwell::values::StructValue<'ctx>> {
+        // Sanity: the tag we were given must match the ordinal
+        // we derived from the variant list. If they disagree, the
+        // builder's `tag` and the union's variant order are out
+        // of sync.
+        if variant_ordinal != tag {
+            return Err(CompileError::unsupported_operation(
+                &format!(
+                    "LLVM codegen: UnionConstruct tag {} does not \
+                     match the union's variant ordinal {} for {}",
+                    tag, variant_ordinal, union_ty
+                ),
+                "llvm",
+            ));
+        }
+
+        // Sanity: payload arity must match the variant's declared
+        // payload type count.
+        if payload_vals.len() != variant_payload_types.len() {
+            return Err(CompileError::unsupported_operation(
+                &format!(
+                    "LLVM codegen: UnionConstruct payload arity mismatch \
+                     for {}: builder sent {} value(s), variant declares \
+                     {} payload type(s).",
+                    union_ty,
+                    payload_vals.len(),
+                    variant_payload_types.len()
+                ),
+                "llvm",
+            ));
+        }
+
+        let union_struct_ty = match self.map_type(union_ty) {
+            BasicTypeEnum::StructType(st) => st,
+            _ => unreachable!(
+                "map_type(Type::Union) returned non-struct; \
+                 Session 1 guarantees this is a struct"
+            ),
+        };
+
+        // Allocate the union struct on the stack.
+        let alloca = self
+            .builder
+            .build_alloca(union_struct_ty, "union_tmp")
+            .unwrap();
+
+        // Store tag into field 0.
+        let i32_ty = self.context.i32_type();
+        let tag_slot = self
+            .builder
+            .build_struct_gep(union_struct_ty, alloca, 0, "union_tag_slot")
+            .unwrap();
+        self.builder
+            .build_store(tag_slot, i32_ty.const_int(tag as u64, false))
+            .unwrap();
+
+        // If the variant has a payload, compose and store into
+        // field 1 (the `[N x i64]` payload buffer).
+        if !payload_vals.is_empty() {
+            let ptr_ty = self.context.ptr_type(AddressSpace::default());
+
+            // Compose the payload. Single value: store directly.
+            // Multi value: build an anonymous struct via
+            // insertvalue-on-undef, matching what
+            // `map_type(Type::Union)` expects for that variant.
+            if payload_vals.len() == 1 {
+                let val = payload_vals[0];
+                let payload_ty = self.map_type(&variant_payload_types[0]);
+                // Load through pointer if the value came back as
+                // an alloca pointer for a struct-typed slot.
+                let val = match (&val, &payload_ty) {
+                    (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => {
+                        self.builder.build_load(*st, *p, "union_payload_load").unwrap()
+                    }
+                    _ => val,
+                };
+
+                // GEP to the payload buffer, bitcast to the
+                // payload type's pointer, store.
+                let payload_slot = self
+                    .builder
+                    .build_struct_gep(union_struct_ty, alloca, 1, "union_payload_slot")
+                    .unwrap();
+                let typed_ptr = self
+                    .builder
+                    .build_bit_cast(payload_slot, ptr_ty, "union_payload_bitcast")
+                    .unwrap()
+                    .into_pointer_value();
+                self.builder.build_store(typed_ptr, val).unwrap();
+            } else {
+                // Multi-payload variant. Build an anonymous
+                // struct of the payload values.
+                let field_types: Vec<BasicTypeEnum<'ctx>> = variant_payload_types
+                    .iter()
+                    .map(|t| self.map_type(t))
+                    .collect();
+                let struct_ty = self.context.struct_type(&field_types, false);
+                let mut agg = struct_ty.get_undef();
+                for (i, (val, field_ty)) in
+                    payload_vals.iter().zip(field_types.iter()).enumerate()
+                {
+                    let val = match (val, field_ty) {
+                        (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => self
+                            .builder
+                            .build_load(*st, *p, &format!("union_payload_load_{}", i))
+                            .unwrap(),
+                        _ => *val,
+                    };
+                    agg = self
+                        .builder
+                        .build_insert_value(
+                            agg,
+                            val,
+                            i as u32,
+                            &format!("union_payload_ins_{}", i),
+                        )
+                        .unwrap()
+                        .into_struct_value();
+                }
+
+                // GEP to the payload buffer, bitcast, store.
+                let payload_slot = self
+                    .builder
+                    .build_struct_gep(union_struct_ty, alloca, 1, "union_payload_slot")
+                    .unwrap();
+                let typed_ptr = self
+                    .builder
+                    .build_bit_cast(payload_slot, ptr_ty, "union_payload_bitcast")
+                    .unwrap()
+                    .into_pointer_value();
+                self.builder.build_store(typed_ptr, agg).unwrap();
+            }
+        }
+
+        // Load the struct back out and return it.
+        let result = self
+            .builder
+            .build_load(union_struct_ty, alloca, "union_value")
+            .unwrap()
+            .into_struct_value();
+        Ok(result)
+    }
+
     pub(super) fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
         match instr {
             Instruction::Nop => Ok(()),
@@ -488,10 +699,65 @@ impl<'ctx> IRCodeGen<'ctx> {
                 "try/catch marker reached LLVM codegen — the capability \
                  scan should have refused this program (Feature::TryCatch)"
             ),
-            Instruction::UnionConstruct { .. } => unreachable!(
-                "union construction reached LLVM codegen — the capability \
-                 scan should have refused this program (ADR 0055)"
-            ),
+            Instruction::UnionConstruct {
+                target,
+                union_name: _,
+                variant_name: _,
+                tag,
+                payload,
+            } => {
+                // ADR 0060. Look up the union's struct type from
+                // the target's recorded type. The builder
+                // registers `var_types[target] = Type::Union { .. }`
+                // before emitting the UnionConstruct instruction.
+                let union_ty = self.var_types.get(target).cloned().ok_or_else(|| {
+                    CompileError::simple(
+                        &format!(
+                            "LLVM codegen: UnionConstruct target `{}` has \
+                             no recorded type. A builder producer emitted \
+                             UnionConstruct without registering the \
+                             target's Type::Union in var_types.",
+                            target
+                        ),
+                        0, 0, "", ErrorCode::E0009,
+                    )
+                })?;
+
+                let (variant_payload_types, variant_ordinal) =
+                    Self::union_variant_meta(&union_ty, *tag)?;
+
+                // Compile every payload expression to its LLVM value.
+                let payload_vals: Vec<BasicValueEnum> = payload
+                    .iter()
+                    .map(|p| self.compile_value(p))
+                    .collect::<Result<Vec<_>>>()?;
+
+                // Build the union struct value via the shared helper.
+                let struct_val = self.build_union_value(
+                    &union_ty,
+                    *tag,
+                    variant_ordinal,
+                    &variant_payload_types,
+                    payload_vals,
+                )?;
+
+                // Store into the target's alloca. The alloca is
+                // sized for the union struct type (from
+                // `map_type(Type::Union)`), same pattern as
+                // Declare's record arm.
+                let union_struct_ty = match self.map_type(&union_ty) {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => unreachable!(
+                        "map_type(Type::Union) returned non-struct; \
+                         Session 1 guarantees this is a struct"
+                    ),
+                };
+                let alloca = self.create_entry_alloca_llvm(target, union_struct_ty.into());
+                self.builder.build_store(alloca, struct_val).unwrap();
+                self.variables.insert(target.clone(), alloca);
+                self.var_types.insert(target.clone(), union_ty);
+                Ok(())
+            }
             Instruction::Declare {
                 name,
                 type_,
@@ -2294,5 +2560,166 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod union_construct_tests {
+    use super::*;
+    use crate::common::types::{Type, UnionTypeId};
+    use crate::ir::semantic_ir::Instruction;
+    use inkwell::context::Context;
+
+    fn make_union_ty() -> Type {
+        Type::Union {
+            id: UnionTypeId(1),
+            name: "Json".to_string(),
+            variants: vec![
+                ("Null".to_string(), vec![]),
+                ("Num".to_string(), vec![Type::Int]),
+            ],
+        }
+    }
+
+    /// Set up a minimal IRCodeGen with a single `void @test()` function,
+    /// the entry block positioned, `current_function` set, and the union
+    /// type pre-registered for the target variable. This is the state
+    /// `compile_instruction` needs to run the UnionConstruct arm.
+    fn setup<'ctx>(ctx: &'ctx Context) -> (IRCodeGen<'ctx>, Type) {
+        let mut cg = IRCodeGen::new(ctx, "test_module");
+
+        let fn_ty = ctx.void_type().fn_type(&[], false);
+        let func = cg
+            .module
+            .add_function("test_union_construct", fn_ty, None);
+        let entry = ctx.append_basic_block(func, "entry");
+        cg.builder.position_at_end(entry);
+        cg.current_function = Some(func);
+
+        let union_ty = make_union_ty();
+        // Pre-register the target's type, mirroring what the builder
+        // does via Declare before UnionConstruct.
+        cg.var_types.insert("j".to_string(), union_ty.clone());
+
+        (cg, union_ty)
+    }
+
+    #[test]
+    fn union_construct_with_payload_compiles() {
+        let ctx = Context::create();
+        let (mut cg, _union_ty) = setup(&ctx);
+
+        let instr = Instruction::UnionConstruct {
+            target: "j".to_string(),
+            union_name: "Json".to_string(),
+            variant_name: "Num".to_string(),
+            tag: 1,
+            payload: vec![crate::ir::semantic_ir::TypedIRValue::Int(42)],
+        };
+        cg.compile_instruction(&instr)
+            .expect("UnionConstruct with payload should compile");
+
+        // Terminate the block.
+        cg.builder.build_return(None).unwrap();
+
+        // LLVM should accept the resulting IR.
+        cg.module
+            .verify()
+            .expect("LLVM module with UnionConstruct should verify");
+
+        // Shape checks: the union alloca, tag slot, payload slot,
+        // and the union_value load should all appear in the emitted IR.
+        let ir = cg.module.print_to_string().to_string();
+        assert!(
+            ir.contains("union_tmp"),
+            "IR should contain `union_tmp` alloca:\n{}",
+            ir
+        );
+        assert!(
+            ir.contains("union_tag_slot"),
+            "IR should contain `union_tag_slot` GEP:\n{}",
+            ir
+        );
+        assert!(
+            ir.contains("union_payload_slot"),
+            "IR should contain `union_payload_slot` GEP:\n{}",
+            ir
+        );
+        // The target variable `j` should be registered in the codegen.
+        assert!(
+            cg.variables.contains_key("j"),
+            "`j` should be registered in variables after UnionConstruct"
+        );
+        assert!(
+            matches!(cg.var_types.get("j"), Some(Type::Union { .. })),
+            "`j` should have a Union type in var_types"
+        );
+    }
+
+    #[test]
+    fn union_construct_payloadless_compiles() {
+        let ctx = Context::create();
+        let (mut cg, _union_ty) = setup(&ctx);
+
+        let instr = Instruction::UnionConstruct {
+            target: "j".to_string(),
+            union_name: "Json".to_string(),
+            variant_name: "Null".to_string(),
+            tag: 0,
+            payload: vec![],
+        };
+        cg.compile_instruction(&instr)
+            .expect("payloadless UnionConstruct should compile");
+
+        cg.builder.build_return(None).unwrap();
+        cg.module
+            .verify()
+            .expect("LLVM module with payloadless UnionConstruct should verify");
+
+        let ir = cg.module.print_to_string().to_string();
+        assert!(
+            ir.contains("union_tmp"),
+            "IR should contain `union_tmp` alloca:\n{}",
+            ir
+        );
+        // Payloadless variant still stores the tag, but does NOT
+        // touch the payload slot.
+        assert!(
+            ir.contains("union_tag_slot"),
+            "IR should contain `union_tag_slot` GEP:\n{}",
+            ir
+        );
+        assert!(
+            !ir.contains("union_payload_slot"),
+            "payloadless UnionConstruct should NOT emit a payload store:\n{}",
+            ir
+        );
+    }
+
+    #[test]
+    fn union_construct_payload_arity_mismatch_fails_closed() {
+        // Sanity check: if the builder sends a wrong payload count
+        // for a variant, codegen fails with a targeted error rather
+        // than miscompiling.
+        let ctx = Context::create();
+        let (mut cg, _union_ty) = setup(&ctx);
+
+        let instr = Instruction::UnionConstruct {
+            target: "j".to_string(),
+            union_name: "Json".to_string(),
+            variant_name: "Num".to_string(),
+            // Variant 1 (`Num`) expects 1 payload; send 0.
+            tag: 1,
+            payload: vec![],
+        };
+        let err = cg
+            .compile_instruction(&instr)
+            .expect_err("wrong payload arity should fail");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("arity mismatch") || msg.contains("payload arity"),
+            "expected arity mismatch error, got: {}",
+            msg
+        );
     }
 }

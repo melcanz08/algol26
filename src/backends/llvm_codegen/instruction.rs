@@ -486,10 +486,7 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// `tag` matches the derived ordinal (they should agree; a
     /// mismatch means the builder emitted a wrong tag or the
     /// union type's variant order is wrong).
-    pub(super) fn union_variant_meta(
-        union_ty: &Type,
-        tag: u32,
-    ) -> Result<(Vec<Type>, u32)> {
+    pub(super) fn union_variant_meta(union_ty: &Type, tag: u32) -> Result<(Vec<Type>, u32)> {
         let variants = match union_ty {
             Type::Union { variants, .. } => variants,
             other => {
@@ -514,7 +511,9 @@ impl<'ctx> IRCodeGen<'ctx> {
                     &format!(
                         "LLVM codegen: UnionConstruct tag {} is out of \
                          range for union type {} (has {} variants)",
-                        tag, union_ty, variants.len()
+                        tag,
+                        union_ty,
+                        variants.len()
                     ),
                     "llvm",
                 )
@@ -620,9 +619,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // Load through pointer if the value came back as
                 // an alloca pointer for a struct-typed slot.
                 let val = match (&val, &payload_ty) {
-                    (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => {
-                        self.builder.build_load(*st, *p, "union_payload_load").unwrap()
-                    }
+                    (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => self
+                        .builder
+                        .build_load(*st, *p, "union_payload_load")
+                        .unwrap(),
                     _ => val,
                 };
 
@@ -647,8 +647,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .collect();
                 let struct_ty = self.context.struct_type(&field_types, false);
                 let mut agg = struct_ty.get_undef();
-                for (i, (val, field_ty)) in
-                    payload_vals.iter().zip(field_types.iter()).enumerate()
+                for (i, (val, field_ty)) in payload_vals.iter().zip(field_types.iter()).enumerate()
                 {
                     let val = match (val, field_ty) {
                         (BasicValueEnum::PointerValue(p), BasicTypeEnum::StructType(st)) => self
@@ -659,12 +658,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     };
                     agg = self
                         .builder
-                        .build_insert_value(
-                            agg,
-                            val,
-                            i as u32,
-                            &format!("union_payload_ins_{}", i),
-                        )
+                        .build_insert_value(agg, val, i as u32, &format!("union_payload_ins_{}", i))
                         .unwrap()
                         .into_struct_value();
                 }
@@ -719,7 +713,10 @@ impl<'ctx> IRCodeGen<'ctx> {
                              target's Type::Union in var_types.",
                             target
                         ),
-                        0, 0, "", ErrorCode::E0009,
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
                     )
                 })?;
 
@@ -2589,9 +2586,7 @@ mod union_construct_tests {
         let mut cg = IRCodeGen::new(ctx, "test_module");
 
         let fn_ty = ctx.void_type().fn_type(&[], false);
-        let func = cg
-            .module
-            .add_function("test_union_construct", fn_ty, None);
+        let func = cg.module.add_function("test_union_construct", fn_ty, None);
         let entry = ctx.append_basic_block(func, "entry");
         cg.builder.position_at_end(entry);
         cg.current_function = Some(func);

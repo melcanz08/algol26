@@ -184,8 +184,7 @@ impl Interpreter {
             // `variables` map, so the value seen is what the place
             // holds *now*, not what it held when the reference was
             // made.
-            TypedIRValue::BorrowShared { expr, .. }
-            | TypedIRValue::AddrOf { expr, .. } => {
+            TypedIRValue::BorrowShared { expr, .. } | TypedIRValue::AddrOf { expr, .. } => {
                 // A borrow of a place (Variable / FieldAccess /
                 // ArrayAccess with literal index) produces a
                 // `Reference(place)` with live-view semantics.

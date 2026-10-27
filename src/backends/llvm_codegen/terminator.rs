@@ -197,8 +197,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     && cases.iter().all(|(p, _)| {
                         matches!(
                             p,
-                            SemanticPattern::VariantWithPayload { .. }
-                                | SemanticPattern::Wildcard
+                            SemanticPattern::VariantWithPayload { .. } | SemanticPattern::Wildcard
                         )
                     })
                 {
@@ -1171,10 +1170,8 @@ impl<'ctx> IRCodeGen<'ctx> {
             } else {
                 // Multi-payload: bitcast buffer to anonymous struct
                 // of the payload types, GEP per-field, load, store.
-                let field_types: Vec<BasicTypeEnum<'ctx>> = payload_types
-                    .iter()
-                    .map(|t| self.map_type(t))
-                    .collect();
+                let field_types: Vec<BasicTypeEnum<'ctx>> =
+                    payload_types.iter().map(|t| self.map_type(t)).collect();
                 let struct_ty = self.context.struct_type(&field_types, false);
                 let struct_ptr = self
                     .builder

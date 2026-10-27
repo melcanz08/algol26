@@ -1484,6 +1484,25 @@ impl SemanticIRBuilder {
                 args,
                 ..
             } => {
+                // ADR 0061 bridge. The parser now produces
+                // MethodCall for x.method() (Var receiver) too.
+                // Reconstruct the old FunctionCall shape for Var
+                // receivers and recurse through translate_expr,
+                // so the existing dotted-name dispatch keeps
+                // working. Deleted when the analyzer's dotted-name
+                // path is merged into MethodCall.
+                if let ExprKind::Var(name, _) = &receiver.kind {
+                    let reconstructed = Expr {
+                        id: expr.id,
+                        kind: ExprKind::FunctionCall {
+                            name: format!("{}.{}", name, method),
+                            args: args.clone(),
+                            span: expr.span(),
+                        },
+                    };
+                    return self.translate_expr(program, func, current_block, &reconstructed);
+                }
+
                 // Complex-receiver method call. The receiver is
                 // translated as an expression, not looked up by
                 // name. `&mut self` on a complex receiver was

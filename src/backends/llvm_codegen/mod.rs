@@ -130,8 +130,9 @@ pub struct IRCodeGen<'ctx> {
     /// `{ i32 tag, [N x i64] payload }`, where N = ceil(max
     /// payload size / 8). See ADR 0060 for the rationale behind
     /// `[N x i64]` rather than `[N x i8]`.
-    pub(super) union_struct_types:
-        std::cell::RefCell<HashMap<crate::common::types::UnionTypeId, inkwell::types::StructType<'ctx>>>,
+    pub(super) union_struct_types: std::cell::RefCell<
+        HashMap<crate::common::types::UnionTypeId, inkwell::types::StructType<'ctx>>,
+    >,
     /// ADR 0038. Emitted vtable globals, keyed by the `vtable_id`
     /// string from `SemanticProgram::vtables`. Populated by
     /// `emit_vtables` before function bodies are compiled. The

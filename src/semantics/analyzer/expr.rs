@@ -2125,6 +2125,35 @@ impl SemanticAnalyzer {
                 // `FunctionCall { name: "x.foo" }` and its existing
                 // path; this arm handles everything else.
 
+                // ADR 0061 bridge. The parser now produces
+                // MethodCall for x.method() (Var receiver) in
+                // addition to the previous complex-receiver cases.
+                // To keep dispatch behavior identical during the
+                // initial parser unification, reconstruct the old
+                // FunctionCall { name: "x.method", args } shape
+                // for Var receivers and recurse through the
+                // existing dotted-name path. When the analyzer's
+                // dotted-name arm is later merged into MethodCall,
+                // this bridge is deleted.
+                if let ExprKind::Var(name, _) = &receiver.kind {
+                    // Ensure the receiver has a type-table entry.
+                    // The reconstructed FunctionCall dispatches on
+                    // the name string without visiting the receiver
+                    // Expr, so the completeness check would report
+                    // a missing `1 × var` per method call.
+                    let _ = self.analyze_expr(receiver)?;
+
+                    let reconstructed = Expr {
+                        id: expr.id,
+                        kind: ExprKind::FunctionCall {
+                            name: format!("{}.{}", name, method),
+                            args: args.clone(),
+                            span: expr.span(),
+                        },
+                    };
+                    return self.analyze_expr_inner(&reconstructed, expected_type);
+                }
+
                 let receiver_type = self.analyze_expr(receiver)?;
                 // ADR 0029/0030/0031: extraction intrinsics.
                 // `x.to_base()` / `x.to_ordinal()` work on Var

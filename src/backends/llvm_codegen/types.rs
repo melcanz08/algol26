@@ -219,10 +219,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                     let payload_ty = if payload_types.len() == 1 {
                         self.map_type(&payload_types[0])
                     } else {
-                        let field_types: Vec<BasicTypeEnum<'ctx>> = payload_types
-                            .iter()
-                            .map(|t| self.map_type(t))
-                            .collect();
+                        let field_types: Vec<BasicTypeEnum<'ctx>> =
+                            payload_types.iter().map(|t| self.map_type(t)).collect();
                         self.context.struct_type(&field_types, false).into()
                     };
                     max_size = max_size.max(size_bytes(payload_ty));
@@ -230,11 +228,7 @@ impl<'ctx> IRCodeGen<'ctx> {
 
                 // `N = ceil(max_size / 8)`. Payloadless-only
                 // unions produce N = 0 and `[0 x i64]`.
-                let n_words = if max_size == 0 {
-                    0
-                } else {
-                    (max_size + 7) / 8
-                };
+                let n_words = if max_size == 0 { 0 } else { (max_size + 7) / 8 };
                 let payload_array_ty = i64_ty.array_type(n_words as u32);
 
                 // `{ i32 tag, [N x i64] payload }`. Not packed, so
@@ -473,10 +467,7 @@ mod union_type_tests {
         let ty = Type::Union {
             id: UnionTypeId(1),
             name: "Empty".to_string(),
-            variants: vec![
-                ("A".to_string(), vec![]),
-                ("B".to_string(), vec![]),
-            ],
+            variants: vec![("A".to_string(), vec![]), ("B".to_string(), vec![])],
         };
         let llvm_ty = cg.map_type(&ty);
         let st = match llvm_ty {

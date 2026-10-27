@@ -2,6 +2,33 @@
 
 use super::*;
 
+
+// --- ADR 0061: namespace / type-name helpers -----------------------------
+//
+// A dotted call whose base is a builtin namespace (List, Map, String, ...)
+// or a type-name-like identifier (uppercase first letter: Json, Day, Point)
+// stays a `FunctionCall { name: "A.B", args }` per ADR 0061. Only a dotted
+// call whose base is a *value* expression becomes `MethodCall`.
+
+/// Fixed list of compiler-known builtin namespaces.
+pub(crate) const BUILTIN_NAMESPACES: &[&str] = &[
+    "List", "Map", "String", "Math", "File",
+    "Int", "Float", "Bool", "Char",
+    "Option", "Result", "Set", "Channel", "Ptr",
+    "alloc", "free",
+];
+
+/// True if `name` is one of the fixed builtin namespaces.
+pub(crate) fn is_builtin_namespace(name: &str) -> bool {
+    BUILTIN_NAMESPACES.contains(&name)
+}
+
+/// Heuristic: a name that looks like a user-declared type.
+pub(crate) fn is_type_name_like(name: &str) -> bool {
+    name.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+}
+
+
 impl Parser {
     pub(super) fn parse_expr(&mut self) -> Result<Expr> {
         self.parse_logical_or()
@@ -223,7 +250,6 @@ impl Parser {
                         // existing FunctionCall form for backward
                         // compatibility; anything else produces a
                         // dedicated MethodCall node.
-                        let is_var_receiver = matches!(&expr.kind, ExprKind::Var(_, _));
                         self.advance();
                         // ADR 0057. Method-call arguments are inside
                         // `( ... )`.
@@ -239,23 +265,29 @@ impl Parser {
                         self.statement_start_column = saved_col;
                         self.expect_token(Token::RParen, "')'")?;
 
-                        if is_var_receiver {
-                            let ExprKind::Var(name, _) = &expr.kind else {
-                                unreachable!("is_var_receiver checked above")
-                            };
-                            expr = Expr::new(ExprKind::FunctionCall {
-                                name: format!("{}.{}", name, member),
-                                args,
-                                span,
-                            });
-                        } else {
-                            expr = Expr::new(ExprKind::MethodCall {
-                                receiver: Box::new(expr),
-                                method: member,
-                                args,
-                                span,
-                            });
-                        }
+                        expr = Expr::new({
+                            // ADR 0061: a dotted call whose base is a
+                            // namespace or type name stays a FunctionCall;
+                            // a dotted call on a value is a MethodCall.
+                            match &expr.kind {
+                                ExprKind::Var(base_name, _)
+                                    if is_builtin_namespace(base_name)
+                                        || is_type_name_like(base_name) =>
+                                {
+                                    ExprKind::FunctionCall {
+                                        name: format!("{}.{}", base_name, member),
+                                        args,
+                                        span,
+                                    }
+                                }
+                                _ => ExprKind::MethodCall {
+                                    receiver: Box::new(expr),
+                                    method: member,
+                                    args,
+                                    span,
+                                },
+                            }
+                        });
                     } else {
                         expr = Expr::new(ExprKind::FieldAccess {
                             object: Box::new(expr),
@@ -582,10 +614,24 @@ impl Parser {
                     }
                 }
                 self.expect_token(Token::RParen, "')'")?;
-                return Ok(Expr::new(ExprKind::FunctionCall {
-                    name: format!("{}.{}", name, member_name),
-                    args,
-                    span: self.span_from(ident_span),
+                return Ok(Expr::new({
+                    // ADR 0061: a dotted call whose base is a namespace
+                    // or type name stays a FunctionCall; a dotted call
+                    // on a value is a MethodCall.
+                    if is_builtin_namespace(&name) || is_type_name_like(&name) {
+                        ExprKind::FunctionCall {
+                            name: format!("{}.{}", name, member_name),
+                            args,
+                            span: self.span_from(ident_span),
+                        }
+                    } else {
+                        ExprKind::MethodCall {
+                            receiver: Expr::boxed(ExprKind::Var(name, ident_span)),
+                            method: member_name,
+                            args,
+                            span: self.span_from(ident_span),
+                        }
+                    }
                 }));
             }
             // `name.member` (no parens) → field access.

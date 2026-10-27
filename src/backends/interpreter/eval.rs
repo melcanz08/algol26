@@ -185,11 +185,33 @@ impl Interpreter {
             // holds *now*, not what it held when the reference was
             // made.
             TypedIRValue::BorrowShared { expr, .. }
-            | TypedIRValue::BorrowMutable { expr, .. }
             | TypedIRValue::AddrOf { expr, .. } => {
+                // A borrow of a place (Variable / FieldAccess /
+                // ArrayAccess with literal index) produces a
+                // `Reference(place)` with live-view semantics.
+                //
+                // A borrow of a non-place (call result, literal,
+                // arithmetic) produces a `TempRef` holding the
+                // value. Reads through the reference clone the
+                // value; it does not outlive the enclosing
+                // expression.
+                match self.place_of_ir_value(expr) {
+                    Some(place) => RuntimeValue::Reference(place),
+                    None => {
+                        let value = self.eval_value(expr)?;
+                        RuntimeValue::TempRef(Box::new(value))
+                    }
+                }
+            }
+            TypedIRValue::BorrowMutable { expr, .. } => {
+                // Mutation of a temporary is refused: the change
+                // would be discarded when the temporary goes out
+                // of scope, which is almost always a user bug.
+                // Only place-based mutable borrows are legal.
                 let place = self.place_of_ir_value(expr).ok_or(EvalError::Unsupported {
-                    construct: "reference to non-addressable expression",
-                    hint: "the analyzer should have rejected this shape",
+                    construct: "mutable reference to non-addressable expression",
+                    hint: "bind the value to a `var` first, then take \
+                           a `&mut` of the binding",
                 })?;
                 RuntimeValue::Reference(place)
             }
@@ -197,11 +219,16 @@ impl Interpreter {
                 let inner = self.eval_value(expr)?;
                 match inner {
                     RuntimeValue::Reference(place) => self.resolve_place(&place)?,
+                    // A read through a `TempRef` clones the
+                    // underlying value. `TempRef` was produced by
+                    // `BorrowShared` on a non-place; the read is
+                    // semantically a read of the temporary.
+                    RuntimeValue::TempRef(v) => (*v).clone(),
                     // Legacy: a reference that was not produced as a
-                    // `Reference` — pass through. After ADR 0053 the
-                    // producing arms above always yield a Reference;
-                    // this branch exists for robustness in case some
-                    // future IR path bypasses them.
+                    // `Reference` or `TempRef` — pass through. After
+                    // ADR 0053 the producing arms above always yield
+                    // one of those; this branch exists for
+                    // robustness.
                     other => other,
                 }
             }
@@ -285,17 +312,20 @@ impl Interpreter {
             }
 
             TypedIRValue::FieldAccess { object, field, .. } => {
-                let mut obj = self.eval_value(object)?;
-                // ADR 0053: if the object is a reference (e.g.
-                // `self.x` inside a method whose receiver is
-                // `self: &Point`), dereference to get the record
-                // before looking up the field. Without this, the
-                // match below falls to the `other` arm and reports a
-                // type mismatch — but the mismatch is between a
-                // Reference and a Record, not the caller's fault.
-                if let RuntimeValue::Reference(place) = &obj {
-                    obj = self.resolve_place(place)?;
-                }
+                let obj = self.eval_value(object)?;
+                // ADR 0053 + TempRef: if the object is a reference
+                // (a real reference bound to a place, OR a TempRef
+                // produced by borrowing a non-place temporary like
+                // `make_user().label()`), dereference to get the
+                // record before looking up the field. Without
+                // handling TempRef here, `self.name` inside a method
+                // whose receiver was a temporary falls through to
+                // the `other` arm and reports a type mismatch.
+                let obj = match obj {
+                    RuntimeValue::Reference(place) => self.resolve_place(&place)?,
+                    RuntimeValue::TempRef(inner) => *inner,
+                    other => other,
+                };
                 match obj {
                     RuntimeValue::Record { fields, .. } => fields
                         .into_iter()

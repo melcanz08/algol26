@@ -131,6 +131,19 @@ pub enum RuntimeValue {
     /// `variables` map, giving live-view semantics. Same `Place`
     /// type the analyzer and the CFG use.
     Reference(crate::semantics::state::Place),
+    /// A read-only reference to a temporary (non-place) value.
+    /// Produced when a `&expr` borrows a value that has no stable
+    /// address — e.g. `make_user().label()`, where the receiver is
+    /// a call result. Owned rather than borrowed, so the value lives
+    /// for the enclosing expression; reads through `*r` clone the
+    /// inner value.
+    ///
+    /// Mutation of a temporary is still refused: `&mut expr` of a
+    /// non-place produces the original "reference to non-addressable
+    /// expression" error. Mutating a temporary is almost always a
+    /// user bug (the change is lost when the temporary goes out of
+    /// scope), so refusing it is the correct default.
+    TempRef(Box<RuntimeValue>),
     Void,
 }
 
@@ -159,6 +172,10 @@ impl RuntimeValue {
             RuntimeValue::Reference(_) => true,
             // ADR 0055. A union value is truthy.
             RuntimeValue::Union { .. } => true,
+            // A TempRef wraps a temporary value and behaves like
+            // a reference: truthy (the language has no null
+            // references).
+            RuntimeValue::TempRef(_) => true,
         }
     }
 
@@ -225,6 +242,12 @@ impl RuntimeValue {
                     format!("{}.{}({})", union_name, variant_name, parts.join(", "))
                 }
             }
+            // A TempRef displays as its wrapped value. This arm
+            // should be unreachable in well-typed programs (you
+            // cannot `print` a `&T` without dereferencing), but
+            // displaying transparently is the least-surprising
+            // behavior if some edge case ever routes one here.
+            RuntimeValue::TempRef(v) => v.display(),
         }
     }
 
@@ -343,5 +366,6 @@ pub(super) fn runtime_kind(v: &RuntimeValue) -> &'static str {
         RuntimeValue::DynTrait { .. } => "DynTrait",
         RuntimeValue::Reference(_) => "Reference",
         RuntimeValue::Union { .. } => "Union",
+        RuntimeValue::TempRef(_) => "TempRef",
     }
 }

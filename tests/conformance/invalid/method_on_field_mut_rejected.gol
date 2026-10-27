@@ -1,0 +1,17 @@
+rec Counter
+    n: Int
+
+impl Counter
+    proc bump(self: &mut Counter)
+        self.n := self.n + 1
+    fn read(self: &Counter) -> Int
+        self.n
+
+rec Outer
+    counter: Counter
+
+proc main
+    val o := Outer { counter: Counter { n: 0 } }
+    o.counter.bump()
+    o.counter.bump()
+    print(o.counter.read())

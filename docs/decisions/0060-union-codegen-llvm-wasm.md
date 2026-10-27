@@ -1,6 +1,6 @@
 # ADR 0060: Union Codegen on LLVM and WASM
 
-Status: Proposed. This ADR implements the backend-codegen half
+Status: Implemented. This ADR implements the backend-codegen half
 of ADR 0055 ("Sum Types and Recursive Types"), which that ADR
 explicitly deferred:
 

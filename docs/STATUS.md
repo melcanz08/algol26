@@ -430,7 +430,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | Associated types | ✅ | ✅ | ✅ | ✅ | — |
 | Generics | ✅ | ✅ | ✅ | ✅ | — |
 | `rec` records | ✅ | ✅ | ✅ | ✅ | — |
-| `union` types | ✅ | ✅ | ✅ | ⛔ | — |
+| `union` types | ✅ | ✅ | ✅ | ✅ | — |
 | Structural `Copy` | ✅ | ✅ | ✅ | ✅ | — |
 | `region` | ✅ | ✅ | ✅ | ✅ | 30, 31 |
 | `unsafe` | ✅ | ✅ | ✅ | ✅ | 32, 33 |

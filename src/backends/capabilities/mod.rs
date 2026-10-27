@@ -255,6 +255,12 @@ impl BackendCapabilities {
         // Other key/value combinations are refused at codegen
         // with a targeted error, not at the capability boundary.
         supported.insert(Feature::Map);
+        // ADR 0060. Union types are lowered on LLVM via
+        // `%Union_<Name> = { i32 tag, [N x i64] payload }`
+        // (map_type), `Instruction::UnionConstruct` codegen, and
+        // the `Switch` fast path (`compile_union_switch`) for
+        // `match` on union values. See ADR 0060.
+        supported.insert(Feature::Unions);
         // ADR 0030. `Result<T, E>` lowers to `{ i1, T, E }`;
         // `Ok`/`Error` construct the struct, and `match` on a
         // `Result` value switches on the tag. `try`/`catch` is
@@ -285,6 +291,8 @@ impl BackendCapabilities {
         supported.insert(Feature::DynamicDispatch);
         // ADR 0042 phase 4. Same IR codegen as LLVM.
         supported.insert(Feature::ListAppend);
+        // ADR 0060. Same IR codegen as LLVM (shared IRCodeGen).
+        supported.insert(Feature::Unions);
         BackendCapabilities {
             name: "WASM",
             supported,

@@ -5,6 +5,7 @@ use crate::common::diagnostics::{CompileError, ErrorCode, Result};
 use crate::common::types::Type;
 use crate::ir::semantic_ir::{SemanticPattern, Terminator, TypedIRValue};
 use inkwell::types::{BasicType, BasicTypeEnum};
+use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
 
 impl<'ctx> IRCodeGen<'ctx> {
@@ -185,6 +186,23 @@ impl<'ctx> IRCodeGen<'ctx> {
                     })
                 {
                     return self.compile_result_switch(val, value, cases, default_block);
+                }
+
+                // ADR 0060. Fast path: union match. All patterns are
+                // VariantWithPayload (or Wildcard) and the scrutinee
+                // has type Type::Union. Dispatch on the union's i32
+                // tag; extract the payload buffer for binding cases.
+                if matches!(value.type_of(), Type::Union { .. })
+                    && !cases.is_empty()
+                    && cases.iter().all(|(p, _)| {
+                        matches!(
+                            p,
+                            SemanticPattern::VariantWithPayload { .. }
+                                | SemanticPattern::Wildcard
+                        )
+                    })
+                {
+                    return self.compile_union_switch(val, value, cases, default_block);
                 }
 
                 // Literal and Variant patterns lower to integer comparisons.
@@ -976,5 +994,242 @@ impl<'ctx> IRCodeGen<'ctx> {
             .build_switch(tag, default_bb, &case_pairs)
             .unwrap();
         Ok(())
+    }
+
+    /// ADR 0060. Lower a `match` whose scrutinee is a union and
+    /// whose patterns are all `VariantWithPayload` (or `Wildcard`).
+    /// Mirrors `compile_option_switch` and `compile_result_switch`
+    /// but switches on the union's `i32` tag and extracts the
+    /// payload buffer for bindings.
+    fn compile_union_switch(
+        &mut self,
+        val: inkwell::values::BasicValueEnum<'ctx>,
+        value: &TypedIRValue,
+        cases: &[(SemanticPattern, usize)],
+        default_block: &Option<usize>,
+    ) -> Result<()> {
+        let variants = match value.type_of() {
+            Type::Union { variants, .. } => variants.clone(),
+            _ => {
+                return Err(CompileError::unsupported_operation(
+                    "compile_union_switch: scrutinee is not Union-typed",
+                    "llvm",
+                ));
+            }
+        };
+
+        if !val.is_struct_value() {
+            return Err(CompileError::unsupported_operation(
+                "Union value did not lower to an LLVM struct",
+                "llvm",
+            ));
+        }
+        let sv = val.into_struct_value();
+        let union_struct_ty = sv.get_type();
+        let i32_ty = self.context.i32_type();
+
+        // Spill the scrutinee to a temp alloca for payload access.
+        // The tag is extracted from the struct value directly; the
+        // payload buffer needs a pointer for GEP + bitcast + load.
+        let scrutinee_alloca = self
+            .builder
+            .build_alloca(union_struct_ty, "union_scrutinee")
+            .unwrap();
+        self.builder.build_store(scrutinee_alloca, sv).unwrap();
+
+        let tag = self
+            .builder
+            .build_extract_value(sv, 0, "union_tag")
+            .unwrap()
+            .into_int_value();
+
+        // Default block: explicit or synthesised unreachable. Same
+        // pattern as `compile_option_switch`.
+        let default_bb = if let Some(id) = default_block {
+            self.blocks.get(id).cloned().ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!("switch default block {} not found", id),
+                    "llvm",
+                )
+            })?
+        } else {
+            let saved = self.builder.get_insert_block().unwrap();
+            let un = self
+                .context
+                .append_basic_block(self.current_function.unwrap(), "union_unmatched");
+            self.builder.position_at_end(un);
+            self.builder.build_unreachable().unwrap();
+            self.builder.position_at_end(saved);
+            un
+        };
+
+        let mut case_pairs: Vec<(
+            inkwell::values::IntValue<'ctx>,
+            inkwell::basic_block::BasicBlock<'ctx>,
+        )> = Vec::new();
+
+        for (pat, body_id) in cases {
+            if matches!(pat, SemanticPattern::Wildcard) {
+                continue;
+            }
+
+            let body_bb = self.blocks.get(body_id).cloned().ok_or_else(|| {
+                CompileError::unsupported_operation(
+                    &format!("switch case block {} not found", body_id),
+                    "llvm",
+                )
+            })?;
+
+            let (tag_val, variant_name, bindings) = match pat {
+                SemanticPattern::VariantWithPayload {
+                    tag,
+                    variant_name,
+                    bindings,
+                } => (*tag, variant_name.clone(), bindings.clone()),
+                other => {
+                    return Err(CompileError::unsupported_operation(
+                        &format!("unexpected pattern in Union switch: {:?}", other),
+                        "llvm",
+                    ));
+                }
+            };
+
+            let payload_types = variants
+                .iter()
+                .find(|(n, _)| n == &variant_name)
+                .map(|(_, pt)| pt.clone())
+                .ok_or_else(|| {
+                    CompileError::unsupported_operation(
+                        &format!(
+                            "variant '{}' not found in union type {}",
+                            variant_name,
+                            value.type_of()
+                        ),
+                        "llvm",
+                    )
+                })?;
+
+            if bindings.len() != payload_types.len() {
+                return Err(CompileError::unsupported_operation(
+                    &format!(
+                        "variant '{}' payload arity mismatch: {} binding(s), \
+                         {} payload type(s)",
+                        variant_name,
+                        bindings.len(),
+                        payload_types.len()
+                    ),
+                    "llvm",
+                ));
+            }
+
+            // Payloadless case (e.g. `case Null`): direct tag match.
+            if bindings.is_empty() {
+                case_pairs.push((i32_ty.const_int(tag_val as u64, false), body_bb));
+                continue;
+            }
+
+            // Payloadful case: proxy block that extracts bindings,
+            // then jumps to the body.
+            let proxy = self.context.append_basic_block(
+                self.current_function.unwrap(),
+                &format!("union_bind_{}_{}", variant_name, tag_val),
+            );
+            case_pairs.push((i32_ty.const_int(tag_val as u64, false), proxy));
+
+            let saved = self.builder.get_insert_block().unwrap();
+            self.builder.position_at_end(proxy);
+
+            // GEP to the payload buffer (field 1 of the union struct).
+            let ptr_ty = self.context.ptr_type(AddressSpace::default());
+            let payload_buf_slot = self
+                .builder
+                .build_struct_gep(
+                    union_struct_ty,
+                    scrutinee_alloca,
+                    1,
+                    "union_payload_slot_switch",
+                )
+                .unwrap();
+
+            if bindings.len() == 1 {
+                // Single payload: bitcast buffer to payload type's
+                // pointer, load, store into binding alloca.
+                let binding_name = &bindings[0];
+                let payload_ty = &payload_types[0];
+                let payload_llvm_ty = self.map_type(payload_ty);
+                let typed_ptr = self
+                    .builder
+                    .build_bit_cast(payload_buf_slot, ptr_ty, "payload_bitcast")
+                    .unwrap()
+                    .into_pointer_value();
+                let loaded = self
+                    .builder
+                    .build_load(payload_llvm_ty, typed_ptr, "payload_val")
+                    .unwrap();
+                let binding_ptr = self.get_or_create_binding_alloca(binding_name, payload_ty);
+                self.builder.build_store(binding_ptr, loaded).unwrap();
+            } else {
+                // Multi-payload: bitcast buffer to anonymous struct
+                // of the payload types, GEP per-field, load, store.
+                let field_types: Vec<BasicTypeEnum<'ctx>> = payload_types
+                    .iter()
+                    .map(|t| self.map_type(t))
+                    .collect();
+                let struct_ty = self.context.struct_type(&field_types, false);
+                let struct_ptr = self
+                    .builder
+                    .build_bit_cast(payload_buf_slot, ptr_ty, "payload_struct_bitcast")
+                    .unwrap()
+                    .into_pointer_value();
+                for (i, (binding_name, payload_ty)) in
+                    bindings.iter().zip(payload_types.iter()).enumerate()
+                {
+                    let field_ptr = self
+                        .builder
+                        .build_struct_gep(
+                            struct_ty,
+                            struct_ptr,
+                            i as u32,
+                            &format!("payload_field_{}", i),
+                        )
+                        .unwrap();
+                    let loaded = self
+                        .builder
+                        .build_load(
+                            self.map_type(payload_ty),
+                            field_ptr,
+                            &format!("payload_val_{}", i),
+                        )
+                        .unwrap();
+                    let binding_ptr = self.get_or_create_binding_alloca(binding_name, payload_ty);
+                    self.builder.build_store(binding_ptr, loaded).unwrap();
+                }
+            }
+
+            self.builder.build_unconditional_branch(body_bb).unwrap();
+            self.builder.position_at_end(saved);
+        }
+
+        self.builder
+            .build_switch(tag, default_bb, &case_pairs)
+            .unwrap();
+        Ok(())
+    }
+
+    /// ADR 0060. Look up or create a per-binding alloca. Reused
+    /// across multiple cases (mutually exclusive tags) so the
+    /// alloca is stable.
+    fn get_or_create_binding_alloca(
+        &mut self,
+        binding: &str,
+        ty: &Type,
+    ) -> inkwell::values::PointerValue<'ctx> {
+        if let Some(p) = self.variables.get(binding).copied() {
+            return p;
+        }
+        let alloca = self.create_entry_alloca(binding, ty);
+        self.variables.insert(binding.to_string(), alloca);
+        self.var_types.insert(binding.to_string(), ty.clone());
+        alloca
     }
 }

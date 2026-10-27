@@ -1,0 +1,18 @@
+// Union match on LLVM: two-variant union with a payloadless
+// variant (Nothing) and a single-payload variant (Just(Int)).
+
+// OUTPUT: 42
+// OUTPUT: none
+
+union MaybeInt
+    Nothing
+    Just(Int)
+
+proc describe(m: MaybeInt) -> String
+    match m
+        case Just(n) then return Int.to_string(n)
+        case Nothing then return "none"
+
+proc main
+    print(describe(MaybeInt.Just(42)))
+    print(describe(MaybeInt.Nothing))

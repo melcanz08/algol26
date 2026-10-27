@@ -1,0 +1,23 @@
+// Union match on LLVM: three variants, one multi-payload
+// (Pair(Int, Int)). Pins String payloads, multi-payload struct
+// packing, and tag dispatch across three ordinals.
+
+// OUTPUT: 42
+// OUTPUT: hello
+// OUTPUT: (3, 4)
+
+union Val
+    Num(Int)
+    Str(String)
+    Pair(Int, Int)
+
+proc render(v: Val) -> String
+    match v
+        case Num(n) then return Int.to_string(n)
+        case Str(s) then return s
+        case Pair(a, b) then return "(" + Int.to_string(a) + ", " + Int.to_string(b) + ")"
+
+proc main
+    print(render(Val.Num(42)))
+    print(render(Val.Str("hello")))
+    print(render(Val.Pair(3, 4)))

@@ -1083,7 +1083,10 @@ fn interpreter_accepts_dynamic_dispatch() {
 // ─── ADR 0055: unions are refused by LLVM and WASM ────────────────────
 
 #[test]
-fn union_declaration_rejected_by_llvm() {
+fn llvm_accepts_unions() {
+    // ADR 0060. LLVM lowers union declarations, construction, and
+    // pattern matching via %Union_<Name> structs, the UnionConstruct
+    // codegen arm, and the Switch union fast path.
     let source = r#"
 union Json
     Null
@@ -1095,17 +1098,13 @@ proc main
 "#;
     let program = build_ir(source);
     let caps = crate::backends::capabilities::BackendCapabilities::llvm();
-    let err = crate::backends::capabilities::check_backend(&program, &caps)
-        .expect_err("LLVM should refuse union construction");
-    assert!(
-        err.message.contains("union"),
-        "expected message naming unions, got: {}",
-        err.message
-    );
+    crate::backends::capabilities::check_backend(&program, &caps)
+        .expect("LLVM should accept union programs after ADR 0060");
 }
 
 #[test]
-fn union_declaration_rejected_by_wasm() {
+fn wasm_accepts_unions() {
+    // ADR 0060. WASM shares IRCodeGen with LLVM; same lowering.
     let source = r#"
 union Json
     Null
@@ -1117,13 +1116,8 @@ proc main
 "#;
     let program = build_ir(source);
     let caps = crate::backends::capabilities::BackendCapabilities::wasm();
-    let err = crate::backends::capabilities::check_backend(&program, &caps)
-        .expect_err("WASM should refuse union construction");
-    assert!(
-        err.message.contains("union"),
-        "expected message naming unions, got: {}",
-        err.message
-    );
+    crate::backends::capabilities::check_backend(&program, &caps)
+        .expect("WASM should accept union programs after ADR 0060");
 }
 
 #[test]

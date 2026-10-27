@@ -646,6 +646,33 @@ v1 requires distinct names.
   refuse channel programs at the capability boundary. See
   ADR 0020.
 
+### Large output: File.append and String building
+
+`File.append` is O(n) per call in both backends: `runtime/file.c`'s
+`algol26_file_append` does `fopen(path, "ab")` + `fwrite` of only
+the new bytes + `fclose`, and the interpreter's `File.append`
+uses `OpenOptions::new().append(true).open(path)` with the same
+syscall shape. There is no whole-file rewrite, no read-then-write,
+no quadratic behavior.
+
+`List.append` (used to accumulate output fragments) is O(1)
+amortized: `emit_list_append` (ADR 0042 phase 4) doubles capacity
+on growth and writes in place when spare capacity exists — the
+same profile as `Vec::push`.
+
+The recommended pattern for building large output (LLVM IR,
+JSON, etc.) is therefore O(total length) end-to-end:
+
+    var parts: List<String> := []
+    for line in lines
+        parts.append(line)                 // O(1) amortized
+    val output := String.join(parts, "\n")  // O(total length)
+    File.write("out.ll", output)            // O(total length)
+
+`String.concat` in a loop *is* O(n^2), but that pattern has never
+been the natural way to build output — `List<String>` +
+`String.join` is.
+
 ## Conventions
 
 **Language design note:** trait methods are declared with an

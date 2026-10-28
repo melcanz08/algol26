@@ -2,7 +2,6 @@
 
 use super::*;
 
-
 // --- ADR 0061: namespace / type-name helpers -----------------------------
 //
 // A dotted call whose base is a builtin namespace (List, Map, String, ...)
@@ -12,10 +11,8 @@ use super::*;
 
 /// Fixed list of compiler-known builtin namespaces.
 pub(crate) const BUILTIN_NAMESPACES: &[&str] = &[
-    "List", "Map", "String", "Math", "File",
-    "Int", "Float", "Bool", "Char",
-    "Option", "Result", "Set", "Channel", "Ptr",
-    "alloc", "free",
+    "List", "Map", "String", "Math", "File", "Int", "Float", "Bool", "Char", "Option", "Result",
+    "Set", "Channel", "Ptr", "alloc", "free",
 ];
 
 /// True if `name` is one of the fixed builtin namespaces.
@@ -25,9 +22,8 @@ pub(crate) fn is_builtin_namespace(name: &str) -> bool {
 
 /// Heuristic: a name that looks like a user-declared type.
 pub(crate) fn is_type_name_like(name: &str) -> bool {
-    name.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+    name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
 }
-
 
 impl Parser {
     pub(super) fn parse_expr(&mut self) -> Result<Expr> {

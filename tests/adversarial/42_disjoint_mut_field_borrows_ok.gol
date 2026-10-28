@@ -1,3 +1,4 @@
+// EXPECT: ACCEPT
 // Positive companion to 41. Two `&mut` borrows of disjoint
 // fields are accepted; `Place::overlaps(p.x, p.y)` is false.
 rec Pair

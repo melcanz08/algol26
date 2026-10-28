@@ -1,5 +1,6 @@
 // ADVERSARIAL: bounds
 // EXPECT: REJECT
+// BACKEND: interpreter
 proc main
     var xs := [10, 20, 30]
     xs[-1] := 99

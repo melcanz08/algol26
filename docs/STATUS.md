@@ -648,6 +648,31 @@ v1 requires distinct names.
   `corpus_61_enum_match_llvm`. Fix is a follow-up in the
   analyzer.
 
+- **Brace-form gradebook output differs from indentation form.** The
+  Honor Roll section of `examples/braces/gradebook.gol` is empty at
+  runtime, while `examples/gradebook.gol` (indentation form) prints
+  `Alice (91)`. The two files are supposed to be semantically
+  identical (ADR 0054 alternate brace-block syntax).
+
+  Minimal repro: a brace-form `proc` with a `val` list, a `for`
+  loop, and an `if` that appends to the list compiles and runs, but
+  the appended element doesn't appear in the returned list. The
+  equivalent indentation form works correctly.
+
+  Separately, a brace-form `proc` with `var` and a trailing
+  expression as return value is rejected with E0002 ("may not
+  return a value on all paths"), while the same shape in
+  indentation form is accepted. The return-path analysis
+  (`check_all_paths_return`) doesn't recognize a brace-form
+  trailing expression as a return.
+
+  These are ADR 0054 brace-form parser/analyzer gaps. The fixtures
+  under `examples/braces/` were written during ADR 0054 and never
+  fully validated against their indentation counterparts.
+
+  Regression test: `tests/brace_examples.rs` (currently
+  `#[ignore]`d). Un-ignore when the parser bugs are fixed.
+
 ### Unimplemented features
 
 - **Channels** (`corpus_23`–`corpus_26`). All three backends

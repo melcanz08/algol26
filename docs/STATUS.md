@@ -673,6 +673,22 @@ v1 requires distinct names.
   Regression test: `tests/brace_examples.rs` (currently
   `#[ignore]`d). Un-ignore when the parser bugs are fixed.
 
+- **`rec` + `impl` methods corrupt `Map<K, V>` value reads on LLVM
+  when the record's field layout resembles the map entry layout.**
+  `examples/wordfreq.gol` produces correct results on the
+  interpreter but garbage counts on LLVM (large integers in the
+  126000-126113 range, apparently pointer low bits). Isolation:
+  the same program with the `rec WordCount` + `impl` block removed
+  works correctly on both backends (`/tmp/wordfreq_no_wordcount.gol`
+  during the investigation). Minimal repro not yet reduced below
+  `wordfreq.gol`; the record's field layout `(String word, Int count)`
+  matches `Map<String, Int>`'s entry layout, suggesting a shared
+  type ID or struct-field-offset collision in `llvm_codegen`'s
+  type registration. Fix is a follow-up: investigate
+  `llvm_codegen`'s `Type::Record` layout vs `Type::Map`'s value
+  slot, and `runtime/map_str_int.c`'s `map_str_int_get` return
+  path.
+
 ### Unimplemented features
 
 - **Channels** (`corpus_23`–`corpus_26`). All three backends

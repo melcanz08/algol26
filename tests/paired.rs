@@ -173,3 +173,43 @@ proc main {
 ";
     assert_eq!(parse(indented), parse(braced));
 }
+
+#[test]
+fn proc_trailing_expr_brace_matches_indent() {
+    let indented = "
+proc filter(students: List<Int>) -> List<Int>
+    val out: List<Int> := []
+    out
+";
+    let braced = "
+proc filter(students: List<Int>) -> List<Int> {
+    val out: List<Int> := []
+    out
+}
+";
+    assert_eq!(parse(indented), parse(braced));
+}
+
+#[test]
+fn val_append_in_loop_brace_matches_indent() {
+    let indented = "
+proc honors_only(students: List<Int>) -> List<Int>
+    val honors: List<Int> := []
+    for s in students
+        if s >= 90
+            honors.append(s)
+    honors
+";
+    let braced = "
+proc honors_only(students: List<Int>) -> List<Int> {
+    val honors: List<Int> := []
+    for s in students {
+        if s >= 90 {
+            honors.append(s)
+        }
+    }
+    honors
+}
+";
+    assert_eq!(parse(indented), parse(braced));
+}

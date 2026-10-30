@@ -580,7 +580,10 @@ impl SemanticIRBuilder {
                 // all happen there. Reconstructing the callee from the raw source
                 // name here would produce `xs.length` and break both the IR shape
                 // invariants and the interpreter's builtin dispatch.
-                if matches!(&expr.kind, ExprKind::FunctionCall { .. }) {
+                if matches!(
+                    &expr.kind,
+                    ExprKind::FunctionCall { .. } | ExprKind::MethodCall { .. }
+                ) {
                     let typed_value = self.translate_expr(program, func, current_block, expr);
                     match typed_value {
                         TypedIRValue::UnionConstruct {

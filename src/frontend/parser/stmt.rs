@@ -1,5 +1,6 @@
 // src/frontend/parser/stmt.rs
 
+use super::expr::{is_builtin_namespace, is_type_name_like};
 use super::*;
 
 impl Parser {
@@ -730,10 +731,24 @@ impl Parser {
                         }
                     }
                     self.expect_token(Token::RParen, "')'")?;
-                    let call = Expr::new(ExprKind::FunctionCall {
-                        name: format!("{}.{}", name, member_name),
-                        args,
-                        span: ident_span,
+                    let call = Expr::new({
+                        // ADR 0061: a dotted call whose base is a
+                        // namespace or type name stays a FunctionCall;
+                        // a dotted call on a value is a MethodCall.
+                        if is_builtin_namespace(&name) || is_type_name_like(&name) {
+                            ExprKind::FunctionCall {
+                                name: format!("{}.{}", name, member_name),
+                                args,
+                                span: ident_span,
+                            }
+                        } else {
+                            ExprKind::MethodCall {
+                                receiver: Expr::boxed(ExprKind::Var(name, ident_span)),
+                                method: member_name,
+                                args,
+                                span: ident_span,
+                            }
+                        }
                     });
                     let expr = self.parse_postfix(call)?;
                     return Ok(Stmt::Expression(expr));

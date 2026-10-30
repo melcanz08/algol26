@@ -111,7 +111,7 @@ const PAIRS: &[Pair] = &[
 ];
 
 #[test]
-#[ignore = "brace-form gradebook output differs from indentation form; see docs/STATUS.md § Brace-form gradebook bug (ADR 0054)"]
+
 fn brace_examples_match_indentation_examples() {
     let mut failures: Vec<String> = Vec::new();
 

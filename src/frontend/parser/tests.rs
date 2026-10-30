@@ -119,18 +119,47 @@ fn test_parse_for_as_expr() {
 }
 
 #[test]
-fn test_parse_method_call() {
+fn test_parse_method_call_on_var_is_methodcall() {
+    // ADR 0061: x.method(args) at statement position where x is a
+    // value → MethodCall.
     let source = "proc main()\n    list.append(3)";
     let functions = parse_source(source).expect("parse error");
     match &functions[0].body[0] {
         Stmt::Expression(e) => match &e.kind {
-            ExprKind::FunctionCall { name, args, .. } => {
-                assert_eq!(name, "list.append");
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                match &receiver.kind {
+                    ExprKind::Var(name, _) => assert_eq!(name, "list"),
+                    other => panic!("Expected Var receiver, got {:?}", other),
+                }
+                assert_eq!(method, "append");
                 assert_eq!(args.len(), 1);
             }
-            other => panic!("Expected FunctionCall with dotted name, got {:?}", other),
+            other => panic!("Expected MethodCall, got {:?}", other),
         },
-        _ => panic!("Expected FunctionCall with dotted name"),
+        _ => panic!("Expected MethodCall in statement position"),
+    }
+}
+
+#[test]
+fn test_parse_namespace_call_stays_functioncall() {
+    // ADR 0061: List.append(xs) where List is a builtin namespace
+    // → FunctionCall.
+    let source = "proc main()\n    List.append(xs)";
+    let functions = parse_source(source).expect("parse error");
+    match &functions[0].body[0] {
+        Stmt::Expression(e) => match &e.kind {
+            ExprKind::FunctionCall { name, args, .. } => {
+                assert_eq!(name, "List.append");
+                assert_eq!(args.len(), 1);
+            }
+            other => panic!("Expected FunctionCall, got {:?}", other),
+        },
+        _ => panic!("Expected FunctionCall in statement position"),
     }
 }
 

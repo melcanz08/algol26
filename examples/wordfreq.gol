@@ -1,0 +1,88 @@
+rec WordCount
+    word: String
+    count: Int
+
+impl WordCount
+    fn display(self: &WordCount) -> String
+        String.concat(String.concat(self.word, ": "), Int.to_string(self.count))
+
+
+proc normalize(word: String) -> String
+    // Lowercase, trim, then keep only a-z and 0-9.
+    // Uses `and`/`or` — ALGOL26 word operators, not &&/||.
+    // Uses String.to_chars -> List<Char>; Char.to_int for
+    // codepoint arithmetic; Char.to_string to rebuild.
+    val chars: List<Char> := String.to_chars(String.to_lower(String.trim(word)))
+    var clean: String := ""
+    for c in chars
+        val code: Int := Char.to_int(c)
+        if (code >= 97 and code <= 122) or (code >= 48 and code <= 57)
+            clean := String.concat(clean, Char.to_string(c))
+    return clean
+
+
+proc filter_nonempty(parts: List<String>) -> List<String>
+    var out: List<String> := []
+    for p in parts
+        if String.length(p) > 0
+            out.append(p)
+    return out
+
+
+proc count_words(text: String) -> Map<String, Int>
+    var counts: Map<String, Int> := Map {}
+    val parts := filter_nonempty(String.split(text, " "))
+    for raw in parts
+        val w := normalize(raw)
+        if String.length(w) > 0
+            match counts.get(w)
+                case Some(n)
+                    counts.insert(w, n + 1)
+                case None
+                    counts.insert(w, 1)
+    return counts
+
+
+proc to_sorted_list(counts: Map<String, Int>) -> List<WordCount>
+    var entries: List<WordCount> := []
+    for key in counts.keys()
+        match counts.get(key)
+            case Some(n)
+                entries.append(WordCount { word: key, count: n })
+            case None
+                print("")
+    val n := List.length(entries)
+    var i := 0
+    while i < n
+        var best := i
+        var j := i + 1
+        while j < n
+            if entries[j].count > entries[best].count
+                best := j
+            else if entries[j].count = entries[best].count and String.compare(entries[j].word, entries[best].word) < 0
+                best := j
+            j := j + 1
+        if best != i
+            val tmp := entries[i]
+            entries[i] := entries[best]
+            entries[best] := tmp
+        i := i + 1
+    return entries
+
+
+proc print_top(entries: List<WordCount>, k: Int)
+    print("Top words:")
+    var shown := 0
+    for e in entries
+        if shown < k
+            print(e.display())
+            shown := shown + 1
+
+
+proc main
+    val text: String := "The quick, brown fox! Jumps over the lazy dog. The fox runs."
+    val counts := count_words(text)
+    val sorted := to_sorted_list(counts)
+    print(String.concat("Total unique words: ", Int.to_string(List.length(sorted))))
+    print("")
+    print_top(sorted, 5)

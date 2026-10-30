@@ -673,21 +673,49 @@ v1 requires distinct names.
   Regression test: `tests/brace_examples.rs` (currently
   `#[ignore]`d). Un-ignore when the parser bugs are fixed.
 
-- **`rec` + `impl` methods corrupt `Map<K, V>` value reads on LLVM
-  when the record's field layout resembles the map entry layout.**
-  `examples/wordfreq.gol` produces correct results on the
-  interpreter but garbage counts on LLVM (large integers in the
-  126000-126113 range, apparently pointer low bits). Isolation:
-  the same program with the `rec WordCount` + `impl` block removed
-  works correctly on both backends (`/tmp/wordfreq_no_wordcount.gol`
-  during the investigation). Minimal repro not yet reduced below
-  `wordfreq.gol`; the record's field layout `(String word, Int count)`
-  matches `Map<String, Int>`'s entry layout, suggesting a shared
-  type ID or struct-field-offset collision in `llvm_codegen`'s
-  type registration. Fix is a follow-up: investigate
-  `llvm_codegen`'s `Type::Record` layout vs `Type::Map`'s value
-  slot, and `runtime/map_str_int.c`'s `map_str_int_get` return
-  path.
+- **LLVM codegen: variable shadowing across scopes reads the
+  wrong alloca.** A variable declared in a later block can
+  overwrite an earlier block's binding of the same name in
+  `IRCodeGen::variables` — a flat `HashMap` — because
+  `compile_function` iterates `func.blocks` in **creation
+  order**, not execution order. A block whose source-level scope
+  ended may still be compiled after a block that redeclares the
+  same name.
+
+  Concrete repro: `examples/wordfreq.gol`'s `to_sorted_list`
+  has `match counts.get(key) case Some(n)` inside a `for` loop,
+  then `val n := List.length(entries)` after the loop. On LLVM,
+  the `WordCount { count: n }` construction inside the match
+  body reads `%n10` (the outer `val n`'s alloca) instead of
+  `%n` (the match binding's). The outer alloca is undefined at
+  that point in execution, so the count is uninitialized memory
+  (observed: garbage in the 126000-126113 range, apparent heap
+  address fragments). The interpreter is correct — it uses a
+  scope-chained environment, not a flat map.
+
+  Verified in `examples/wordfreq.ll` (commit 6b4c024):
+  `some_bind_n` stores to `%n` but `blk_43` loads from `%n10`.
+
+  Isolation: removing the outer `val n`, or renaming it, fixes
+  LLVM output. The trigger is the same-name shadowing, not the
+  record type — the earlier diagnosis ("record field layout
+  resembling map entry layout") was wrong.
+
+  Fix (follow-up session; not a one-liner):
+    (a) compile blocks in dominance/RPO order so an inner
+        binding's block is compiled before its outer-redeclaring
+        sibling, or
+    (b) give `IRCodeGen` a scope stack that mirrors the IR
+        builder's `push_scope`/`pop_scope` — requires the
+        builder to emit scope markers, or the codegen to
+        reconstruct scopes from the CFG, or
+    (c) mangle match/if/for binding names in the IR builder
+        (`translate_match` et al.) so shadowing produces
+        distinct LLVM alloca names.
+
+  Option (c) is the smallest but requires the builder's scope
+  map to support aliasing `"n"` → `"n__match_N"` for the body.
+  Options (a) and (b) are the architecturally correct fixes.
 
 ### Unimplemented features
 

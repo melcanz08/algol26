@@ -1,0 +1,34 @@
+// ADVERSARIAL: backend bug (LLVM)
+// EXPECT: REVIEW
+// BACKEND: llvm
+//
+// Reproduces the LLVM scope-shadowing bug: a match binding
+// (`Some(n)`) shares a name with a later outer `val n`. LLVM
+// codegen's flat `variables` map is overwritten by the outer
+// `n`'s alloca before the inner body's block is compiled, so
+// the inner body reads from the outer (uninitialized) alloca.
+//
+// Expected interpreter output:
+//   10
+//   20
+//   0
+// LLVM currently prints garbage (heap-address fragments in the
+// 126000+ range). Tracked in docs/STATUS.md under "LLVM codegen:
+// variable shadowing across scopes".
+
+proc parse_all(lines: List<String>) -> List<Int>
+    var out: List<Int> := []
+    for line in lines
+        match String.to_int(line)
+            case Some(n)
+                out.append(n)
+            case None
+                out.append(0)
+    val n := List.length(out)
+    return out
+
+proc main
+    val lines := ["10", "20", "not-a-number"]
+    val parsed := parse_all(lines)
+    for v in parsed
+        print(Int.to_string(v))

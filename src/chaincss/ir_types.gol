@@ -29,76 +29,76 @@ import "json.gol"
 // ─── SourceLocation ──────────────────────────────────────────────────
 
 pub rec SourceLocation
-    file: Option[String]
-    line: Option[Int]
-    column: Option[Int]
-    component: Option[String]
+    pub file: Option[String]
+    pub line: Option[Int]
+    pub column: Option[Int]
+    pub component: Option[String]
 
 // ─── IRTransformRecord ───────────────────────────────────────────────
 
 pub rec IRTransformRecord
-    pass: String
-    action: String
-    timestamp: Int
-    previous: Option[Json]
-    reason: Option[String]
+    pub pass: String
+    pub action: String
+    pub timestamp: Int
+    pub previous: Option[Json]
+    pub reason: Option[String]
 
 // ─── IRDynamicValue ──────────────────────────────────────────────────
 
 pub rec IRDynamicValue
-    variable: String
-    kind: String
-    originalValue: Option[Json]
+    pub variable: String
+    pub kind: String
+    pub originalValue: Option[Json]
 
 // ─── IRDeclaration ───────────────────────────────────────────────────
 
 pub rec IRDeclaration
-    id: String
-    property: String
-    value: Json
-    important: Option[Bool]
-    source: Option[SourceLocation]
-    history: List[IRTransformRecord]
-    meta: Option[Json]
-    dynValue: Option[IRDynamicValue]
+    pub id: String
+    pub property: String
+    pub value: Json
+    pub important: Option[Bool]
+    pub source: Option[SourceLocation]
+    pub history: List[IRTransformRecord]
+    pub meta: Option[Json]
+    pub dynValue: Option[IRDynamicValue]
 
 // ─── IRPseudoClass ───────────────────────────────────────────────────
 
 pub rec IRPseudoClass
-    id: String
-    parentId: String
-    name: String
-    declarations: List[IRDeclaration]
-    source: SourceLocation
-    history: List[IRTransformRecord]
+    pub id: String
+    pub parentId: String
+    pub name: String
+    pub declarations: List[IRDeclaration]
+    pub source: SourceLocation
+    pub history: List[IRTransformRecord]
 
 // ─── IRKeyframeFrame ─────────────────────────────────────────────────
 
 pub rec IRKeyframeFrame
-    id: String
-    keyText: String
-    declarations: List[IRDeclaration]
-    source: SourceLocation
+    pub id: String
+    pub keyText: String
+    pub declarations: List[IRDeclaration]
+    pub source: SourceLocation
 
 // ─── IRCondition ─────────────────────────────────────────────────────
 
 pub rec IRCondition
-    id: String
-    property: String
-    variable: String
-    conditions: Map<String, Json>
-    defaultValue: Json
-    source: SourceLocation
+    pub id: String
+    pub property: String
+    pub variable: String
+    pub conditions: Map<String, Json>
+    pub defaultValue: Json
+    pub source: SourceLocation
 
 // ─── IRDiagnostic ────────────────────────────────────────────────────
 
 pub rec IRDiagnostic
-    id: String
-    nodeId: String
-    severity: String
-    message: String
-    suggestion: Option[String]
-    pass: String
+    pub id: String
+    pub nodeId: String
+    pub severity: String
+    pub message: String
+    pub suggestion: Option[String]
+    pub pass: String
 
 // ─── IRAtRule ────────────────────────────────────────────────────────
 //
@@ -107,52 +107,338 @@ pub rec IRDiagnostic
 // indirection (List, Option, Map), so this is fine.
 
 pub rec IRAtRule
-    id: String
-    parentId: Option[String]
-    type: String
-    query: Option[String]
-    name: Option[String]
-    declarations: List[IRDeclaration]
-    nestedRules: List[IRRule]
-    keyframes: Option[List[IRKeyframeFrame]]
-    source: SourceLocation
-    history: List[IRTransformRecord]
+    pub id: String
+    pub parentId: Option[String]
+    pub type: String
+    pub query: Option[String]
+    pub name: Option[String]
+    pub declarations: List[IRDeclaration]
+    pub nestedRules: List[IRRule]
+    pub keyframes: Option[List[IRKeyframeFrame]]
+    pub source: SourceLocation
+    pub history: List[IRTransformRecord]
 
 // ─── IRRule ──────────────────────────────────────────────────────────
 
 pub rec IRRule
-    id: String
-    parentId: Option[String]
-    selector: String
-    declarations: List[IRDeclaration]
-    pseudoClasses: List[IRPseudoClass]
-    atRules: List[IRAtRule]
-    nestedRules: List[IRRule]
-    conditions: List[IRCondition]
-    _dirty: Option[Bool]
-    meta: Option[Json]
-    passMeta: Option[Json]
-    isDead: Bool
-    specificity: Float
-    hash: String
-    source: SourceLocation
-    history: List[IRTransformRecord]
+    pub id: String
+    pub parentId: Option[String]
+    pub selector: String
+    pub declarations: List[IRDeclaration]
+    pub pseudoClasses: List[IRPseudoClass]
+    pub atRules: List[IRAtRule]
+    pub nestedRules: List[IRRule]
+    pub conditions: List[IRCondition]
+    pub _dirty: Option[Bool]
+    pub meta: Option[Json]
+    pub passMeta: Option[Json]
+    pub isDead: Bool
+    pub specificity: Float
+    pub hash: String
+    pub source: SourceLocation
+    pub history: List[IRTransformRecord]
 
 // ─── StyleIR ─────────────────────────────────────────────────────────
 
 pub rec StyleIRMeta
-    version: String
-    createdAt: Int
-    sourceFiles: List[String]
-    passCount: Int
-    passes: List[String]
-    dirtyRules: Int
-    compiledAt: Int
+    pub version: String
+    pub createdAt: Int
+    pub sourceFiles: List[String]
+    pub passCount: Int
+    pub passes: List[String]
+    pub dirtyRules: Int
+    pub compiledAt: Int
 
 pub rec StyleIR
-    id: String
-    rules: List[IRRule]
-    atRules: List[IRAtRule]
-    diagnostics: List[IRDiagnostic]
-    meta: StyleIRMeta
-    graph: Option[Json]
+    pub id: String
+    pub rules: List[IRRule]
+    pub atRules: List[IRAtRule]
+    pub diagnostics: List[IRDiagnostic]
+    pub meta: StyleIRMeta
+    pub graph: Option[Json]
+
+
+// ============================================================================
+// Serialization: records -> Json
+// ============================================================================
+
+/// Serialize a SourceLocation. Optional fields omitted when None
+/// (matches TypeScript's JSON.stringify behavior for `undefined`).
+pub proc source_location_to_json(sl: SourceLocation) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    match sl.file {
+        case Some(f) then { m.insert("file", Json.Str(f)) }
+        case None then {}
+    }
+    match sl.line {
+        case Some(l) then { m.insert("line", Json.NumInt(l)) }
+        case None then {}
+    }
+    match sl.column {
+        case Some(c) then { m.insert("column", Json.NumInt(c)) }
+        case None then {}
+    }
+    match sl.component {
+        case Some(c) then { m.insert("component", Json.Str(c)) }
+        case None then {}
+    }
+    return Json.Obj(m)
+
+pub proc transform_record_to_json(tr: IRTransformRecord) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("pass", Json.Str(tr.pass))
+    m.insert("action", Json.Str(tr.action))
+    m.insert("timestamp", Json.NumInt(tr.timestamp))
+    match tr.previous {
+        case Some(p) then { m.insert("previous", p) }
+        case None then {}
+    }
+    match tr.reason {
+        case Some(r) then { m.insert("reason", Json.Str(r)) }
+        case None then {}
+    }
+    return Json.Obj(m)
+
+pub proc dynamic_value_to_json(dv: IRDynamicValue) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("variable", Json.Str(dv.variable))
+    m.insert("kind", Json.Str(dv.kind))
+    match dv.originalValue {
+        case Some(v) then { m.insert("originalValue", v) }
+        case None then {}
+    }
+    return Json.Obj(m)
+
+pub proc declaration_to_json(d: IRDeclaration) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(d.id))
+    m.insert("property", Json.Str(d.property))
+    m.insert("value", d.value)
+    match d.important {
+        case Some(b) then { m.insert("important", Json.Bool(b)) }
+        case None then {}
+    }
+    match d.source {
+        case Some(sl) then { m.insert("source", source_location_to_json(sl)) }
+        case None then {}
+    }
+    var hist_json: List<Json> := []
+    for h in d.history {
+        hist_json.append(transform_record_to_json(h))
+    }
+    m.insert("history", Json.Arr(hist_json))
+    match d.meta {
+        case Some(mt) then { m.insert("meta", mt) }
+        case None then {}
+    }
+    match d.dynValue {
+        case Some(dv) then { m.insert("dynamic", dynamic_value_to_json(dv)) }
+        case None then {}
+    }
+    return Json.Obj(m)
+
+
+pub proc pseudo_class_to_json(pc: IRPseudoClass) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(pc.id))
+    m.insert("parentId", Json.Str(pc.parentId))
+    m.insert("name", Json.Str(pc.name))
+    var decls_json: List[Json] := []
+    for d in pc.declarations {
+        decls_json.append(declaration_to_json(d))
+    }
+    m.insert("declarations", Json.Arr(decls_json))
+    m.insert("source", source_location_to_json(pc.source))
+    var hist_json: List[Json] := []
+    for h in pc.history {
+        hist_json.append(transform_record_to_json(h))
+    }
+    m.insert("history", Json.Arr(hist_json))
+    return Json.Obj(m)
+
+pub proc keyframe_to_json(kf: IRKeyframeFrame) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(kf.id))
+    m.insert("keyText", Json.Str(kf.keyText))
+    var decls_json: List[Json] := []
+    for d in kf.declarations {
+        decls_json.append(declaration_to_json(d))
+    }
+    m.insert("declarations", Json.Arr(decls_json))
+    m.insert("source", source_location_to_json(kf.source))
+    return Json.Obj(m)
+
+pub proc condition_to_json(c: IRCondition) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(c.id))
+    m.insert("property", Json.Str(c.property))
+    m.insert("variable", Json.Str(c.variable))
+    var cond_map: Map<String, Json> := Map<String, Json> {}
+    for k in c.conditions.keys() {
+        match c.conditions.get(k) {
+            case Some(v) then { cond_map.insert(k, v) }
+            case None then {}
+        }
+    }
+    m.insert("conditions", Json.Obj(cond_map))
+    m.insert("defaultValue", c.defaultValue)
+    m.insert("source", source_location_to_json(c.source))
+    return Json.Obj(m)
+
+pub proc diagnostic_to_json(d: IRDiagnostic) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(d.id))
+    m.insert("nodeId", Json.Str(d.nodeId))
+    m.insert("severity", Json.Str(d.severity))
+    m.insert("message", Json.Str(d.message))
+    match d.suggestion {
+        case Some(s) then { m.insert("suggestion", Json.Str(s)) }
+        case None then {}
+    }
+    m.insert("pass", Json.Str(d.pass))
+    return Json.Obj(m)
+
+
+pub proc at_rule_to_json(ar: IRAtRule) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(ar.id))
+    match ar.parentId {
+        case Some(p) then { m.insert("parentId", Json.Str(p)) }
+        case None then {}
+    }
+    m.insert("type", Json.Str(ar.type))
+    match ar.query {
+        case Some(q) then { m.insert("query", Json.Str(q)) }
+        case None then {}
+    }
+    match ar.name {
+        case Some(n) then { m.insert("name", Json.Str(n)) }
+        case None then {}
+    }
+    var decls_json: List<Json> := []
+    for d in ar.declarations {
+        decls_json.append(declaration_to_json(d))
+    }
+    m.insert("declarations", Json.Arr(decls_json))
+    var nested_json: List[Json] := []
+    for nr in ar.nestedRules {
+        nested_json.append(rule_to_json(nr))
+    }
+    m.insert("nestedRules", Json.Arr(nested_json))
+    match ar.keyframes {
+        case Some(kfs) then {
+            var kf_json: List[Json] := []
+            for kf in kfs {
+                kf_json.append(keyframe_to_json(kf))
+            }
+            m.insert("keyframes", Json.Arr(kf_json))
+        }
+        case None then {}
+    }
+    m.insert("source", source_location_to_json(ar.source))
+    var hist_json: List[Json] := []
+    for h in ar.history {
+        hist_json.append(transform_record_to_json(h))
+    }
+    m.insert("history", Json.Arr(hist_json))
+    return Json.Obj(m)
+
+pub proc rule_to_json(r: IRRule) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(r.id))
+    match r.parentId {
+        case Some(p) then { m.insert("parentId", Json.Str(p)) }
+        case None then {}
+    }
+    m.insert("selector", Json.Str(r.selector))
+    var decls_json: List[Json] := []
+    for d in r.declarations {
+        decls_json.append(declaration_to_json(d))
+    }
+    m.insert("declarations", Json.Arr(decls_json))
+    var pcs_json: List[Json] := []
+    for pc in r.pseudoClasses {
+        pcs_json.append(pseudo_class_to_json(pc))
+    }
+    m.insert("pseudoClasses", Json.Arr(pcs_json))
+    var atrs_json: List[Json] := []
+    for atr in r.atRules {
+        atrs_json.append(at_rule_to_json(atr))
+    }
+    m.insert("atRules", Json.Arr(atrs_json))
+    var nested_json: List[Json] := []
+    for nr in r.nestedRules {
+        nested_json.append(rule_to_json(nr))
+    }
+    m.insert("nestedRules", Json.Arr(nested_json))
+    var conds_json: List[Json] := []
+    for c in r.conditions {
+        conds_json.append(condition_to_json(c))
+    }
+    m.insert("conditions", Json.Arr(conds_json))
+    match r._dirty {
+        case Some(b) then { m.insert("_dirty", Json.Bool(b)) }
+        case None then {}
+    }
+    match r.meta {
+        case Some(mt) then { m.insert("meta", mt) }
+        case None then {}
+    }
+    match r.passMeta {
+        case Some(pm) then { m.insert("passMeta", pm) }
+        case None then {}
+    }
+    m.insert("isDead", Json.Bool(r.isDead))
+    m.insert("specificity", Json.NumFloat(r.specificity))
+    m.insert("hash", Json.Str(r.hash))
+    m.insert("source", source_location_to_json(r.source))
+    var hist_json: List[Json] := []
+    for h in r.history {
+        hist_json.append(transform_record_to_json(h))
+    }
+    m.insert("history", Json.Arr(hist_json))
+    return Json.Obj(m)
+
+pub proc style_ir_meta_to_json(mt: StyleIRMeta) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("version", Json.Str(mt.version))
+    m.insert("createdAt", Json.NumInt(mt.createdAt))
+    var sf_json: List[Json] := []
+    for f in mt.sourceFiles {
+        sf_json.append(Json.Str(f))
+    }
+    m.insert("sourceFiles", Json.Arr(sf_json))
+    m.insert("passCount", Json.NumInt(mt.passCount))
+    var passes_json: List[Json] := []
+    for p in mt.passes {
+        passes_json.append(Json.Str(p))
+    }
+    m.insert("passes", Json.Arr(passes_json))
+    m.insert("dirtyRules", Json.NumInt(mt.dirtyRules))
+    m.insert("compiledAt", Json.NumInt(mt.compiledAt))
+    return Json.Obj(m)
+
+pub proc style_ir_to_json(ir: StyleIR) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(ir.id))
+    var rules_json: List<Json> := []
+    for r in ir.rules {
+        rules_json.append(rule_to_json(r))
+    }
+    m.insert("rules", Json.Arr(rules_json))
+    var atrs_json: List[Json] := []
+    for ar in ir.atRules {
+        atrs_json.append(at_rule_to_json(ar))
+    }
+    m.insert("atRules", Json.Arr(atrs_json))
+    var diags_json: List[Json] := []
+    for d in ir.diagnostics {
+        diags_json.append(diagnostic_to_json(d))
+    }
+    m.insert("diagnostics", Json.Arr(diags_json))
+    m.insert("meta", style_ir_meta_to_json(ir.meta))
+    match ir.graph {
+        case Some(g) then { m.insert("graph", g) }
+        case None then {}
+    }
+    return Json.Obj(m)

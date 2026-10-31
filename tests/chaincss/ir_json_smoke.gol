@@ -1,0 +1,53 @@
+import "../../src/chaincss/json.gol"
+import "../../src/chaincss/ir_types.gol"
+
+proc main
+    var rules: List<IRRule> := []
+    var decls: List[IRDeclaration] := []
+    decls.append(IRDeclaration {
+        id: "d1",
+        property: "display",
+        value: Json.Str("flex"),
+        important: None,
+        source: None,
+        history: [],
+        meta: None,
+        dynValue: None
+    })
+    rules.append(IRRule {
+        id: "r1",
+        parentId: None,
+        selector: ".card",
+        declarations: decls,
+        pseudoClasses: [],
+        atRules: [],
+        nestedRules: [],
+        conditions: [],
+        _dirty: None,
+        meta: None,
+        passMeta: None,
+        isDead: false,
+        specificity: 0.0,
+        hash: "abc123",
+        source: SourceLocation { file: Some("card.chain.ts"), line: Some(1), column: Some(0), component: None },
+        history: []
+    })
+    val meta := StyleIRMeta {
+        version: "2.15.19",
+        createdAt: 0,
+        sourceFiles: ["card.chain.ts"],
+        passCount: 0,
+        passes: [],
+        dirtyRules: 0,
+        compiledAt: 0
+    }
+    val ir := StyleIR {
+        id: "test",
+        rules: rules,
+        atRules: [],
+        diagnostics: [],
+        meta: meta,
+        graph: None
+    }
+    val j := style_ir_to_json(ir)
+    print(stringify(j))

@@ -1,0 +1,29 @@
+// json_number_smoke.gol — smoke test for parse_number.
+
+import "../../src/chaincss/json.gol"
+
+proc check_parse(label: String, input: String) -> Void
+    match parse(input) {
+        case Ok(j) then {
+            print(label + ": OK -> " + stringify(j))
+        }
+        case Error(msg) then {
+            print(label + ": ERR -> " + msg)
+        }
+    }
+
+proc main
+    check_parse("num 0", "0")
+    check_parse("num 42", "42")
+    check_parse("num -7", "-7")
+    check_parse("num 3.14", "3.14")
+    check_parse("num -0.5", "-0.5")
+    check_parse("num 1e10", "1e10")
+    check_parse("num 1.5e-3", "1.5e-3")
+    check_parse("num 0.001", "0.001")
+    check_parse("num leading zero", "01")
+    check_parse("num leading dot", ".5")
+    check_parse("num trailing dot", "1.")
+    check_parse("num no exp digits", "1e")
+    check_parse("num leading plus", "+1")
+    check_parse("num double dot", "1.2.3")

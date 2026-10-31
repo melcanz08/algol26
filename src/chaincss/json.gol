@@ -180,23 +180,198 @@ proc parse_bool(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
 pub proc parse(s: String) -> Result<Json, String>
     val chars := String.to_chars(s)
     val start := skip_whitespace(chars, 0)
-    if start >= chars.length() then
+    if start >= chars.length() {
         return Error("parse: input is empty or all whitespace")
+    }
     val first := Char.to_int(chars[start])
-    if first = 110 then
-        match parse_null(chars, start)
-            case Ok(ok) then
+    if first = 110 {
+        match parse_null(chars, start) {
+            case Ok(ok) then {
                 val tail := skip_whitespace(chars, ok.pos)
-                if tail != chars.length() then
+                if tail != chars.length() {
                     return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
+                }
                 return Ok(ok.value)
-            case Error(msg) then return Error(msg)
-    if first = 116 or first = 102 then
-        match parse_bool(chars, start)
-            case Ok(ok) then
+            }
+            case Error(msg) then {
+                return Error(msg)
+            }
+        }
+    }
+    if first = 116 or first = 102 {
+        match parse_bool(chars, start) {
+            case Ok(ok) then {
                 val tail := skip_whitespace(chars, ok.pos)
-                if tail != chars.length() then
+                if tail != chars.length() {
                     return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
+                }
                 return Ok(ok.value)
-            case Error(msg) then return Error(msg)
+            }
+            case Error(msg) then {
+                return Error(msg)
+            }
+        }
+    }
+    if first = 45 or (first >= 48 and first <= 57) {
+        match parse_number(chars, start) {
+            case Ok(ok) then {
+                val tail := skip_whitespace(chars, ok.pos)
+                if tail != chars.length() {
+                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
+                }
+                return Ok(ok.value)
+            }
+            case Error(msg) then {
+                return Error(msg)
+            }
+        }
+    }
     return Error("parse: unsupported value kind at pos " + Int.to_string(start))
+
+proc chars_to_string(chars: List<Char>, start: Int, finish: Int) -> String
+    var out := ""
+    var i := start
+    while i < finish
+        out := out + Char.to_string(chars[i])
+        i := i + 1
+    return out
+
+
+/// Parse a JSON number at `pos`. Handles optional `-`, integer
+/// part (with leading-zero rejection), optional `.fraction`,
+/// optional `e/E[+-]exponent`. Returns NumInt for integer forms,
+/// NumFloat otherwise.
+proc parse_number(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
+    var i := pos
+    var is_negative := false
+    if i < chars.length() and Char.to_int(chars[i]) = 45 {
+        is_negative := true
+        i := i + 1
+    }
+
+    val int_start := i
+    if i >= chars.length() {
+        return Error("parse_number: expected digit at pos " + Int.to_string(i))
+    }
+    val first_digit := Char.to_int(chars[i])
+    if first_digit < 48 or first_digit > 57 {
+        return Error("parse_number: expected digit at pos " + Int.to_string(i))
+    }
+
+    if first_digit = 48 {
+        i := i + 1
+        if i < chars.length() {
+            val next_digit := Char.to_int(chars[i])
+            if next_digit >= 48 and next_digit <= 57 {
+                return Error("parse_number: leading zero at pos " + Int.to_string(int_start))
+            }
+        }
+    } else {
+        i := i + 1
+        while i < chars.length() and Char.to_int(chars[i]) >= 48 and Char.to_int(chars[i]) <= 57 {
+            i := i + 1
+        }
+    }
+
+    val int_end := i
+
+    var has_frac := false
+    var frac_start := 0
+    var frac_end := 0
+    if i < chars.length() and Char.to_int(chars[i]) = 46 {
+        i := i + 1
+        frac_start := i
+        while i < chars.length() and Char.to_int(chars[i]) >= 48 and Char.to_int(chars[i]) <= 57 {
+            i := i + 1
+        }
+        frac_end := i
+        if frac_end = frac_start {
+            return Error("parse_number: expected digit after '.' at pos " + Int.to_string(frac_start))
+        }
+        has_frac := true
+    }
+
+    var has_exp := false
+    var exp_start := 0
+    var exp_end := 0
+    var exp_negative := false
+    if i < chars.length() and (Char.to_int(chars[i]) = 101 or Char.to_int(chars[i]) = 69) {
+        i := i + 1
+        if i < chars.length() and Char.to_int(chars[i]) = 45 {
+            exp_negative := true
+            i := i + 1
+        } else if i < chars.length() and Char.to_int(chars[i]) = 43 {
+            i := i + 1
+        }
+        exp_start := i
+        while i < chars.length() and Char.to_int(chars[i]) >= 48 and Char.to_int(chars[i]) <= 57 {
+            i := i + 1
+        }
+        exp_end := i
+        if exp_end = exp_start {
+            return Error("parse_number: expected digit in exponent at pos " + Int.to_string(exp_start))
+        }
+        has_exp := true
+    }
+
+    // Workaround for IR builder bug (compiler-side, not fixed here):
+    // the exp-only runtime path (has_frac=false, has_exp=true) fails to
+    // return. Forcing has_frac=true when has_exp=true routes through
+    // the frac+exp path, which works. The arithmetic result is identical
+    // because the empty frac part contributes zero.
+    if has_exp {
+        has_frac := true
+    }
+
+    val int_part_str := chars_to_string(chars, int_start, int_end)
+
+    match String.to_int(int_part_str) {
+        case Some(n) then {
+            if not has_frac and not has_exp {
+                val value := if is_negative then -n else n
+                return Ok(ParseOk { value: Json.NumInt(value), pos: i })
+            }
+            var mantissa := 0.0
+            mantissa := n
+            if has_frac {
+                val frac_part_str := chars_to_string(chars, frac_start, frac_end)
+                var frac_val := 0
+                var frac_len := 0
+                for c in String.to_chars(frac_part_str) {
+                    frac_val := frac_val * 10 + (Char.to_int(c) - 48)
+                    frac_len := frac_len + 1
+                }
+                var divisor := 1.0
+                var k := 0
+                while k < frac_len {
+                    divisor := divisor * 10.0
+                    k := k + 1
+                }
+                mantissa := mantissa + frac_val / divisor
+            }
+            if is_negative {
+                mantissa := -mantissa
+            }
+            if has_exp {
+                val exp_part_str := chars_to_string(chars, exp_start, exp_end)
+                match String.to_int(exp_part_str) {
+                    case Some(e) then {
+                        var exp_val := e
+                        if exp_negative {
+                            exp_val := -exp_val
+                        }
+                        return Ok(ParseOk { value: Json.NumFloat(mantissa * Math.pow(10.0, exp_val)), pos: i })
+                    }
+                    case None then {
+                        return Error("parse_number: exponent overflow")
+                    }
+                }
+            } else {
+                return Ok(ParseOk { value: Json.NumFloat(mantissa), pos: i })
+            }
+            return Error("parse_number: unreachable")
+        }
+        case None then {
+            return Error("parse_number: int part overflow")
+        }
+    }

@@ -534,22 +534,30 @@ impl SemanticAnalyzer {
         // record table. Records are registered in declaration
         // order; a record that names a later record as a field
         // type is not yet supported.
-        // ADR 0055 Session 1. Split record registration into two
-        // passes: names first (so self-reference and forward-reference
-        // resolve), then fields.
+        // ADR 0055 Session 1 + Session 2 Step 4b. Records and
+        // unions are both registered in two passes, but the two
+        // kinds MUST interleave: pass 1 for BOTH kinds must
+        // complete before pass 2 for EITHER kind. Otherwise a
+        // record whose field references a union (in the same
+        // file) fails at `resolve_record_fields` because the
+        // union table is still empty — the union's pass-1
+        // registration has not run yet.
+        //
+        // Was previously: records pass 1, records pass 2, unions
+        // pass 1, unions pass 2. That order blocked rec-to-union
+        // field references. Discovered while writing
+        // `src/chaincss/json.gol` (see LANGUAGE_GAPS.md G9).
+        //
+        // Correct order: all pass-1 registrations first, then all
+        // pass-2 resolutions.
         for rec in records {
             self.register_record_name(rec)?;
         }
-        for rec in records {
-            self.resolve_record_fields(rec)?;
-        }
-
-        // ADR 0055 Session 2 Step 4b. Unions register in two passes,
-        // mirroring records: names first (so a variant payload can
-        // name a later union or the union itself through an
-        // indirection), then variant payloads.
         for union in unions {
             self.register_union_name(union)?;
+        }
+        for rec in records {
+            self.resolve_record_fields(rec)?;
         }
         for union in unions {
             self.resolve_union_variants(union)?;

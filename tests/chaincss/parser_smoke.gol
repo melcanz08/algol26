@@ -35,7 +35,7 @@ proc main
     check_dynamic("\"${x}\"", false)
     check_dynamic("abc${x}def", true)
     check_dynamic("theme.primary", true)
-    check_dynamic("theme.primary.500", true)
+    check_dynamic("theme.primary.500", false)
     check_dynamic("theme.", false)
     check_dynamic("theme", false)
     check_dynamic("props.color", true)

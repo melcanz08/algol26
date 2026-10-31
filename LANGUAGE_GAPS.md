@@ -179,3 +179,77 @@ the port should have exposed.
 
 This session produced G9: 4 lines in `mod.rs`, discovered by
 trying to write `json.gol` naturally. That's the right shape.
+
+
+## G11 — Stale union placeholders in record field types (FIXED)
+
+Second-order consequence of G9's fix. Once records could reference
+unions in the same file, the references captured the union's
+**pass-1 placeholder** (empty `variants`) rather than the resolved
+union. The record table then held types like
+`Json { variants: [] }` while function signatures held
+`Json { variants: [<full>] }`.
+
+The IR verifier's `Terminator::Return` consistency check compared
+these with structural `!=`, so the two "different" `Json` types
+were rejected as a return-type mismatch.
+
+Discovered while running `tests/chaincss/json_parse_smoke.gol`:
+
+    error[E0002]: Function 'parse' declared return type
+      Result { ok: Json { variants: [<full>] }, error: String }
+    but returns
+      Result { ok: Json { variants: [] }, error: String }
+
+**Root cause:** `resolve_record_fields` runs during record pass 2.
+Under G9's interleaved registration, union pass 1 (which registers
+placeholders) has run, but union pass 2 (which fills in variants)
+has not. Any record field naming a union therefore captures the
+empty-variants placeholder permanently.
+
+**Fix:** Two parts, both in the compiler.
+
+1. `src/semantics/analyzer/mod.rs`: after union pass 2 completes,
+   walk `self.records` and call `rewrite_union_placeholders` on
+   every field type. Replaces any `Type::Union { variants: [] }`
+   with the fully-resolved union from `self.union_types`.
+
+2. `src/ir/verifier/terminator.rs`: the return-type consistency
+   check now uses `can_coerce_to` in addition to structural `!=`.
+   Two unions with the same `UnionTypeId` are semantically the
+   same type (as `can_coerce_to` already knows), so this check
+   needs the same semantic equality.
+
+**Verification:** All 479 lib tests pass, all integration tests
+pass, and the four corpus sanity checks (corpus_01, corpus_41,
+corpus_62, examples/json) still produce expected output.
+`json_parse_smoke.gol` now runs successfully.
+
+**Status:** Fixed. Both parts landed in one commit.
+
+---
+
+## Methodology note on G11 (2026-10-31)
+
+G9 was correct but incomplete. Fixing the *symptom* (records
+couldn't see unions) required fixing the *root cause* (records
+hold placeholder unions). The port's real deliverable is not
+"make json.gol compile" — it's "fix ALGOL26's real bugs, even
+the second-order ones that G9's fix exposed."
+
+The pattern: **fix, then look for the second-order effects of
+the fix.** G9 removed a wall; G11 was the crack in the wall that
+G9 built. G9's fix enabled the record-to-union reference; G11's
+fix made that reference carry the correct data.
+
+A single fix often just moves the bug. The full fix requires
+verifying the downstream consumers of the fix. In this case,
+the pipeline was:
+
+  G9 fix -> record field gets placeholder
+        -> IR builder propagates placeholder
+        -> verifier rejects as "different type"
+        -> G11 fix: rewrite placeholders + verifier respects union id
+
+Each step was necessary. The port's deliverable is the full
+chain, not just the first link.

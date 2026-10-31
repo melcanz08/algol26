@@ -183,65 +183,40 @@ pub proc parse(s: String) -> Result<Json, String>
     if start >= chars.length() {
         return Error("parse: input is empty or all whitespace")
     }
-    val first := Char.to_int(chars[start])
-    if first = 110 {
-        match parse_null(chars, start) {
-            case Ok(ok) then {
-                val tail := skip_whitespace(chars, ok.pos)
-                if tail != chars.length() {
-                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
-                }
-                return Ok(ok.value)
+    match parse_value(chars, start) {
+        case Ok(ok) then {
+            val tail := skip_whitespace(chars, ok.pos)
+            if tail != chars.length() {
+                return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
             }
-            case Error(msg) then {
-                return Error(msg)
-            }
+            return Ok(ok.value)
         }
+        case Error(msg) then {
+            return Error(msg)
+        }
+    }
+
+pub proc parse_value(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
+    if pos >= chars.length() {
+        return Error("parse_value: input empty at pos " + Int.to_string(pos))
+    }
+    val first := Char.to_int(chars[pos])
+    if first = 110 {
+        return parse_null(chars, pos)
     }
     if first = 116 or first = 102 {
-        match parse_bool(chars, start) {
-            case Ok(ok) then {
-                val tail := skip_whitespace(chars, ok.pos)
-                if tail != chars.length() {
-                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
-                }
-                return Ok(ok.value)
-            }
-            case Error(msg) then {
-                return Error(msg)
-            }
-        }
+        return parse_bool(chars, pos)
     }
     if first = 45 or (first >= 48 and first <= 57) {
-        match parse_number(chars, start) {
-            case Ok(ok) then {
-                val tail := skip_whitespace(chars, ok.pos)
-                if tail != chars.length() {
-                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
-                }
-                return Ok(ok.value)
-            }
-            case Error(msg) then {
-                return Error(msg)
-            }
-        }
+        return parse_number(chars, pos)
     }
     if first = 34 {
-        match parse_string(chars, start) {
-            case Ok(ok) then {
-                val tail := skip_whitespace(chars, ok.pos)
-                if tail != chars.length() {
-                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
-                }
-                return Ok(ok.value)
-            }
-            case Error(msg) then {
-                return Error(msg)
-            }
-        }
+        return parse_string(chars, pos)
     }
-    return Error("parse: unsupported value kind at pos " + Int.to_string(start))
-
+    if first = 91 {
+        return parse_array(chars, pos)
+    }
+    return Error("parse_value: unsupported value kind at pos " + Int.to_string(pos))
 proc chars_to_string(chars: List<Char>, start: Int, finish: Int) -> String
     var out := ""
     var i := start
@@ -465,3 +440,53 @@ pub proc parse_string(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
         }
     }
     return Error("parse_string: unterminated string starting at pos " + Int.to_string(pos))
+
+/// Parse a JSON array at `pos`. Expects chars[pos] = '['.
+/// Returns Ok(ParseOk { value: Json.Arr(acc), pos: after ']' }).
+pub proc parse_array(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
+    if pos >= chars.length() or Char.to_int(chars[pos]) != 91 {
+        return Error("parse_array: expected '[' at pos " + Int.to_string(pos))
+    }
+    val j := skip_whitespace(chars, pos + 1)
+    if j < chars.length() and Char.to_int(chars[j]) = 93 {
+        return Ok(ParseOk { value: Json.Arr([]), pos: j + 1 })
+    } else {
+        return parse_array_elements(chars, j, [])
+    }
+
+/// Recursive element parser for parse_array. Accumulates elements in
+/// `acc` (passed by value at each level; the caller's list is moved
+/// in and the extended list is moved to the recursive call).
+///
+/// Recursive rather than iterative because the IR verifier flags a
+/// trailing return after a 'while' as unreachable, but the analyzer
+/// requires a return after 'while'. Contradictory requirements —
+/// see G14 in LANGUAGE_GAPS.md.
+pub proc parse_array_elements(chars: List<Char>, pos: Int, acc: List<Json>) -> Result<ParseOk, String>
+    if pos >= chars.length() {
+        return Error("parse_array: unterminated array")
+    } else {
+        match parse_value(chars, pos) {
+            case Ok(ok) then {
+                var new_acc := acc
+                new_acc.append(ok.value)
+                val after := skip_whitespace(chars, ok.pos)
+                if after >= chars.length() {
+                    return Error("parse_array: unterminated array")
+                } else {
+                    val c := Char.to_int(chars[after])
+                    if c = 44 {
+                        val next := skip_whitespace(chars, after + 1)
+                        return parse_array_elements(chars, next, new_acc)
+                    } else if c = 93 {
+                        return Ok(ParseOk { value: Json.Arr(new_acc), pos: after + 1 })
+                    } else {
+                        return Error("parse_array: expected ',' or ']' at pos " + Int.to_string(after))
+                    }
+                }
+            }
+            case Error(msg) then {
+                return Error(msg)
+            }
+        }
+    }

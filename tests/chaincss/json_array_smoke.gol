@@ -1,0 +1,25 @@
+// json_array_smoke.gol — smoke test for parse_array.
+
+import "../../src/chaincss/json.gol"
+
+proc check_parse(label: String, input: String) -> Void
+    match parse(input) {
+        case Ok(j) then {
+            print(label + ": OK -> " + stringify(j))
+        }
+        case Error(msg) then {
+            print(label + ": ERR -> " + msg)
+        }
+    }
+
+proc main
+    check_parse("arr empty", "[]")
+    check_parse("arr single", "[1]")
+    check_parse("arr two", "[1,2]")
+    check_parse("arr three", "[1, 2, 3]")
+    check_parse("arr strings", "[\"a\", \"b\"]")
+    check_parse("arr mixed", "[1, \"two\", true, null]")
+    check_parse("arr nested", "[[1,2],[3,4]]")
+    check_parse("arr with ws", "[ 1 , 2 ]")
+    check_parse("arr trailing comma", "[1,]")
+    check_parse("arr unterminated", "[1,2")

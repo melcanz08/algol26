@@ -563,6 +563,32 @@ impl SemanticAnalyzer {
             self.resolve_union_variants(union)?;
         }
 
+        // G11 fix. Records resolved their field types during
+        // record pass 2, at a moment when unions had pass-1
+        // registered placeholders (empty `variants`) but not yet
+        // resolved their payloads. Any record field whose type
+        // is a union therefore holds the placeholder in
+        // `RecordInfo.fields`, not the fully-resolved type.
+        //
+        // Walk the record table once and replace any union whose
+        // `variants` is empty with the fully-resolved union from
+        // `self.union_types`. This makes `ParseOk.value: Json`
+        // hold the real `Json` union (with all variants), so the
+        // IR builder propagates the correct type through
+        // `Ok(ok.value)` and the verifier's return-type check
+        // sees a semantic match.
+        //
+        // Only replaces unions that still have empty `variants`
+        // — a union already resolved by pass 2 is left alone.
+        {
+            let resolved: HashMap<String, Type> = self.union_types.clone();
+            for rec in self.records.values_mut() {
+                for (_field_name, field_ty) in rec.fields.iter_mut() {
+                    Self::rewrite_union_placeholders(field_ty, &resolved);
+                }
+            }
+        }
+
         // ADR 0041. Register traits and impls BEFORE user functions
         // so signature resolution (inside `register_user_functions`)
         // can consult the trait registry for bound declarations and

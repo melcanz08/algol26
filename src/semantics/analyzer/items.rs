@@ -413,6 +413,55 @@ impl SemanticAnalyzer {
         matches!(ty, Type::Record(n, _) if n == name)
     }
 
+    /// G11 fix. Recursively replace any `Type::Union` in `ty`
+    /// whose `variants` is empty with the fully-resolved union
+    /// from `resolved` (keyed by union name). Used after union
+    /// pass 2 completes, to update record field types that were
+    /// resolved against union placeholders during record pass 2.
+    ///
+    /// Recurses through every composite type that could carry a
+    /// union as a nested component.
+    pub(super) fn rewrite_union_placeholders(ty: &mut Type, resolved: &HashMap<String, Type>) {
+        match ty {
+            Type::Union { variants, name, .. } => {
+                if variants.is_empty() {
+                    if let Some(Type::Union { variants: full, .. }) = resolved.get(name.as_str()) {
+                        *variants = full.clone();
+                    }
+                }
+            }
+            Type::List(inner)
+            | Type::Array(inner, _)
+            | Type::Option(inner)
+            | Type::Set(inner)
+            | Type::Pointer(inner)
+            | Type::Borrow(inner)
+            | Type::MutBorrow(inner)
+            | Type::Channel(inner) => {
+                Self::rewrite_union_placeholders(inner, resolved);
+            }
+            Type::Result { ok, error } => {
+                Self::rewrite_union_placeholders(ok, resolved);
+                Self::rewrite_union_placeholders(error, resolved);
+            }
+            Type::Map(k, v) => {
+                Self::rewrite_union_placeholders(k, resolved);
+                Self::rewrite_union_placeholders(v, resolved);
+            }
+            Type::Tuple(elems) => {
+                for e in elems {
+                    Self::rewrite_union_placeholders(e, resolved);
+                }
+            }
+            Type::Generic { args, .. } | Type::Record(_, args) => {
+                for a in args {
+                    Self::rewrite_union_placeholders(a, resolved);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// ADR 0055 Session 2 Step 4b. Pass 1: register every union's
     /// name with an empty placeholder, so variant-payload resolution
     /// in pass 2 can see the name even when a payload refers to a

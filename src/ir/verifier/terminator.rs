@@ -23,7 +23,18 @@ pub(super) fn verify_terminator(
                 }
             }
 
-            if !type_.is_unknown() && !func.return_type.is_unknown() && *type_ != func.return_type {
+            // Same-id unions are semantically the same type even
+            // when their `variants` vectors differ (one may be a
+            // placeholder from a two-pass registration, the other
+            // the fully-resolved form). `can_coerce_to` already
+            // handles that via the union-id check in
+            // `common/types.rs`; the return-type consistency check
+            // needs the same semantic equality, not structural `!=`.
+            if !type_.is_unknown()
+                && !func.return_type.is_unknown()
+                && *type_ != func.return_type
+                && !type_.can_coerce_to(&func.return_type)
+            {
                 return Err(format!(
                     "Function '{}' declared return type {:?} but returns {:?}",
                     func.name, func.return_type, type_

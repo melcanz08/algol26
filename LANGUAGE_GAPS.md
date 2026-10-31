@@ -108,3 +108,74 @@ caught them:
 
 A candidate gap that fails all five checks is a gap. A gap that fails
 one or two is a documentation omission, not a language gap.
+
+
+## G9 — Record-to-union cross-kind references (FIXED)
+
+Records and unions in the same file could not reference each
+other via fields. Specifically, `rec R { field: U }` where `U`
+is a union declared in the same file failed with:
+
+    error[E0003]: Unknown type `U`
+
+even when `U` was declared earlier in the file.
+
+**Root cause:** `src/semantics/analyzer/mod.rs`
+`analyze_with_spans` ran the full record registration sequence
+(pass 1 for names, then pass 2 for fields) before any union
+registration (pass 1 for names, then pass 2 for variant
+payloads). So when `resolve_record_fields` resolved a field
+whose type was a union, `self.union_types` was still empty.
+
+**Reverse direction worked** — a union variant payload naming a
+record resolved correctly, because union resolution ran after
+record resolution finished.
+
+**Discovered:** 2026-10-31, while writing
+`src/chaincss/json.gol`:
+    pub union Json
+        ...
+    rec ParseOk
+        value: Json
+        pos: Int
+
+**Fix:** `src/semantics/analyzer/mod.rs` — interleave pass 1
+for both kinds, then pass 2 for both:
+
+    for rec in records { register_record_name(rec) }
+    for union in unions { register_union_name(union) }
+    for rec in records { resolve_record_fields(rec) }
+    for union in unions { resolve_union_variants(union) }
+
+**Verification:** corpus_01, corpus_41, corpus_62, and
+examples/json all produce expected output after the change.
+No regression.
+
+**Status:** Fixed in the compiler. Future port files can freely
+mix `rec` and `union` in one file.
+
+---
+
+## Methodology update (2026-10-31, after G9)
+
+The lesson of G9 (and G4, G5) is that the port's real output
+is **fixes to ALGOL26**, not workarounds in the ported code.
+When a wall is hit:
+
+1. Identify whether the wall is a genuine ALGOL26 weakness
+   (features missing, ordering bugs, reserved-word
+   collision) or a client-code mistake.
+2. If it's a weakness, fix it in the compiler. The fix belongs
+   in `src/`, not in a workaround in `.gol` code.
+3. Record the fix in this file with before/after code, root
+   cause, and verification.
+4. Then rewrite the client code without the workaround — it
+   should be more natural now.
+
+The ChainCSS port is the forcing function; the compiler fixes
+are the deliverable. A port file that "works" through a
+contorted shape is a failed port — it hides the weakness that
+the port should have exposed.
+
+This session produced G9: 4 lines in `mod.rs`, discovered by
+trying to write `json.gol` naturally. That's the right shape.

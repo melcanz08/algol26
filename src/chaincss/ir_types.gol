@@ -1,0 +1,158 @@
+// ir_types.gol — ChainCSS IR data model.
+//
+// Mirrors src/compiler/pipeline/ir/types.ts for the subset of types
+// produced by parseIR (Phase 2A of the ChainCSS-to-ALGOL26 port).
+//
+// Deferred to later phases (represented as Option[Json] or omitted):
+// - PassMetadata (G1): has index signature, unrepresentable as rec
+// - IRRuleMeta (G1): has index signature
+// - IRDeclarationMeta: has parsed? (ParsedValue) and ast? (CSSValueNode)
+// - ParsedValue (G2): 8-variant recursive union
+// - CSSValueNode (G2): 11-variant recursive AST
+// - IRGraph, IRGraphEdge: not produced by parseIR
+// - IRDirtyFlag, IRPass, IRKeyframe: legacy / pass-system types
+// - DetectedFeature: analyzer output, not parseIR output
+//
+// Type-mapping decisions:
+// - value: string | number -> Json (fits both Str and NumInt/NumFloat)
+// - specificity: number -> Float (can be fractional: 0.1, 0.2, 0.3)
+// - timestamp / createdAt / compiledAt: number -> Int (epoch ms)
+// - IRAtRule.type (14-string union) -> String (validation deferred)
+// - IRDiagnostic.severity (4-string union) -> String
+// - IRDynamicValue.kind (3-string union) -> String
+// - conditions / defaultValue: string | number -> Json
+// - IRCondition.conditions: Record<string, string | number> -> Map<String, Json>
+// - Open-index metadata -> Option[Json]
+
+import "json.gol"
+
+// ─── SourceLocation ──────────────────────────────────────────────────
+
+pub rec SourceLocation
+    file: Option[String]
+    line: Option[Int]
+    column: Option[Int]
+    component: Option[String]
+
+// ─── IRTransformRecord ───────────────────────────────────────────────
+
+pub rec IRTransformRecord
+    pass: String
+    action: String
+    timestamp: Int
+    previous: Option[Json]
+    reason: Option[String]
+
+// ─── IRDynamicValue ──────────────────────────────────────────────────
+
+pub rec IRDynamicValue
+    variable: String
+    kind: String
+    originalValue: Option[Json]
+
+// ─── IRDeclaration ───────────────────────────────────────────────────
+
+pub rec IRDeclaration
+    id: String
+    property: String
+    value: Json
+    important: Option[Bool]
+    source: Option[SourceLocation]
+    history: List[IRTransformRecord]
+    meta: Option[Json]
+    dynValue: Option[IRDynamicValue]
+
+// ─── IRPseudoClass ───────────────────────────────────────────────────
+
+pub rec IRPseudoClass
+    id: String
+    parentId: String
+    name: String
+    declarations: List[IRDeclaration]
+    source: SourceLocation
+    history: List[IRTransformRecord]
+
+// ─── IRKeyframeFrame ─────────────────────────────────────────────────
+
+pub rec IRKeyframeFrame
+    id: String
+    keyText: String
+    declarations: List[IRDeclaration]
+    source: SourceLocation
+
+// ─── IRCondition ─────────────────────────────────────────────────────
+
+pub rec IRCondition
+    id: String
+    property: String
+    variable: String
+    conditions: Map<String, Json>
+    defaultValue: Json
+    source: SourceLocation
+
+// ─── IRDiagnostic ────────────────────────────────────────────────────
+
+pub rec IRDiagnostic
+    id: String
+    nodeId: String
+    severity: String
+    message: String
+    suggestion: Option[String]
+    pass: String
+
+// ─── IRAtRule ────────────────────────────────────────────────────────
+//
+// Forward reference: IRRule is defined below but used in IRAtRule.
+// ALGOL26 supports mutual recursion between records through
+// indirection (List, Option, Map), so this is fine.
+
+pub rec IRAtRule
+    id: String
+    parentId: Option[String]
+    type: String
+    query: Option[String]
+    name: Option[String]
+    declarations: List[IRDeclaration]
+    nestedRules: List[IRRule]
+    keyframes: Option[List[IRKeyframeFrame]]
+    source: SourceLocation
+    history: List[IRTransformRecord]
+
+// ─── IRRule ──────────────────────────────────────────────────────────
+
+pub rec IRRule
+    id: String
+    parentId: Option[String]
+    selector: String
+    declarations: List[IRDeclaration]
+    pseudoClasses: List[IRPseudoClass]
+    atRules: List[IRAtRule]
+    nestedRules: List[IRRule]
+    conditions: List[IRCondition]
+    _dirty: Option[Bool]
+    meta: Option[Json]
+    passMeta: Option[Json]
+    isDead: Bool
+    specificity: Float
+    hash: String
+    source: SourceLocation
+    history: List[IRTransformRecord]
+
+// ─── StyleIR ─────────────────────────────────────────────────────────
+
+pub rec StyleIRMeta
+    version: String
+    createdAt: Int
+    sourceFiles: List[String]
+    passCount: Int
+    passes: List[String]
+    dirtyRules: Int
+    compiledAt: Int
+
+pub rec StyleIR
+    id: String
+    rules: List[IRRule]
+    atRules: List[IRAtRule]
+    diagnostics: List[IRDiagnostic]
+    meta: StyleIRMeta
+    graph: Option[Json]

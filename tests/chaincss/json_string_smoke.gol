@@ -1,0 +1,25 @@
+// json_string_smoke.gol — smoke test for parse_string.
+
+import "../../src/chaincss/json.gol"
+
+proc check_parse(label: String, input: String) -> Void
+    match parse(input) {
+        case Ok(j) then {
+            print(label + ": OK -> " + stringify(j))
+        }
+        case Error(msg) then {
+            print(label + ": ERR -> " + msg)
+        }
+    }
+
+proc main
+    check_parse("str empty", "\"\"")
+    check_parse("str hello", "\"hello\"")
+    check_parse("str with space", "\"hello world\"")
+    check_parse("str escaped quote", "\"a\\\"b\"")
+    check_parse("str escaped backslash", "\"a\\\\b\"")
+    check_parse("str newline", "\"a\\nb\"")
+    check_parse("str tab", "\"a\\tb\"")
+    check_parse("str slash", "\"a\\/b\"")
+    check_parse("str unterminated", "\"abc")
+    check_parse("str bad escape", "\"a\\xb\"")

@@ -109,9 +109,9 @@ proc stringify_object(m: Map<String, Json>) -> String
     return out
 
 
-// ============================================================================
+// ======================================
 // Parsing
-// ============================================================================
+// ======================================
 
 /// Result of a successful parse step: parsed value + cursor position.
 /// Now uses `rec` (not a union workaround) thanks to the ALGOL26 fix
@@ -214,6 +214,20 @@ pub proc parse(s: String) -> Result<Json, String>
     }
     if first = 45 or (first >= 48 and first <= 57) {
         match parse_number(chars, start) {
+            case Ok(ok) then {
+                val tail := skip_whitespace(chars, ok.pos)
+                if tail != chars.length() {
+                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
+                }
+                return Ok(ok.value)
+            }
+            case Error(msg) then {
+                return Error(msg)
+            }
+        }
+    }
+    if first = 34 {
+        match parse_string(chars, start) {
             case Ok(ok) then {
                 val tail := skip_whitespace(chars, ok.pos)
                 if tail != chars.length() {
@@ -375,3 +389,79 @@ proc parse_number(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
             return Error("parse_number: int part overflow")
         }
     }
+
+/// Decode one escape sequence after a backslash. `esc` is the
+/// codepoint of the character following `\`.
+/// Returns the decoded string, or an error for invalid/unsupported
+/// escape sequences. \uXXXX is not yet supported (no Char.from_int
+/// primitive in ALGOL26 v0.8).
+proc parse_escape(esc: Int) -> Result<String, String>
+    if esc = 34 {
+        return Ok("\"")
+    }
+    if esc = 92 {
+        return Ok("\\")
+    }
+    if esc = 47 {
+        return Ok("/")
+    }
+    if esc = 110 {
+        return Ok("\n")
+    }
+    if esc = 114 {
+        return Ok("\r")
+    }
+    if esc = 116 {
+        return Ok("\t")
+    }
+    if esc = 98 {
+        return Error("parse_escape: backslash-b (backspace) not supported in ALGOL26")
+    }
+    if esc = 102 {
+        return Error("parse_escape: backslash-f (form feed) not supported in ALGOL26")
+    }
+    if esc = 117 {
+        return Error("parse_escape: \\uXXXX not yet supported")
+    }
+    return Error("parse_escape: invalid escape sequence")
+
+/// Parse a JSON string literal at `pos`. Expects chars[pos] = '"'.
+/// Returns Ok(ParseOk { value: Json.Str(s), pos: i_after_closing_quote }).
+/// Decodes \" \\ \/ \n \r \t \b \f. Errors on unterminated strings,
+/// bad escapes, and \uXXXX (unsupported).
+pub proc parse_string(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
+    if pos >= chars.length() {
+        return Error("parse_string: expected '\"' at pos " + Int.to_string(pos))
+    }
+    if Char.to_int(chars[pos]) != 34 {
+        return Error("parse_string: expected '\"' at pos " + Int.to_string(pos))
+    }
+    var i := pos + 1
+    var out := ""
+    while i < chars.length() {
+        val n := Char.to_int(chars[i])
+        if n = 34 {
+            return Ok(ParseOk { value: Json.Str(out), pos: i + 1 })
+        }
+        if n = 92 {
+            if i + 1 < chars.length() {
+                val esc := Char.to_int(chars[i + 1])
+                val decoded := parse_escape(esc)
+                match decoded {
+                    case Ok(s) then {
+                        out := out + s
+                        i := i + 2
+                    }
+                    case Error(msg) then {
+                        return Error(msg)
+                    }
+                }
+            } else {
+                return Error("parse_string: unterminated escape at pos " + Int.to_string(i))
+            }
+        } else {
+            out := out + Char.to_string(chars[i])
+            i := i + 1
+        }
+    }
+    return Error("parse_string: unterminated string starting at pos " + Int.to_string(pos))

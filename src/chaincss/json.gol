@@ -107,3 +107,96 @@ proc stringify_object(m: Map<String, Json>) -> String
                 out := out + "null"
     out := out + "}"
     return out
+
+
+// ============================================================================
+// Parsing
+// ============================================================================
+
+/// Result of a successful parse step: parsed value + cursor position.
+/// Now uses `rec` (not a union workaround) thanks to the ALGOL26 fix
+/// recorded as G9 in LANGUAGE_GAPS.md — records can reference unions
+/// in the same file.
+rec ParseOk
+    value: Json
+    pos: Int
+
+/// Skip ASCII whitespace (space, tab, newline, carriage return).
+proc skip_whitespace(chars: List<Char>, pos: Int) -> Int
+    var i := pos
+    while i < chars.length()
+        val n := Char.to_int(chars[i])
+        if n = 32 or n = 9 or n = 10 or n = 13 then
+            i := i + 1
+        else
+            return i
+    return i
+
+/// Parse literal `null` at `pos`.
+proc parse_null(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
+    if pos + 4 > chars.length() then
+        return Error("parse_null: truncated at pos " + Int.to_string(pos))
+    if Char.to_int(chars[pos])     != 110 then
+        return Error("parse_null: expected 'n' at pos " + Int.to_string(pos))
+    if Char.to_int(chars[pos + 1]) != 117 then
+        return Error("parse_null: expected 'u' at pos " + Int.to_string(pos + 1))
+    if Char.to_int(chars[pos + 2]) != 108 then
+        return Error("parse_null: expected 'l' at pos " + Int.to_string(pos + 2))
+    if Char.to_int(chars[pos + 3]) != 108 then
+        return Error("parse_null: expected 'l' at pos " + Int.to_string(pos + 3))
+    return Ok(ParseOk { value: Json.Null, pos: pos + 4 })
+
+/// Parse `true` or `false` at `pos`.
+proc parse_bool(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
+    if pos >= chars.length() then
+        return Error("parse_bool: truncated at pos " + Int.to_string(pos))
+    val first := Char.to_int(chars[pos])
+    if first = 116 then
+        if pos + 4 > chars.length() then
+            return Error("parse_bool: truncated in 'true'")
+        if Char.to_int(chars[pos + 1]) != 114 then
+            return Error("parse_bool: expected 'r' at pos " + Int.to_string(pos + 1))
+        if Char.to_int(chars[pos + 2]) != 117 then
+            return Error("parse_bool: expected 'u' at pos " + Int.to_string(pos + 2))
+        if Char.to_int(chars[pos + 3]) != 101 then
+            return Error("parse_bool: expected 'e' at pos " + Int.to_string(pos + 3))
+        return Ok(ParseOk { value: Json.Bool(true), pos: pos + 4 })
+    if first = 102 then
+        if pos + 5 > chars.length() then
+            return Error("parse_bool: truncated in 'false'")
+        if Char.to_int(chars[pos + 1]) != 97 then
+            return Error("parse_bool: expected 'a' at pos " + Int.to_string(pos + 1))
+        if Char.to_int(chars[pos + 2]) != 108 then
+            return Error("parse_bool: expected 'l' at pos " + Int.to_string(pos + 2))
+        if Char.to_int(chars[pos + 3]) != 115 then
+            return Error("parse_bool: expected 's' at pos " + Int.to_string(pos + 3))
+        if Char.to_int(chars[pos + 4]) != 101 then
+            return Error("parse_bool: expected 'e' at pos " + Int.to_string(pos + 4))
+        return Ok(ParseOk { value: Json.Bool(false), pos: pos + 5 })
+    return Error("parse_bool: expected 'true' or 'false' at pos " + Int.to_string(pos))
+
+/// Top-level parse entry point: skip leading whitespace, dispatch on
+/// the first character, skip trailing whitespace, require end-of-input.
+pub proc parse(s: String) -> Result<Json, String>
+    val chars := String.to_chars(s)
+    val start := skip_whitespace(chars, 0)
+    if start >= chars.length() then
+        return Error("parse: input is empty or all whitespace")
+    val first := Char.to_int(chars[start])
+    if first = 110 then
+        match parse_null(chars, start)
+            case Ok(ok) then
+                val tail := skip_whitespace(chars, ok.pos)
+                if tail != chars.length() then
+                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
+                return Ok(ok.value)
+            case Error(msg) then return Error(msg)
+    if first = 116 or first = 102 then
+        match parse_bool(chars, start)
+            case Ok(ok) then
+                val tail := skip_whitespace(chars, ok.pos)
+                if tail != chars.length() then
+                    return Error("parse: unexpected trailing content at pos " + Int.to_string(tail))
+                return Ok(ok.value)
+            case Error(msg) then return Error(msg)
+    return Error("parse: unsupported value kind at pos " + Int.to_string(start))

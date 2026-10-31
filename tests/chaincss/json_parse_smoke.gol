@@ -1,0 +1,24 @@
+// json_parse_smoke.gol — smoke test for the parse side.
+//
+// Session 1 covers null, bool, and whitespace only.
+// Numbers, strings, arrays, objects are session 2.
+
+import "../../src/chaincss/json.gol"
+
+proc check_parse(label: String, input: String) -> Void
+    match parse(input)
+        case Ok(j) then
+            print(label + ": OK -> " + stringify(j))
+        case Error(msg) then
+            print(label + ": ERR -> " + msg)
+
+proc main
+    check_parse("parse null", "null")
+    check_parse("parse true", "true")
+    check_parse("parse false", "false")
+    check_parse("parse null with ws", "  null  ")
+    check_parse("parse bool with ws", "\n\ttrue\r\n")
+    check_parse("parse empty", "")
+    check_parse("parse bad literal", "nul")
+    check_parse("parse trailing garbage", "nullx")
+    check_parse("parse unsupported", "42")

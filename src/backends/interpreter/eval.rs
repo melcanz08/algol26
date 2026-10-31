@@ -1514,19 +1514,13 @@ impl Interpreter {
                 }
             }
             "List.append" => {
-                // Same structural-receiver pattern as Map.insert: evaluating
-                // args[0] would clone the list, so mutation would be lost.
-                let receiver_name = match args.first() {
-                    Some(TypedIRValue::Variable(name, _)) => name.clone(),
-                    _ => {
-                        return Err(EvalError::Unsupported {
-                            construct: "List.append on non-variable receiver",
-                            hint:
-                                "the IR builder always emits a Variable as the List.append receiver",
-                        });
-                    }
-                };
-
+                // Place-based receiver, same pattern as Map.insert.
+                // Handles `xs.append(x)` (variable receiver) and
+                // `r.xs.append(x)` (field receiver on a mutable
+                // reference, as in `proc f(r: &mut IRRule)`).
+                // Without place resolution, field receivers were
+                // rejected as "non-variable" even though the IR
+                // builder emits them correctly for &mut access.
                 if args.len() != 2 {
                     return Err(EvalError::Runtime(format!(
                         "List.append expects 2 arguments (receiver, value), got {}",
@@ -1535,24 +1529,29 @@ impl Interpreter {
                 }
 
                 let val = self.eval_value(&args[1])?;
-                let receiver = self.variables.get_mut(&receiver_name).ok_or_else(|| {
-                    EvalError::Runtime(format!(
-                        "List.append target `{}` not found at runtime",
-                        receiver_name
-                    ))
-                })?;
 
-                match receiver {
-                    RuntimeValue::List(items) => {
-                        items.push(val);
-                        Ok(RuntimeValue::Void)
+                if let Some(place) = self.place_of_ir_value(&args[0]) {
+                    let mut current = self.resolve_place(&place)?;
+                    match &mut current {
+                        RuntimeValue::List(items) => {
+                            items.push(val);
+                            self.assign_place(&place, current)?;
+                            return Ok(RuntimeValue::Void);
+                        }
+                        other => {
+                            return Err(EvalError::TypeMismatch {
+                                op: "List.append",
+                                left: runtime_kind(other),
+                                right: "List",
+                            });
+                        }
                     }
-                    other => Err(EvalError::TypeMismatch {
-                        op: "List.append",
-                        left: runtime_kind(other),
-                        right: "List",
-                    }),
                 }
+
+                Err(EvalError::Unsupported {
+                    construct: "List.append on non-place receiver",
+                    hint: "the receiver must be a variable, field, or other place",
+                })
             }
             _ => Err(EvalError::Unsupported {
                 construct: "builtin",

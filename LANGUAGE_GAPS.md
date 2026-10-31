@@ -253,3 +253,46 @@ the pipeline was:
 
 Each step was necessary. The port's deliverable is the full
 chain, not just the first link.
+
+
+## G12 — IR builder drops statements after certain `if`-block patterns
+
+**Symptom:** `parse_number` in `json.gol` failed with "function `parse`
+returned no value" for `"1e5"` and `"1e10"`. The `has_frac=false,
+has_exp=true` runtime path never reached any `return`.
+
+**Root cause:** unclear. The AST (via `inspect --ast`) is complete.
+The IR (via `inspect --ir`) for the working path is complete. The
+failing path's IR was not fully inspected. A debug print inserted
+with an inline `if X then "true" else "false"` in expression position
+caused the IR verifier to report "Function 'parse_number' block 281
+has no terminator" — confirming that the IR builder's emitted CFG
+can be missing a terminator on certain paths.
+
+**Workaround in json.gol:** force `has_frac = true` when `has_exp =
+true`, routing the exp-only case through the frac+exp path (which
+works). The arithmetic result is identical because the empty frac
+part contributes zero.
+
+**Status:** Open — compiler-side fix needed. The trigger is narrow
+enough that we shipped the workaround. Needs a minimal repro for
+a proper fix.
+
+## G13 — Inline-if in a larger expression drops subsequent statements
+
+**Symptom:** adding `print("... " + if has_frac then "true" else "false")`
+inside `parse_number` caused the IR verifier to reject the function
+with "block 281 has no terminator". The trailing statements after
+the print (the entire float computation) were missing from the IR.
+
+**Root cause:** suspected — the inline-`if`-as-expression form is
+being mis-parsed or mis-emitted, and subsequent statements in the
+same block are dropped. Same class as G12 (dropped statements after
+conditional patterns) but with a different trigger.
+
+**Workaround:** never use inline `if X then A else B` as part of a
+larger expression in a statement that has subsequent statements.
+Use `if X { A } else { B }` block form, or assign the value to a
+`val` on a previous line.
+
+**Status:** Open — compiler-side fix needed.

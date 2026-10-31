@@ -43,14 +43,16 @@ initial grep missed it.
 
 **Status:** Resolved. No language work needed. Phase 2A-pre-1 removed.
 
-## G5 — `Int.parse` / `Float.parse` (RESOLVED)
+## G5 — `String.to_int` / `Float.parse` (FALSE ALARM — resolved)
 
-No `Int.parse` or `Float.parse` builtins. But `String.to_chars` returns
-`List[Char]`, and `Char.to_int` returns the codepoint. Digit parsing is
-a 10-line helper. Float parsing is ~80-120 lines. No language feature
-needed.
+**Correction.** `String.to_int` exists (`src/builtins.rs` and dispatch
+at `src/backends/interpreter/eval.rs:~1500`). Returns `Option[Int]`.
+No `Float.parse` equivalent, but that is a minor hand-rolling cost, not
+a blocker. The earlier assessment missed `String.to_int` by grepping
+for `Int.parse` instead of checking the string conversion builtins.
 
-**Status:** Resolved by existing primitives.
+**Status:** Resolved. `String.to_int` covers integer parsing.
+Float parsing hand-rolled in the JSON parser.
 
 ## G6 — `Map` capability constraints
 
@@ -83,3 +85,26 @@ Correction: **check existing ADRs, tests, and feature docs before
 declaring a language gap.** A gap that already has a landed ADR is
 not a gap. Future entries in this file should cite what was checked,
 not just what was found missing.
+
+## Methodology (added 2026-10-31, after G4 and G5 false alarms)
+
+Two consecutive gaps (G4, G5) were recorded as blockers when the
+feature already existed under a different name:
+
+- **G4** — recorded as `List.push` missing. `List.append` exists (ADR 0028).
+- **G5** — recorded as `Int.parse` missing. `String.to_int` exists (builtins.rs).
+
+Both were found by *reading*, not grepping. The check that would have
+caught them:
+
+1. `docs/decisions/*.md` — is there a landed ADR?
+2. `docs/features/*.md` — is the feature documented?
+3. `tests/corpus/*.gol` — is there a test?
+4. `src/builtins.rs` **and** `src/backends/interpreter/eval.rs` —
+   grep for the *concept*, not the exact name. Methods dispatched
+   directly in `eval_builtin_call` do not appear in `builtins.rs`.
+5. `docs/features/list.md`, `string.md`, `map.md`, etc. — the
+   feature docs may be incomplete; do not trust them as authoritative.
+
+A candidate gap that fails all five checks is a gap. A gap that fails
+one or two is a documentation omission, not a language gap.

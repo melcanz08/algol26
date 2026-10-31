@@ -380,9 +380,9 @@ impl SemanticIRBuilder {
         }
 
         // ─── Else branch ───
-        if let Some(else_expr) = else_branch {
+        let else_final: Option<usize> = if let Some(else_expr) = else_branch {
             self.push_scope();
-            let else_final = {
+            let ef = {
                 let else_stmts: Cow<'_, [Stmt]> = match &else_expr.kind {
                     ExprKind::Block { statements, .. } => Cow::Borrowed(statements.as_slice()),
                     _ => Cow::Owned(vec![Stmt::Expression(else_expr.clone())]),
@@ -403,14 +403,26 @@ impl SemanticIRBuilder {
             };
             self.pop_scope();
 
-            if let Some(id) = else_final {
+            if let Some(id) = ef {
                 if !self.block_is_terminated(func, id) {
                     self.safe_set_terminator(func, id, Terminator::Jump { block: merge_id });
                 }
             }
+            ef
         } else {
             // No else branch: jump directly to merge.
             self.safe_set_terminator(func, else_id, Terminator::Jump { block: merge_id });
+            Some(else_id)
+        };
+
+        // Both branches return/diverge: no one jumps to merge, so
+        // remove it and report Unreachable. Without this, the merge
+        // block stays in the CFG with no incoming edge and no
+        // terminator, which the CFG verifier rejects.
+        if then_final.is_none() && else_final.is_none() {
+            func.blocks.retain(|b| b.id != merge_id);
+            self.pending_merge = None;
+            return FlowResult::Unreachable;
         }
 
         self.pending_merge = Some(merge_id);
@@ -1220,15 +1232,22 @@ impl SemanticIRBuilder {
             }
         }
 
-        func.blocks.push(SemanticBlock {
-            id: merge_id,
-            instructions: Vec::new(),
-            terminator: None,
-        });
-
         if all_unreachable {
+            // Clear the Switch terminator's default_block reference:
+            // the merge block is not being pushed, so the default
+            // edge would target a nonexistent block.
+            if let Some(block) = func.blocks.iter_mut().find(|b| b.id == switch_from) {
+                if let Some(Terminator::Switch { default_block, .. }) = &mut block.terminator {
+                    *default_block = None;
+                }
+            }
             FlowResult::Unreachable
         } else {
+            func.blocks.push(SemanticBlock {
+                id: merge_id,
+                instructions: Vec::new(),
+                terminator: None,
+            });
             FlowResult::Reachable(merge_id)
         }
     }

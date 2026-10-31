@@ -1762,8 +1762,11 @@ impl SemanticIRBuilder {
                     // Return the variable that holds the result
                     TypedIRValue::Variable(result_var, result_type)
                 } else {
-                    self.diagnostics
-                        .push("If expression has no reachable branch".to_string());
+                    // Both branches diverge. The enclosing statement
+                    // is unreachable from here; return Void without
+                    // warning. The caller's block_is_terminated check
+                    // (in translate_block_with_result) handles the
+                    // unreachability.
                     TypedIRValue::Void
                 }
             }

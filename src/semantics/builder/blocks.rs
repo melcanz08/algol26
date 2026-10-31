@@ -65,6 +65,13 @@ impl SemanticIRBuilder {
             // unterminated. Attach the Assign to the merge instead,
             // and report that as the final block.
             let assign_block = self.pending_merge.take().unwrap_or(final_block);
+            // If the trailing expr itself diverges (e.g. both
+            // branches of an inner if return), assign_block is
+            // terminated and there's no place to attach the
+            // Assign. Report the case as unreachable.
+            if self.block_is_terminated(func, assign_block) {
+                return None;
+            }
             let coerced = self.coerce_value(value, &target_type);
             self.safe_push_instruction(
                 func,

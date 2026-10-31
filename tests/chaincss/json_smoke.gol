@@ -1,0 +1,35 @@
+// json_smoke.gol — smoke test for src/chaincss/json.gol
+//
+// Exercises stringify on every Json variant. Used as a first-pass
+// check that the Json union and stringifier are working before
+// parse_json is written.
+//
+// Expected output:
+//   null
+//   true
+//   false
+//   42
+//   1.5
+//   "hello"
+//   ""
+//   []
+//   [1,2]
+//   {}
+//   {"a":1}
+//   "quote:\" backslash:\\"
+
+import "../../src/chaincss/json.gol"
+
+proc main
+    print(stringify(Json.Null))
+    print(stringify(Json.Bool(true)))
+    print(stringify(Json.Bool(false)))
+    print(stringify(Json.NumInt(42)))
+    print(stringify(Json.NumFloat(1.5)))
+    print(stringify(Json.Str("hello")))
+    print(stringify(Json.Str("")))
+    print(stringify(Json.Arr([])))
+    print(stringify(Json.Arr([Json.NumInt(1), Json.NumInt(2)])))
+    print(stringify(Json.Obj(Map<String, Json> {})))
+    print(stringify(Json.Obj(Map<String, Json> { "a": Json.NumInt(1) })))
+    print(stringify(Json.Str("quote:\" backslash:\\")))

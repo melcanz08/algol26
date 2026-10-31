@@ -1,0 +1,109 @@
+// json.gol — JSON value type and stringifier.
+//
+// Differs from examples/json/json.gol in one place: numbers are split
+// into NumInt and NumFloat variants. ChainCSS IR contains both integer
+// values (16, 12345, timestamps) and float values (0.1 specificity,
+// 1.5 line-height), and a single Num(Int) cannot represent the float
+// case.
+
+pub union Json
+    Null
+    Bool(Bool)
+    NumInt(Int)
+    NumFloat(Float)
+    Str(String)
+    Arr(List<Json>)
+    Obj(Map<String, Json>)
+
+/// Render a Json value to its JSON text representation.
+///
+/// Expression-bodied (fn): the match produces the string directly.
+pub fn stringify(j: Json) -> String
+    match j
+        case Null then "null"
+        case Bool(b) if b then "true"
+        case Bool(_) then "false"
+        case NumInt(n) then Int.to_string(n)
+        case NumFloat(f) then Float.to_string(f)
+        case Str(s) then stringify_string(s)
+        case Arr(xs) then stringify_array(xs)
+        case Obj(m) then stringify_object(m)
+
+/// Quote and escape a string. Statement body (proc).
+proc stringify_string(s: String) -> String
+    var out := "\""
+    for c in String.to_chars(s)
+        out := out + escape_char(c)
+    out := out + "\""
+    return out
+
+/// Escape one character to its JSON string representation.
+/// Sequential `if` with early return (no `else if` chain).
+proc escape_char(c: Char) -> String
+    val n := Char.to_int(c)
+    if n = 34 then
+        return "\\\""
+    if n = 92 then
+        return "\\\\"
+    if n = 10 then
+        return "\\n"
+    if n = 13 then
+        return "\\r"
+    if n = 9 then
+        return "\\t"
+    if n = 8 then
+        return "\\b"
+    if n = 12 then
+        return "\\f"
+    if n < 32 then
+        return "\\u00" + hex_byte(n)
+    return Char.to_string(c)
+
+/// Two-digit lowercase hex for a byte value 0..255.
+proc hex_byte(n: Int) -> String
+    val hi := n / 16
+    val lo := n - hi * 16
+    return hex_digit(hi) + hex_digit(lo)
+
+/// One hex digit as a lowercase string.
+/// Uses a lookup table — no Char.from_int builtin exists.
+proc hex_digit(n: Int) -> String
+    val table := String.to_chars("0123456789abcdef")
+    return Char.to_string(table[n])
+
+/// "[a,b,c]" with no spaces (minified, matching JSON.stringify).
+proc stringify_array(xs: List<Json>) -> String
+    if xs.length() = 0 then
+        return "[]"
+    var out := "["
+    var first := true
+    for x in xs
+        if not first then
+            out := out + ","
+        first := false
+        out := out + stringify(x)
+    out := out + "]"
+    return out
+
+/// "{"k":v,...}" with keys emitted in Map.keys() order.
+/// Map.keys() sorts lexicographically in the current interpreter.
+/// The JSON spec does not require any particular key order.
+proc stringify_object(m: Map<String, Json>) -> String
+    val keys := m.keys()
+    if keys.length() = 0 then
+        return "{}"
+    var out := "{"
+    var first := true
+    for k in keys
+        if not first then
+            out := out + ","
+        first := false
+        out := out + stringify_string(k)
+        out := out + ":"
+        match m.get(k)
+            case Some(v) then
+                out := out + stringify(v)
+            case None then
+                out := out + "null"
+    out := out + "}"
+    return out

@@ -216,6 +216,9 @@ pub proc parse_value(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
     if first = 91 {
         return parse_array(chars, pos)
     }
+    if first = 123 {
+        return parse_object(chars, pos)
+    }
     return Error("parse_value: unsupported value kind at pos " + Int.to_string(pos))
 proc chars_to_string(chars: List<Char>, start: Int, finish: Int) -> String
     var out := ""
@@ -488,5 +491,88 @@ pub proc parse_array_elements(chars: List<Char>, pos: Int, acc: List<Json>) -> R
             case Error(msg) then {
                 return Error(msg)
             }
+        }
+    }
+
+
+/// Parse a JSON object at `pos`. Expects chars[pos] = '{'.
+pub proc parse_object(chars: List<Char>, pos: Int) -> Result<ParseOk, String>
+    if pos >= chars.length() or Char.to_int(chars[pos]) != 123 {
+        return Error("parse_object: expected '{' at pos " + Int.to_string(pos))
+    } else {
+        val j := skip_whitespace(chars, pos + 1)
+        if j < chars.length() and Char.to_int(chars[j]) = 125 {
+            return Ok(ParseOk { value: Json.Obj(Map<String, Json> {}), pos: j + 1 })
+        } else {
+            return parse_object_pairs(chars, j, Map<String, Json> {})
+        }
+    }
+
+/// Parse one or more key-value pairs starting at `pos`, accumulating
+/// into `acc`. Terminates at '}'.
+pub proc parse_object_pairs(chars: List<Char>, pos: Int, acc: Map<String, Json>) -> Result<ParseOk, String>
+    if pos >= chars.length() {
+        return Error("parse_object: unterminated object")
+    } else {
+        match parse_string(chars, pos) {
+            case Ok(key_ok) then {
+                return parse_object_pair(chars, key_ok, acc)
+            }
+            case Error(msg) then {
+                return Error(msg)
+            }
+        }
+    }
+
+/// After the key is parsed: expect ':', then parse the value.
+pub proc parse_object_pair(chars: List<Char>, key_ok: ParseOk, acc: Map<String, Json>) -> Result<ParseOk, String>
+    val colon_pos := skip_whitespace(chars, key_ok.pos)
+    if colon_pos >= chars.length() or Char.to_int(chars[colon_pos]) != 58 {
+        return Error("parse_object: expected ':' at pos " + Int.to_string(colon_pos))
+    } else {
+        val val_pos := skip_whitespace(chars, colon_pos + 1)
+        match parse_value(chars, val_pos) {
+            case Ok(val_ok) then {
+                return parse_object_finish(chars, key_ok.value, val_ok, acc)
+            }
+            case Error(msg) then {
+                return Error(msg)
+            }
+        }
+    }
+
+
+/// Extract the key string from `key_json` and insert the value into
+/// `acc`. Continue to the separator check.
+pub proc parse_object_finish(chars: List<Char>, key_json: Json, val_ok: ParseOk, acc: Map<String, Json>) -> Result<ParseOk, String>
+    match key_json {
+        case Str(k) then {
+            return parse_object_insert(chars, k, val_ok, acc)
+        }
+        case _ then {
+            return Error("parse_object: internal: key is not a string")
+        }
+    }
+
+/// Insert the value into the accumulator and continue to separator.
+pub proc parse_object_insert(chars: List<Char>, key: String, val_ok: ParseOk, acc: Map<String, Json>) -> Result<ParseOk, String>
+    var new_acc := acc
+    new_acc.insert(key, val_ok.value)
+    return parse_object_separator(chars, val_ok.pos, new_acc)
+
+/// After a value is parsed: expect ',' (continue) or '}' (end).
+pub proc parse_object_separator(chars: List<Char>, pos: Int, acc: Map<String, Json>) -> Result<ParseOk, String>
+    val after := skip_whitespace(chars, pos)
+    if after >= chars.length() {
+        return Error("parse_object: unterminated object")
+    } else {
+        val c := Char.to_int(chars[after])
+        if c = 44 {
+            val next := skip_whitespace(chars, after + 1)
+            return parse_object_pairs(chars, next, acc)
+        } else if c = 125 {
+            return Ok(ParseOk { value: Json.Obj(acc), pos: after + 1 })
+        } else {
+            return Error("parse_object: expected ',' or '}' at pos " + Int.to_string(after))
         }
     }

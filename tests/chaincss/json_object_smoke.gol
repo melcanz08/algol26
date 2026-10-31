@@ -1,0 +1,25 @@
+// json_object_smoke.gol — smoke test for parse_object.
+
+import "../../src/chaincss/json.gol"
+
+proc check_parse(label: String, input: String) -> Void
+    match parse(input) {
+        case Ok(j) then {
+            print(label + ": OK -> " + stringify(j))
+        }
+        case Error(msg) then {
+            print(label + ": ERR -> " + msg)
+        }
+    }
+
+proc main
+    check_parse("obj empty", "{}")
+    check_parse("obj one", "{\"a\":1}")
+    check_parse("obj two", "{\"a\":1,\"b\":2}")
+    check_parse("obj with ws", "{ \"a\" : 1 , \"b\" : 2 }")
+    check_parse("obj str value", "{\"name\":\"alice\"}")
+    check_parse("obj nested obj", "{\"outer\":{\"inner\":42}}")
+    check_parse("obj with array", "{\"items\":[1,2,3]}")
+    check_parse("obj mixed", "{\"n\":42,\"s\":\"x\",\"b\":true,\"z\":null}")
+    check_parse("obj missing colon", "{\"a\" 1}")
+    check_parse("obj unterminated", "{\"a\":1")

@@ -1,0 +1,267 @@
+
+
+// ============================================================================
+// Phase 2B — pure functions from parser.ts
+// ============================================================================
+
+/// True iff `s` starts with `prefix`.
+pub proc starts_with(s: String, prefix: String) -> Bool
+    if prefix.length() > s.length() {
+        return false
+    } else {
+        val s_chars := String.to_chars(s)
+        val p_chars := String.to_chars(prefix)
+        var i := 0
+        var ok := true
+        while i < p_chars.length() and ok {
+            if Char.to_int(s_chars[i]) != Char.to_int(p_chars[i]) {
+                ok := false
+            }
+            i := i + 1
+        }
+        return ok
+    }
+
+/// True iff `s` contains `needle` as a substring.
+pub proc contains(s: String, needle: String) -> Bool
+    if needle.length() > s.length() {
+        return false
+    } else {
+        if needle.length() = 0 {
+            return true
+        } else {
+            val sc := String.to_chars(s)
+            val nc := String.to_chars(needle)
+            var i := 0
+            var found := false
+            while i + nc.length() <= sc.length() and not found {
+                var j := 0
+                var match_here := true
+                while j < nc.length() and match_here {
+                    if Char.to_int(sc[i + j]) != Char.to_int(nc[j]) {
+                        match_here := false
+                    }
+                    j := j + 1
+                }
+                if match_here {
+                    found := true
+                }
+                i := i + 1
+            }
+            return found
+        }
+    }
+
+/// True iff char (as codepoint) is a letter A-Z.
+proc is_upper_letter(n: Int) -> Bool
+    if n >= 65 and n <= 90 {
+        return true
+    } else {
+        return false
+    }
+
+/// Camel-case to kebab-case with lowercasing, as one pass.
+/// Inserts '-' before each uppercase letter and lowercases everything.
+pub proc kebab_lower(s: String) -> String
+    val orig := String.to_chars(s)
+    val lower := String.to_chars(String.to_lower(s))
+    var out := ""
+    var i := 0
+    while i < orig.length() {
+        val n := Char.to_int(orig[i])
+        if n >= 65 and n <= 90 {
+            out := out + "-" + Char.to_string(lower[i])
+        } else {
+            out := out + Char.to_string(lower[i])
+        }
+        i := i + 1
+    }
+    return out
+
+/// normalizeProperty from parser.ts:
+///   --*      -> unchanged (CSS custom properties)
+///   no [A-Z] -> unchanged
+///   ms[A-Z] or [A-Z] start -> kebab + leading dash
+///   else kebab
+pub proc normalize_property(prop: String) -> String
+    if starts_with(prop, "--") {
+        return prop
+    } else {
+        // Check for any uppercase letter in prop
+        val chars := String.to_chars(prop)
+        var has_upper := false
+        var i := 0
+        while i < chars.length() and not has_upper {
+            if is_upper_letter(Char.to_int(chars[i])) {
+                has_upper := true
+            }
+            i := i + 1
+        }
+        if not has_upper {
+            return prop
+        } else {
+            // needsLeadingDash: /^[A-Z]/ OR /^ms[A-Z]/
+            val first_n := Char.to_int(chars[0])
+            var needs_leading_dash := is_upper_letter(first_n)
+            if not needs_leading_dash and chars.length() >= 3 {
+                val c0 := Char.to_int(chars[0])
+                val c1 := Char.to_int(chars[1])
+                val c2 := Char.to_int(chars[2])
+                if c0 = 109 and c1 = 115 and is_upper_letter(c2) {
+                    needs_leading_dash := true
+                }
+            }
+            val kebabed := kebab_lower(prop)
+            if not needs_leading_dash {
+                return kebabed
+            } else {
+                if starts_with(kebabed, "-") {
+                    return kebabed
+                } else {
+                    return "-" + kebabed
+                }
+            }
+        }
+    }
+
+
+/// True iff `n` (codepoint) is a valid identifier character:
+/// [a-zA-Z0-9_$].
+proc is_identifier_char(n: Int) -> Bool
+    if n >= 65 and n <= 90 {
+        return true
+    }
+    if n >= 97 and n <= 122 {
+        return true
+    }
+    if n >= 48 and n <= 57 {
+        return true
+    }
+    if n = 95 {
+        return true
+    }
+    if n = 36 {
+        return true
+    }
+    return false
+
+/// True iff `n` (codepoint) can start an identifier: [a-zA-Z_$].
+proc is_identifier_start(n: Int) -> Bool
+    if n >= 65 and n <= 90 {
+        return true
+    }
+    if n >= 97 and n <= 122 {
+        return true
+    }
+    if n = 95 {
+        return true
+    }
+    if n = 36 {
+        return true
+    }
+    return false
+
+/// True iff `s` matches the token path grammar:
+///   segment ('.' segment)*
+/// where segment = [a-zA-Z_$][a-zA-Z0-9_$]*.
+/// Used to validate `theme.*` and `props.*` paths.
+pub proc is_valid_token_path(s: String) -> Bool
+    if s.length() = 0 {
+        return false
+    } else {
+        val chars := String.to_chars(s)
+        var segments: List[String] := []
+        var current := ""
+        for c in chars {
+            if Char.to_int(c) = 46 {
+                segments.append(current)
+                current := ""
+            } else {
+                current := current + Char.to_string(c)
+            }
+        }
+        segments.append(current)
+        var all_valid := true
+        for seg in segments {
+            if seg.length() = 0 {
+                all_valid := false
+            }
+        }
+        if not all_valid {
+            return false
+        } else {
+            var i := 0
+            var ok := true
+            while i < segments.length() and ok {
+                val seg_chars := String.to_chars(segments[i])
+                if not is_identifier_start(Char.to_int(seg_chars[0])) {
+                    ok := false
+                } else {
+                    var j := 1
+                    while j < seg_chars.length() and ok {
+                        if not is_identifier_char(Char.to_int(seg_chars[j])) {
+                            ok := false
+                        }
+                        j := j + 1
+                    }
+                }
+                i := i + 1
+            }
+            return ok
+        }
+    }
+
+/// True iff the string contains a `${` that is NOT inside a pair of
+/// matched quotes. Matches parser.ts's QUOTED_DOLLAR_BRACE regex:
+///   /(['"])(?:(?!).)*\$\{(?:(?!\1).)*\1/
+/// i.e. a `${` between a matched pair of quote characters.
+///
+/// Note: this returns true only when `${` is inside matched quotes.
+/// The function name matches the TS regex's variable name, which
+/// (confusingly) captures the "is quoted" case, not the "is unquoted"
+/// case.
+pub proc has_quoted_dollar_brace(s: String) -> Bool
+    val chars := String.to_chars(s)
+    var i := 0
+    while i < chars.length() {
+        val n := Char.to_int(chars[i])
+        if n = 34 or n = 39 {
+            val quote := n
+            var j := i + 1
+            var found_close := false
+            var found_dollar_brace := false
+            while j < chars.length() and not found_close {
+                val cj := Char.to_int(chars[j])
+                if cj = quote {
+                    found_close := true
+                } else if cj = 36 and j + 1 < chars.length() and Char.to_int(chars[j + 1]) = 123 {
+                    found_dollar_brace := true
+                }
+                j := j + 1
+            }
+            if found_close and found_dollar_brace {
+                return true
+            }
+            i := j
+        } else {
+            i := i + 1
+        }
+    }
+    return false
+
+/// isDynamicToken from parser.ts:
+///   contains unquoted "${"               -> dynamic
+///   starts with "theme." and valid path   -> dynamic
+///   starts with "props." and valid path   -> dynamic
+///   otherwise                             -> static
+pub proc is_dynamic_token(value: String) -> Bool
+    if contains(value, "${") and not has_quoted_dollar_brace(value) {
+        return true
+    }
+    if starts_with(value, "theme.") and is_valid_token_path(value) {
+        return true
+    }
+    if starts_with(value, "props.") and is_valid_token_path(value) {
+        return true
+    }
+    return false

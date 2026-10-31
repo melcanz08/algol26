@@ -1,0 +1,43 @@
+// parser_smoke.gol — smoke test for normalize_property and is_dynamic_token.
+
+import "../../src/chaincss/parser.gol"
+
+proc check_normalize(input: String, expected: String) -> Void
+    val result := normalize_property(input)
+    if result = expected then {
+        print("normalize(" + input + ") -> " + result + " OK")
+    } else {
+        print("normalize(" + input + ") -> " + result + " (expected " + expected + ") MISMATCH")
+    }
+
+proc check_dynamic(input: String, expected: Bool) -> Void
+    val result := is_dynamic_token(input)
+    if result = expected then {
+        print("dynamic(" + input + ") OK")
+    } else {
+        print("dynamic(" + input + ") MISMATCH")
+    }
+
+proc main
+    // normalize_property
+    check_normalize("display", "display")
+    check_normalize("backgroundColor", "background-color")
+    check_normalize("flexDirection", "flex-direction")
+    check_normalize("msTransition", "-ms-transition")
+    check_normalize("WebkitTransform", "-webkit-transform")
+    check_normalize("--custom-prop", "--custom-prop")
+    check_normalize("gap", "gap")
+    check_normalize("marginTop", "margin-top")
+    // is_dynamic_token
+    check_dynamic("red", false)
+    check_dynamic("${color}", true)
+    check_dynamic("${\"quoted\"}", true)
+    check_dynamic("\"${x}\"", false)
+    check_dynamic("abc${x}def", true)
+    check_dynamic("theme.primary", true)
+    check_dynamic("theme.primary.500", true)
+    check_dynamic("theme.", false)
+    check_dynamic("theme", false)
+    check_dynamic("props.color", true)
+    check_dynamic("props.color.deep", true)
+    check_dynamic("props..color", false)

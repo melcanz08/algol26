@@ -1,0 +1,70 @@
+// json_roundtrip.gol — round-trip test for the JSON parser/stringifier.
+//
+// Property: stringify(parse(stringify(parse(x)))) = stringify(parse(x))
+// for all valid JSON x.
+//
+// This is "stringify ∘ parse is idempotent" — the string-level output
+// of a round-trip is stable under further round-trips. It is the
+// correct identity for a differential test because the internal
+// union variant of a value (NumInt vs NumFloat) is an implementation
+// detail; what matters is the JSON text emitted.
+//
+// In particular: parse("1e10") returns NumFloat(1e10), stringify
+// emits "10000000000", parse returns NumInt(10000000000) — different
+// union variants, same emitted text. Union-level equality would fail
+// on this case; string-level idempotence passes.
+
+import "../../src/chaincss/json.gol"
+
+proc check_roundtrip(label: String, input: String) -> Void
+    match parse(input) {
+        case Ok(j) then {
+            val first_out := stringify(j)
+            match parse(first_out) {
+                case Ok(j2) then {
+                    val second_out := stringify(j2)
+                    if first_out = second_out then {
+                        print(label + ": ROUNDTRIP OK (" + first_out + ")")
+                    } else {
+                        print(label + ": ROUNDTRIP MISMATCH " + first_out + " vs " + second_out)
+                    }
+                }
+                case Error(msg) then {
+                    print(label + ": REPARSE ERR -> " + msg)
+                }
+            }
+        }
+        case Error(msg) then {
+            print(label + ": PARSE ERR -> " + msg)
+        }
+    }
+
+proc main
+    // All 6 variants
+    check_roundtrip("null", "null")
+    check_roundtrip("bool true", "true")
+    check_roundtrip("bool false", "false")
+    check_roundtrip("int zero", "0")
+    check_roundtrip("int positive", "42")
+    check_roundtrip("int negative", "-7")
+    check_roundtrip("float simple", "3.14")
+    check_roundtrip("float negative", "-0.5")
+    check_roundtrip("float exp positive", "1e10")
+    check_roundtrip("float exp negative", "1.5e-3")
+    check_roundtrip("string empty", "\"\"")
+    check_roundtrip("string simple", "\"hello\"")
+    check_roundtrip("string with space", "\"hello world\"")
+    check_roundtrip("string escaped quote", "\"a\\\"b\"")
+    check_roundtrip("string escaped backslash", "\"a\\\\b\"")
+    check_roundtrip("array empty", "[]")
+    check_roundtrip("array single", "[1]")
+    check_roundtrip("array multi", "[1, 2, 3]")
+    check_roundtrip("array nested", "[[1,2],[3,4]]")
+    check_roundtrip("array mixed", "[1, \"two\", true, null]")
+    check_roundtrip("object empty", "{}")
+    check_roundtrip("object single", "{\"a\":1}")
+    check_roundtrip("object multi", "{\"a\":1,\"b\":2}")
+    check_roundtrip("object nested", "{\"outer\":{\"inner\":42}}")
+    check_roundtrip("object with array", "{\"items\":[1,2,3]}")
+    check_roundtrip("object mixed", "{\"n\":42,\"s\":\"x\",\"b\":true,\"z\":null}")
+    check_roundtrip("deep nested", "{\"a\":[{\"b\":[1,2]},{\"c\":null}]}")

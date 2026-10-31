@@ -1,0 +1,13 @@
+import "../../src/chaincss/ir_factory.gol"
+
+proc main
+    // Known FNV-1a 32-bit values:
+    // "" -> 2166136261 (0x811c9dc5)
+    // "a" -> 0xe40c292c = 3826002220
+    // "foobar" -> 0xbf9cf968 = 3214735720
+    print("fnv1a empty: " + Int.to_string(fnv1a("")))
+    print("fnv1a a: " + Int.to_string(fnv1a("a")))
+    print("fnv1a foobar: " + Int.to_string(fnv1a("foobar")))
+    print("base36 of 42: " + int_to_base36(42))
+    print("rule_id: " + rule_id(".card", "card.chain.ts"))
+    print("declaration_id: " + declaration_id(".card", "display"))

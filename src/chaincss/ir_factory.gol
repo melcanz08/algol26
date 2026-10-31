@@ -1,0 +1,181 @@
+// ir_factory.gol — IR node constructors, ported from parser.ts's factory.ts
+//
+// Implements:
+// - FNV-1a 32-bit hashing (via bit-by-bit XOR emulation)
+// - Base36 encoding (for stable IDs)
+// - rule_id / declaration_id / frame_id
+// - make_transform_record
+// - create_rule / create_declaration
+//
+// Deferred vs TypeScript:
+// - timestamp uses 0 instead of Date.now() (no time primitive in ALGOL26)
+// - meta.parsed (ParsedValue) is None instead of a structured value
+// - meta is Some(Json.Obj({})) instead of {parsed: ...}
+//
+// These differences are documented in the port's parity notes; the
+// differential test harness normalizes them.
+
+import "json.gol"
+import "ir_types.gol"
+
+// ============================================================================
+// Integer bit helpers (no bitwise operators in ALGOL26)
+// ============================================================================
+
+/// Integer modulo for non-negative operands. ALGOL26's `/` on Int
+/// truncates toward zero (Rust semantics), matching TypeScript's `%`
+/// for non-negative operands.
+proc int_mod(a: Int, b: Int) -> Int
+    return a - (a / b) * b
+
+/// Bit-by-bit XOR of two non-negative Ints. Emulates `a ^ b` without
+/// a bitwise XOR operator. Uses mod/div to extract bits.
+proc xor_int(a: Int, b: Int) -> Int
+    var result := 0
+    var multiplier := 1
+    var ap := a
+    var bp := b
+    while ap > 0 or bp > 0 {
+        val abit := int_mod(ap, 2)
+        val bbit := int_mod(bp, 2)
+        if abit != bbit {
+            result := result + multiplier
+        }
+        ap := ap / 2
+        bp := bp / 2
+        multiplier := multiplier * 2
+    }
+    return result
+
+// ============================================================================
+// FNV-1a hash (32-bit) + base36 encoding
+// ============================================================================
+
+/// FNV-1a 32-bit hash of a string. Matches TypeScript's stableId
+/// implementation: hash = 2166136261; for each char, hash ^= char;
+/// hash = hash * 16777619 mod 2^32.
+pub proc fnv1a(s: String) -> Int
+    var hash := 2166136261
+    for c in String.to_chars(s) {
+        hash := xor_int(hash, Char.to_int(c))
+        hash := int_mod(hash * 16777619, 4294967296)
+    }
+    return hash
+
+/// Base36 encoding of a non-negative Int. Lowercase letters a-z.
+pub proc int_to_base36(n: Int) -> String
+    val table := String.to_chars("0123456789abcdefghijklmnopqrstuvwxyz")
+    if n = 0 {
+        return "0"
+    } else {
+        var result := ""
+        var rem := n
+        while rem > 0 {
+            val digit := int_mod(rem, 36)
+            result := Char.to_string(table[digit]) + result
+            rem := rem / 36
+        }
+        return result
+    }
+
+/// Stable ID: `prefix + "-" + base36(fnv1a(key))`.
+pub proc stable_id(prefix: String, key: String) -> String
+    return prefix + "-" + int_to_base36(fnv1a(key))
+
+// ============================================================================
+// Node ID generators (match TypeScript factory.ts)
+// ============================================================================
+
+/// ruleId(selector, source) = stableId("rule", "<file>:<selector>")
+pub proc rule_id(selector: String, source_file: String) -> String
+    return stable_id("rule", source_file + ":" + selector)
+
+/// declarationId(ruleSelector, property) = stableId("decl", "<ruleSelector>:<property>")
+pub proc declaration_id(rule_selector: String, property: String) -> String
+    return stable_id("decl", rule_selector + ":" + property)
+
+// ============================================================================
+// Transform record helper
+// ============================================================================
+
+/// record(pass, action, previous, reason) with timestamp = 0 (ALGOL26
+/// has no time primitive; see file header).
+pub proc make_transform_record(pass: String, action: String, reason: String) -> IRTransformRecord
+    return IRTransformRecord {
+        pass: pass,
+        action: action,
+        timestamp: 0,
+        previous: None,
+        reason: Some(reason)
+    }
+
+// ============================================================================
+// IR node constructors
+// ============================================================================
+
+/// createRule(selector, source, parentId). Matches factory.ts's
+/// createRule: empty declarations/pseudoClasses/atRules/nestedRules/
+/// conditions, _dirty=true, isDead=false, specificity=0, hash="",
+/// history with one parser-created record.
+pub proc create_rule(selector: String, source: Option[SourceLocation], parent_id: Option[String]) -> IRRule
+    val source_file := match source {
+        case Some(sl) then {
+            match sl.file {
+                case Some(f) then f
+                case None then ""
+            }
+        }
+        case None then ""
+    }
+    val empty_source := SourceLocation {
+        file: None,
+        line: None,
+        column: None,
+        component: None
+    }
+    return IRRule {
+        id: rule_id(selector, source_file),
+        parentId: parent_id,
+        selector: selector,
+        declarations: [],
+        pseudoClasses: [],
+        atRules: [],
+        nestedRules: [],
+        conditions: [],
+        _dirty: Some(true),
+        meta: Some(Json.Obj(Map<String, Json> {})),
+        passMeta: None,
+        isDead: false,
+        specificity: 0.0,
+        hash: "",
+        source: match source {
+            case Some(sl) then sl
+            case None then empty_source
+        },
+        history: [make_transform_record("parser", "created", "Parsed from StyleDefinition")]
+    }
+
+/// createDeclaration(property, value, source). Matches factory.ts's
+/// createDeclaration: id from declarationId, history with one parser-
+/// created record, meta.parsed deferred (None in ALGOL26), dynamic
+/// from meta.dynamic if provided (None for now).
+pub proc create_declaration(property: String, value: Json, source: Option[SourceLocation], rule_selector: String) -> IRDeclaration
+    val source_file := match source {
+        case Some(sl) then {
+            match sl.file {
+                case Some(f) then f
+                case None then "inline"
+            }
+        }
+        case None then "inline"
+    }
+    return IRDeclaration {
+        id: declaration_id(rule_selector, property),
+        property: property,
+        value: value,
+        important: None,
+        source: source,
+        history: [make_transform_record("parser", "created", "Parsed from StyleDefinition")],
+        meta: Some(Json.Obj(Map<String, Json> {})),
+        dynValue: None
+    }

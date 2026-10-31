@@ -28,18 +28,20 @@ dimensions like 1.5em). Fix: two-variant `Json` with `NumInt(Int)` and
 
 **Status:** Resolved by design decision. ~10 lines.
 
-## G4 — `List.push` (Phase 2A-pre-1)
+## G4 — `List.push` (FALSE ALARM — resolved)
 
-`List<T>` has no `push`, no concatenation, no preallocation. Building
-runtime-length lists is impossible. JSON parsing cannot construct
-`Json.Arr(...)`.
+**Correction.** Earlier assessment was wrong. `List.append(x)` exists
+and works: `docs/decisions/0028-list-append.md` (status: Current),
+dispatch arm at `src/backends/interpreter/eval.rs:1500`, corpus test
+at `tests/corpus/corpus_42_list_append_llvm.gol`.
 
-Template confirmed: `Map.insert` at `src/backends/interpreter/eval.rs:1372`
-shows the mutating-builtin dispatch pattern. `Type::mut_borrow` exists
-(`src/common/types.rs:413`). Adding `List.push` is ~40-80 lines including
-tests.
+`List.append` is method-form, mutating, requires `var`, returns `Void`,
+interpreter-only (LLVM/WASM refuse via `Feature::ListAppend`). It does
+not appear in `src/builtins.rs` because it is dispatched directly in
+`eval_builtin_call`, same pattern as `Map.insert` — which is why the
+initial grep missed it.
 
-**Status:** Phase 2A-pre-1. Est. 1 session.
+**Status:** Resolved. No language work needed. Phase 2A-pre-1 removed.
 
 ## G5 — `Int.parse` / `Float.parse` (RESOLVED)
 
@@ -64,3 +66,20 @@ comparison must be structural, not byte-for-byte.
 Interpreter: full. LLVM: partial. WASM: unverified. Same constraint as G6.
 
 **Status:** Constraint. Interpreter-only for Phase 2.
+
+---
+
+## Note on the G4 error (2026-10-31)
+
+G4 was recorded as a hard blocker before checking `docs/decisions/`,
+`docs/features/`, and `tests/corpus/` for existing implementations.
+Three files were already on disk answering the question:
+
+- `docs/decisions/0028-list-append.md`
+- `tests/corpus/corpus_42_list_append_llvm.gol`
+- `docs/features/list.md` (incomplete — did not list `append`)
+
+Correction: **check existing ADRs, tests, and feature docs before
+declaring a language gap.** A gap that already has a landed ADR is
+not a gap. Future entries in this file should cite what was checked,
+not just what was found missing.

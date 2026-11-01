@@ -563,29 +563,59 @@ impl SemanticAnalyzer {
             self.resolve_union_variants(union)?;
         }
 
-        // G11 fix. Records resolved their field types during
-        // record pass 2, at a moment when unions had pass-1
+        // G11 fix + G18 fix. Records resolved their field types
+        // during record pass 2, at a moment when unions had pass-1
         // registered placeholders (empty `variants`) but not yet
-        // resolved their payloads. Any record field whose type
-        // is a union therefore holds the placeholder in
-        // `RecordInfo.fields`, not the fully-resolved type.
+        // resolved their payloads. Any record field whose type is a
+        // union therefore holds the placeholder.
         //
-        // Walk the record table once and replace any union whose
-        // `variants` is empty with the fully-resolved union from
-        // `self.union_types`. This makes `ParseOk.value: Json`
-        // hold the real `Json` union (with all variants), so the
-        // IR builder propagates the correct type through
-        // `Ok(ok.value)` and the verifier's return-type check
-        // sees a semantic match.
+        // G18 extends this: union variant payloads themselves can
+        // reference the union via indirection — `Arr(List<Json>)`,
+        // `Obj(Map<String, Json>)` — and those inner `Json`
+        // references were resolved against the pass-1 placeholder
+        // too. Without rewriting them, `for item in items` (where
+        // `items` was extracted from `case Arr(items)`) binds `item`
+        // to a stub `Union { variants: [] }`, and a nested
+        // `match item { case Str(_) ... }` reports
+        // "Union 'Json' has no variant 'Str'" with an empty variant
+        // list.
         //
-        // Only replaces unions that still have empty `variants`
-        // — a union already resolved by pass 2 is left alone.
-        {
+        // Iterate until no empty `Union` remains. A single pass
+        // resolves one level of indirection; the loop keeps
+        // rewriting copied payloads until the union table is
+        // stable. Bounded to catch the pathological case where a
+        // union variant payload recursively contains the union.
+        const MAX_PASSES: usize = 10;
+        for _pass in 0..MAX_PASSES {
             let resolved: HashMap<String, Type> = self.union_types.clone();
+            let mut any_change = false;
+
             for rec in self.records.values_mut() {
                 for (_field_name, field_ty) in rec.fields.iter_mut() {
+                    let before = field_ty.clone();
                     Self::rewrite_union_placeholders(field_ty, &resolved);
+                    if *field_ty != before {
+                        any_change = true;
+                    }
                 }
+            }
+
+            for union_ty in self.union_types.values_mut() {
+                if let Type::Union { variants, .. } = union_ty {
+                    for (_vname, payloads) in variants.iter_mut() {
+                        for payload in payloads.iter_mut() {
+                            let before = payload.clone();
+                            Self::rewrite_union_placeholders(payload, &resolved);
+                            if *payload != before {
+                                any_change = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !any_change {
+                break;
             }
         }
 

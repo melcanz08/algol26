@@ -457,3 +457,32 @@ The inner match is then at depth 1 in the helper.
 **Status:** Open. Compiler bug in the analyzer's per-scope union
 variant resolution. Workaround applied in `parse_ir.gol` and
 `parser.gol` Phase 2C/2D.
+
+**Status:** ✅ **RESOLVED** (2026-11-01, commit fa13ae8).
+
+**Root cause:** The analyzer's `rewrite_union_placeholders` pass
+(added for G11, which fixed the *record field* case) was not applied
+to union variant payloads. When a union's own variant payload
+referenced the union via indirection — `Arr(List<Json>)`,
+`Obj(Map<String, Json>)` — the inner `Json` reference was resolved
+against the pass-1 placeholder (`Union { variants: [] }`) during
+union pass 2 and never rewritten. Then `for item in items` bound
+`item` to the empty stub, and the inner
+`match item { case Str(_) ... }` failed with an empty variant list.
+
+**Fix:** `src/semantics/analyzer/mod.rs:582-660` — extend the
+placeholder-rewrite pass to also walk union variant payloads, with
+bounded fixpoint iteration (up to 10 passes) to resolve one level
+of indirection per pass. Cycles (Json contains List<Json>) mean
+unbounded expansion is impossible, so iteration is capped and the
+common destructure depth (one level) is fully resolved.
+
+**Regression test:** `nested_match_on_recursive_union_resolves_variants`
+in `src/semantics/analyzer/tests.rs`.
+
+**Port impact:** The helper cascade in `parse_ir.gol`'s
+`handle_scalar_entry` / `handle_pseudo_entry` /
+`handle_nested_entry` / `handle_rule_entry` is now removable —
+a follow-up commit will collapse them back into the natural
+nested-match form.
+

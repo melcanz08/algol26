@@ -296,3 +296,55 @@ Use `if X { A } else { B }` block form, or assign the value to a
 `val` on a previous line.
 
 **Status:** Open — compiler-side fix needed.
+
+
+## G15 — `Option[Record]` in function argument position breaks type resolution
+
+**Symptom:** passing an `Option[Record]`-typed parameter to another
+function whose parameter is also `Option[Record]` triggers:
+
+    error[E0003]: Unknown type `Option`. It is not a primitive,
+    a declared record, or a type parameter in scope.
+
+The error points at the *parameter declaration* `Option[...]`, not
+at the call site. The type is legal in isolation; the failure appears
+only when the parameter is *used as an argument* in the function
+body.
+
+**Minimal repro:** `tests/chaincss/compiler_bugs/G15_option_record_arg.gol`:
+
+    import "ir_types.gol"
+    proc consume(source: Option[SourceLocation]) -> Int
+        return 1
+    proc test(source: Option[SourceLocation]) -> Int
+        return consume(source)
+
+Fails with the error above. Removing the `consume(source)` call
+(keeping both signatures) makes it pass. Making `source` a plain
+`SourceLocation` (not `Option`) also makes it pass.
+
+**Scope:**
+- Records as args: OK
+- `Option[Primitive]` as args: OK
+- `Option[Record]` as args: BROKEN
+
+**Workaround in ALGOL26 source:** avoid passing `Option[Record]`
+arguments. Pass a `&Record` + `Bool has_value` flag pair, or
+`&Option[Record]` (reference, which is `Copy`) if the analyzer
+supports it — untested, see below.
+
+**Discovered:** 2026-10-31 while writing `parse_nested_object` for
+the ChainCSS port. The port needs `Option[SourceLocation]` threaded
+through three mutually-recursive functions; the arg-passing pattern
+is pervasive.
+
+**Status:** Open — compiler-side fix needed. Suspected location:
+analyzer's move-tracking / parameter-binding path does not
+re-resolve `Option[Record]` correctly. Fix would be in
+`src/semantics/analyzer/` around the `Call` expression arm or in
+`resolve_type_syntax` caching.
+
+**Tests to add when fixed:**
+- `test_option_rec_arg.gol` should compile.
+- `test_move_option.gol` and `test_use_twice.gol` should compile.
+- Add to `tests/chaincss/compiler_bugs/` as positive tests.

@@ -1,0 +1,7 @@
+import "ir_types.gol"
+
+proc consume(source: Option[SourceLocation]) -> Int
+    return 1
+
+proc test(source: Option[SourceLocation]) -> Int
+    return consume(source)

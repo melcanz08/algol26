@@ -636,3 +636,85 @@ main-thread stack. No thread-stack workaround needed.
 (parity 3/3, all fixes committed). The port-natural refactor is
 deferred to a dedicated NLL + frame-qualified Place session.
 
+---
+
+## G18d — recursive-union stub-depth mismatch in equality checks
+
+**Symptom:** assigning a `Map<String, Json>` built from JSON parsing
+into a variable declared as `Map<String, Json>` from the defaults
+fails with a type mismatch. The two `Union { name: "Json" }` types
+differ only in the *depth of the placeholder stub* inside their
+`Arr` / `Obj` payloads: one has `List(Union { variants: [] })`, the
+other `List(Union { variants: [ ..., Arr(List(Union { variants: [] }))) ] })`.
+The equality check compares the whole variant list including
+payloads; different stub depths mean unequal types.
+
+**Root cause:** the recursive union `Json` has a placeholder for
+itself inside its own variant payloads. That placeholder is a
+`Union { variants: [] }` at some finite depth (wherever resolution
+stopped). Different code paths resolve `Json` at different depths —
+one from the registry (deeper), one from a context that had the
+shallower stub. Type equality fails because the payloads differ
+structurally.
+
+**Workaround applied in the port:** the `intents` field of
+`ChainCSSConfig` is typed as `Json` rather than `Map<String, Json>`.
+Treating the whole field as opaque JSON sidesteps the comparison —
+behaviorally equivalent to TS's `Record<string, IntentDefinition>`.
+`config_to_json` inserts the `Json` directly instead of iterating
+a typed map.
+
+**Status:** Open. The right fix is either stub-depth normalization
+at union registration (all `Json` values get the same stub depth) or
+structural equality that ignores stub depth. Deferred — the port
+works around it cleanly, and the workaround is behaviorally
+equivalent to TS.
+
+---
+
+## G23 — TS/JS execution model is not portable
+
+**Symptom:** ChainCSS's config loader executes `.ts` and `.js` config
+files via dynamic `import()` (jiti for `.ts`). Plugins are objects
+with `setup` / `transform` / `transformCSS` function fields. Macros
+are `MacroHandler` functions. Presets may be functions of type
+`(base) => Config`.
+
+**Impact:** these values are *executable JavaScript*. ALGOL26 can't
+execute JS without embedding a JS engine (out of scope for the port).
+
+**Workaround applied in the port:**
+- `config.gol` reads `chaincss.config.json` only. The four corpus
+  entries gained `.json` twins alongside their `.js` originals.
+- Fields whose TS type is function-valued (`macros`, `plugins`,
+  presets in function form) are stored as opaque `Json` in the
+  port's records. `config_to_json` round-trips them faithfully;
+  the port just doesn't execute them.
+- `.ts`/`.js` config file execution is deferred to Phase 10+ (plugin
+  host / dynamic execution), if ever implemented.
+
+**Status:** Accepted divergence. The port's config-loading path
+handles JSON configs — the standard for cross-language tools.
+Executable configs remain a Node-specific capability.
+
+---
+
+## Phase 4 — complete (2026-11-01)
+
+IR parity (3/3 corpus entries) was already verified in Phase 2D.
+Config-loading parity (4/4 corpus entries) is now verified by the
+`config.gol` port.
+
+Files added:
+- src/chaincss/config.gol — ChainCSSConfig + nested records +
+  get_default_config + load_config_from_json + config_to_json
+- chaincss/diff-corpus/ts-loadconfig.ts — TS oracle
+- chaincss/diff-corpus/run_config_parity.sh — driver
+- chaincss/diff-corpus/inputs/*/chaincss.config.json — 4 configs
+
+Deferred with correct magnitude:
+- G1 (PassMetadata index signatures) — Phase 4 conditional
+- G23 (TS/JS execution) — Phase 10+
+- G18d (stub-depth equality) — workaround in place, fix deferred
+
+Phase 4 exit criterion met.

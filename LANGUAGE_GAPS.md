@@ -454,10 +454,6 @@ The variant table for `Json` is empty at depth ≥ 2.
 (`collect_string_items`, `append_scalar_declarations` in `parser.gol`).
 The inner match is then at depth 1 in the helper.
 
-**Status:** Open. Compiler bug in the analyzer's per-scope union
-variant resolution. Workaround applied in `parse_ir.gol` and
-`parser.gol` Phase 2C/2D.
-
 **Status:** ✅ **RESOLVED** (2026-11-01, commit fa13ae8).
 
 **Root cause:** The analyzer's `rewrite_union_placeholders` pass

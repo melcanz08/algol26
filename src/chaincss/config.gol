@@ -1,0 +1,834 @@
+// config.gol — port of src/shared/config/index.ts (types) and
+// src/shared/config/loader.ts (getDefaultConfig, deepMergeConfig).
+//
+// Ported:
+// - ChainCSSConfig record — all structured fields as nested records
+// - TokenRelationship union — Derived / Contrast / Harmony
+// - IntentDefinition record
+// - get_default_config — matches loader.ts's getDefaultConfig exactly
+// - deep_merge_config — matches loader.ts's deepMergeConfig
+// - load_config_from_json / load_config_json — read chaincss.config.json,
+//   merge over defaults, return ChainCSSConfig
+// - config_to_json — serialize for parity comparison
+//
+// Deferred — G23 (TS/JS execution model):
+// - macros: Record<string, MacroHandler> — stored as Json; values not executed
+// - plugins: ChainCSSPlugin[] — stored as Json; setup/transform fields inert
+// - presets (function form) — stored as Json
+// - .ts/.js config file execution — ALGOL26 reads .json only
+
+import "json.gol"
+
+// ============================================================================
+// Nested record types
+// ============================================================================
+
+pub rec OutputConfig
+    cssFile: String
+    minify: Bool
+    generateGlobalCSS: Bool
+    targets: List<String>
+
+pub rec AtomicConfig
+    enabled: Bool
+    threshold: Int
+    naming: String
+    mode: String
+    minify: Bool
+    verbose: Bool
+
+pub rec PrefixerConfig
+    enabled: Bool
+    mode: String
+    browsers: List<String>
+    flexbox: Json
+    grid: Json
+    remove: Bool
+    add: Bool
+    sourceMap: Bool
+    sourceMapInline: Bool
+    verbose: Bool
+
+pub rec CacheConfig
+    enabled: Bool
+    maxAgeDays: Int
+    maxSizeMB: Int
+    path: String
+
+pub rec DevConfig
+    port: Int
+    publicDir: String
+
+// ============================================================================
+// TokenRelationship — union of three variants
+// ============================================================================
+
+pub union TokenRelationship
+    Derived(String, String, String)
+    Contrast(String, String, Option[Float], Option[String])
+    Harmony(String, List<String>, String)
+
+pub rec TokensConfig
+    tokens: Json
+    relationships: List[TokenRelationship]
+
+pub rec EntanglementConfig
+    relationships: List[TokenRelationship]
+
+pub rec A11yPair
+    foreground: String
+    background: String
+    label: Option[String]
+
+pub rec A11yConfig
+    pairs: List[A11yPair]
+
+// ============================================================================
+// IntentDefinition
+// ============================================================================
+
+pub rec IntentDefinition
+    name: Option[String]
+    category: Option[String]
+    description: Option[String]
+    semantics: Json
+    properties: Json
+    states: Json
+    responsive: Json
+    a11y: Json
+
+// ============================================================================
+// ChainCSSConfig — the top-level record
+// ============================================================================
+
+pub rec ChainCSSConfig
+    inputs: List<String>
+    output: OutputConfig
+    atomic: AtomicConfig
+    tokens: TokensConfig
+    entanglement: Option[EntanglementConfig]
+    breakpoints: Map<String, String>
+    prefixer: PrefixerConfig
+    a11y: Option[A11yConfig]
+    cache: CacheConfig
+    dev: DevConfig
+    shorthands: Map<String, String>
+    macros: Json
+    intents: Map<String, Json>
+    presets: Json
+    allowOverride: Bool
+    plugins: Json
+    framework: String
+    verbose: Bool
+    silent: Bool
+    debug: Bool
+    timeline: Bool
+    sourceComments: Bool
+    watch: Bool
+    hmr: Bool
+    namespace: String
+
+// ============================================================================
+// get_default_config — matches loader.ts's getDefaultConfig
+// ============================================================================
+
+pub proc get_default_config() -> ChainCSSConfig
+    var inputs: List<String> := []
+    inputs.append("src/**/*.chain.{ts,tsx}")
+
+    var targets: List<String> := []
+    targets.append("css")
+
+    var browsers: List<String> := []
+    browsers.append("> 0.5%")
+    browsers.append("last 2 versions")
+    browsers.append("not dead")
+
+    var breakpoints: Map<String, String> := Map<String, String> {}
+    breakpoints.insert("sm", "640px")
+    breakpoints.insert("md", "768px")
+    breakpoints.insert("lg", "1024px")
+    breakpoints.insert("xl", "1280px")
+    breakpoints.insert("2xl", "1536px")
+
+    var empty_map: Map<String, String> := Map<String, String> {}
+    var empty_obj := Map<String, Json> {}
+    var empty_intents: Map<String, Json> := Map<String, Json> {}
+    var empty_rels: List<TokenRelationship> := []
+
+    return ChainCSSConfig {
+        inputs: inputs,
+        output: OutputConfig {
+            cssFile: "dist/styles.css",
+            minify: false,
+            generateGlobalCSS: true,
+            targets: targets
+        },
+        atomic: AtomicConfig {
+            enabled: false,
+            threshold: 3,
+            naming: "readable",
+            mode: "hybrid",
+            minify: false,
+            verbose: false
+        },
+        tokens: TokensConfig {
+            tokens: Json.Obj(empty_obj),
+            relationships: empty_rels
+        },
+        entanglement: None,
+        breakpoints: breakpoints,
+        prefixer: PrefixerConfig {
+            enabled: true,
+            mode: "lightweight",
+            browsers: browsers,
+            flexbox: Json.Null,
+            grid: Json.Null,
+            remove: true,
+            add: true,
+            sourceMap: false,
+            sourceMapInline: false,
+            verbose: false
+        },
+        a11y: None,
+        cache: CacheConfig {
+            enabled: true,
+            maxAgeDays: 30,
+            maxSizeMB: 500,
+            path: ".chaincss-cache"
+        },
+        dev: DevConfig {
+            port: 3000,
+            publicDir: "public"
+        },
+        shorthands: empty_map,
+        macros: Json.Obj(empty_obj),
+        intents: empty_intents,
+        presets: Json.Null,
+        allowOverride: false,
+        plugins: Json.Arr([]),
+        framework: "auto",
+        verbose: false,
+        silent: false,
+        debug: false,
+        timeline: false,
+        sourceComments: false,
+        watch: false,
+        hmr: false,
+        namespace: "chain-"
+    }
+
+// ============================================================================
+// JSON accessors
+// ============================================================================
+
+proc json_get_string(m: Map<String, Json>, key: String, default_val: String) -> String
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case Str(s) then { return s }
+                case _ then { return default_val }
+            }
+        }
+        case None then { return default_val }
+    }
+
+proc json_get_bool(m: Map<String, Json>, key: String, default_val: Bool) -> Bool
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case Bool(b) then { return b }
+                case _ then { return default_val }
+            }
+        }
+        case None then { return default_val }
+    }
+
+proc json_get_int(m: Map<String, Json>, key: String, default_val: Int) -> Int
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case NumInt(n) then { return n }
+                case _ then { return default_val }
+            }
+        }
+        case None then { return default_val }
+    }
+
+proc json_get_float(m: Map<String, Json>, key: String, default_val: Float) -> Float
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case NumFloat(f) then { return f }
+                case NumInt(n) then { return 0.0 + n }
+                case _ then { return default_val }
+            }
+        }
+        case None then { return default_val }
+    }
+
+proc json_get_list_string(m: Map<String, Json>, key: String, default_val: List<String>) -> List<String>
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case Arr(items) then {
+                    var out: List<String> := []
+                    for item in items {
+                        match item {
+                            case Str(s) then { out.append(s) }
+                            case _ then {}
+                        }
+                    }
+                    return out
+                }
+                case _ then { return default_val }
+            }
+        }
+        case None then { return default_val }
+    }
+
+proc json_get_obj(m: Map<String, Json>, key: String) -> Map<String, Json>
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case Obj(m2) then { return m2 }
+                case _ then { return Map<String, Json> {} }
+            }
+        }
+        case None then { return Map<String, Json> {} }
+    }
+
+proc json_get_map_string(m: Map<String, Json>, key: String, defaults: Map<String, String>) -> Map<String, String>
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case Obj(m2) then {
+                    var out: Map<String, String> := defaults
+                    for k in m2.keys() {
+                        match m2.get(k) {
+                            case Some(vv) then {
+                                match vv {
+                                    case Str(s) then { out.insert(k, s) }
+                                    case _ then {}
+                                }
+                            }
+                            case None then {}
+                        }
+                    }
+                    return out
+                }
+                case _ then { return defaults }
+            }
+        }
+        case None then { return defaults }
+    }
+
+// ============================================================================
+// TokenRelationship — parse from Json
+// ============================================================================
+
+proc parse_relationship(j: Json) -> Option[TokenRelationship]
+    match j {
+        case Obj(m) then {
+            val type_s := json_get_string(m, "type", "")
+            if type_s = "derived" {
+                return Some(TokenRelationship.Derived(
+                    json_get_string(m, "source", ""),
+                    json_get_string(m, "target", ""),
+                    json_get_string(m, "method", "")
+                ))
+            } else {
+                if type_s = "contrast" {
+                    val fg := json_get_string(m, "foreground", "")
+                    val bg := json_get_string(m, "background", "")
+                    var target_opt: Option[Float] := None
+                    match m.get("target") {
+                        case Some(tv) then {
+                            match tv {
+                                case NumFloat(f) then { target_opt := Some(f) }
+                                case NumInt(n) then { target_opt := Some(0.0 + n) }
+                                case _ then {}
+                            }
+                        }
+                        case None then {}
+                    }
+                    var autofix_opt: Option[String] := None
+                    match m.get("autoFix") {
+                        case Some(av) then {
+                            match av {
+                                case Str(s) then { autofix_opt := Some(s) }
+                                case _ then {}
+                            }
+                        }
+                        case None then {}
+                    }
+                    return Some(TokenRelationship.Contrast(fg, bg, target_opt, autofix_opt))
+                } else {
+                    if type_s = "harmony" {
+                        var targets_list: List<String> := []
+                        match m.get("targets") {
+                            case Some(tv) then {
+                                match tv {
+                                    case Arr(items) then {
+                                        for item in items {
+                                            match item {
+                                                case Str(s) then { targets_list.append(s) }
+                                                case _ then {}
+                                            }
+                                        }
+                                    }
+                                    case _ then {}
+                                }
+                            }
+                            case None then {}
+                        }
+                        return Some(TokenRelationship.Harmony(
+                            json_get_string(m, "source", ""),
+                            targets_list,
+                            json_get_string(m, "rule", "")
+                        ))
+                    } else {
+                        return None
+                    }
+                }
+            }
+        }
+        case _ then { return None }
+    }
+
+proc parse_relationships_list(j: Json) -> List[TokenRelationship]
+    match j {
+        case Arr(items) then {
+            var out: List<TokenRelationship> := []
+            for item in items {
+                match parse_relationship(item) {
+                    case Some(rel) then { out.append(rel) }
+                    case None then {}
+                }
+            }
+            return out
+        }
+        case _ then { return [] }
+    }
+
+// ============================================================================
+// deep_merge_config — merge user's Json config over the defaults
+// ============================================================================
+
+pub proc load_config_from_json(user: Json) -> Result[ChainCSSConfig, String]
+    val base := get_default_config()
+    match user {
+        case Obj(m) then {
+            // inputs
+            var merged_inputs := base.inputs
+            match m.get("inputs") {
+                case Some(v) then {
+                    merged_inputs := json_get_list_string(m, "inputs", base.inputs)
+                }
+                case None then {}
+            }
+
+            // output
+            var merged_output := base.output
+            val user_output := json_get_obj(m, "output")
+            if user_output.keys().length() > 0 {
+                merged_output := OutputConfig {
+                    cssFile: json_get_string(user_output, "cssFile", base.output.cssFile),
+                    minify: json_get_bool(user_output, "minify", base.output.minify),
+                    generateGlobalCSS: json_get_bool(user_output, "generateGlobalCSS", base.output.generateGlobalCSS),
+                    targets: json_get_list_string(user_output, "targets", base.output.targets)
+                }
+            }
+
+            // atomic
+            var merged_atomic := base.atomic
+            val user_atomic := json_get_obj(m, "atomic")
+            if user_atomic.keys().length() > 0 {
+                merged_atomic := AtomicConfig {
+                    enabled: json_get_bool(user_atomic, "enabled", base.atomic.enabled),
+                    threshold: json_get_int(user_atomic, "threshold", base.atomic.threshold),
+                    naming: json_get_string(user_atomic, "naming", base.atomic.naming),
+                    mode: json_get_string(user_atomic, "mode", base.atomic.mode),
+                    minify: json_get_bool(user_atomic, "minify", base.atomic.minify),
+                    verbose: json_get_bool(user_atomic, "verbose", base.atomic.verbose)
+                }
+            }
+
+            // tokens
+            var merged_tokens := base.tokens
+            val user_tokens := json_get_obj(m, "tokens")
+            if user_tokens.keys().length() > 0 {
+                var user_token_map := base.tokens.tokens
+                match user_tokens.get("tokens") {
+                    case Some(tv) then { user_token_map := tv }
+                    case None then {}
+                }
+                var user_rels := base.tokens.relationships
+                match user_tokens.get("relationships") {
+                    case Some(rv) then {
+                        val parsed := parse_relationships_list(rv)
+                        if parsed.length() > 0 {
+                            user_rels := parsed
+                        }
+                    }
+                    case None then {}
+                }
+                merged_tokens := TokensConfig {
+                    tokens: user_token_map,
+                    relationships: user_rels
+                }
+            }
+
+            // entanglement (optional)
+            var merged_entanglement := base.entanglement
+            match m.get("entanglement") {
+                case Some(ev) then {
+                    match ev {
+                        case Obj(em) then {
+                            var rels: List<TokenRelationship> := []
+                            match em.get("relationships") {
+                                case Some(rv) then {
+                                    rels := parse_relationships_list(rv)
+                                }
+                                case None then {}
+                            }
+                            merged_entanglement := Some(EntanglementConfig {
+                                relationships: rels
+                            })
+                        }
+                        case _ then {}
+                    }
+                }
+                case None then {}
+            }
+
+            // breakpoints
+            var merged_breakpoints := json_get_map_string(m, "breakpoints", base.breakpoints)
+
+            // prefixer
+            var merged_prefixer := base.prefixer
+            val user_prefixer := json_get_obj(m, "prefixer")
+            if user_prefixer.keys().length() > 0 {
+                merged_prefixer := PrefixerConfig {
+                    enabled: json_get_bool(user_prefixer, "enabled", base.prefixer.enabled),
+                    mode: json_get_string(user_prefixer, "mode", base.prefixer.mode),
+                    browsers: json_get_list_string(user_prefixer, "browsers", base.prefixer.browsers),
+                    flexbox: base.prefixer.flexbox,
+                    grid: base.prefixer.grid,
+                    remove: json_get_bool(user_prefixer, "remove", base.prefixer.remove),
+                    add: json_get_bool(user_prefixer, "add", base.prefixer.add),
+                    sourceMap: json_get_bool(user_prefixer, "sourceMap", base.prefixer.sourceMap),
+                    sourceMapInline: json_get_bool(user_prefixer, "sourceMapInline", base.prefixer.sourceMapInline),
+                    verbose: json_get_bool(user_prefixer, "verbose", base.prefixer.verbose)
+                }
+            }
+
+            // cache
+            var merged_cache := base.cache
+            val user_cache := json_get_obj(m, "cache")
+            if user_cache.keys().length() > 0 {
+                merged_cache := CacheConfig {
+                    enabled: json_get_bool(user_cache, "enabled", base.cache.enabled),
+                    maxAgeDays: json_get_int(user_cache, "maxAgeDays", base.cache.maxAgeDays),
+                    maxSizeMB: json_get_int(user_cache, "maxSizeMB", base.cache.maxSizeMB),
+                    path: json_get_string(user_cache, "path", base.cache.path)
+                }
+            }
+
+            // dev
+            var merged_dev := base.dev
+            val user_dev := json_get_obj(m, "dev")
+            if user_dev.keys().length() > 0 {
+                merged_dev := DevConfig {
+                    port: json_get_int(user_dev, "port", base.dev.port),
+                    publicDir: json_get_string(user_dev, "publicDir", base.dev.publicDir)
+                }
+            }
+
+            // simple scalars
+            val merged_shorthands := json_get_map_string(m, "shorthands", base.shorthands)
+            val merged_framework := json_get_string(m, "framework", base.framework)
+            val merged_namespace := json_get_string(m, "namespace", base.namespace)
+            val merged_allowOverride := json_get_bool(m, "allowOverride", base.allowOverride)
+            val merged_verbose := json_get_bool(m, "verbose", base.verbose)
+            val merged_silent := json_get_bool(m, "silent", base.silent)
+            val merged_debug := json_get_bool(m, "debug", base.debug)
+            val merged_timeline := json_get_bool(m, "timeline", base.timeline)
+            val merged_sourceComments := json_get_bool(m, "sourceComments", base.sourceComments)
+            val merged_watch := json_get_bool(m, "watch", base.watch)
+            val merged_hmr := json_get_bool(m, "hmr", base.hmr)
+
+            // Json-typed fields (G23)
+            var merged_macros := base.macros
+            match m.get("macros") {
+                case Some(mv) then { merged_macros := mv }
+                case None then {}
+            }
+            var merged_intents := base.intents
+            match m.get("intents") {
+                case Some(iv) then {
+                    match iv {
+                        case Obj(im) then {
+                            var new_intents: Map<String, Json> := base.intents
+                            for k in im.keys() {
+                                match im.get(k) {
+                                    case Some(vv) then { new_intents.insert(k, vv) }
+                                    case None then {}
+                                }
+                            }
+                            merged_intents := new_intents
+                        }
+                        case _ then {}
+                    }
+                }
+                case None then {}
+            }
+            var merged_presets := base.presets
+            match m.get("presets") {
+                case Some(pv) then { merged_presets := pv }
+                case None then {}
+            }
+            var merged_plugins := base.plugins
+            match m.get("plugins") {
+                case Some(plv) then { merged_plugins := plv }
+                case None then {}
+            }
+
+            return Ok(ChainCSSConfig {
+                inputs: merged_inputs,
+                output: merged_output,
+                atomic: merged_atomic,
+                tokens: merged_tokens,
+                entanglement: merged_entanglement,
+                breakpoints: merged_breakpoints,
+                prefixer: merged_prefixer,
+                a11y: base.a11y,
+                cache: merged_cache,
+                dev: merged_dev,
+                shorthands: merged_shorthands,
+                macros: merged_macros,
+                intents: merged_intents,
+                presets: merged_presets,
+                allowOverride: merged_allowOverride,
+                plugins: merged_plugins,
+                framework: merged_framework,
+                verbose: merged_verbose,
+                silent: merged_silent,
+                debug: merged_debug,
+                timeline: merged_timeline,
+                sourceComments: merged_sourceComments,
+                watch: merged_watch,
+                hmr: merged_hmr,
+                namespace: merged_namespace
+            })
+        }
+        case _ then {
+            return Ok(base)
+        }
+    }
+
+pub proc load_config_json(path: String) -> Result[ChainCSSConfig, String]
+    val content := File.read(path)
+    match parse(content) {
+        case Ok(j) then { return load_config_from_json(j) }
+        case Error(msg) then { return Error("config parse failed: " + msg) }
+    }
+
+// ============================================================================
+// config_to_json — serialize for parity
+// ============================================================================
+
+proc relationship_to_json(rel: TokenRelationship) -> Json
+    match rel {
+        case Derived(source, target, method) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("type", Json.Str("derived"))
+            m.insert("source", Json.Str(source))
+            m.insert("target", Json.Str(target))
+            m.insert("method", Json.Str(method))
+            return Json.Obj(m)
+        }
+        case Contrast(fg, bg, target_opt, autofix_opt) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("type", Json.Str("contrast"))
+            m.insert("foreground", Json.Str(fg))
+            m.insert("background", Json.Str(bg))
+            match target_opt {
+                case Some(f) then { m.insert("target", Json.NumFloat(f)) }
+                case None then {}
+            }
+            match autofix_opt {
+                case Some(s) then { m.insert("autoFix", Json.Str(s)) }
+                case None then {}
+            }
+            return Json.Obj(m)
+        }
+        case Harmony(source, targets, rule) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("type", Json.Str("harmony"))
+            m.insert("source", Json.Str(source))
+            var arr: List<Json> := []
+            for t in targets {
+                arr.append(Json.Str(t))
+            }
+            m.insert("targets", Json.Arr(arr))
+            m.insert("rule", Json.Str(rule))
+            return Json.Obj(m)
+        }
+    }
+
+proc config_to_json(config: ChainCSSConfig) -> Json
+    var root: Map<String, Json> := Map<String, Json> {}
+
+    // inputs
+    var inputs_json: List<Json> := []
+    for s in config.inputs {
+        inputs_json.append(Json.Str(s))
+    }
+    root.insert("inputs", Json.Arr(inputs_json))
+
+    // output
+    var out_map: Map<String, Json> := Map<String, Json> {}
+    out_map.insert("cssFile", Json.Str(config.output.cssFile))
+    out_map.insert("minify", Json.Bool(config.output.minify))
+    out_map.insert("generateGlobalCSS", Json.Bool(config.output.generateGlobalCSS))
+    var targets_json: List<Json> := []
+    for t in config.output.targets {
+        targets_json.append(Json.Str(t))
+    }
+    out_map.insert("targets", Json.Arr(targets_json))
+    root.insert("output", Json.Obj(out_map))
+
+    // atomic
+    var atom_map: Map<String, Json> := Map<String, Json> {}
+    atom_map.insert("enabled", Json.Bool(config.atomic.enabled))
+    atom_map.insert("threshold", Json.NumInt(config.atomic.threshold))
+    atom_map.insert("naming", Json.Str(config.atomic.naming))
+    atom_map.insert("mode", Json.Str(config.atomic.mode))
+    atom_map.insert("minify", Json.Bool(config.atomic.minify))
+    atom_map.insert("verbose", Json.Bool(config.atomic.verbose))
+    root.insert("atomic", Json.Obj(atom_map))
+
+    // tokens
+    var tokens_map: Map<String, Json> := Map<String, Json> {}
+    tokens_map.insert("tokens", config.tokens.tokens)
+    var rels_json: List<Json> := []
+    for r in config.tokens.relationships {
+        rels_json.append(relationship_to_json(r))
+    }
+    tokens_map.insert("relationships", Json.Arr(rels_json))
+    root.insert("tokens", Json.Obj(tokens_map))
+
+    // entanglement
+    match config.entanglement {
+        case Some(e) then {
+            var e_map: Map<String, Json> := Map<String, Json> {}
+            var e_rels: List<Json> := []
+            for r in e.relationships {
+                e_rels.append(relationship_to_json(r))
+            }
+            e_map.insert("relationships", Json.Arr(e_rels))
+            root.insert("entanglement", Json.Obj(e_map))
+        }
+        case None then {}
+    }
+
+    // breakpoints
+    var bp_map: Map<String, Json> := Map<String, Json> {}
+    for k in config.breakpoints.keys() {
+        match config.breakpoints.get(k) {
+            case Some(v) then { bp_map.insert(k, Json.Str(v)) }
+            case None then {}
+        }
+    }
+    root.insert("breakpoints", Json.Obj(bp_map))
+
+    // prefixer
+    var pre_map: Map<String, Json> := Map<String, Json> {}
+    pre_map.insert("enabled", Json.Bool(config.prefixer.enabled))
+    pre_map.insert("mode", Json.Str(config.prefixer.mode))
+    var browsers_json: List<Json> := []
+    for b in config.prefixer.browsers {
+        browsers_json.append(Json.Str(b))
+    }
+    pre_map.insert("browsers", Json.Arr(browsers_json))
+    pre_map.insert("flexbox", config.prefixer.flexbox)
+    pre_map.insert("grid", config.prefixer.grid)
+    pre_map.insert("remove", Json.Bool(config.prefixer.remove))
+    pre_map.insert("add", Json.Bool(config.prefixer.add))
+    pre_map.insert("sourceMap", Json.Bool(config.prefixer.sourceMap))
+    pre_map.insert("sourceMapInline", Json.Bool(config.prefixer.sourceMapInline))
+    pre_map.insert("verbose", Json.Bool(config.prefixer.verbose))
+    root.insert("prefixer", Json.Obj(pre_map))
+
+    // a11y
+    match config.a11y {
+        case Some(a) then {
+            var a_map: Map<String, Json> := Map<String, Json> {}
+            var pairs_json: List<Json> := []
+            for p in a.pairs {
+                var pair_map: Map<String, Json> := Map<String, Json> {}
+                pair_map.insert("foreground", Json.Str(p.foreground))
+                pair_map.insert("background", Json.Str(p.background))
+                match p.label {
+                    case Some(l) then { pair_map.insert("label", Json.Str(l)) }
+                    case None then {}
+                }
+                pairs_json.append(Json.Obj(pair_map))
+            }
+            a_map.insert("pairs", Json.Arr(pairs_json))
+            root.insert("a11y", Json.Obj(a_map))
+        }
+        case None then {}
+    }
+
+    // cache
+    var cache_map: Map<String, Json> := Map<String, Json> {}
+    cache_map.insert("enabled", Json.Bool(config.cache.enabled))
+    cache_map.insert("maxAgeDays", Json.NumInt(config.cache.maxAgeDays))
+    cache_map.insert("maxSizeMB", Json.NumInt(config.cache.maxSizeMB))
+    cache_map.insert("path", Json.Str(config.cache.path))
+    root.insert("cache", Json.Obj(cache_map))
+
+    // dev
+    var dev_map: Map<String, Json> := Map<String, Json> {}
+    dev_map.insert("port", Json.NumInt(config.dev.port))
+    dev_map.insert("publicDir", Json.Str(config.dev.publicDir))
+    root.insert("dev", Json.Obj(dev_map))
+
+    // shorthands
+    var short_map: Map<String, Json> := Map<String, Json> {}
+    for k in config.shorthands.keys() {
+        match config.shorthands.get(k) {
+            case Some(v) then { short_map.insert(k, Json.Str(v)) }
+            case None then {}
+        }
+    }
+    root.insert("shorthands", Json.Obj(short_map))
+
+    // macros, intents, presets, plugins (Json-typed — G23)
+    root.insert("macros", config.macros)
+    var intents_map: Map<String, Json> := Map<String, Json> {}
+    for k in config.intents.keys() {
+        match config.intents.get(k) {
+            case Some(v) then { intents_map.insert(k, v) }
+            case None then {}
+        }
+    }
+    root.insert("intents", Json.Obj(intents_map))
+    root.insert("presets", config.presets)
+    root.insert("allowOverride", Json.Bool(config.allowOverride))
+    root.insert("plugins", config.plugins)
+
+    // scalars
+    root.insert("framework", Json.Str(config.framework))
+    root.insert("verbose", Json.Bool(config.verbose))
+    root.insert("silent", Json.Bool(config.silent))
+    root.insert("debug", Json.Bool(config.debug))
+    root.insert("timeline", Json.Bool(config.timeline))
+    root.insert("sourceComments", Json.Bool(config.sourceComments))
+    root.insert("watch", Json.Bool(config.watch))
+    root.insert("hmr", Json.Bool(config.hmr))
+    root.insert("namespace", Json.Str(config.namespace))
+
+    return Json.Obj(root)

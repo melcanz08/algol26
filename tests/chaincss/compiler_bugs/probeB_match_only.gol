@@ -1,0 +1,14 @@
+import "ir_types.gol"
+
+proc first(source: &SourceLocation) -> String
+    match source.file {
+        case Some(x) then { return x }
+        case None then { return "" }
+    }
+
+proc second(source: &SourceLocation, has: Bool) -> Option[SourceLocation]
+    if has {
+        return None
+    } else {
+        return None
+    }

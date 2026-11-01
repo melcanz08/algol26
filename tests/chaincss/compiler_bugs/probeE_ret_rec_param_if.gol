@@ -1,0 +1,11 @@
+import "ir_types.gol"
+
+proc first(s: &SourceLocation) -> SourceLocation
+    return SourceLocation { file: None, line: None, column: None, component: None }
+
+proc second(s: &SourceLocation, has: Bool) -> String
+    if has {
+        return "a"
+    } else {
+        return "b"
+    }

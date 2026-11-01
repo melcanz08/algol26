@@ -1,0 +1,12 @@
+import "ir_types.gol"
+
+proc first(source: &SourceLocation) -> SourceLocation
+    var result := SourceLocation { file: None, line: None, column: None, component: None }
+    return result
+
+proc second(source: &SourceLocation, has: Bool) -> Option[SourceLocation]
+    if has {
+        return None
+    } else {
+        return None
+    }

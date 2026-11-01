@@ -1,0 +1,11 @@
+import "ir_types.gol"
+
+proc first(s: &SourceLocation) -> String
+    return "a"
+
+proc second(s: &SourceLocation, has: Bool) -> Option[SourceLocation]
+    if has {
+        return None
+    } else {
+        return None
+    }

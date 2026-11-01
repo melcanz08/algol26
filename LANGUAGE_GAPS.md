@@ -385,3 +385,24 @@ session, moved to `tests/chaincss/deferred/parse_nested.gol`.
 investigation. Suspected workaround: avoid record literals in
 `var`-initializer + field-match combinations in functions that
 precede `&Record`-param functions.
+
+---
+
+## G15 and G16 — RESOLVED 2026-11-01
+
+Both were the same lexer bug, not separate issues. Root cause:
+`parse_signature` in `src/frontend/lexer/decl.rs` did not emit
+`[` or `]`. Non-`pub` `proc`/`fn` declarations with generic
+types in the signature — parameter or return — had their brackets
+silently dropped. `pub proc` and record field types were unaffected
+because they lex through `tokenize_expression` instead.
+
+Fix: added `'['` and `']'` arms to `parse_signature`, mirroring
+`handle_operator`. Six lines.
+
+Minimal repro that fails before the fix and passes after:
+
+    proc second(x: Int) -> Option[String]
+        return None
+
+See commit message for full analysis.

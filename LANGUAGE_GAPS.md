@@ -564,7 +564,7 @@ verified state is preserved.
 reference preservation, `resolve_place` reference-chasing) exposes
 two follow-up gaps that block fully-natural port code:
 
-**G19b — no non-lexical lifetimes for `&mut`.** The analyzer's
+**G19b — last-use lifetimes for `&mut`.** The analyzer's
 borrow checker treats `&mut x` as held until the enclosing scope
 ends, not until last use. That rejects:
 
@@ -572,11 +572,15 @@ ends, not until last use. That rejects:
     f(&mut r, ...)
     use(r)            ← E0007: r still mutably borrowed
 
-TS has no equivalent (GC language). Fixing requires an NLL
-implementation — a substantial feature, deferred. Workaround:
-use `-> T` return-type threading wherever the pattern occurs.
+TS has no equivalent (GC language). Fixing requires last-use tracking for mutable borrows, mirroring
+the shared-borrow machinery from ADR 0043 — a borrow is live from
+creation to last recorded use, with conservative promotion to a
+LAST_USE_SENTINEL inside loops and defer bodies. ~250 lines, 1.5
+days. Covers the port's needs. Fixed in commits `7ac9519` +
+subsequent frame-aware-place commit. Full branch-precision NLL
+(Rust 1.31 style) is a follow-up, not required for the port.
 
-**G19c — `Place` is not frame-qualified.** The scope-stack model
+**G19c — projection composition bug in the reference chase.** The scope-stack model
 carries `Reference(Place { base: String, ... })`, but `Place.base`
 names a variable without recording WHICH frame it lives in. When
 `&mut rule` is bound to a parameter in a callee's frame, the
@@ -590,9 +594,16 @@ This blocks chaining `&mut` through two forwarding layers, e.g.:
                               ← in inner's frame as self-reference
                               ← infinite recursion
 
-Fixing requires `Place { frame_id: usize, base: String, ... }`
-and updating every consumer (analyzer, CFG verifier, IR verifier,
-LLVM codegen, interpreter). Substantial change, deferred.
+The interpreter *does* have a frame stack; `lookup_var` walks by
+name correctly. The actual bug was that `resolve_place` /
+`assign_place` chased a `Reference` at the base of a `Place` but
+carried the leading `Deref` projection into the composition, so a
+second-hop write hit `Unsupported`. Fix: strip one leading `Deref`
+before recursing into the chased place, plus frame-origin tracking
+to resolve same-name bindings in the correct frame. ~15 lines of
+fix + 28 of state support. The 'frame-qualified Place' theory was
+right in shape but wrong in magnitude — not a multi-day design
+change, just a projection bug plus a small supporting change.
 
 Workaround: keep `-> T` return-type threading for the `&mut`
 chain (as `parse_nested_object` does). The port remains at the
@@ -616,10 +627,10 @@ Root cause is not depth — the tree is finite (Clone succeeds at
 infinite recursion on self-referential references (G19c). Once
 G19c is fixed, G22 should follow.
 
-Short-term workaround: a `--interpreter` invocation with a bigger
-thread stack (256 MB) is not sufficient because G19c infinite-
-recurses; the stack just takes longer to exhaust. Deferred until
-G19c is fixed.
+**Status:** ✅ Closed by G19c's fix. The infinite recursion in
+`resolve_place` no longer occurs — `test_g19b_full.gol` (the
+minimal repro) passes under the interpreter with the default 8 MB
+main-thread stack. No thread-stack workaround needed.
 
 **Recommendation:** the port remains at the helper-cascade state
 (parity 3/3, all fixes committed). The port-natural refactor is

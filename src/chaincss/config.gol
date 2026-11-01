@@ -41,13 +41,13 @@ pub rec PrefixerConfig
     enabled: Bool
     mode: String
     browsers: List<String>
-    flexbox: Json
-    grid: Json
+    flexbox: Option[Json]
+    grid: Option[Json]
     remove: Bool
     add: Bool
     sourceMap: Bool
     sourceMapInline: Bool
-    verbose: Bool
+    verbose: Option[Bool]
 
 pub rec CacheConfig
     enabled: Bool
@@ -114,7 +114,7 @@ pub rec ChainCSSConfig
     dev: DevConfig
     shorthands: Map<String, String>
     macros: Json
-    intents: Map<String, Json>
+    intents: Json
     presets: Json
     allowOverride: Bool
     plugins: Json
@@ -153,7 +153,6 @@ pub proc get_default_config() -> ChainCSSConfig
 
     var empty_map: Map<String, String> := Map<String, String> {}
     var empty_obj := Map<String, Json> {}
-    var empty_intents: Map<String, Json> := Map<String, Json> {}
     var empty_rels: List<TokenRelationship> := []
 
     return ChainCSSConfig {
@@ -182,13 +181,13 @@ pub proc get_default_config() -> ChainCSSConfig
             enabled: true,
             mode: "lightweight",
             browsers: browsers,
-            flexbox: Json.Null,
-            grid: Json.Null,
+            flexbox: None,
+            grid: None,
             remove: true,
             add: true,
             sourceMap: false,
             sourceMapInline: false,
-            verbose: false
+            verbose: None
         },
         a11y: None,
         cache: CacheConfig {
@@ -203,7 +202,7 @@ pub proc get_default_config() -> ChainCSSConfig
         },
         shorthands: empty_map,
         macros: Json.Obj(empty_obj),
-        intents: empty_intents,
+        intents: Json.Obj(empty_obj),
         presets: Json.Null,
         allowOverride: false,
         plugins: Json.Arr([]),
@@ -408,7 +407,10 @@ proc parse_relationships_list(j: Json) -> List[TokenRelationship]
             }
             return out
         }
-        case _ then { return [] }
+        case _ then {
+            var empty: List<TokenRelationship> := []
+            return empty
+        }
     }
 
 // ============================================================================
@@ -509,6 +511,16 @@ pub proc load_config_from_json(user: Json) -> Result[ChainCSSConfig, String]
             var merged_prefixer := base.prefixer
             val user_prefixer := json_get_obj(m, "prefixer")
             if user_prefixer.keys().length() > 0 {
+                var merged_verbose: Option[Bool] := base.prefixer.verbose
+                match user_prefixer.get("verbose") {
+                    case Some(vv) then {
+                        match vv {
+                            case Bool(b) then { merged_verbose := Some(b) }
+                            case _ then {}
+                        }
+                    }
+                    case None then {}
+                }
                 merged_prefixer := PrefixerConfig {
                     enabled: json_get_bool(user_prefixer, "enabled", base.prefixer.enabled),
                     mode: json_get_string(user_prefixer, "mode", base.prefixer.mode),
@@ -519,7 +531,7 @@ pub proc load_config_from_json(user: Json) -> Result[ChainCSSConfig, String]
                     add: json_get_bool(user_prefixer, "add", base.prefixer.add),
                     sourceMap: json_get_bool(user_prefixer, "sourceMap", base.prefixer.sourceMap),
                     sourceMapInline: json_get_bool(user_prefixer, "sourceMapInline", base.prefixer.sourceMapInline),
-                    verbose: json_get_bool(user_prefixer, "verbose", base.prefixer.verbose)
+                    verbose: merged_verbose
                 }
             }
 
@@ -566,21 +578,7 @@ pub proc load_config_from_json(user: Json) -> Result[ChainCSSConfig, String]
             }
             var merged_intents := base.intents
             match m.get("intents") {
-                case Some(iv) then {
-                    match iv {
-                        case Obj(im) then {
-                            var new_intents: Map<String, Json> := base.intents
-                            for k in im.keys() {
-                                match im.get(k) {
-                                    case Some(vv) then { new_intents.insert(k, vv) }
-                                    case None then {}
-                                }
-                            }
-                            merged_intents := new_intents
-                        }
-                        case _ then {}
-                    }
-                }
+                case Some(iv) then { merged_intents := iv }
                 case None then {}
             }
             var merged_presets := base.presets
@@ -677,7 +675,7 @@ proc relationship_to_json(rel: TokenRelationship) -> Json
         }
     }
 
-proc config_to_json(config: ChainCSSConfig) -> Json
+pub proc config_to_json(config: ChainCSSConfig) -> Json
     var root: Map<String, Json> := Map<String, Json> {}
 
     // inputs
@@ -752,13 +750,22 @@ proc config_to_json(config: ChainCSSConfig) -> Json
         browsers_json.append(Json.Str(b))
     }
     pre_map.insert("browsers", Json.Arr(browsers_json))
-    pre_map.insert("flexbox", config.prefixer.flexbox)
-    pre_map.insert("grid", config.prefixer.grid)
+    match config.prefixer.flexbox {
+        case Some(v) then { pre_map.insert("flexbox", v) }
+        case None then {}
+    }
+    match config.prefixer.grid {
+        case Some(v) then { pre_map.insert("grid", v) }
+        case None then {}
+    }
     pre_map.insert("remove", Json.Bool(config.prefixer.remove))
     pre_map.insert("add", Json.Bool(config.prefixer.add))
     pre_map.insert("sourceMap", Json.Bool(config.prefixer.sourceMap))
     pre_map.insert("sourceMapInline", Json.Bool(config.prefixer.sourceMapInline))
-    pre_map.insert("verbose", Json.Bool(config.prefixer.verbose))
+    match config.prefixer.verbose {
+        case Some(b) then { pre_map.insert("verbose", Json.Bool(b)) }
+        case None then {}
+    }
     root.insert("prefixer", Json.Obj(pre_map))
 
     // a11y
@@ -808,15 +815,11 @@ proc config_to_json(config: ChainCSSConfig) -> Json
 
     // macros, intents, presets, plugins (Json-typed — G23)
     root.insert("macros", config.macros)
-    var intents_map: Map<String, Json> := Map<String, Json> {}
-    for k in config.intents.keys() {
-        match config.intents.get(k) {
-            case Some(v) then { intents_map.insert(k, v) }
-            case None then {}
-        }
+    root.insert("intents", config.intents)
+    match config.presets {
+        case Null then {}
+        case _ then { root.insert("presets", config.presets) }
     }
-    root.insert("intents", Json.Obj(intents_map))
-    root.insert("presets", config.presets)
     root.insert("allowOverride", Json.Bool(config.allowOverride))
     root.insert("plugins", config.plugins)
 

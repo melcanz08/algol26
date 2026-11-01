@@ -560,3 +560,68 @@ than `&mut IRRule` — can now be collapsed back to natural
 Follow-up commit will remove the workaround; the current
 verified state is preserved.
 
+**Residual — G19b/c.** G19's runtime fix (scope-stack variables,
+reference preservation, `resolve_place` reference-chasing) exposes
+two follow-up gaps that block fully-natural port code:
+
+**G19b — no non-lexical lifetimes for `&mut`.** The analyzer's
+borrow checker treats `&mut x` as held until the enclosing scope
+ends, not until last use. That rejects:
+
+    var r := ...
+    f(&mut r, ...)
+    use(r)            ← E0007: r still mutably borrowed
+
+TS has no equivalent (GC language). Fixing requires an NLL
+implementation — a substantial feature, deferred. Workaround:
+use `-> T` return-type threading wherever the pattern occurs.
+
+**G19c — `Place` is not frame-qualified.** The scope-stack model
+carries `Reference(Place { base: String, ... })`, but `Place.base`
+names a variable without recording WHICH frame it lives in. When
+`&mut rule` is bound to a parameter in a callee's frame, the
+reference's `Place{base: "rule"}` resolves against the CALLEE's
+frame — finding the parameter slot, which holds the reference
+itself. `resolve_place` then chases the self-reference infinitely.
+This blocks chaining `&mut` through two forwarding layers, e.g.:
+
+    proc outer(r: &mut IRRule) -> Void
+        inner(&mut r)          ← reference is preserved, then re-resolved
+                              ← in inner's frame as self-reference
+                              ← infinite recursion
+
+Fixing requires `Place { frame_id: usize, base: String, ... }`
+and updating every consumer (analyzer, CFG verifier, IR verifier,
+LLVM codegen, interpreter). Substantial change, deferred.
+
+Workaround: keep `-> T` return-type threading for the `&mut`
+chain (as `parse_nested_object` does). The port remains at the
+helper-cascade state; the fully-natural nested-match + `&mut`
+chaining refactor is deferred until G19b/c are resolved.
+
+**G22 — interpreter stack overflow on deeply nested programs.**
+The interpreter clones the entire `SemanticProgram` before running
+(`Interpreter::with_args(ir.program().clone(), ...)`), and
+`Clone::clone` on `TypedIRValue` recurses per nesting level.
+Naturally-nested port code (deeply-nested matches via the G18 fix)
+produces an IR deep enough to overflow Rust's default 8 MB
+main-thread stack during the clone and during `execute_function`'s
+iterative block traversal. Confirmed: the refactored `parse_ir.gol`
+(the 214-line natural version) overflows even at 256 MB.
+
+Root cause is not depth — the tree is finite (Clone succeeds at
+8 MB in some cases). It's that `eval_value` recurses per
+`TypedIRValue::FieldAccess` and per `Reference` in
+`resolve_place`, and `resolve_place`'s reference-chasing enters
+infinite recursion on self-referential references (G19c). Once
+G19c is fixed, G22 should follow.
+
+Short-term workaround: a `--interpreter` invocation with a bigger
+thread stack (256 MB) is not sufficient because G19c infinite-
+recurses; the stack just takes longer to exhaust. Deferred until
+G19c is fixed.
+
+**Recommendation:** the port remains at the helper-cascade state
+(parity 3/3, all fixes committed). The port-natural refactor is
+deferred to a dedicated NLL + frame-qualified Place session.
+

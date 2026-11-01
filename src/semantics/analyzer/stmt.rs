@@ -78,10 +78,8 @@ impl SemanticAnalyzer {
                     // bind the new name into the mutable-borrow trio so
                     // `record_borrow_use` and `is_mutably_borrowed` see it.
                     if let ExprKind::MutBorrow { .. } = &value.kind {
-                        self.binding_to_mutable_borrow.insert(
-                            name.clone(),
-                            name.clone(),
-                        );
+                        self.binding_to_mutable_borrow
+                            .insert(name.clone(), name.clone());
                     }
                 }
 

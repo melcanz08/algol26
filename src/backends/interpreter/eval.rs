@@ -505,13 +505,11 @@ impl Interpreter {
             // `Projection::Deref` unsupported arm. Strip exactly
             // one leading `Deref` (there can only be one: a Place
             // has at most one reference at its base).
-            let rest_projs: &[crate::semantics::state::Projection] =
-                match place.projections.first() {
-                    Some(crate::semantics::state::Projection::Deref) => {
-                        &place.projections[1..]
-                    }
-                    _ => &place.projections[..],
-                };
+            let rest_projs: &[crate::semantics::state::Projection] = match place.projections.first()
+            {
+                Some(crate::semantics::state::Projection::Deref) => &place.projections[1..],
+                _ => &place.projections[..],
+            };
             let mut resolved = self.resolve_place(&inner_place)?;
             for proj in rest_projs {
                 resolved = self.apply_projection(resolved, proj, place)?;
@@ -612,13 +610,11 @@ impl Interpreter {
             // dereference that got us here — it is consumed by
             // redirecting through the reference. Only the *rest*
             // of the projections apply to the pointee.
-            let rest_projs: &[crate::semantics::state::Projection] =
-                match place.projections.first() {
-                    Some(crate::semantics::state::Projection::Deref) => {
-                        &place.projections[1..]
-                    }
-                    _ => &place.projections[..],
-                };
+            let rest_projs: &[crate::semantics::state::Projection] = match place.projections.first()
+            {
+                Some(crate::semantics::state::Projection::Deref) => &place.projections[1..],
+                _ => &place.projections[..],
+            };
             let mut composed = inner_place.clone();
             composed.projections.extend_from_slice(rest_projs);
             return self.assign_place(&composed, value);

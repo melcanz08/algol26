@@ -415,10 +415,8 @@ impl SemanticAnalyzer {
         // use bounded. Region-lifetime borrows are scope-bounded
         // by design and stay out of the trio.
         if matches!(lt, BorrowLifetime::Local(_)) {
-            self.mutable_borrow_meta.insert(
-                reference.to_string(),
-                (place.clone(), created_expr),
-            );
+            self.mutable_borrow_meta
+                .insert(reference.to_string(), (place.clone(), created_expr));
         }
         self.state.borrow(
             reference.to_string(),

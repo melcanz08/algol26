@@ -255,6 +255,9 @@ impl SemanticAnalyzer {
                     // Snapshot once; both branches and the no-else path start here.
                     let entry_state = self.state.fork();
 
+                    if let crate::frontend::ast::ExprKind::Block { statements, .. } = &then_branch.kind {
+                    } else {
+                    }
                     let (then_result, then_exit) = self.in_branch(|a| {
                         a.push_scope();
                         let r = a.analyze_expr(then_branch).map(|_| ());

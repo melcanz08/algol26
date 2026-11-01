@@ -405,10 +405,9 @@ pub proc trim_ascii(s: String) -> String
 pub proc parse_nested_object(
     selector: String,
     value: Json,
-    rule_in: IRRule,
+    rule: &mut IRRule,
     source: Option[SourceLocation]
-) -> IRRule
-    var rule := rule_in
+) -> Void
     match value {
         case Obj(map) then {
             for key in map.keys() {
@@ -416,11 +415,56 @@ pub proc parse_nested_object(
                     case Some(v) then {
                         if starts_with(key, "&") {
                             val nested_selector := replace_all(key, "&", selector)
-                            val base_rule := create_rule(nested_selector, source, Some(rule.id))
-                            val nested_rule := parse_nested_object(nested_selector, v, base_rule, source)
-                            rule.nestedRules.append(nested_rule)
+                            var nested := create_rule(nested_selector, source, Some(rule.id))
+                            parse_nested_object(nested_selector, v, &mut nested, source)
+                            rule.nestedRules.append(nested)
                         } else {
-                            rule := handle_nested_value(selector, key, v, rule, source)
+                            match v {
+                                case Str(_) then {
+                                    rule.declarations.append(
+                                        create_declaration(normalize_property(key), v, source, rule.selector)
+                                    )
+                                }
+                                case NumInt(_) then {
+                                    rule.declarations.append(
+                                        create_declaration(normalize_property(key), v, source, rule.selector)
+                                    )
+                                }
+                                case NumFloat(_) then {
+                                    rule.declarations.append(
+                                        create_declaration(normalize_property(key), v, source, rule.selector)
+                                    )
+                                }
+                                case Arr(items) then {
+                                    for item in items {
+                                        match item {
+                                            case Str(_) then {
+                                                rule.declarations.append(
+                                                    create_declaration(normalize_property(key), item, source, rule.selector)
+                                                )
+                                            }
+                                            case NumInt(_) then {
+                                                rule.declarations.append(
+                                                    create_declaration(normalize_property(key), item, source, rule.selector)
+                                                )
+                                            }
+                                            case NumFloat(_) then {
+                                                rule.declarations.append(
+                                                    create_declaration(normalize_property(key), item, source, rule.selector)
+                                                )
+                                            }
+                                            case _ then {}
+                                        }
+                                    }
+                                }
+                                case Obj(_) then {
+                                    val child_selector := trim_ascii(selector + " " + key)
+                                    var child := create_rule(child_selector, source, Some(rule.id))
+                                    parse_nested_object(child_selector, v, &mut child, source)
+                                    rule.nestedRules.append(child)
+                                }
+                                case _ then {}
+                            }
                         }
                     }
                     case None then {}
@@ -429,7 +473,6 @@ pub proc parse_nested_object(
         }
         case _ then {}
     }
-    return rule
 
 /// Dispatch one non-&-prefixed key/value pair per TS parseNestedObject:
 /// string|number → declaration; array → multiple declarations;
@@ -466,13 +509,12 @@ proc handle_nested_value(
         }
         case Obj(_) then {
             val child_selector := trim_ascii(selector + " " + key)
-            val base_child := create_rule(child_selector, source, Some(rule.id))
-            val child_rule := parse_nested_object(child_selector, value, base_child, source)
+            var child_rule := create_rule(child_selector, source, Some(rule.id))
+            parse_nested_object(child_selector, value, &mut child_rule, source)
             rule.nestedRules.append(child_rule)
         }
         case _ then {}
     }
-    return rule
     return rule
 
 // ============================================================================

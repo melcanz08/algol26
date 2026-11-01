@@ -305,11 +305,6 @@ impl SemanticAnalyzer {
     }
 
     pub(super) fn is_mutably_borrowed(&self, place: &crate::semantics::state::Place) -> bool {
-        // ADR 0064 / G19b. A tracked mutable borrow is live at the
-        // current expression iff created <= at <= last_use.
-        // Region-lifetime borrows are not in `mutable_borrow_meta`
-        // and fall through to the legacy `state.borrows` check,
-        // which is scope-bounded by design.
         let at = self.current_expr_id;
         let tracked = self.mutable_borrow_meta.iter().any(|(key, (bp, created))| {
             bp.overlaps(place) && *created <= at && at <= self.mutable_last_use_of(key)

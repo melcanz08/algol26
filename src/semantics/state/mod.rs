@@ -530,8 +530,12 @@ impl SemanticState {
     /// analyzer at each statement boundary so that call-argument
     /// borrows (`f(&mut x)`) are statement-scoped, not scope-scoped.
     pub fn clear_all_temporary_borrows(&mut self) {
+        let before = self.borrows.len();
         self.borrows
             .retain(|_, b| !matches!(b.lifetime, BorrowLifetime::Temporary(_)));
+        let removed = before - self.borrows.len();
+        if removed > 0 {
+        }
     }
 
     pub fn end_temporary_borrows(&mut self, call_id: CallId) {

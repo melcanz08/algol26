@@ -56,7 +56,8 @@ impl Interpreter {
     /// so `frame_ids` stays in lockstep.
     pub(super) fn push_frame(&mut self) {
         self.variables.push(HashMap::new());
-        self.frame_ids.push(crate::semantics::state::FrameId(self.next_frame_id));
+        self.frame_ids
+            .push(crate::semantics::state::FrameId(self.next_frame_id));
         self.next_frame_id += 1;
     }
 
@@ -144,7 +145,6 @@ impl Interpreter {
             .expect("variables stack is never empty")
             .insert(name.into(), val);
     }
-
 
     pub(super) fn eval_value(&mut self, v: &TypedIRValue) -> Result<RuntimeValue, EvalError> {
         Ok(match v {
@@ -558,12 +558,14 @@ impl Interpreter {
         place: &crate::semantics::state::Place,
     ) -> Result<RuntimeValue, EvalError> {
         use crate::semantics::state::Projection;
-        let mut cur = self.lookup_var_in_frame(place.frame_id, &place.base).ok_or_else(|| {
-            EvalError::Runtime(format!(
-                "reference to `{}`: base variable not in frame {}",
-                place.base, place.frame_id.0
-            ))
-        })?;
+        let mut cur = self
+            .lookup_var_in_frame(place.frame_id, &place.base)
+            .ok_or_else(|| {
+                EvalError::Runtime(format!(
+                    "reference to `{}`: base variable not in frame {}",
+                    place.base, place.frame_id.0
+                ))
+            })?;
         // G19 fix. If the base variable itself holds a Reference,
         // resolve through it first. Handles `inner(r)` where `r: &mut T`
         // — the reference is preserved across the call, and the base
@@ -667,12 +669,14 @@ impl Interpreter {
         place: &crate::semantics::state::Place,
         value: RuntimeValue,
     ) -> Result<(), EvalError> {
-        let mut cur = self.lookup_var_in_frame(place.frame_id, &place.base).ok_or_else(|| {
-            EvalError::Runtime(format!(
-                "write to `{}`: base variable not in frame {}",
-                place.base, place.frame_id.0
-            ))
-        })?;
+        let mut cur = self
+            .lookup_var_in_frame(place.frame_id, &place.base)
+            .ok_or_else(|| {
+                EvalError::Runtime(format!(
+                    "write to `{}`: base variable not in frame {}",
+                    place.base, place.frame_id.0
+                ))
+            })?;
         // G19 fix. If the base variable holds a Reference, redirect
         // the write to the referenced place. Handles `b.value := 42`
         // where `b: &mut Box` forwarded through a call — `b`'s frame

@@ -576,6 +576,22 @@ impl SemanticAnalyzer {
                     self.analyze_stmt(s)?;
                 }
                 let result = if let Some(expr) = trailing_expr {
+                    // ADR 0057 / G20. The parser promotes the last
+                    // statement of a brace block to `trailing_expr`.
+                    // Syntactically it's a statement — its
+                    // predecessors were analyzed via `analyze_stmt`,
+                    // each of which clears statement-boundary state
+                    // (temporary borrows, in-mut-borrow flag) at the
+                    // top. Without the same clear here, the trailing
+                    // expression sees stale borrows from the
+                    // preceding statement. Specifically:
+                    // `f(&mut nested)\n nested.x` — the temp borrow
+                    // of `nested` from `f(&mut nested)` is still
+                    // live when the trailing `nested.x` reads it,
+                    // producing a spurious "read while mutably
+                    // borrowed".
+                    self.state.clear_all_temporary_borrows();
+                    self.in_mut_borrow = false;
                     // Propagate the block's expected type to its
                     // trailing expression. Without this, a `Block`
                     // wrapper — which the parser puts around every

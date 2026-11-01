@@ -52,6 +52,16 @@ impl SemanticAnalyzer {
     /// precise per-iteration interval is ADR 0043's deferred
     /// CFG work; this is the sound approximation.
     pub(super) fn record_borrow_use(&mut self, binding: &str, at: ExprId) {
+        // ADR 0064 / G19b. Mutable borrows share the last-use
+        // model with shared borrows. Record into whichever trio
+        // the binding belongs to.
+        if let Some(mkey) = self.binding_to_mutable_borrow.get(binding).cloned() {
+            let uses = self.mutable_borrow_uses.entry(mkey).or_default();
+            uses.push(at);
+            if !self.loop_stack.is_empty() || self.defer_depth > 0 {
+                uses.push(LAST_USE_SENTINEL);
+            }
+        }
         let Some(key) = self.binding_to_shared_borrow.get(binding).cloned() else {
             return;
         };
@@ -295,10 +305,33 @@ impl SemanticAnalyzer {
     }
 
     pub(super) fn is_mutably_borrowed(&self, place: &crate::semantics::state::Place) -> bool {
+        // ADR 0064 / G19b. A tracked mutable borrow is live at the
+        // current expression iff created <= at <= last_use.
+        // Region-lifetime borrows are not in `mutable_borrow_meta`
+        // and fall through to the legacy `state.borrows` check,
+        // which is scope-bounded by design.
+        let at = self.current_expr_id;
+        let tracked = self.mutable_borrow_meta.iter().any(|(key, (bp, created))| {
+            bp.overlaps(place) && *created <= at && at <= self.mutable_last_use_of(key)
+        });
+        if tracked {
+            return true;
+        }
         self.state
             .borrows
             .values()
             .any(|b| b.kind == BorrowKind::Mutable && b.place.overlaps(place))
+    }
+
+    /// ADR 0064 / G19b. Same sentinel policy as `last_use_of`:
+    /// no recorded use means the borrow is dead (LAST_USE_SENTINEL
+    /// is the minimum, so `at <= sentinel` is false for any real
+    /// `at`).
+    fn mutable_last_use_of(&self, key: &str) -> ExprId {
+        self.mutable_borrow_uses
+            .get(key)
+            .and_then(|uses| uses.iter().copied().max())
+            .unwrap_or(LAST_USE_SENTINEL)
     }
 
     pub(super) fn is_borrowed(&self, place: &crate::semantics::state::Place) -> bool {
@@ -378,6 +411,15 @@ impl SemanticAnalyzer {
         } else {
             BorrowLifetime::Local(reference.to_string())
         };
+        // ADR 0064 / G19b. Only Local-lifetime borrows are last-
+        // use bounded. Region-lifetime borrows are scope-bounded
+        // by design and stay out of the trio.
+        if matches!(lt, BorrowLifetime::Local(_)) {
+            self.mutable_borrow_meta.insert(
+                reference.to_string(),
+                (place.clone(), created_expr),
+            );
+        }
         self.state.borrow(
             reference.to_string(),
             place,

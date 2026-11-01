@@ -5,6 +5,10 @@ use crate::frontend::ast::TypeSyntax;
 
 impl SemanticAnalyzer {
     pub(super) fn analyze_expr(&mut self, expr: &Expr) -> Result<Type> {
+        // ADR 0064 / G19b. Every borrow-liveness query reads this
+        // as "the current position" so `is_mutably_borrowed` can
+        // compare against last-use.
+        self.current_expr_id = expr.id;
         self.analyze_expr_with_context(expr, None)
     }
 

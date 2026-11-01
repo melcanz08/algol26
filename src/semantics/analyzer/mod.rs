@@ -165,6 +165,13 @@ pub struct SemanticAnalyzer {
     /// `record_borrow_use` to translate a `Var("r")` use into the
     /// borrow's key.
     pub(super) binding_to_shared_borrow: HashMap<String, String>,
+    /// ADR 0064 / G19b. Parallel tracking for mutable borrows,
+    /// mirroring the shared-borrow trio. Populated only for
+    /// `BorrowLifetime::Local(_)` borrows; region-lifetime
+    /// borrows remain scope-bounded and stay in `state.borrows`.
+    pub(super) mutable_borrow_meta: HashMap<String, (crate::semantics::state::Place, ExprId)>,
+    pub(super) mutable_borrow_uses: HashMap<String, Vec<ExprId>>,
+    pub(super) binding_to_mutable_borrow: HashMap<String, String>,
     /// Set by `ExprKind::Borrow` to the key `mark_borrowed`
     /// returned, and consumed (and cleared) by the enclosing
     /// `Stmt::VarDecl`. Analogous to `in_mut_borrow`: a
@@ -178,6 +185,12 @@ pub struct SemanticAnalyzer {
     /// `ExprId`). Cleared at the start of each `analyze_function`;
     /// borrows do not cross function boundaries.
     pub(super) shared_borrow_meta: HashMap<String, (crate::semantics::state::Place, ExprId)>,
+
+    /// ADR 0064 / G19b. The `ExprId` currently being analyzed.
+    /// Updated at the top of `analyze_expr`; read by borrow-
+    /// liveness queries so "is this borrow live *now*?" has
+    /// a position to compare against.
+    pub(super) current_expr_id: ExprId,
     /// ADR 0043. Non-zero while the walk is inside a `defer` body.
     /// A use of a reference binding recorded under a non-zero
     /// depth promotes its borrow's last use to
@@ -328,9 +341,13 @@ impl SemanticAnalyzer {
             const_values: HashMap::new(),
             shared_borrow_uses: HashMap::new(),
             binding_to_shared_borrow: HashMap::new(),
+            mutable_borrow_meta: HashMap::new(),
+            mutable_borrow_uses: HashMap::new(),
+            binding_to_mutable_borrow: HashMap::new(),
             last_borrow_key: None,
             deferred_shared_writes: Vec::new(),
             shared_borrow_meta: HashMap::new(),
+            current_expr_id: ExprId::UNASSIGNED,
             defer_depth: 0,
             in_place_expr: false,
         }

@@ -498,10 +498,22 @@ impl Interpreter {
         // pointing at the caller's storage.
         if let RuntimeValue::Reference(inner_place) = &cur {
             let inner_place = inner_place.clone();
-            // Recurse: resolve the referenced place, then apply our
-            // own projections on top of the resolved value.
+            // G19c fix. The `Deref` projection that put us on the
+            // reference is *consumed* by the chase below — it is
+            // the dereference. Applying it again at the end of the
+            // chain would either double-deref or hit the
+            // `Projection::Deref` unsupported arm. Strip exactly
+            // one leading `Deref` (there can only be one: a Place
+            // has at most one reference at its base).
+            let rest_projs: &[crate::semantics::state::Projection] =
+                match place.projections.first() {
+                    Some(crate::semantics::state::Projection::Deref) => {
+                        &place.projections[1..]
+                    }
+                    _ => &place.projections[..],
+                };
             let mut resolved = self.resolve_place(&inner_place)?;
-            for proj in &place.projections {
+            for proj in rest_projs {
                 resolved = self.apply_projection(resolved, proj, place)?;
             }
             return Ok(resolved);
@@ -596,10 +608,19 @@ impl Interpreter {
         // slot is `Reference(Place{box})`.
         if let RuntimeValue::Reference(inner_place) = &cur {
             let inner_place = inner_place.clone();
-            // Compose our projections onto the inner place's
-            // projections.
+            // G19c fix. The leading `Deref` projection is the
+            // dereference that got us here — it is consumed by
+            // redirecting through the reference. Only the *rest*
+            // of the projections apply to the pointee.
+            let rest_projs: &[crate::semantics::state::Projection] =
+                match place.projections.first() {
+                    Some(crate::semantics::state::Projection::Deref) => {
+                        &place.projections[1..]
+                    }
+                    _ => &place.projections[..],
+                };
             let mut composed = inner_place.clone();
-            composed.projections.extend_from_slice(&place.projections);
+            composed.projections.extend_from_slice(rest_projs);
             return self.assign_place(&composed, value);
         }
         Self::assign_into(&mut cur, &place.projections, value, place)?;

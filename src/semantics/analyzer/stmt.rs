@@ -74,6 +74,15 @@ impl SemanticAnalyzer {
                 // name so `Var("r")` uses can find it.
                 if let Some(key) = self.last_borrow_key.take() {
                     self.binding_to_shared_borrow.insert(name.clone(), key);
+                    // ADR 0064 / G19b. If the declared value is `&mut x`,
+                    // bind the new name into the mutable-borrow trio so
+                    // `record_borrow_use` and `is_mutably_borrowed` see it.
+                    if let ExprKind::MutBorrow { .. } = &value.kind {
+                        self.binding_to_mutable_borrow.insert(
+                            name.clone(),
+                            name.clone(),
+                        );
+                    }
                 }
 
                 let binding_type = if let Some(annotated) = type_annotation {

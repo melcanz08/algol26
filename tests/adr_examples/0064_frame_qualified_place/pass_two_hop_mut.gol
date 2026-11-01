@@ -1,0 +1,10 @@
+proc inner(r: &mut Int)
+    *r := 42
+
+proc outer(r: &mut Int)
+    inner(r)
+
+proc main() -> Void
+    var x: Int := 0
+    outer(&mut x)
+    print(x)   // expect: 42

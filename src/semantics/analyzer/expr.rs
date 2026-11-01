@@ -3709,7 +3709,22 @@ impl SemanticAnalyzer {
                         ErrorCode::E0002,
                     ));
                 };
-                let Some((_, payload_types)) = variants.iter().find(|(v, _)| v == variant) else {
+                // G18 depth fix. If the variant list is empty (a
+                // recursive placeholder that couldn't be rewritten
+                // without infinite type expansion), fall back to the
+                // registry. This is what makes deeply-nested matches
+                // on recursive unions work.
+                let effective_variants: &Vec<(String, Vec<Type>)> = if variants.is_empty() {
+                    match self.union_types.get(name) {
+                        Some(Type::Union { variants: v, .. }) => v,
+                        _ => variants,
+                    }
+                } else {
+                    variants
+                };
+                let Some((_, payload_types)) =
+                    effective_variants.iter().find(|(v, _)| v == variant)
+                else {
                     return Err(CompileError::at(
                         self.current_span,
                         &format!("Union '{}' has no variant '{}'", name, variant),
@@ -3718,7 +3733,7 @@ impl SemanticAnalyzer {
                     .with_suggestion(&format!(
                         "Available variants of '{}': {}",
                         name,
-                        variants
+                        effective_variants
                             .iter()
                             .map(|(v, _)| v.as_str())
                             .collect::<Vec<_>>()
@@ -3770,7 +3785,18 @@ impl SemanticAnalyzer {
                     variants,
                     ..
                 } => {
-                    if variants.iter().any(|(v, _)| v == name) {
+                    // G18 depth fix: fall back to the registry when the
+                    // variant list is an unfilled placeholder (recursive
+                    // unions can't be expanded to a finite tree).
+                    let effective_variants: &Vec<(String, Vec<Type>)> = if variants.is_empty() {
+                        match self.union_types.get(union_name) {
+                            Some(Type::Union { variants: v, .. }) => v,
+                            _ => variants,
+                        }
+                    } else {
+                        variants
+                    };
+                    if effective_variants.iter().any(|(v, _)| v == name) {
                         Ok(())
                     } else {
                         Err(CompileError::at(
@@ -3781,7 +3807,7 @@ impl SemanticAnalyzer {
                         .with_suggestion(&format!(
                             "Available variants of '{}': {}",
                             union_name,
-                            variants
+                            effective_variants
                                 .iter()
                                 .map(|(v, _)| v.as_str())
                                 .collect::<Vec<_>>()

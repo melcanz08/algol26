@@ -1,5 +1,18 @@
 // parse_ir.gol — port of parseIR from TS parser.ts, Phase 2D subset.
 //
+// TODO(G18 cleanup): The dispatch chain in this file
+// (dispatch_rule_entry → handle_rule_entry → handle_scalar_entry /
+// handle_pseudo_entry / handle_nested_entry) and the companion
+// helpers in parser.gol (collect_string_items,
+// append_scalar_declarations, append_one_pseudo_value,
+// dispatch_inner_obj, dispatch_inner_opt, append_dispatch_opt)
+// exist only to keep `match` at depth 1. G18 (nested match on a
+// union losing the variant table) was fixed in the analyzer on
+// 2026-11-01 (commit fa13ae8). These helpers are now removable —
+// a follow-up refactor can collapse them into the natural nested
+// form. See LANGUAGE_GAPS.md G18.
+
+//
 // Handles paths exercised by the three buildable corpus entries
 // (001-card, 002-button, 003-lenient-passthrough).
 //

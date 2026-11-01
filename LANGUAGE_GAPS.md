@@ -481,4 +481,82 @@ in `src/semantics/analyzer/tests.rs`.
 `handle_nested_entry` / `handle_rule_entry` is now removable —
 a follow-up commit will collapse them back into the natural
 nested-match form.
+---
+
+## G19 — `&mut` doesn't propagate through two forwarding layers — RESOLVED
+
+**Symptom:** `main → dispatch(&mut r) → handle(&mut r) → *r := v`
+silently loses the mutation. One hop works; two hops don't
+propagate.
+
+**Minimal repros:** `g19_a.gol` through `g19_e.gol` cover
+primitive/record × 1-hop/2-hop × LLVM/interpreter. Only `d`
+(2-hop record via interpreter) originally failed; all others
+passed. That isolated the bug to the **interpreter**, not the
+analyzer or the LLVM backend.
+
+**Root cause had two parts:**
+
+1. `eval_call` resolved **all** reference arguments to their
+   values before binding. That's correct for by-value params
+   (the callee needs the value), but wrong for `&mut T`. One-hop
+   forwarding happened to work because ADR 0035's write-back
+   machinery copied the callee's final parameter value back to
+   the caller by name; that mechanism does not chain through a
+   second hop.
+
+2. The interpreter's `variables` map was a single `HashMap` per
+   frame. References carry `Place { base: name }`, and `name`
+   lived in the caller's frame — so a preserved reference was
+   unresolvable in the callee's frame. That is exactly the
+   trade-off ADR 0053's comment documented:
+   *"a reference passed as a parameter does not observe later
+   mutations to the base... conservative choice until a future
+   ADR introduces a scope-stack `variables` model."*
+
+**Fix:** three interlocking changes in
+`src/backends/interpreter/` (commit `eb73193`):
+
+1. **Frame stack.** `variables: HashMap<...>` →
+   `variables: Vec<HashMap<...>>`. New helpers:
+   - `lookup_var` — walks the stack from innermost to outermost
+   - `insert_var` — binds in the innermost frame
+   - `write_var` — updates the innermost frame that contains
+     the name
+   `eval_call` and `call_function_with_values` push a frame on
+   entry, pop it on return (including early error returns). This
+   is the scope-stack model ADR 0053 anticipated but deferred.
+
+2. **Reference preservation + chasing.** `eval_call` preserves
+   `Reference` arguments when the parameter type is
+   `Borrow(T)` / `MutBorrow(T)`, and still resolves them for
+   by-value parameters. `resolve_place` and `assign_place`
+   deref `Reference` values encountered at the base, redirecting
+   reads and writes to the referenced place.
+
+3. **`Instruction::FieldAssign` deref.**
+   When the base value is a `Reference`, the handler mutates the
+   referenced record's field and writes the **whole record** back
+   to the referenced place — not to the frame-local binding.
+
+The ADR 0035 write-back machinery is **now dead code**:
+mutations propagate directly through `write_var` walking the
+stack. Write-back is filtered out for reference params to avoid
+double-writing.
+
+**Regression tests:** `g19_a.gol` through `g19_e.gol` are kept
+as integration tests. `g19_d.gol` (2-hop record, interpreter) is
+the primary regression — the exact case that used to fail.
+G18's deep nested-match regression test still green (checked in
+`cargo test`).
+
+**Port impact:** the `-> IRRule` threading workaround in
+`parse_ir.gol` — `dispatch_rule_entry` / `handle_rule_entry` /
+`handle_scalar_entry` / `handle_pseudo_entry` /
+`handle_nested_entry` threading the rule by return value rather
+than `&mut IRRule` — can now be collapsed back to natural
+`&mut IRRule` chaining, matching the TypeScript original's
+`parseNestedObject(selector, value, rule, source)` shape.
+Follow-up commit will remove the workaround; the current
+verified state is preserved.
 

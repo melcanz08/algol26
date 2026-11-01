@@ -172,11 +172,20 @@ pub enum StorageLifetime {
 /// projections: [] }`; `p.x` is `Place { base: "p", projections:
 /// [Field("x")] }`.
 ///
-/// Two places overlap when their bases are equal and one's
-/// projections are a prefix of the other's. `p.x` and `p` overlap;
-/// `p.x` and `p.y` do not; `p.x` and `q.x` do not (different bases).
+/// ADR 0064 / G19c-bug-2. A runtime frame identity. Interpreter
+/// frames are numbered monotonically; `GLOBAL_FRAME` is reserved
+/// for globals and for the analyzer, whose places are name-scoped
+/// not frame-scoped. Two places never overlap across frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct FrameId(pub u32);
+
+pub const GLOBAL_FRAME: FrameId = FrameId(0);
+
+/// Two places overlap when their frames match AND their bases are
+/// equal AND one's projections are a prefix of the other's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
+    pub frame_id: FrameId,
     pub base: String,
     pub projections: Vec<Projection>,
 }
@@ -199,6 +208,16 @@ impl Place {
     /// projections.
     pub fn simple(name: impl Into<String>) -> Self {
         Place {
+            frame_id: GLOBAL_FRAME,
+            base: name.into(),
+            projections: Vec::new(),
+        }
+    }
+
+    /// ADR 0064. Construct a place in a specific interpreter frame.
+    pub fn in_frame(frame_id: FrameId, name: impl Into<String>) -> Self {
+        Place {
+            frame_id,
             base: name.into(),
             projections: Vec::new(),
         }
@@ -207,6 +226,9 @@ impl Place {
     /// True if `self` and `other` refer to overlapping storage.
     /// See the type-level doc comment.
     pub fn overlaps(&self, other: &Place) -> bool {
+        if self.frame_id != other.frame_id {
+            return false;
+        }
         if self.base != other.base {
             return false;
         }

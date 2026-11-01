@@ -1,0 +1,10 @@
+record Counter
+    count: Int
+
+proc bump(c: &mut Counter)
+    *c := Counter { count: c.count + 1 }
+
+proc main
+    var c := Counter { count: 0 }
+    bump(&mut c)
+    print(c.count)   // expect: 1

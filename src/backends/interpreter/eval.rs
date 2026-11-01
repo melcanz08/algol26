@@ -44,6 +44,39 @@ impl Interpreter {
     /// G19 fix. Look up a variable by name, walking the frame stack
     /// from innermost to outermost. Returns `None` if no frame binds
     /// the name.
+    ///
+    /// ADR 0064 / G19c-bug-2. `lookup_var` walks all frames — that
+    /// is correct for bare `Variable(name)` reads, which follow
+    /// lexical scoping. `resolve_place` and `assign_place` need the
+    /// *frame-qualified* variant below, because a `Place` names a
+    /// specific frame's slot, not "the innermost frame that has this
+    /// name".
+    /// ADR 0064 / G19c-bug-2. Push a new frame, assigning it a
+    /// fresh frame id. Use this instead of bare `variables.push`
+    /// so `frame_ids` stays in lockstep.
+    pub(super) fn push_frame(&mut self) {
+        self.variables.push(HashMap::new());
+        self.frame_ids.push(crate::semantics::state::FrameId(self.next_frame_id));
+        self.next_frame_id += 1;
+    }
+
+    /// ADR 0064. Pop the innermost frame. Use instead of bare
+    /// `variables.pop`.
+    pub(super) fn pop_frame(&mut self) {
+        self.variables.pop();
+        self.frame_ids.pop();
+    }
+
+    /// ADR 0064. The current frame's id. Never `None` in practice:
+    /// the interpreter starts with one frame (the global one) and
+    /// never pops past it.
+    pub(super) fn current_frame_id(&self) -> crate::semantics::state::FrameId {
+        self.frame_ids
+            .last()
+            .copied()
+            .unwrap_or(crate::semantics::state::GLOBAL_FRAME)
+    }
+
     pub(super) fn lookup_var(&self, name: &str) -> Option<RuntimeValue> {
         for frame in self.variables.iter().rev() {
             if let Some(v) = frame.get(name) {
@@ -51,6 +84,57 @@ impl Interpreter {
             }
         }
         None
+    }
+
+    /// ADR 0064 / G19c-bug-2. Frame-qualified lookup. Returns the
+    /// binding in the frame whose id matches `frame_id`, or `None`
+    /// if that frame doesn't contain the name.
+    ///
+    /// If `frame_id == GLOBAL_FRAME` (analyzer path, which never
+    /// reaches the interpreter), fall back to name-based lookup so
+    /// nothing breaks.
+    pub(super) fn lookup_var_in_frame(
+        &self,
+        frame_id: crate::semantics::state::FrameId,
+        name: &str,
+    ) -> Option<RuntimeValue> {
+        // ADR 0064 / G19c-bug-2. No fallback to name-based lookup:
+        // a frame-qualified place must resolve in exactly one frame.
+        // The previous fallback (`frame_id == GLOBAL_FRAME => lookup_var`)
+        // recursed infinitely when `main`'s frame was GLOBAL_FRAME and
+        // a same-named parameter shadowed the caller's binding.
+        let n = self.frame_ids.len();
+        for i in (0..n).rev() {
+            if self.frame_ids[i] == frame_id {
+                if let Some(v) = self.variables[i].get(name) {
+                    return Some(v.clone());
+                }
+                return None;
+            }
+        }
+        None
+    }
+
+    /// ADR 0064. Write into a frame-qualified slot. Same fallback
+    /// rules as `lookup_var_in_frame`.
+    pub(super) fn write_var_in_frame(
+        &mut self,
+        frame_id: crate::semantics::state::FrameId,
+        name: &str,
+        val: RuntimeValue,
+    ) -> Result<(), EvalError> {
+        // ADR 0064 / G19c-bug-2. No fallback — see lookup_var_in_frame.
+        let n = self.frame_ids.len();
+        for i in (0..n).rev() {
+            if self.frame_ids[i] == frame_id {
+                self.variables[i].insert(name.to_string(), val);
+                return Ok(());
+            }
+        }
+        Err(EvalError::Runtime(format!(
+            "write to `{}`: frame {} not found",
+            name, frame_id.0
+        )))
     }
 
     /// G19 fix. Bind a new variable in the innermost frame.
@@ -61,23 +145,6 @@ impl Interpreter {
             .insert(name.into(), val);
     }
 
-    /// G19 fix. Write to an existing variable. Walks the stack from
-    /// innermost to outermost, updating the first frame that
-    /// contains the name. Errors if no frame binds it — that is a
-    /// verifier miss, not a user bug.
-    pub(super) fn write_var(&mut self, name: &str, val: RuntimeValue) -> Result<(), EvalError> {
-        for frame in self.variables.iter_mut().rev() {
-            if frame.contains_key(name) {
-                frame.insert(name.to_string(), val);
-                return Ok(());
-            }
-        }
-        Err(EvalError::Runtime(format!(
-            "write to `{}`: no frame contains this variable — the verifier \
-             should have caught this",
-            name
-        )))
-    }
 
     pub(super) fn eval_value(&mut self, v: &TypedIRValue) -> Result<RuntimeValue, EvalError> {
         Ok(match v {
@@ -452,7 +519,13 @@ impl Interpreter {
     ) -> Option<crate::semantics::state::Place> {
         use crate::semantics::state::{Place, Projection};
         match v {
-            TypedIRValue::Variable(name, _) => Some(Place::simple(name.clone())),
+            TypedIRValue::Variable(name, _) => {
+                // ADR 0064 / G19c-bug-2. The place names the *current*
+                // frame's slot. If `&mut rule` is passed to a callee,
+                // this frame id travels with the reference so the
+                // callee resolves back to the caller's frame.
+                Some(Place::in_frame(self.current_frame_id(), name.clone()))
+            }
             TypedIRValue::FieldAccess { object, field, .. } => {
                 let mut base = self.place_of_ir_value(object)?;
                 base.projections.push(Projection::Field(field.clone()));
@@ -485,10 +558,10 @@ impl Interpreter {
         place: &crate::semantics::state::Place,
     ) -> Result<RuntimeValue, EvalError> {
         use crate::semantics::state::Projection;
-        let mut cur = self.lookup_var(&place.base).ok_or_else(|| {
+        let mut cur = self.lookup_var_in_frame(place.frame_id, &place.base).ok_or_else(|| {
             EvalError::Runtime(format!(
-                "reference to `{}`: base variable not in any frame",
-                place.base
+                "reference to `{}`: base variable not in frame {}",
+                place.base, place.frame_id.0
             ))
         })?;
         // G19 fix. If the base variable itself holds a Reference,
@@ -594,10 +667,10 @@ impl Interpreter {
         place: &crate::semantics::state::Place,
         value: RuntimeValue,
     ) -> Result<(), EvalError> {
-        let mut cur = self.lookup_var(&place.base).ok_or_else(|| {
+        let mut cur = self.lookup_var_in_frame(place.frame_id, &place.base).ok_or_else(|| {
             EvalError::Runtime(format!(
-                "write to `{}`: base variable not in any frame",
-                place.base
+                "write to `{}`: base variable not in frame {}",
+                place.base, place.frame_id.0
             ))
         })?;
         // G19 fix. If the base variable holds a Reference, redirect
@@ -620,7 +693,7 @@ impl Interpreter {
             return self.assign_place(&composed, value);
         }
         Self::assign_into(&mut cur, &place.projections, value, place)?;
-        self.write_var(&place.base, cur)?;
+        self.write_var_in_frame(place.frame_id, &place.base, cur)?;
         Ok(())
     }
 
@@ -1773,7 +1846,7 @@ impl Interpreter {
                 arg_vals.push(v);
             }
 
-            self.variables.push(HashMap::new());
+            self.push_frame();
             let _saved_vars_marker: () = ();
             let saved_ret = self.return_value.take();
             let saved_regions = std::mem::take(&mut self.region_stack);
@@ -1791,7 +1864,7 @@ impl Interpreter {
                     // out — otherwise the stack leaks one frame per
                     // such error, and later lookups walk the wrong
                     // scope chain.
-                    self.variables.pop();
+                    self.pop_frame();
                     return Err(EvalError::Runtime(format!(
                         "function `{}` returned no value but its return type is `{}`",
                         callee.name, callee.return_type
@@ -1814,7 +1887,7 @@ impl Interpreter {
                 }
             }
 
-            self.variables.pop();
+            self.pop_frame();
             self.return_value = saved_ret;
             self.region_stack = saved_regions;
 
@@ -1881,7 +1954,7 @@ impl Interpreter {
             })
             .collect();
 
-        self.variables.push(HashMap::new());
+        self.push_frame();
         let _saved_vars_marker: () = ();
         let saved_ret = self.return_value.take();
         let saved_regions = std::mem::take(&mut self.region_stack);
@@ -1895,7 +1968,7 @@ impl Interpreter {
             Some(v) => v,
             None if callee.return_type == Type::Void => RuntimeValue::Void,
             None => {
-                self.variables.pop();
+                self.pop_frame();
                 return Err(EvalError::Runtime(format!(
                     "function `{}` returned no value but its return type is `{}`",
                     callee.name, callee.return_type
@@ -1903,7 +1976,7 @@ impl Interpreter {
             }
         };
 
-        self.variables.pop();
+        self.pop_frame();
         self.return_value = saved_ret;
         self.region_stack = saved_regions;
 

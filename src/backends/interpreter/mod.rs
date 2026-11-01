@@ -56,6 +56,15 @@ pub struct Interpreter {
     /// `&mut` mutations propagate through `resolve_place` /
     /// `assign_place` without a value-copy write-back plan.
     pub(super) variables: Vec<HashMap<String, RuntimeValue>>,
+    /// ADR 0064 / G19c-bug-2. Parallel frame-id stack. `variables[i]`
+    /// is the frame whose id is `frame_ids[i]`. `Place`s constructed
+    /// in a frame carry that frame's id, so `resolve_place` /
+    /// `assign_place` can look up the *specific* frame instead of
+    /// whichever innermost frame happens to bind the name.
+    pub(super) frame_ids: Vec<crate::semantics::state::FrameId>,
+    /// Monotonic counter for the next frame id. Starts at 1; frame 0
+    /// is `GLOBAL_FRAME`.
+    pub(super) next_frame_id: u32,
     pub(super) output: Vec<String>,
     pub(super) program: SemanticProgram,
     pub(super) return_value: Option<RuntimeValue>,
@@ -91,6 +100,8 @@ impl Interpreter {
     pub fn with_args(program: SemanticProgram, args: Vec<String>) -> Self {
         Self {
             variables: vec![HashMap::new()],
+            frame_ids: vec![crate::semantics::state::GLOBAL_FRAME],
+            next_frame_id: 1,
             output: Vec::new(),
             program,
             return_value: None,

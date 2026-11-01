@@ -1,0 +1,9 @@
+record Node
+    value: Int
+
+proc read_value(node: &mut Node)
+    print(node.value)   // expect: 42
+
+proc main
+    var node := Node { value: 42 }
+    read_value(&mut node)

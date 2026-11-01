@@ -115,6 +115,20 @@ impl Lexer {
                     tokens.push(Token::Ampersand);
                     char_offsets.push((offset, offset + 1));
                 }
+                // Generic type arguments in signatures: `Option[String]`,
+                // `Map[String, Json]`. These were previously dropped by
+                // the `_` catch-all, causing the parser to see
+                // `Named("Option")` and then a stray identifier. The
+                // parser's `parse_type_syntax_atom` correctly handles
+                // `[` and `]` — the lexer just wasn't emitting them.
+                '[' => {
+                    tokens.push(Token::LBracket);
+                    char_offsets.push((offset, offset + 1));
+                }
+                ']' => {
+                    tokens.push(Token::RBracket);
+                    char_offsets.push((offset, offset + 1));
+                }
                 // ADR 0054. `{` and `}` in a declaration signature are
                 // the brace-form body delimiters. Before this arm
                 // existed, they fell into the `_` catch-all and were

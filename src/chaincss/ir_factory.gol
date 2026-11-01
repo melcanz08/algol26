@@ -160,6 +160,9 @@ pub proc create_rule(selector: String, source: Option[SourceLocation], parent_id
 /// created record, meta.parsed deferred (None in ALGOL26), dynamic
 /// from meta.dynamic if provided (None for now).
 pub proc create_declaration(property: String, value: Json, source: Option[SourceLocation], rule_selector: String) -> IRDeclaration
+    // The TS factory computes declarationId(source?.file ?? "inline", property),
+    // NOT rule_selector. The 4th param is unused for the id (retained for
+    // backward compat with existing callers).
     val source_file := match source {
         case Some(sl) then {
             match sl.file {
@@ -170,7 +173,7 @@ pub proc create_declaration(property: String, value: Json, source: Option[Source
         case None then "inline"
     }
     return IRDeclaration {
-        id: declaration_id(rule_selector, property),
+        id: declaration_id(source_file, property),
         property: property,
         value: value,
         important: None,

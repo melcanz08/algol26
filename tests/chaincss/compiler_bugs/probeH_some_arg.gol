@@ -1,0 +1,9 @@
+import "ir_types.gol"
+
+proc consume(opt: Option[SourceLocation]) -> Bool
+    return true
+
+proc main
+    val src := SourceLocation { file: None, line: None, column: None, component: None }
+    val opt := Some(src)
+    val ok := consume(opt)

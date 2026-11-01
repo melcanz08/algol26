@@ -1,0 +1,26 @@
+import "ir_types.gol"
+
+proc make_some(src: SourceLocation) -> IRRule
+    val src_opt := Some(src)
+    return create_dummy()
+
+proc create_dummy() -> IRRule
+    val empty := SourceLocation { file: None, line: None, column: None, component: None }
+    return IRRule {
+        id: "test",
+        parentId: None,
+        selector: ".test",
+        declarations: [],
+        pseudoClasses: [],
+        atRules: [],
+        nestedRules: [],
+        conditions: [],
+        _dirty: Some(true),
+        meta: Some(Json.Obj(Map<String, Json> {})),
+        passMeta: None,
+        isDead: false,
+        specificity: 0.0,
+        hash: "",
+        source: empty,
+        history: []
+    }

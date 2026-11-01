@@ -1,0 +1,8 @@
+import "ir_types.gol"
+
+proc wrap(x: SourceLocation) -> Option[SourceLocation]
+    return Some(x)
+
+proc main
+    val src := SourceLocation { file: None, line: None, column: None, component: None }
+    val wrapped := wrap(src)

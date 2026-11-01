@@ -365,38 +365,38 @@ pub proc replace_all(s: String, needle: String, to: String) -> String
     }
 
 /// Trim leading and trailing ASCII whitespace.
-proc trim_ascii(s: String) -> String
+pub proc trim_ascii(s: String) -> String
     val chars := String.to_chars(s)
     var lo := 0
-    while lo < chars.length() {
+    var leading := true
+    while lo < chars.length() and leading {
         val n := Char.to_int(chars[lo])
         if n = 32 or n = 9 or n = 10 or n = 13 {
             lo := lo + 1
         } else {
-            lo := chars.length()  // force exit
+            leading := false
         }
     }
     var hi := chars.length()
-    var scanning := true
-    while hi > 0 and scanning {
+    var trailing := true
+    while hi > 0 and trailing {
         val n := Char.to_int(chars[hi - 1])
         if n = 32 or n = 9 or n = 10 or n = 13 {
             hi := hi - 1
         } else {
-            scanning := false
+            trailing := false
         }
     }
     if lo >= hi {
         return ""
-    } else {
-        var out := ""
-        var i := lo
-        while i < hi {
-            out := out + Char.to_string(chars[i])
-            i := i + 1
-        }
-        return out
     }
+    var out := ""
+    var i := lo
+    while i < hi {
+        out := out + Char.to_string(chars[i])
+        i := i + 1
+    }
+    return out
 
 /// Port of parseNestedObject from TS parser.ts.
 /// Walks `value` (a Json object) and mutates `rule` by appending

@@ -1,0 +1,30 @@
+// parse_ir_parity.gol — Phase 2D parity driver, ALGOL26 side.
+//
+// Reads:
+//   /tmp/chaincss-parity/current_input.json  (style source JSON)
+//   /tmp/chaincss-parity/current_source.txt  (source name, one line)
+// Writes:
+//   /tmp/chaincss-parity/current_output.json (StyleIR JSON)
+
+import "json.gol"
+import "ir_types.gol"
+import "ir_factory.gol"
+import "parser.gol"
+import "parse_ir.gol"
+
+proc main
+    val input := File.read("/tmp/chaincss-parity/current_input.json")
+    val raw_source := File.read("/tmp/chaincss-parity/current_source.txt")
+    val source_name := trim_ascii(raw_source)
+    match parse(input) {
+        case Ok(styles_json) then { handle_ok(styles_json, source_name) }
+        case Error(msg) then { handle_err(msg) }
+    }
+
+proc handle_ok(styles_json: Json, source_name: String) -> Void
+    val ir := parse_ir(styles_json, source_name)
+    val serialized := style_ir_to_json(ir)
+    File.write("/tmp/chaincss-parity/current_output.json", stringify(serialized))
+
+proc handle_err(msg: String) -> Void
+    print("ERROR parsing input JSON: " + msg)

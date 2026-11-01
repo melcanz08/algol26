@@ -27,7 +27,7 @@ proc make_empty_ir(source_file: String) -> StyleIR
         source_files.append(source_file)
     }
     val meta := StyleIRMeta {
-        version: "1.0",
+        version: "0.0.0",
         createdAt: 0,
         sourceFiles: source_files,
         passCount: 0,
@@ -36,7 +36,7 @@ proc make_empty_ir(source_file: String) -> StyleIR
         compiledAt: 0
     }
     return StyleIR {
-        id: "ir-" + source_file,
+        id: "ir-0",
         rules: [],
         atRules: [],
         diagnostics: [],
@@ -56,8 +56,12 @@ proc dispatch_selector_value(
 ) -> List<String>
     match value {
         case Arr(items) then { return collect_string_items(items) }
-        case Str(s) then { return [s] }
-        case _ then { return ["." + component_name] }
+        case Str(s) then { var _ret: List<String> := []
+            _ret.append(s)
+            return _ret }
+        case _ then { var _ret2: List<String> := []
+            _ret2.append("." + component_name)
+            return _ret2 }
     }
 
 proc dispatch_selector_opt(
@@ -69,7 +73,9 @@ proc dispatch_selector_opt(
             return dispatch_selector_value(v, component_name)
         }
         case None then {
-            return ["." + component_name]
+            var _ret2: List<String> := []
+            _ret2.append("." + component_name)
+            return _ret2
         }
     }
 
@@ -108,9 +114,10 @@ proc is_reserved_property(key: String) -> Bool
 proc handle_pseudo_class(
     prop: String,
     value: Json,
-    rule: &mut IRRule,
+    rule_in: IRRule,
     source: Option[SourceLocation]
-) -> Void
+) -> IRRule
+    var rule := rule_in
     val is_element := starts_with(prop, "&::")
     var pseudo_name := ""
     if is_element {
@@ -141,7 +148,7 @@ proc handle_pseudo_class(
         name: pseudo_full_name,
         declarations: [],
         source: source_value,
-        history: []
+        history: [make_transform_record("parser", "created", "Parsed " + pseudo_name)]
     }
     match value {
         case Obj(map) then {
@@ -160,6 +167,7 @@ proc handle_pseudo_class(
     if pc.declarations.length() > 0 {
         rule.pseudoClasses.append(pc)
     }
+    return rule
 
 // ============================================================================
 // handle_rule_entry — dispatch a single key/value pair from a rule body
@@ -172,9 +180,10 @@ proc handle_nested_entry(
     selector: String,
     prop: String,
     value: Json,
-    rule: &mut IRRule,
+    rule_in: IRRule,
     source: Option[SourceLocation]
-) -> Void
+) -> IRRule
+    var rule := rule_in
     match value {
         case Obj(_) then {
             val nested_selector := replace_all(prop, "&", rule.selector)
@@ -184,14 +193,18 @@ proc handle_nested_entry(
         }
         case _ then {}
     }
+    return rule
+
+    return rule
 
 proc handle_scalar_entry(
     selector: String,
     prop: String,
     value: Json,
-    rule: &mut IRRule,
+    rule_in: IRRule,
     source: Option[SourceLocation]
-) -> Void
+) -> IRRule
+    var rule := rule_in
     match value {
         case Str(_) then {
             val decl := create_declaration(normalize_property(prop), value, source, rule.selector)
@@ -216,41 +229,61 @@ proc handle_scalar_entry(
         }
         case _ then {}
     }
+    return rule
+
 
 proc handle_rule_entry(
     selector: String,
     prop: String,
     value: Json,
-    rule: &mut IRRule,
+    rule_in: IRRule,
     source: Option[SourceLocation]
-) -> Void
+) -> IRRule
     if starts_with(prop, "&:") or starts_with(prop, "&::") {
-        match value {
-            case Obj(_) then { handle_pseudo_class(prop, value, rule, source) }
-            case _ then {}
-        }
-    } else if starts_with(prop, "&") {
-        handle_nested_entry(selector, prop, value, rule, source)
-    } else {
-        handle_scalar_entry(selector, prop, value, rule, source)
+        return handle_pseudo_entry(selector, prop, value, rule_in, source)
     }
+    if starts_with(prop, "&") {
+        return handle_nested_entry(selector, prop, value, rule_in, source)
+    }
+    return handle_scalar_entry(selector, prop, value, rule_in, source)
+
+    if starts_with(prop, "&") {
+        return handle_nested_entry(selector, prop, value, rule_in, source)
+    }
+    return handle_scalar_entry(selector, prop, value, rule_in, source)
 
 // ============================================================================
 // dispatch_rule_entry — Option match at depth 1
 // ============================================================================
 
+proc handle_pseudo_entry(
+    selector: String,
+    prop: String,
+    value: Json,
+    rule_in: IRRule,
+    source: Option[SourceLocation]
+) -> IRRule
+    var rule := rule_in
+    match value {
+        case Obj(_) then {
+            rule := handle_pseudo_class(prop, value, rule, source)
+        }
+        case _ then {}
+    }
+    return rule
+
 proc dispatch_rule_entry(
     opt: Option[Json],
     selector: String,
     key: String,
-    rule: &mut IRRule,
+    rule_in: IRRule,
     source: Option[SourceLocation]
-) -> Void
+) -> IRRule
     match opt {
         case Some(v) then {
-            handle_rule_entry(selector, key, v, rule, source)
+            return handle_rule_entry(selector, key, v, rule_in, source)
         }
-        case None then {}
+        case None then { return rule_in }
     }
 
 // ============================================================================
@@ -267,11 +300,11 @@ proc parse_rule_for_selector(
     var rule := create_rule(selector, Some(source), None)
     for key in style_map.keys() {
         if not is_reserved_property(key) {
-            dispatch_rule_entry(
+            rule := dispatch_rule_entry(
                 style_map.get(key),
                 selector,
                 key,
-                &mut rule,
+                rule,
                 Some(source)
             )
         }

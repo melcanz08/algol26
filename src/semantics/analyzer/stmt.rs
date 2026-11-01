@@ -255,9 +255,6 @@ impl SemanticAnalyzer {
                     // Snapshot once; both branches and the no-else path start here.
                     let entry_state = self.state.fork();
 
-                    if let crate::frontend::ast::ExprKind::Block { statements, .. } = &then_branch.kind {
-                    } else {
-                    }
                     let (then_result, then_exit) = self.in_branch(|a| {
                         a.push_scope();
                         let r = a.analyze_expr(then_branch).map(|_| ());
@@ -988,12 +985,32 @@ impl SemanticAnalyzer {
                 // ADR 0055 Session 3. Bind each payload name to its
                 // declared payload type. The variant and its payload
                 // types come from the matched value's Type::Union.
-                let Type::Union { variants, .. } = value_type else {
+                let Type::Union { name, variants, .. } = value_type else {
                     // check_pattern_type already rejected this; skip.
                     return Ok(());
                 };
-                let Some((_, payload_types)) = variants.iter().find(|(v, _)| v == variant) else {
-                    return Ok(());
+                // G18c. Recursive unions reach here with an empty
+                // variant list (the recursion placeholder at match
+                // depth >= 2). Consult the registry for the resolved
+                // table — same fallback as `check_pattern_type`.
+                //
+                // Clone the payload types into an owned `Vec<Type>`
+                // before `declare_variable` below: the borrowed
+                // slice from `self.union_types` would otherwise stay
+                // live across the `&mut self` calls in the loop.
+                let payload_types: Vec<Type> = {
+                    let effective_variants: &[(String, Vec<Type>)] = if variants.is_empty() {
+                        match self.union_types.get(name) {
+                            Some(Type::Union { variants: v, .. }) => v,
+                            _ => variants,
+                        }
+                    } else {
+                        variants
+                    };
+                    match effective_variants.iter().find(|(v, _)| v == variant) {
+                        Some((_, pts)) => pts.clone(),
+                        None => return Ok(()),
+                    }
                 };
                 for (name, ty) in payload.iter().zip(payload_types.iter()) {
                     self.declare_variable(name, ty.clone(), false)?;

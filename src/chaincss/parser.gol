@@ -5,6 +5,10 @@
 // ============================================================================
 
 /// True iff `s` starts with `prefix`.
+import "json.gol"
+import "ir_types.gol"
+import "ir_factory.gol"
+
 pub proc starts_with(s: String, prefix: String) -> Bool
     if prefix.length() > s.length() {
         return false
@@ -265,3 +269,296 @@ pub proc is_dynamic_token(value: String) -> Bool
         return true
     }
     return false
+
+
+// ============================================================================
+// List<Json> helpers — factor nested match out of match (G18 workaround)
+// ============================================================================
+//
+// G18 (analyzer bug): `match` on a union value inside another `match`
+// arm loses the union's variant table. Workaround: extract the inner
+// match into a top-level helper. The helpers below have `match item`
+// at depth 1, which resolves correctly.
+
+/// Extract string elements from a List<Json>. Used by extract_selectors.
+pub proc collect_string_items(items: List<Json>) -> List<String>
+    var out: List<String> := []
+    var idx := 0
+    while idx < items.length() {
+        val item := items[idx]
+        match item {
+            case Str(s) then { out.append(s) }
+            case _ then {}
+        }
+        idx := idx + 1
+    }
+    return out
+
+/// Append IRDeclarations built from string/number elements of a
+/// List<Json> to `decls_in`. Each element becomes one declaration of
+/// the given property name. Returns the extended list.
+pub proc append_scalar_declarations(
+    items: List<Json>,
+    property: String,
+    source: Option[SourceLocation],
+    rule_selector: String,
+    decls_in: List<IRDeclaration>
+) -> List<IRDeclaration>
+    var decls := decls_in
+    var idx := 0
+    while idx < items.length() {
+        val item := items[idx]
+        match item {
+            case Str(_) then {
+                val d := create_declaration(normalize_property(property), item, source, rule_selector)
+                decls.append(d)
+            }
+            case NumInt(_) then {
+                val d := create_declaration(normalize_property(property), item, source, rule_selector)
+                decls.append(d)
+            }
+            case NumFloat(_) then {
+                val d := create_declaration(normalize_property(property), item, source, rule_selector)
+                decls.append(d)
+            }
+            case _ then {}
+        }
+        idx := idx + 1
+    }
+    return decls
+
+// ============================================================================
+// Phase 2C — parse_nested_object
+// ============================================================================
+//
+// Ported from parseNestedObject in parser.ts. Handles ONLY:
+//   - "&..." keys  → nested rules (replace ALL "&" with parent selector)
+//   - string/number → declaration
+//   - array         → multiple declarations
+//   - object        → nested rule with "${selector} ${p}"
+//
+// Note: pseudo-class handling (&:hover, &::before) is NOT here — it
+// lives in parseIR (parse_ir.gol), matching the TS source. The Phase 2
+// guide's description of parseNestedObject conflated the two.
+
+/// Replace every occurrence of `from` in `s` with `to`. Global replace,
+/// matching JS `String.prototype.replace(/<from>/g, to)`.
+/// Implemented as a single pass over chars; `from` is assumed to be a
+/// single character (`&` in every call site).
+pub proc replace_all(s: String, needle: String, to: String) -> String
+    if needle.length() = 0 {
+        return s
+    } else {
+        val needle_codepoint := Char.to_int(String.to_chars(needle)[0])
+        val chars := String.to_chars(s)
+        var out := ""
+        var i := 0
+        while i < chars.length() {
+            if Char.to_int(chars[i]) = needle_codepoint {
+                out := out + to
+            } else {
+                out := out + Char.to_string(chars[i])
+            }
+            i := i + 1
+        }
+        return out
+    }
+
+/// Trim leading and trailing ASCII whitespace.
+proc trim_ascii(s: String) -> String
+    val chars := String.to_chars(s)
+    var lo := 0
+    while lo < chars.length() {
+        val n := Char.to_int(chars[lo])
+        if n = 32 or n = 9 or n = 10 or n = 13 {
+            lo := lo + 1
+        } else {
+            lo := chars.length()  // force exit
+        }
+    }
+    var hi := chars.length()
+    var scanning := true
+    while hi > 0 and scanning {
+        val n := Char.to_int(chars[hi - 1])
+        if n = 32 or n = 9 or n = 10 or n = 13 {
+            hi := hi - 1
+        } else {
+            scanning := false
+        }
+    }
+    if lo >= hi {
+        return ""
+    } else {
+        var out := ""
+        var i := lo
+        while i < hi {
+            out := out + Char.to_string(chars[i])
+            i := i + 1
+        }
+        return out
+    }
+
+/// Port of parseNestedObject from TS parser.ts.
+/// Walks `value` (a Json object) and mutates `rule` by appending
+/// declarations and nested rules. Pseudo-class handling is in
+/// parse_ir.gol, not here.
+pub proc parse_nested_object(
+    selector: String,
+    value: Json,
+    rule_in: IRRule,
+    source: Option[SourceLocation]
+) -> IRRule
+    var rule := rule_in
+    match value {
+        case Obj(map) then {
+            for key in map.keys() {
+                match map.get(key) {
+                    case Some(v) then {
+                        if starts_with(key, "&") {
+                            val nested_selector := replace_all(key, "&", selector)
+                            val base_rule := create_rule(nested_selector, source, Some(rule.id))
+                            val nested_rule := parse_nested_object(nested_selector, v, base_rule, source)
+                            rule.nestedRules.append(nested_rule)
+                        } else {
+                            rule := handle_nested_value(selector, key, v, rule, source)
+                        }
+                    }
+                    case None then {}
+                }
+            }
+        }
+        case _ then {}
+    }
+    return rule
+
+/// Dispatch one non-&-prefixed key/value pair per TS parseNestedObject:
+/// string|number → declaration; array → multiple declarations;
+/// object → nested rule. Other kinds are ignored (matching TS).
+proc handle_nested_value(
+    selector: String,
+    key: String,
+    value: Json,
+    rule_in: IRRule,
+    source: Option<SourceLocation>
+) -> IRRule
+    var rule := rule_in
+    match value {
+        case Str(_) then {
+            val decl := create_declaration(normalize_property(key), value, source, rule.selector)
+            rule.declarations.append(decl)
+        }
+        case NumInt(_) then {
+            val decl := create_declaration(normalize_property(key), value, source, rule.selector)
+            rule.declarations.append(decl)
+        }
+        case NumFloat(_) then {
+            val decl := create_declaration(normalize_property(key), value, source, rule.selector)
+            rule.declarations.append(decl)
+        }
+        case Arr(items) then {
+            rule.declarations := append_scalar_declarations(
+                items,
+                key,
+                source,
+                rule.selector,
+                rule.declarations
+            )
+        }
+        case Obj(_) then {
+            val child_selector := trim_ascii(selector + " " + key)
+            val base_child := create_rule(child_selector, source, Some(rule.id))
+            val child_rule := parse_nested_object(child_selector, value, base_child, source)
+            rule.nestedRules.append(child_rule)
+        }
+        case _ then {}
+    }
+    return rule
+    return rule
+
+// ============================================================================
+// Pseudo-class / Json-value helpers (G18 workaround for parse_ir.gol)
+// ============================================================================
+//
+// Every helper here has its `match` at depth 1 (function body). Call
+// chains replace depth-2+ matches in callers.
+
+pub proc append_one_pseudo_value(
+    value: Json,
+    key: String,
+    source: Option[SourceLocation],
+    rule_selector: String,
+    decls_in: List[IRDeclaration]
+) -> List[IRDeclaration]
+    var decls := decls_in
+    match value {
+        case Str(_) then {
+            val d := create_declaration(normalize_property(key), value, source, rule_selector)
+            decls.append(d)
+        }
+        case NumInt(_) then {
+            val d := create_declaration(normalize_property(key), value, source, rule_selector)
+            decls.append(d)
+        }
+        case NumFloat(_) then {
+            val d := create_declaration(normalize_property(key), value, source, rule_selector)
+            decls.append(d)
+        }
+        case Arr(items) then {
+            decls := append_scalar_declarations(items, key, source, rule_selector, decls)
+        }
+        case Obj(inner_map) then {
+            decls := dispatch_inner_obj(inner_map, key, source, rule_selector, decls)
+        }
+        case _ then {}
+    }
+    return decls
+
+pub proc dispatch_inner_obj(
+    inner_map: Map<String, Json>,
+    outer_key: String,
+    source: Option[SourceLocation],
+    rule_selector: String,
+    decls_in: List[IRDeclaration]
+) -> List[IRDeclaration]
+    var decls := decls_in
+    for inner_key in inner_map.keys() {
+        decls := dispatch_inner_opt(
+            inner_map.get(inner_key), inner_key, outer_key, source, rule_selector, decls
+        )
+    }
+    return decls
+
+pub proc dispatch_inner_opt(
+    opt: Option[Json],
+    inner_key: String,
+    outer_key: String,
+    source: Option[SourceLocation],
+    rule_selector: String,
+    decls_in: List[IRDeclaration]
+) -> List[IRDeclaration]
+    match opt {
+        case Some(inner_v) then {
+            val pn := if inner_key = "color" and outer_key = "background" {
+                "backgroundColor"
+            } else {
+                inner_key
+            }
+            return append_one_pseudo_value(inner_v, pn, source, rule_selector, decls_in)
+        }
+        case None then { return decls_in }
+    }
+
+pub proc append_dispatch_opt(
+    opt: Option[Json],
+    key: String,
+    source: Option[SourceLocation],
+    rule_selector: String,
+    decls_in: List[IRDeclaration]
+) -> List[IRDeclaration]
+    match opt {
+        case Some(v) then {
+            return append_one_pseudo_value(v, key, source, rule_selector, decls_in)
+        }
+        case None then { return decls_in }
+    }
+

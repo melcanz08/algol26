@@ -1,0 +1,347 @@
+// parse_ir.gol — port of parseIR from TS parser.ts, Phase 2D subset.
+//
+// Handles paths exercised by the three buildable corpus entries
+// (001-card, 002-button, 003-lenient-passthrough).
+//
+// Design constraint — G18: the analyzer loses union variant tables at
+// `match` depth ≥ 2. Every function here has at most ONE `match` at
+// depth 1. Depth-2+ dispatch is factored into helpers, most of which
+// live in parser.gol.
+//
+// Deferred (no-op on corpus): atRules, _nestedRules, _intents,
+// _ifConditions, dynamic tokens, function values, plain-object values.
+// Pseudo-classes ARE handled (:hover in 001-card, :active in 002-button).
+
+import "json.gol"
+import "ir_types.gol"
+import "ir_factory.gol"
+import "parser.gol"
+
+// ============================================================================
+// make_empty_ir — construct a fresh StyleIR
+// ============================================================================
+
+proc make_empty_ir(source_file: String) -> StyleIR
+    var source_files: List[String] := []
+    if source_file.length() > 0 {
+        source_files.append(source_file)
+    }
+    val meta := StyleIRMeta {
+        version: "1.0",
+        createdAt: 0,
+        sourceFiles: source_files,
+        passCount: 0,
+        passes: [],
+        dirtyRules: 0,
+        compiledAt: 0
+    }
+    return StyleIR {
+        id: "ir-" + source_file,
+        rules: [],
+        atRules: [],
+        diagnostics: [],
+        meta: meta,
+        graph: None
+    }
+
+// ============================================================================
+// extract_selectors — dispatch via helpers (no depth-2+ match)
+// ============================================================================
+
+/// Take either an Arr of strings, a Str, or a fallback ["." + name].
+/// Split into two helpers so each has one match at depth 1.
+proc dispatch_selector_value(
+    value: Json,
+    component_name: String
+) -> List<String>
+    match value {
+        case Arr(items) then { return collect_string_items(items) }
+        case Str(s) then { return [s] }
+        case _ then { return ["." + component_name] }
+    }
+
+proc dispatch_selector_opt(
+    opt: Option[Json],
+    component_name: String
+) -> List<String>
+    match opt {
+        case Some(v) then {
+            return dispatch_selector_value(v, component_name)
+        }
+        case None then {
+            return ["." + component_name]
+        }
+    }
+
+proc extract_selectors(map: Map<String, Json>, component_name: String) -> List<String>
+    return dispatch_selector_opt(map.get("selectors"), component_name)
+
+// ============================================================================
+// is_reserved_property
+// ============================================================================
+
+proc is_reserved_property(key: String) -> Bool
+    if key = "selectors" {
+        return true
+    }
+    if key = "selector" {
+        return true
+    }
+    if key = "atRules" {
+        return true
+    }
+    if key = "nestedRules" {
+        return true
+    }
+    if key = "themes" {
+        return true
+    }
+    if starts_with(key, "_") {
+        return true
+    }
+    return false
+
+// ============================================================================
+// handle_pseudo_class — thin dispatcher, all match depth ≤ 1
+// ============================================================================
+
+proc handle_pseudo_class(
+    prop: String,
+    value: Json,
+    rule: &mut IRRule,
+    source: Option[SourceLocation]
+) -> Void
+    val is_element := starts_with(prop, "&::")
+    var pseudo_name := ""
+    if is_element {
+        pseudo_name := String.substring(prop, 3, prop.length() - 3)
+    } else {
+        pseudo_name := String.substring(prop, 2, prop.length() - 2)
+    }
+    var pseudo_full_name := ""
+    if is_element {
+        pseudo_full_name := "::" + pseudo_name
+    } else {
+        pseudo_full_name := pseudo_name
+    }
+    val parent_id := rule.id
+    var source_value := SourceLocation {
+        file: None,
+        line: None,
+        column: None,
+        component: None
+    }
+    match source {
+        case Some(sl) then { source_value := sl }
+        case None then {}
+    }
+    var pc := IRPseudoClass {
+        id: pseudo_full_name + "-" + rule.selector,
+        parentId: parent_id,
+        name: pseudo_full_name,
+        declarations: [],
+        source: source_value,
+        history: []
+    }
+    match value {
+        case Obj(map) then {
+            for key in map.keys() {
+                pc.declarations := append_dispatch_opt(
+                    map.get(key),
+                    key,
+                    source,
+                    rule.selector,
+                    pc.declarations
+                )
+            }
+        }
+        case _ then {}
+    }
+    if pc.declarations.length() > 0 {
+        rule.pseudoClasses.append(pc)
+    }
+
+// ============================================================================
+// handle_rule_entry — dispatch a single key/value pair from a rule body
+// ============================================================================
+
+/// Splits into: pseudo (&: / &::), nested (&), scalar/array (fallthrough).
+/// Each sub-dispatcher has one match at depth 1.
+
+proc handle_nested_entry(
+    selector: String,
+    prop: String,
+    value: Json,
+    rule: &mut IRRule,
+    source: Option[SourceLocation]
+) -> Void
+    match value {
+        case Obj(_) then {
+            val nested_selector := replace_all(prop, "&", rule.selector)
+            val base_rule := create_rule(nested_selector, source, Some(rule.id))
+            val nested_rule := parse_nested_object(nested_selector, value, base_rule, source)
+            rule.nestedRules.append(nested_rule)
+        }
+        case _ then {}
+    }
+
+proc handle_scalar_entry(
+    selector: String,
+    prop: String,
+    value: Json,
+    rule: &mut IRRule,
+    source: Option[SourceLocation]
+) -> Void
+    match value {
+        case Str(_) then {
+            val decl := create_declaration(normalize_property(prop), value, source, rule.selector)
+            rule.declarations.append(decl)
+        }
+        case NumInt(_) then {
+            val decl := create_declaration(normalize_property(prop), value, source, rule.selector)
+            rule.declarations.append(decl)
+        }
+        case NumFloat(_) then {
+            val decl := create_declaration(normalize_property(prop), value, source, rule.selector)
+            rule.declarations.append(decl)
+        }
+        case Arr(items) then {
+            rule.declarations := append_scalar_declarations(
+                items,
+                prop,
+                source,
+                rule.selector,
+                rule.declarations
+            )
+        }
+        case _ then {}
+    }
+
+proc handle_rule_entry(
+    selector: String,
+    prop: String,
+    value: Json,
+    rule: &mut IRRule,
+    source: Option[SourceLocation]
+) -> Void
+    if starts_with(prop, "&:") or starts_with(prop, "&::") {
+        match value {
+            case Obj(_) then { handle_pseudo_class(prop, value, rule, source) }
+            case _ then {}
+        }
+    } else if starts_with(prop, "&") {
+        handle_nested_entry(selector, prop, value, rule, source)
+    } else {
+        handle_scalar_entry(selector, prop, value, rule, source)
+    }
+
+// ============================================================================
+// dispatch_rule_entry — Option match at depth 1
+// ============================================================================
+
+proc dispatch_rule_entry(
+    opt: Option[Json],
+    selector: String,
+    key: String,
+    rule: &mut IRRule,
+    source: Option[SourceLocation]
+) -> Void
+    match opt {
+        case Some(v) then {
+            handle_rule_entry(selector, key, v, rule, source)
+        }
+        case None then {}
+    }
+
+// ============================================================================
+// Component / rule iteration — helpers, all depth ≤ 1
+// ============================================================================
+
+proc parse_rule_for_selector(
+    style_map: Map<String, Json>,
+    selector: String,
+    source: SourceLocation,
+    ir_in: StyleIR
+) -> StyleIR
+    var ir := ir_in
+    var rule := create_rule(selector, Some(source), None)
+    for key in style_map.keys() {
+        if not is_reserved_property(key) {
+            dispatch_rule_entry(
+                style_map.get(key),
+                selector,
+                key,
+                &mut rule,
+                Some(source)
+            )
+        }
+    }
+    ir.rules.append(rule)
+    return ir
+
+proc parse_one_component_obj(
+    cv: Json,
+    component_name: String,
+    source_file: String,
+    ir_in: StyleIR
+) -> StyleIR
+    match cv {
+        case Obj(style_map) then {
+            val selectors := extract_selectors(style_map, component_name)
+            val source := SourceLocation {
+                file: Some(source_file),
+                line: None,
+                column: None,
+                component: Some(component_name)
+            }
+            var ir := ir_in
+            for selector in selectors {
+                ir := parse_rule_for_selector(style_map, selector, source, ir)
+            }
+            return ir
+        }
+        case _ then { return ir_in }
+    }
+
+proc parse_one_component(
+    opt: Option[Json],
+    component_name: String,
+    source_file: String,
+    ir_in: StyleIR
+) -> StyleIR
+    match opt {
+        case Some(cv) then {
+            return parse_one_component_obj(cv, component_name, source_file, ir_in)
+        }
+        case None then { return ir_in }
+    }
+
+proc parse_components(
+    components: Map<String, Json>,
+    source_file: String,
+    ir_in: StyleIR
+) -> StyleIR
+    var ir := ir_in
+    for component_name in components.keys() {
+        ir := parse_one_component(
+            components.get(component_name),
+            component_name,
+            source_file,
+            ir
+        )
+    }
+    return ir
+
+// ============================================================================
+// Top-level parse_ir
+// ============================================================================
+
+pub proc parse_ir(styles: Json, source_file: String) -> StyleIR
+    var ir := make_empty_ir(source_file)
+    match styles {
+        case Obj(components) then {
+            ir := parse_components(components, source_file, ir)
+        }
+        case _ then {}
+    }
+    return ir

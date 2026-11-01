@@ -348,3 +348,40 @@ re-resolve `Option[Record]` correctly. Fix would be in
 - `test_option_rec_arg.gol` should compile.
 - `test_move_option.gol` and `test_use_twice.gol` should compile.
 - Add to `tests/chaincss/compiler_bugs/` as positive tests.
+
+
+## G16 — `&Record` parameter + record-literal-return function breaks parser
+
+**Symptom:** a function that returns `Record { ... }` (a record
+literal in a `var` initializer or `return`), followed by another
+function whose parameter is `&Record` and whose body starts with an
+`if`, triggers:
+
+    error[E0001]: Unexpected token at top level: Indent
+
+at the second function's body's first line. The parser loses the
+enclosing function context.
+
+**Scope (from probes):**
+- Single `&Record` param + `if` body: OK
+- Two `&Record` params, no record-literal return, no match on fields: OK
+- Two `&Record` params, first function has record-literal return,
+  second has `if` body: BROKEN
+- `var result := Record { ... }` + `match source.field { ... }` +
+  `return result`, followed by `&Record` + `if` function: BROKEN
+
+**Not yet isolated to a single feature.** Candidates: record-literal
+in `var` initializer, `match source.field` on a `&Record` reference,
+or their combination.
+
+**Discovered:** 2026-10-31 while porting `parse_nested_object`.
+Together with G15 (`Option[Record]` in arg position), G16 blocks
+`parse_nested.gol` (Phase 2C).
+
+**Status:** Open. `parse_nested.gol` deferred to a compiler-fix
+session, moved to `tests/chaincss/deferred/parse_nested.gol`.
+
+**Workaround in ALGOL26 source:** unknown without further
+investigation. Suspected workaround: avoid record literals in
+`var`-initializer + field-match combinations in functions that
+precede `&Record`-param functions.

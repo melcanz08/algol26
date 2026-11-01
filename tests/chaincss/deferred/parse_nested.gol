@@ -1,0 +1,182 @@
+// parse_nested.gol — parseNestedObject from parser.ts (Phase 2C)
+//
+// Recursive walker over a Json.Obj producing IRRule trees.
+//
+// WORKAROUND for G15 (Option[Record] in function arg position breaks
+// the analyzer — see LANGUAGE_GAPS.md): source threading uses
+// `&SourceLocation` + `has_source: Bool` instead of
+// `Option[SourceLocation]`. The Option is reconstructed at each call
+// to create_rule / create_declaration via `opt_source`.
+//
+// Type-mapping decisions:
+// - create_rule / create_declaration take Option[SourceLocation];
+//   we build a fresh Option each call via opt_source.
+// - Map.keys() sorts; TS Object.entries preserves insertion order.
+//   The Phase 2D diff tool must canonicalize ordering.
+
+import "parser.gol"
+import "ir_types.gol"
+import "ir_factory.gol"
+import "json.gol"
+
+/// Replace all occurrences of `old` in `s` with `new`.
+pub proc replace_all(s: String, old: String, new: String) -> String
+    val old_chars := String.to_chars(old)
+    val s_chars := String.to_chars(s)
+    if old_chars.length() = 0 {
+        return s
+    } else {
+        var out := ""
+        var i := 0
+        while i < s_chars.length() {
+            var matched := false
+            if i + old_chars.length() <= s_chars.length() {
+                var j := 0
+                var match_here := true
+                while j < old_chars.length() and match_here {
+                    if Char.to_int(s_chars[i + j]) != Char.to_int(old_chars[j]) {
+                        match_here := false
+                    }
+                    j := j + 1
+                }
+                if match_here {
+                    matched := true
+                }
+            }
+            if matched {
+                out := out + new
+                i := i + old_chars.length()
+            } else {
+                out := out + Char.to_string(s_chars[i])
+                i := i + 1
+            }
+        }
+        return out
+    }
+
+/// Build a fresh SourceLocation from a reference (SourceLocation is
+/// non-Copy; this produces a new value without moving the original).
+proc copy_source(source: &SourceLocation) -> SourceLocation
+    var f: Option[String] := None
+    match source.file {
+        case Some(x) then { f := Some(x) }
+        case None then {}
+    }
+    var ln: Option[Int] := None
+    match source.line {
+        case Some(x) then { ln := Some(x) }
+        case None then {}
+    }
+    var c: Option[Int] := None
+    match source.column {
+        case Some(x) then { c := Some(x) }
+        case None then {}
+    }
+    var cm: Option[String] := None
+    match source.component {
+        case Some(x) then { cm := Some(x) }
+        case None then {}
+    }
+    return SourceLocation { file: f, line: ln, column: c, component: cm }
+
+/// Build an Option[SourceLocation] from a reference + has_source flag.
+/// Returns None if has_source is false, Some(fresh copy) if true.
+proc opt_source(source: &SourceLocation, has_source: Bool) -> Option[SourceLocation]
+    if has_source {
+        return Some(copy_source(source))
+    } else {
+        return None
+    }
+
+/// Read the source file path from a SourceLocation (or "" if unset).
+proc source_file_of(source: &SourceLocation) -> String
+    match source.file {
+        case Some(f) then { return f }
+        case None then { return "" }
+    }
+
+/// parseNestedObject from parser.ts. Populates rule's declarations
+/// and nestedRules in place.
+pub proc parse_nested_object(
+    selector: String,
+    value: Json,
+    rule: &mut IRRule,
+    source: &SourceLocation,
+    has_source: Bool
+) -> Void
+    match value {
+        case Obj(m) then {
+            for k in m.keys() {
+                match m.get(k) {
+                    case Some(v) then {
+                        parse_one_nested_entry(selector, k, v, rule, source, has_source)
+                    }
+                    case None then {}
+                }
+            }
+        }
+        case _ then {}
+    }
+
+/// One entry from the outer loop of parse_nested_object.
+proc parse_one_nested_entry(
+    selector: String,
+    key: String,
+    value: Json,
+    rule: &mut IRRule,
+    source: &SourceLocation,
+    has_source: Bool
+) -> Void
+    if starts_with(key, "&") {
+        val nested_selector := replace_all(key, "&", selector)
+        val parent_id := rule.id
+        val parent_for_child := Some(parent_id)
+        val src_opt := opt_source(source, has_source)
+        var nested_rule := create_rule(nested_selector, src_opt, parent_for_child)
+        parse_nested_object(nested_selector, value, &mut nested_rule, source, has_source)
+        rule.nestedRules.append(nested_rule)
+    } else {
+        match value {
+            case Str(s) then {
+                val decl := create_declaration(normalize_property(key), value, opt_source(source, has_source), rule.selector)
+                rule.declarations.append(decl)
+            }
+            case NumInt(n) then {
+                val decl := create_declaration(normalize_property(key), value, opt_source(source, has_source), rule.selector)
+                rule.declarations.append(decl)
+            }
+            case NumFloat(f) then {
+                val decl := create_declaration(normalize_property(key), value, opt_source(source, has_source), rule.selector)
+                rule.declarations.append(decl)
+            }
+            case Arr(items) then {
+                for item in items {
+                    match item {
+                        case Str(s) then {
+                            val decl := create_declaration(normalize_property(key), item, opt_source(source, has_source), rule.selector)
+                            rule.declarations.append(decl)
+                        }
+                        case NumInt(n) then {
+                            val decl := create_declaration(normalize_property(key), item, opt_source(source, has_source), rule.selector)
+                            rule.declarations.append(decl)
+                        }
+                        case NumFloat(f) then {
+                            val decl := create_declaration(normalize_property(key), item, opt_source(source, has_source), rule.selector)
+                            rule.declarations.append(decl)
+                        }
+                        case _ then {}
+                    }
+                }
+            }
+            case Obj(_) then {
+                val nested_selector := selector + " " + key
+                val parent_id := rule.id
+                val parent_for_child := Some(parent_id)
+                val src_opt := opt_source(source, has_source)
+                var nested_rule := create_rule(nested_selector, src_opt, parent_for_child)
+                parse_nested_object(nested_selector, value, &mut nested_rule, source, has_source)
+                rule.nestedRules.append(nested_rule)
+            }
+            case _ then {}
+        }
+    }

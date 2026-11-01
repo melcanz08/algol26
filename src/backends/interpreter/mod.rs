@@ -47,7 +47,15 @@ pub(super) struct RegionFrame {
 }
 
 pub struct Interpreter {
-    pub(super) variables: HashMap<String, RuntimeValue>,
+    /// G19 fix / ADR 0053 successor. Frame stack for variable
+    /// bindings. The innermost frame is at the end of the vec.
+    /// `lookup_var` walks the stack from innermost to outermost,
+    /// which lets a reference held in a callee resolve to the
+    /// caller's binding by name. Writes (`write_var`) update the
+    /// innermost frame that contains the name — this is how
+    /// `&mut` mutations propagate through `resolve_place` /
+    /// `assign_place` without a value-copy write-back plan.
+    pub(super) variables: Vec<HashMap<String, RuntimeValue>>,
     pub(super) output: Vec<String>,
     pub(super) program: SemanticProgram,
     pub(super) return_value: Option<RuntimeValue>,
@@ -82,7 +90,7 @@ impl Interpreter {
     /// subprocess.
     pub fn with_args(program: SemanticProgram, args: Vec<String>) -> Self {
         Self {
-            variables: HashMap::new(),
+            variables: vec![HashMap::new()],
             output: Vec::new(),
             program,
             return_value: None,
@@ -190,13 +198,13 @@ impl Interpreter {
                     exit_block,
                 }) => {
                     let idx_key = format!("{}_idx", iterator);
-                    let current_idx = match self.variables.get(&idx_key) {
-                        Some(RuntimeValue::Int(i)) => *i as usize,
+                    let current_idx = match self.lookup_var(&idx_key) {
+                        Some(RuntimeValue::Int(i)) => i as usize,
                         Some(other) => {
                             return Err(EvalError::Runtime(format!(
                                 "iterator index `{}` has wrong type at runtime: {}",
                                 idx_key,
-                                runtime::runtime_kind(other)
+                                runtime::runtime_kind(&other)
                             )));
                         }
                         None => {
@@ -208,7 +216,7 @@ impl Interpreter {
                         }
                     };
 
-                    let iterable = self.variables.get(iterator).cloned().ok_or_else(|| {
+                    let iterable = self.lookup_var(iterator).ok_or_else(|| {
                         EvalError::Runtime(format!(
                             "iterator `{}` not found — `IteratorInit` should \
                              have bound it",
@@ -219,9 +227,8 @@ impl Interpreter {
                     if let RuntimeValue::List(list) = iterable {
                         if current_idx < list.len() {
                             let value = list[current_idx].clone();
-                            self.variables.insert(target.clone(), value);
-                            self.variables
-                                .insert(idx_key, RuntimeValue::Int((current_idx + 1) as i64));
+                            self.insert_var(target.clone(), value);
+                            self.insert_var(idx_key, RuntimeValue::Int((current_idx + 1) as i64));
                             current = *body_block;
                         } else {
                             current = *exit_block;
@@ -254,7 +261,7 @@ impl Interpreter {
                     for (pattern, target) in cases {
                         if let Some(bindings) = self.try_pattern_match(pattern, &val)? {
                             for (name, bound_val) in bindings {
-                                self.variables.insert(name, bound_val);
+                                self.insert_var(name, bound_val);
                             }
                             current = *target;
                             matched = true;
@@ -290,7 +297,7 @@ impl Interpreter {
                 for p in payload {
                     payload_vals.push(self.eval_value(p)?);
                 }
-                self.variables.insert(
+                self.insert_var(
                     target.clone(),
                     RuntimeValue::Union {
                         tag: *tag,
@@ -310,11 +317,11 @@ impl Interpreter {
 
             Instruction::Declare { name, value, .. } => {
                 let val = self.eval_value(value)?;
-                self.variables.insert(name.clone(), val);
+                self.insert_var(name.clone(), val);
             }
             Instruction::Assign { target, value } => {
                 let val = self.eval_value(value)?;
-                self.variables.insert(target.clone(), val);
+                self.insert_var(target.clone(), val);
             }
             Instruction::Print { value } => {
                 let val = self.eval_value(value)?;
@@ -346,7 +353,7 @@ impl Interpreter {
             } => {
                 let val = self.eval_call(func, args)?;
                 if let Some(res_name) = result {
-                    self.variables.insert(res_name.clone(), val);
+                    self.insert_var(res_name.clone(), val);
                 }
             }
             // ADR 0038 D4b. Dispatch through the fat pointer. The
@@ -384,7 +391,7 @@ impl Interpreter {
                 let callee_name = format!("{}_{}_{}", trait_name, concrete_type, method_name);
                 let val = self.call_function_with_values(&callee_name, arg_vals)?;
                 if let Some(res_name) = result {
-                    self.variables.insert(res_name.clone(), val);
+                    self.insert_var(res_name.clone(), val);
                 }
             }
             Instruction::ArrayAssign {
@@ -422,12 +429,11 @@ impl Interpreter {
                     }
                 };
 
-                if let Some(RuntimeValue::List(list)) = self.variables.get(&arr_name).cloned() {
+                if let Some(RuntimeValue::List(list)) = self.lookup_var(&arr_name) {
                     let mut new_list = list;
                     if idx_usize < new_list.len() {
                         new_list[idx_usize] = val;
-                        self.variables
-                            .insert(arr_name, RuntimeValue::List(new_list));
+                        self.insert_var(arr_name, RuntimeValue::List(new_list));
                     } else {
                         return Err(EvalError::Runtime(format!(
                             "array assignment index {} out of bounds (length {})",
@@ -456,12 +462,46 @@ impl Interpreter {
                 // the `ArrayAssign` arm above. Avoids holding a
                 // mutable borrow of `self.variables` across a
                 // mutation of one of its entries.
-                let record = self.variables.get(target).cloned().ok_or_else(|| {
+                let record = self.lookup_var(target).ok_or_else(|| {
                     EvalError::Runtime(format!(
                         "field-assign target `{}` not found at runtime",
                         target
                     ))
                 })?;
+
+                // G19 fix. If `target` holds a Reference (a forwarded
+                // `&mut T` parameter whose base is in a caller's
+                // frame), redirect the write to the referenced place.
+                // Two-hop `b.value := 42` where `b: &mut Box` arrives
+                // here with `record = Reference(Place{box})`. We mutate
+                // the record's field and write the *whole record* back
+                // to `box`, not to `box.value`.
+                if let RuntimeValue::Reference(inner_place) = &record {
+                    let inner_place = inner_place.clone();
+                    let inner_val = self.resolve_place(&inner_place)?;
+                    let updated = match inner_val {
+                        RuntimeValue::Record { name, mut fields } => {
+                            match fields.iter_mut().find(|(n, _)| n == field) {
+                                Some((_, slot)) => *slot = val,
+                                None => {
+                                    return Err(EvalError::Runtime(format!(
+                                        "field `{}` not found on record `{}`",
+                                        field, name
+                                    )));
+                                }
+                            }
+                            RuntimeValue::Record { name, fields }
+                        }
+                        other => {
+                            return Err(EvalError::TypeMismatch {
+                                op: "FieldAssign",
+                                left: runtime::runtime_kind(&other),
+                                right: "Record",
+                            });
+                        }
+                    };
+                    return self.assign_place(&inner_place, updated);
+                }
 
                 match record {
                     RuntimeValue::Record { name, mut fields } => {
@@ -474,8 +514,7 @@ impl Interpreter {
                                 )));
                             }
                         }
-                        self.variables
-                            .insert(target.clone(), RuntimeValue::Record { name, fields });
+                        self.insert_var(target.clone(), RuntimeValue::Record { name, fields });
                     }
                     other => {
                         return Err(EvalError::TypeMismatch {
@@ -488,9 +527,8 @@ impl Interpreter {
             }
             Instruction::IteratorInit { iterator, iterable } => {
                 let val = self.eval_value(iterable)?;
-                self.variables.insert(iterator.clone(), val);
-                self.variables
-                    .insert(format!("{}_idx", iterator), RuntimeValue::Int(0));
+                self.insert_var(iterator.clone(), val);
+                self.insert_var(format!("{}_idx", iterator), RuntimeValue::Int(0));
             }
             Instruction::Allocate { target, size, .. } => {
                 let requested = match self.eval_value(size)? {
@@ -510,8 +548,7 @@ impl Interpreter {
                 if let Some(frame) = self.region_stack.last_mut() {
                     frame.allocations.push(handle);
                 }
-                self.variables
-                    .insert(target.clone(), RuntimeValue::Int(handle as i64));
+                self.insert_var(target.clone(), RuntimeValue::Int(handle as i64));
             }
             Instruction::Free { ptr } => {
                 let handle = match self.eval_value(ptr)? {

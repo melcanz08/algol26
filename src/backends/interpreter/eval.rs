@@ -41,6 +41,44 @@ fn numeric_element(v: &RuntimeValue, op: &'static str) -> Result<f64, EvalError>
 }
 
 impl Interpreter {
+    /// G19 fix. Look up a variable by name, walking the frame stack
+    /// from innermost to outermost. Returns `None` if no frame binds
+    /// the name.
+    pub(super) fn lookup_var(&self, name: &str) -> Option<RuntimeValue> {
+        for frame in self.variables.iter().rev() {
+            if let Some(v) = frame.get(name) {
+                return Some(v.clone());
+            }
+        }
+        None
+    }
+
+    /// G19 fix. Bind a new variable in the innermost frame.
+    pub(super) fn insert_var(&mut self, name: impl Into<String>, val: RuntimeValue) {
+        self.variables
+            .last_mut()
+            .expect("variables stack is never empty")
+            .insert(name.into(), val);
+    }
+
+    /// G19 fix. Write to an existing variable. Walks the stack from
+    /// innermost to outermost, updating the first frame that
+    /// contains the name. Errors if no frame binds it — that is a
+    /// verifier miss, not a user bug.
+    pub(super) fn write_var(&mut self, name: &str, val: RuntimeValue) -> Result<(), EvalError> {
+        for frame in self.variables.iter_mut().rev() {
+            if frame.contains_key(name) {
+                frame.insert(name.to_string(), val);
+                return Ok(());
+            }
+        }
+        Err(EvalError::Runtime(format!(
+            "write to `{}`: no frame contains this variable — the verifier \
+             should have caught this",
+            name
+        )))
+    }
+
     pub(super) fn eval_value(&mut self, v: &TypedIRValue) -> Result<RuntimeValue, EvalError> {
         Ok(match v {
             TypedIRValue::Int(i) => RuntimeValue::Int(*i),
@@ -49,15 +87,13 @@ impl Interpreter {
             TypedIRValue::Bool(b) => RuntimeValue::Bool(*b),
             TypedIRValue::String(s) => RuntimeValue::String(s.clone()),
             TypedIRValue::Void => RuntimeValue::Void,
-            TypedIRValue::Variable(name, _) => {
-                self.variables.get(name).cloned().ok_or_else(|| {
-                    EvalError::Runtime(format!(
-                        "variable `{}` not found at runtime — the verifier \
+            TypedIRValue::Variable(name, _) => self.lookup_var(name).ok_or_else(|| {
+                EvalError::Runtime(format!(
+                    "variable `{}` not found at runtime — the verifier \
                          should have caught this",
-                        name
-                    ))
-                })?
-            }
+                    name
+                ))
+            })?,
             TypedIRValue::List(elems, _) => {
                 let mut out = Vec::with_capacity(elems.len());
                 for e in elems {
@@ -449,12 +485,27 @@ impl Interpreter {
         place: &crate::semantics::state::Place,
     ) -> Result<RuntimeValue, EvalError> {
         use crate::semantics::state::Projection;
-        let mut cur = self.variables.get(&place.base).cloned().ok_or_else(|| {
+        let mut cur = self.lookup_var(&place.base).ok_or_else(|| {
             EvalError::Runtime(format!(
-                "reference to `{}`: base variable not in scope",
+                "reference to `{}`: base variable not in any frame",
                 place.base
             ))
         })?;
+        // G19 fix. If the base variable itself holds a Reference,
+        // resolve through it first. Handles `inner(r)` where `r: &mut T`
+        // — the reference is preserved across the call, and the base
+        // variable `r` in the callee's frame is `Reference(Place{...})`
+        // pointing at the caller's storage.
+        if let RuntimeValue::Reference(inner_place) = &cur {
+            let inner_place = inner_place.clone();
+            // Recurse: resolve the referenced place, then apply our
+            // own projections on top of the resolved value.
+            let mut resolved = self.resolve_place(&inner_place)?;
+            for proj in &place.projections {
+                resolved = self.apply_projection(resolved, proj, place)?;
+            }
+            return Ok(resolved);
+        }
         for proj in &place.projections {
             cur = match (proj, cur) {
                 (Projection::Field(f), RuntimeValue::Record { fields, .. }) => fields
@@ -487,6 +538,40 @@ impl Interpreter {
         Ok(cur)
     }
 
+    /// G19 fix. Apply one projection to a resolved value. Extracted
+    /// from `resolve_place`'s loop body so reference-chasing can
+    /// reuse it.
+    fn apply_projection(
+        &self,
+        cur: RuntimeValue,
+        proj: &crate::semantics::state::Projection,
+        whole: &crate::semantics::state::Place,
+    ) -> Result<RuntimeValue, EvalError> {
+        use crate::semantics::state::Projection;
+        match (proj, cur) {
+            (Projection::Field(f), RuntimeValue::Record { fields, .. }) => fields
+                .into_iter()
+                .find(|(n, _)| n == f)
+                .map(|(_, v)| v)
+                .ok_or_else(|| {
+                    EvalError::Runtime(format!("reference to `{}`: field `{}` not found", whole, f))
+                }),
+            (Projection::Index(i), RuntimeValue::List(items)) => {
+                items.into_iter().nth(*i).ok_or_else(|| {
+                    EvalError::Runtime(format!(
+                        "reference to `{}`: index {} out of bounds",
+                        whole, i
+                    ))
+                })
+            }
+            (_, other) => Err(EvalError::TypeMismatch {
+                op: "resolve_place",
+                left: runtime_kind(&other),
+                right: "Record or List",
+            }),
+        }
+    }
+
     /// ADR 0056. Write `value` into the place `place`. The write
     /// counterpart of `resolve_place`: walk the base variable's
     /// value through each projection and store `value` at the end.
@@ -499,14 +584,26 @@ impl Interpreter {
         place: &crate::semantics::state::Place,
         value: RuntimeValue,
     ) -> Result<(), EvalError> {
-        let mut cur = self.variables.get(&place.base).cloned().ok_or_else(|| {
+        let mut cur = self.lookup_var(&place.base).ok_or_else(|| {
             EvalError::Runtime(format!(
-                "write to `{}`: base variable not in scope",
+                "write to `{}`: base variable not in any frame",
                 place.base
             ))
         })?;
+        // G19 fix. If the base variable holds a Reference, redirect
+        // the write to the referenced place. Handles `b.value := 42`
+        // where `b: &mut Box` forwarded through a call — `b`'s frame
+        // slot is `Reference(Place{box})`.
+        if let RuntimeValue::Reference(inner_place) = &cur {
+            let inner_place = inner_place.clone();
+            // Compose our projections onto the inner place's
+            // projections.
+            let mut composed = inner_place.clone();
+            composed.projections.extend_from_slice(&place.projections);
+            return self.assign_place(&composed, value);
+        }
         Self::assign_into(&mut cur, &place.projections, value, place)?;
-        self.variables.insert(place.base.clone(), cur);
+        self.write_var(&place.base, cur)?;
         Ok(())
     }
 
@@ -1586,6 +1683,18 @@ impl Interpreter {
             // callee's final parameter value can be written back to the
             // caller after the frame is restored. This is a syntactic
             // scan — nothing is evaluated here.
+            // G19 fix. The ADR 0035 write-back exists only because the
+            // interpreter historically resolved `&mut` arguments to
+            // their values before binding. Now that references are
+            // preserved for `Borrow`/`MutBorrow` params (see the arg
+            // evaluation block below), writes through the reference
+            // reach the caller's place directly. Write-back is skipped
+            // for reference params to avoid double-writing (or, worse,
+            // writing a `Reference` value back into a value slot).
+            //
+            // Kept as a plan for any hypothetical future case where a
+            // `BorrowMutable` argument targets a by-value parameter —
+            // the plan is filtered below.
             let write_back_plan: Vec<(usize, String)> = args
                 .iter()
                 .enumerate()
@@ -1596,36 +1705,64 @@ impl Interpreter {
                     },
                     _ => None,
                 })
+                .filter(|(i, _)| {
+                    // Skip write-back for reference-typed params.
+                    !callee
+                        .params
+                        .get(*i)
+                        .map(|(_, ty)| matches!(ty, Type::Borrow(_) | Type::MutBorrow(_)))
+                        .unwrap_or(false)
+                })
                 .collect();
 
-            // ADR 0053: resolve reference arguments to their values
-            // *before* the caller's frame is swapped out. A
-            // `Reference(Place { base: "p" })` argument would be
-            // unresolvable once the callee's `variables` map is
-            // installed — the base is in the caller's frame.
+            // ADR 0053 + G19 fix. Reference arguments must be
+            // *preserved* when the callee's parameter is a reference
+            // type (`Borrow(T)` / `MutBorrow(T)`), so writes through
+            // the reference propagate to the caller's frame. For
+            // by-value parameters, still resolve references to their
+            // pointee values (the callee needs the value, not the
+            // reference).
             //
-            // The trade-off is snapshot semantics across function
-            // boundaries: a reference passed as a parameter does not
-            // observe later mutations to the base. That is
-            // unobservable today (writes through references are not
-            // parseable), and it is the conservative choice until a
-            // future ADR introduces a scope-stack `variables` model
-            // that keeps the caller's frame alive during the callee.
+            // Prior to this fix, all reference arguments were
+            // resolved unconditionally. That broke two-hop `&mut`
+            // forwarding — `outer(r: &mut Int) -> inner(r)` where
+            // `inner` writes through `r` — because `r` at hop 2 was
+            // resolved to its current value, losing the reference to
+            // the caller's storage. One-hop cases worked because the
+            // ADR 0035 write-back machinery copied the callee's final
+            // parameter value back to the caller by name; that
+            // mechanism does not chain through a second hop.
+            //
+            // With references preserved, the ADR 0035 write-back is
+            // redundant — mutations go through the reference to the
+            // caller's place directly, not through a value copy
+            // written back by name. Write-back is therefore
+            // suppressed below when the argument is a preserved
+            // reference; it remains for any future case where a
+            // `BorrowMutable` arg is passed to a by-value parameter.
             let mut arg_vals = Vec::with_capacity(args.len());
-            for a in args {
+            for (i, a) in args.iter().enumerate() {
                 let mut v = self.eval_value(a)?;
-                if let RuntimeValue::Reference(place) = &v {
-                    v = self.resolve_place(place)?;
+                let param_is_ref = callee
+                    .params
+                    .get(i)
+                    .map(|(_, ty)| matches!(ty, Type::Borrow(_) | Type::MutBorrow(_)))
+                    .unwrap_or(false);
+                if !param_is_ref {
+                    if let RuntimeValue::Reference(place) = &v {
+                        v = self.resolve_place(place)?;
+                    }
                 }
                 arg_vals.push(v);
             }
 
-            let saved_vars = std::mem::take(&mut self.variables);
+            self.variables.push(HashMap::new());
+            let _saved_vars_marker: () = ();
             let saved_ret = self.return_value.take();
             let saved_regions = std::mem::take(&mut self.region_stack);
 
             for ((param_name, _), val) in callee.params.iter().zip(arg_vals) {
-                self.variables.insert(param_name.clone(), val);
+                self.insert_var(param_name.clone(), val);
             }
 
             let result = self.execute_function(&callee);
@@ -1633,6 +1770,11 @@ impl Interpreter {
                 Some(v) => v,
                 None if callee.return_type == Type::Void => RuntimeValue::Void,
                 None => {
+                    // G19 fix. Pop the frame we pushed before bailing
+                    // out — otherwise the stack leaks one frame per
+                    // such error, and later lookups walk the wrong
+                    // scope chain.
+                    self.variables.pop();
                     return Err(EvalError::Runtime(format!(
                         "function `{}` returned no value but its return type is `{}`",
                         callee.name, callee.return_type
@@ -1649,19 +1791,19 @@ impl Interpreter {
                 Vec::with_capacity(write_back_plan.len());
             for (i, caller_name) in &write_back_plan {
                 if let Some((param_name, _)) = callee.params.get(*i) {
-                    if let Some(val) = self.variables.get(param_name).cloned() {
+                    if let Some(val) = self.lookup_var(param_name) {
                         write_backs.push((caller_name.clone(), val));
                     }
                 }
             }
 
-            self.variables = saved_vars;
+            self.variables.pop();
             self.return_value = saved_ret;
             self.region_stack = saved_regions;
 
             // ─── ADR 0035: apply write-backs to the caller's frame ───
             for (caller_name, val) in write_backs {
-                self.variables.insert(caller_name, val);
+                self.insert_var(caller_name, val);
             }
 
             // Wrap the callee's error with the function name so
@@ -1722,12 +1864,13 @@ impl Interpreter {
             })
             .collect();
 
-        let saved_vars = std::mem::take(&mut self.variables);
+        self.variables.push(HashMap::new());
+        let _saved_vars_marker: () = ();
         let saved_ret = self.return_value.take();
         let saved_regions = std::mem::take(&mut self.region_stack);
 
         for ((param_name, _), val) in callee.params.iter().zip(arg_vals) {
-            self.variables.insert(param_name.clone(), val);
+            self.insert_var(param_name.clone(), val);
         }
 
         let result = self.execute_function(&callee);
@@ -1735,6 +1878,7 @@ impl Interpreter {
             Some(v) => v,
             None if callee.return_type == Type::Void => RuntimeValue::Void,
             None => {
+                self.variables.pop();
                 return Err(EvalError::Runtime(format!(
                     "function `{}` returned no value but its return type is `{}`",
                     callee.name, callee.return_type
@@ -1742,7 +1886,7 @@ impl Interpreter {
             }
         };
 
-        self.variables = saved_vars;
+        self.variables.pop();
         self.return_value = saved_ret;
         self.region_stack = saved_regions;
 

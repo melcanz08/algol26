@@ -92,19 +92,27 @@ impl Interpreter {
                 };
                 let mut saved: Vec<(String, Option<RuntimeValue>)> = Vec::new();
                 for (name, val) in &bindings {
-                    saved.push((
-                        name.clone(),
-                        self.variables.insert(name.clone(), val.clone()),
-                    ));
+                    // Capture the previous binding (if any) so a
+                    // failed guard can restore it. Was previously
+                    // `self.variables.get(name).cloned()` before the
+                    // frame-stack refactor; equivalent now via
+                    // `lookup_var`.
+                    let old = self.lookup_var(name);
+                    saved.push((name.clone(), old));
+                    self.insert_var(name.clone(), val.clone());
                 }
                 let cond_result = self.eval_value(condition);
                 for (name, old) in saved {
                     match old {
                         Some(v) => {
-                            self.variables.insert(name, v);
+                            self.insert_var(name, v);
                         }
                         None => {
-                            self.variables.remove(&name);
+                            for frame in self.variables.iter_mut().rev() {
+                                if frame.remove(&name).is_some() {
+                                    break;
+                                }
+                            }
                         }
                     }
                 }

@@ -406,3 +406,54 @@ Minimal repro that fails before the fix and passes after:
         return None
 
 See commit message for full analysis.
+
+---
+
+## G18 — Nested `match` on a union loses the variant table
+
+**Symptom:** an inner `match` inside an outer `match` arm, on a union
+value, fails with:
+
+    error[E0004]: Union 'Json' has no variant 'Str'
+    = help: Available variants of 'Json':
+
+(empty variant list)
+
+**Minimal repro:** `probeUnion6` —
+
+    proc test(x: Option[Json]) -> Bool
+        match x {
+            case Some(v) then {
+                match v {
+                    case Arr(items) then {
+                        for item in items {
+                            match item {          // ← fails here
+                                case Str(_) then { return true }
+                                case _ then {}
+                            }
+                        }
+                        return false
+                    }
+                    case _ then { return false }
+                }
+            }
+            case None then { return false }
+        }
+
+`match v` inside `match x` is fine. `match item` inside `match v` fails.
+The variant table for `Json` is empty at depth ≥ 2.
+
+**Confirmed passing** (depth 1):
+- `match x { case Str(_) ... }` on `x: Json` param
+- `for item in items { match item { case Str(_) ... } }` at function top-level
+
+**Confirmed failing** (depth ≥ 2):
+- `match inner { ... }` inside a `match outer { case Arr(items) ... }` arm
+
+**Workaround:** extract the inner match into a top-level helper function
+(`collect_string_items`, `append_scalar_declarations` in `parser.gol`).
+The inner match is then at depth 1 in the helper.
+
+**Status:** Open. Compiler bug in the analyzer's per-scope union
+variant resolution. Workaround applied in `parse_ir.gol` and
+`parser.gol` Phase 2C/2D.

@@ -1,6 +1,6 @@
 // src/compiler/context.rs
 
-use crate::common::diagnostics::{CompileWarning, Diagnostic};
+use crate::common::diagnostics::{CompileWarning, Diagnostic, WarningConfig};
 use crate::compiler::capabilities::{BackendKind, CapabilityMatrix};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +95,14 @@ pub struct CompilerConfig {
     pub debug_info: bool,
     pub strict_mode: bool,
     pub features: FeatureSet,
+    /// ADR 0063. Warning suppression and promotion config. Set by
+    /// the CLI from --no-warn / --deny-warnings flags. Read by
+    /// `type_check_program` (which threads it to the analyzer) and
+    /// by the driver's denial check (Patch 8).
+    ///
+    /// Default: `WarningConfig::new()` — all warnings enabled,
+    /// none denied.
+    pub warning_config: WarningConfig,
 }
 
 impl Default for CompilerConfig {
@@ -105,6 +113,7 @@ impl Default for CompilerConfig {
             debug_info: false,
             strict_mode: true,
             features: FeatureSet::all(),
+            warning_config: WarningConfig::new(),
         }
     }
 }

@@ -42,6 +42,7 @@ impl Pass<Program> for TypeCheckPass {
             &ast.distincts,
             &ast.enums,
             &ast.subranges,
+            &ctx.config.warning_config, // ADR 0063
         ) {
             Ok(typed) => {
                 // ADR 0063. Drain the analyzer's warnings into ctx

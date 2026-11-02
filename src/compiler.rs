@@ -280,8 +280,15 @@ pub fn type_check_program(
     distincts: &[crate::frontend::ast::DistinctDecl], // ← ADR 0029
     enums: &[crate::frontend::ast::EnumDecl],     // ← ADR 0030
     subranges: &[crate::frontend::ast::SubrangeDecl], // ← ADR 0031
+    warning_config: &crate::common::diagnostics::WarningConfig, // ← ADR 0063
 ) -> Result<TypedProgram> {
-    let mut analyzer = SemanticAnalyzer::new();
+    // ADR 0063. Thread the driver's warning config to the
+    // analyzer so its W0001 emission check sees the current
+    // suppression state. Without this, --no-warn=W0001 would
+    // be ignored at the analysis layer (the driver's own
+    // denial check would still work, but the emission would
+    // fire spuriously).
+    let mut analyzer = SemanticAnalyzer::new().with_warning_config(warning_config.clone());
     debug_assert!(
         assert_all_numbered(functions),
         "type_check_program reached with an UNASSIGNED ExprId — \

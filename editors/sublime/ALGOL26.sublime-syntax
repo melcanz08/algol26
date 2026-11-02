@@ -44,8 +44,18 @@ contexts:
   keywords:
     - match: \b(if|else|match|case|then|for|in|while|return|defer|break|continue)\b
       scope: keyword.control
-    - match: \b(val|var|distinct|mut|self|Self)\b
-      scope: keyword.other
+    - match: \bpub\b
+      scope: storage.modifier
+    - match: \bmut\b
+      scope: storage.modifier
+    - match: \b(val|var|distinct)\b
+      scope: storage.type
+    - match: \bself\b
+      scope: variable.language
+    - match: \bSelf\b
+      scope: support.type
+    - match: \b(and|or|not)\b
+      scope: keyword.operator.word
     - match: \b(spawn|parallel|region|unsafe|try|catch|as|from|affirm|args|alloc|free|import|extern)\b
       scope: keyword.other
 

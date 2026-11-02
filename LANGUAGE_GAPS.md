@@ -1401,3 +1401,35 @@ documented in ADR 0063 §Implementation notes):**
 **Status:** Complete. G29 has both behavior (ad08a53) and warning
 (this entry). ADR 0063's proposed design is implemented; divergences
 are recorded in the ADR's implementation notes.
+
+
+---
+
+## G33 — tree-sitter grammar: keyword scopes incomplete
+
+The tree-sitter grammar in `tree-sitter-algol26/` does not tokenize
+several keywords: `pub`, `and`, `or`, `not`, `self`, `Self`.
+`grammar.js` parses them as identifiers, and `queries/highlights.scm`
+has no captures for them.
+
+**Impact:** tree-sitter-based editors (Neovim, Helix, Zed, VS Code
+via LSP, GitHub's code view) render these in the default text color.
+**Sublime Text is unaffected** — it uses
+`editors/sublime/ALGOL26.sublime-syntax` (patched 2026-11-02).
+
+**Not a compiler bug.** The compiler's lexer and parser handle all
+of these correctly.
+
+**Fix scope:**
+
+1. Add `pub`, `and`, `or`, `not`, `self`, `Self` as keyword
+   productions to `grammar.js`.
+2. Regenerate `src/parser.c` and `src/node-types.json` via
+   `tree-sitter generate`.
+3. Add captures to `queries/highlights.scm`.
+
+**Effort:** ~1 hour (grammar edit + regenerate + queries + test
+in a tree-sitter-aware editor).
+
+**Status:** Open. Non-blocking. Deferred until the tree-sitter
+grammar is touched for other reasons.

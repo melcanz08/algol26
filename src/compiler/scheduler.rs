@@ -1,5 +1,6 @@
 // src/compiler/scheduler.rs
 
+use crate::common::diagnostics::CompileWarning;
 use crate::compiler::context::CompilerContext;
 use crate::compiler::pass::{Pass, PassError, PassId, PassKind};
 use crate::compiler::pipeline::Pipeline;
@@ -36,6 +37,17 @@ pub struct ScheduleOutcome {
     pub total: usize,
     pub timings: Vec<StageTiming>,
     pub failure: Option<PassError>,
+    /// ADR 0063. Warnings produced during this pipeline run.
+    /// Drained from `ctx.warnings` at every return site so
+    /// warnings survive even when the pipeline fails partway
+    /// (e.g. a warning from `TypeCheckPass` before `OptimizePass`
+    /// errors).
+    ///
+    /// Ordered by pass completion (ADR 0063 §Decision 3):
+    /// warnings are appended in the order passes ran, so
+    /// `TypeCheckPass` warnings come before any later-pass
+    /// warnings.
+    pub warnings: Vec<CompileWarning>,
 }
 
 impl ScheduleOutcome {
@@ -81,6 +93,7 @@ impl Scheduler {
                          at the same level (set Scheduler::require_verification_after_transforms=false \
                          to opt out)",
                     )),
+                    warnings: std::mem::take(&mut ctx.warnings),
                 };
             }
 
@@ -104,6 +117,7 @@ impl Scheduler {
                                 total,
                                 timings,
                                 failure: Some(PassError::new(c.id, "fatal diagnostics emitted")),
+                                warnings: std::mem::take(&mut ctx.warnings),
                             };
                         }
                         // Non-fatal diagnostics: keep going but don't
@@ -119,6 +133,7 @@ impl Scheduler {
                             total,
                             timings,
                             failure: Some(e),
+                            warnings: std::mem::take(&mut ctx.warnings),
                         };
                     }
                     // Recoverable: keep going.
@@ -131,6 +146,7 @@ impl Scheduler {
             total,
             timings,
             failure: None,
+            warnings: std::mem::take(&mut ctx.warnings),
         }
     }
 }

@@ -25,7 +25,7 @@ impl Pass<Program> for TypeCheckPass {
         &C
     }
 
-    fn run(&self, _ctx: &mut CompilerContext, program: &mut Program) -> PassResult {
+    fn run(&self, ctx: &mut CompilerContext, program: &mut Program) -> PassResult {
         let ast = program.ast.as_ref().ok_or_else(|| {
             PassError::new(
                 PassId("ast.type_check"),
@@ -44,6 +44,14 @@ impl Pass<Program> for TypeCheckPass {
             &ast.subranges,
         ) {
             Ok(typed) => {
+                // ADR 0063. Drain the analyzer's warnings into ctx
+                // before moving `typed` into the program. The
+                // scheduler will read ctx.warnings at the end of the
+                // pipeline and carry them into
+                // ScheduleOutcome.warnings for the driver.
+                for w in &typed.warnings {
+                    ctx.push_compile_warning(w.clone());
+                }
                 program.typed = Some(typed);
                 Ok(())
             }

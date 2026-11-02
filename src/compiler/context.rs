@@ -1,6 +1,6 @@
 // src/compiler/context.rs
 
-use crate::common::diagnostics::Diagnostic;
+use crate::common::diagnostics::{CompileWarning, Diagnostic};
 use crate::compiler::capabilities::{BackendKind, CapabilityMatrix};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +113,18 @@ pub struct CompilerContext {
     pub config: CompilerConfig,
     pub capabilities: CapabilityMatrix,
     pub diagnostics: Vec<Diagnostic>,
+    /// ADR 0063. Warnings produced by passes. Separate from
+    /// `diagnostics` because the two are different shapes:
+    /// `diagnostics` carries `Diagnostic::Warning(String)` (message-
+    /// only, for generic use), while `warnings` carries
+    /// `CompileWarning` (span + code + suggestion + notes), which is
+    /// the structured type the CLI renders and `--deny-warnings`
+    /// promotes to errors.
+    ///
+    /// `TypeCheckPass` populates this from `TypedProgram.warnings`
+    /// after analysis succeeds. The scheduler drains it into
+    /// `ScheduleOutcome.warnings` at the end of the pipeline.
+    pub warnings: Vec<CompileWarning>,
     next_id: u64,
 }
 
@@ -122,6 +134,7 @@ impl CompilerContext {
             config,
             capabilities: CapabilityMatrix::standard(),
             diagnostics: Vec::new(),
+            warnings: Vec::new(),
             next_id: 0,
         }
     }
@@ -146,6 +159,15 @@ impl CompilerContext {
 
     pub fn push_warning(&mut self, msg: impl Into<String>) {
         self.diagnostics.push(Diagnostic::Warning(msg.into()));
+    }
+
+    /// ADR 0063. Push a structured warning (span + code +
+    /// suggestion). Distinct from `push_warning`, which takes only
+    /// a message and produces a `Diagnostic::Warning` — the
+    /// `CompileWarning` type is the structured form that the
+    /// driver renders and `--deny-warnings` promotes.
+    pub fn push_compile_warning(&mut self, w: CompileWarning) {
+        self.warnings.push(w);
     }
 
     /// Only `Diagnostic::Error` is fatal. Warnings do not stop the

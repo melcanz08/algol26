@@ -682,6 +682,16 @@ impl SemanticAnalyzer {
                 Ok(result_type)
             }
             ExprKind::Match { value, cases, .. } => {
+                // ADR 0063 §Decision 5. Save the *match expression's*
+                // span before analyzing arms. `self.current_span` gets
+                // updated by every nested `analyze_expr` call, so by
+                // the time we want to emit W0001 (in the `any_void`
+                // branch below), `self.current_span` points at the
+                // last arm's last sub-expression — not at the match.
+                // The whole-match span is what the warning should
+                // point at: the match is the site of the discard
+                // decision.
+                let match_span = self.current_span;
                 let value_type = self.analyze_expr(value)?;
                 self.check_match_exhaustiveness(&value_type, cases)?;
 
@@ -749,14 +759,36 @@ impl SemanticAnalyzer {
                 // instead of failing. The explicit branches below are
                 // what make mixed-Void yield a concrete `Void`.
                 //
-                // TODO G29-warning: emit "non-Void arm value discarded"
-                // once the analyzer has a warning sink. Deferred —
-                // see LANGUAGE_GAPS.md G29.
+                // ADR 0063. W0001: mixed-Void match discards non-Void
+                // arm values. The match yields Void; the value-
+                // producing arm's trailing expression is discarded.
+                // This is intentional in the common case (statement-
+                // position match in a Void proc) but almost always
+                // worth surfacing — the user may have intended the
+                // match to produce a value and use it downstream.
+                //
+                // Config check first (ADR 0063 §Decision 6): a user
+                // who's disabled W0001 gets no warning. Default is
+                // enabled.
                 let any_void = arm_types.iter().any(|t| t == &Type::Void);
                 let all_void = arm_types.iter().all(|t| t == &Type::Void);
                 let result_type = if all_void {
                     Type::Void
                 } else if any_void {
+                    if self.warning_config.is_enabled("W0001") {
+                        self.warnings.push(
+                            CompileWarning::at(
+                                match_span,
+                                "non-Void arm value discarded in mixed-Void match",
+                                "W0001",
+                            )
+                            .with_suggestion(
+                                "If you meant to discard the value, this is fine; \
+                                 if you meant for the match to produce it, make all \
+                                 arms yield a value of the same type.",
+                            ),
+                        );
+                    }
                     Type::Void
                 } else {
                     arm_types[1..]

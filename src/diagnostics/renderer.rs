@@ -48,7 +48,9 @@ pub fn render_one_with_source(err: &CompileError, source: Option<&str>) -> Strin
     out.push_str(&format!(
         "{}[{}]: {}\n",
         severity_label,
-        err.error_code.as_str(),
+        err.code_override
+            .as_deref()
+            .unwrap_or_else(|| err.error_code.as_str()),
         err.message
     ));
 

@@ -11,6 +11,19 @@ pub struct CompileError {
     pub span: Span,
     pub source_line: String,
     pub error_code: ErrorCode,
+    /// ADR 0063. Override the code that the renderer prints.
+    /// When `Some("W0001")`, the rendered header is
+    /// `error[W0001]:` (or `warning[W0001]:` if `severity` is
+    /// `Warning`). When `None`, the renderer uses
+    /// `error_code.as_str()` as before.
+    ///
+    /// Used by promoted warnings: a `CompileWarning` with
+    /// `code: "W0001"` becomes a `CompileError` with
+    /// `severity: Warning` (or `Error` if `--deny-warnings`)
+    /// and `code_override: Some("W0001")`, so the renderer
+    /// produces `warning[W0001]: ...` or `error[W0001]: ...`
+    /// rather than `error[E0002]: ...`.
+    pub code_override: Option<String>,
     pub suggestion: Option<String>,
     /// Source file where the error was detected. `None` for errors
     /// that have no file context (backend capability refusals,
@@ -104,6 +117,19 @@ pub enum ErrorCode {
 }
 
 #[derive(Debug, Clone)]
+/// A message-bearing diagnostic. Errors carry the rich
+/// `CompileError`; warnings are message-only (the structured
+/// warning form is `CompileWarning`, a distinct type).
+///
+/// `#[allow(clippy::large_enum_variant)]`: the size difference
+/// (CompileError is ~230 bytes; String is ~24) is intentional.
+/// `Diagnostic` is a transient value — constructed, pushed onto
+/// `ctx.diagnostics`, rendered, dropped. It's not stored in bulk
+/// collections where enum size drives allocation cost. Boxing
+/// `CompileError` would add an allocation per error without a
+/// corresponding benefit. The warning is suppressed deliberately,
+/// not accidentally.
+#[allow(clippy::large_enum_variant)]
 pub enum Diagnostic {
     Error(CompileError),
     Warning(String),
@@ -153,6 +179,7 @@ impl CompileError {
             span: Span::point(line, column),
             source_line: source_line.to_string(),
             error_code,
+            code_override: None,
             suggestion: None,
             file: None,
             severity: Severity::Error,
@@ -170,6 +197,7 @@ impl CompileError {
             span,
             source_line: String::new(),
             error_code,
+            code_override: None,
             suggestion: None,
             file: None,
             severity: Severity::Error,
@@ -241,6 +269,13 @@ impl CompileError {
 
     pub fn with_suggestion(mut self, suggestion: &str) -> Self {
         self.suggestion = Some(suggestion.to_string());
+        self
+    }
+
+    /// ADR 0063. Set the code override for the rendered header.
+    /// See the `code_override` field doc.
+    pub fn with_code_override(mut self, code: impl Into<String>) -> Self {
+        self.code_override = Some(code.into());
         self
     }
 
@@ -519,6 +554,19 @@ mod tests {
         assert_eq!(e.secondary.len(), 1);
         assert_eq!(e.secondary[0].1, "borrowed here");
         assert_eq!(e.notes, vec!["see ADR 0005"]);
+    }
+
+    #[test]
+    fn compile_error_code_override_defaults_none() {
+        let e = CompileError::simple("msg", 1, 1, "", ErrorCode::E0002);
+        assert!(e.code_override.is_none());
+    }
+
+    #[test]
+    fn compile_error_with_code_override_sets_field() {
+        let e = CompileError::simple("msg", 1, 1, "", ErrorCode::E0002).with_code_override("W0001");
+        assert_eq!(e.code_override.as_deref(), Some("W0001"));
+        assert_eq!(e.error_code, ErrorCode::E0002); // enum unchanged
     }
 
     #[test]

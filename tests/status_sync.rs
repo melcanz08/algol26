@@ -69,6 +69,17 @@ const STATUS_ROW_TO_FEATURES: &[(&str, &[Feature])] = &[
     ("`affirm", &[]),
     ("`import`", &[]),
     ("`Set<T>`", &[]),
+    // ─── Reconciliation rows added in feature-inventory commit a50ec5d ───
+    // All five are language-level constructs: enums lower to Int,
+    // nominal types lower to their base, subranges lower to Int,
+    // associated constants are analyzer-level inlined expressions,
+    // where-clauses on impls are analyzer-time checks. No
+    // BackendCapabilities Feature variant gates them.
+    ("`enum` types", &[]),
+    ("`nominal` types", &[]),
+    ("`subrange` types", &[]),
+    ("Associated constants", &[]),
+    ("Where-clauses on impls", &[]),
     // ─── Backend-gated features ───
     // Each row maps to the Feature variant(s) it exercises. The
     // LLVM column in STATUS.md must be "supported" iff every

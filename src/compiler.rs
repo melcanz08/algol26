@@ -29,7 +29,14 @@ pub mod program;
 pub mod registry;
 pub mod scheduler;
 
-pub struct Compiler;
+pub struct Compiler {
+    /// ADR 0063. Warning configuration. Set by the CLI from
+    /// --no-warn / --deny-warnings flags; used by `make_context`
+    /// to populate `CompilerContext.config.warning_config`, which
+    /// in turn reaches the analyzer's emission check and the
+    /// driver's denial check.
+    pub warning_config: crate::common::diagnostics::WarningConfig,
+}
 
 pub struct LexedProgram {
     pub tokens: Vec<crate::frontend::lexer::SpannedToken>,
@@ -415,7 +422,70 @@ pub fn build_semantic_ir_program(
 
 impl Compiler {
     pub fn new() -> Self {
-        Compiler
+        Compiler {
+            warning_config: crate::common::diagnostics::WarningConfig::new(),
+        }
+    }
+
+    /// ADR 0063. Set the warning config. Used by the CLI to pass
+    /// --no-warn / --deny-warnings flags through to the driver.
+    pub fn with_warning_config(
+        mut self,
+        config: crate::common::diagnostics::WarningConfig,
+    ) -> Self {
+        self.warning_config = config;
+        self
+    }
+
+    /// Construct a CompilerContext with this Compiler's
+    /// warning_config baked into CompilerConfig. Every
+    /// CompilerContext::new(CompilerConfig::default()) call inside
+    /// the driver goes through here so the config reaches the
+    /// analyzer and the denial check.
+    fn make_context(&self) -> CompilerContext {
+        let config = CompilerConfig {
+            warning_config: self.warning_config.clone(),
+            ..CompilerConfig::default()
+        };
+        CompilerContext::new(config)
+    }
+
+    /// ADR 0063. Render warnings collected during the pipeline.
+    /// Denied warnings render as \`error[W####]: ...\` and return
+    /// Err (compilation fails). Enabled warnings render as
+    /// \`warning[W####]: ...\` and return Ok (compilation continues).
+    fn render_warnings(
+        &self,
+        warnings: &[crate::common::diagnostics::CompileWarning],
+        source: Option<&str>,
+    ) -> Result<()> {
+        use crate::common::diagnostics::{CompileError, ErrorCode, Severity};
+        use crate::diagnostics::renderer::render_one_with_source;
+
+        for w in warnings {
+            let denied = self.warning_config.is_denied(&w.code);
+            let mut err =
+                CompileError::at(w.span, &w.message, ErrorCode::E0002).with_code_override(&w.code);
+            err.severity = if denied {
+                Severity::Error
+            } else {
+                Severity::Warning
+            };
+            if let Some(s) = &w.suggestion {
+                err = err.with_suggestion(s);
+            }
+            // Enabled warnings render here and compilation
+            // continues. Denied warnings are returned as Err;
+            // the caller (CLI) renders them once via its
+            // top-level error handler. Rendering here AND
+            // returning Err would double-render — that's what
+            // the probe caught.
+            if denied {
+                return Err(err);
+            }
+            eprint!("{}", render_one_with_source(&err, source));
+        }
+        Ok(())
     }
 
     /// ADR 0018. One canonical pipeline. Every compilation entry
@@ -487,7 +557,7 @@ impl Compiler {
     pub fn run_pipeline_for(&mut self, source: &str, filename: &str) -> Result<VerifiedIR> {
         let prep = self.prepare_frontend(source, filename)?;
         let mut program = Program::new(source, filename);
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut ctx = self.make_context();
 
         program.ast = Some(AstPayload {
             functions: Rc::clone(&prep.parsed.functions),
@@ -574,7 +644,7 @@ impl Compiler {
 
         let mut program = Program::new(source, filename);
         program.typed = Some(typed);
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut ctx = self.make_context();
 
         // Match the canonical pipeline: run TypeTableCompletePass
         // between type-check and build-IR. Without this, `inspect --ir`
@@ -623,14 +693,20 @@ impl Compiler {
             enums: parsed.enums.clone(),
             subranges: parsed.subranges.clone(),
         });
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut ctx = self.make_context();
 
         self.run_type_check_pass(&mut program, &mut ctx)?;
 
-        Ok(program
+        // ADR 0063 §Decision 7. Render warnings from the typed
+        // program. The check subcommand doesn't run the full
+        // pipeline, so warnings aren't aggregated into a
+        // ScheduleOutcome — pull them from program.typed.
+        let typed = program
             .typed
             .take()
-            .expect("type_check pass left typed in place"))
+            .expect("type_check pass left typed in place");
+        self.render_warnings(&typed.warnings, Some(source))?;
+        Ok(typed)
     }
 
     /// Runs `BuildSemanticIRPass` through the scheduler. On success,
@@ -678,7 +754,7 @@ impl Compiler {
 
         let prep = self.prepare_frontend(source, filename)?;
         let mut program = Program::new(source, filename);
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut ctx = self.make_context();
 
         program.ast = Some(AstPayload {
             functions: Rc::clone(&prep.parsed.functions),
@@ -691,7 +767,10 @@ impl Compiler {
             subranges: prep.parsed.subranges.clone(),
         });
 
-        let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
+        let (verified, outcome) = self.run_pipeline(&mut program, &mut ctx)?;
+        // ADR 0063 §Decision 7. Render warnings; denied warnings
+        // fail compilation.
+        self.render_warnings(&outcome.warnings, Some(source))?;
 
         crate::backends::capabilities::check_backend(
             verified.program(),
@@ -779,7 +858,7 @@ impl Compiler {
     pub fn run_type_table_complete_pass_public(&self, typed: TypedProgram) -> Result<()> {
         let mut program = Program::new("", "");
         program.typed = Some(typed);
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut ctx = self.make_context();
         self.run_type_table_complete_pass(&mut program, &mut ctx)
     }
 
@@ -799,7 +878,7 @@ impl Compiler {
         let total_start = Instant::now();
 
         let mut program = Program::new(source, filename);
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut ctx = self.make_context();
 
         let prep = self.prepare_frontend(source, filename)?;
         let lex_time = prep.timings.lex;
@@ -823,6 +902,9 @@ impl Compiler {
         // completion; the target-specific work is below.
         let pipeline_start = Instant::now();
         let (verified, outcome) = self.run_pipeline(&mut program, &mut ctx)?;
+        // ADR 0063 §Decision 7. Render warnings; denied warnings
+        // fail compilation.
+        self.render_warnings(&outcome.warnings, Some(source))?;
         let pipeline_time = pipeline_start.elapsed();
 
         // Target-specific: LLVM lowering + link + optional run.
@@ -1332,7 +1414,7 @@ impl Compiler {
 
         let prep = self.prepare_frontend(source, filename)?;
         let mut program = Program::new(source, filename);
-        let mut ctx = CompilerContext::new(CompilerConfig::default());
+        let mut ctx = self.make_context();
 
         program.ast = Some(AstPayload {
             functions: Rc::clone(&prep.parsed.functions),
@@ -1345,7 +1427,10 @@ impl Compiler {
             subranges: prep.parsed.subranges.clone(),
         });
 
-        let (verified, _outcome) = self.run_pipeline(&mut program, &mut ctx)?;
+        let (verified, outcome) = self.run_pipeline(&mut program, &mut ctx)?;
+        // ADR 0063 §Decision 7. Render warnings; denied warnings
+        // fail compilation.
+        self.render_warnings(&outcome.warnings, Some(source))?;
 
         crate::backends::capabilities::check_backend(
             verified.program(),

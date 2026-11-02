@@ -1,6 +1,6 @@
 // src/main.rs - ALGOL26 - Binary entry point
 
-use algol26::common::diagnostics::{CompileError, ErrorCode};
+use algol26::common::diagnostics::{CompileError, ErrorCode, WarningConfig};
 use algol26::compiler::Compiler;
 use algol26::diagnostics::renderer::render_one_with_source;
 use std::env;
@@ -49,6 +49,7 @@ fn main() {
     let emit_llvm = args.iter().any(|a| a == "--emit-llvm");
     let run_flag = args.iter().any(|a| a == "--run");
     let timing = args.iter().any(|a| a == "--timing");
+    let warning_config = parse_warning_flags(&args);
 
     // Positional args: everything that isn't a recognized flag or
     // the value of a flag that takes one.
@@ -65,8 +66,21 @@ fn main() {
             || a == "-h"
             || a == "--version"
             || a == "-v"
+            || a == "--deny-warnings"
         {
             i += 1;
+            continue;
+        }
+        // ADR 0063. --no-warn=CODE form (single arg) and --no-warn
+        // CODE form (two args) are warning-config flags; skip them
+        // so they aren't mistaken for the filename.
+        if a.starts_with("--no-warn=") {
+            i += 1;
+            continue;
+        }
+        if a == "--no-warn" {
+            // Skip the flag and the value that follows it.
+            i += 2;
             continue;
         }
         if a == "--output" || a == "-o" {
@@ -181,7 +195,7 @@ fn main() {
 
     if command == "wasm" {
         eprintln!("[Compiling to WASM: {}]", filename);
-        let mut compiler = Compiler::new();
+        let mut compiler = Compiler::new().with_warning_config(warning_config.clone());
         if let Err(e) = compiler.compile_to_wasm(&source, &filename, &output_name) {
             let e = e.with_file(&filename);
             eprint!("{}", render_one_with_source(&e, Some(&source)));
@@ -196,7 +210,7 @@ fn main() {
         //
         // `--interpreter` is ignored here: `check` is `check`, and
         // the flag is documented as a codegen-path selector.
-        let mut compiler = Compiler::new();
+        let mut compiler = Compiler::new().with_warning_config(warning_config.clone());
         if let Err(e) = compiler.type_check_source_for(&source, &filename) {
             let e = e.with_file(&filename);
             eprint!("{}", render_one_with_source(&e, Some(&source)));
@@ -204,14 +218,14 @@ fn main() {
         }
     } else if use_interpreter {
         eprintln!("[Interpreting {}]", filename);
-        let mut compiler = Compiler::new();
+        let mut compiler = Compiler::new().with_warning_config(warning_config.clone());
         if let Err(e) = compiler.run_interpreter_with_args(&source, &filename, program_args) {
             let e = e.with_file(&filename);
             eprint!("{}", render_one_with_source(&e, Some(&source)));
             std::process::exit(1);
         }
     } else {
-        let mut compiler = Compiler::new();
+        let mut compiler = Compiler::new().with_warning_config(warning_config.clone());
         if let Err(e) = compiler.compile(
             &source,
             &filename,
@@ -226,6 +240,46 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+/// ADR 0063. Parse --no-warn=CODE[,...] and --deny-warnings from
+/// CLI args into a WarningConfig.
+///
+///   --no-warn=W0001,W0002   disables those codes
+///   --no-warn W0001,W0002   also accepted (space-separated)
+///   --deny-warnings         promotes every warning to an error
+///                           (uses the "*" wildcard in
+///                           WarningConfig.denied)
+fn parse_warning_flags(args: &[String]) -> WarningConfig {
+    let mut cfg = WarningConfig::new();
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(rest) = a.strip_prefix("--no-warn=") {
+            let codes: Vec<&str> = rest
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !codes.is_empty() {
+                cfg = cfg.with_disabled(&codes);
+            }
+        } else if a == "--no-warn" && i + 1 < args.len() {
+            let codes: Vec<&str> = args[i + 1]
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !codes.is_empty() {
+                cfg = cfg.with_disabled(&codes);
+            }
+            i += 1;
+        } else if a == "--deny-warnings" {
+            cfg = cfg.with_denied(&["*"]);
+        }
+        i += 1;
+    }
+    cfg
 }
 
 fn print_usage() {
@@ -257,6 +311,8 @@ fn print_usage() {
     println!("  --timing               Print per-phase compile timings (LLVM path only)");
     println!("  --interpreter          Run through the interpreter (skips LLVM)");
     println!("  --output, -o NAME      Specify output name");
+    println!("  --no-warn=CODE[,CODE]  Disable specific warnings (e.g. W0001)");
+    println!("  --deny-warnings        Promote all warnings to errors");
     println!("  --version, -v          Show version");
     println!("  --help, -h             Show this help");
     println!();
@@ -334,7 +390,7 @@ fn run_inspect(args: &[&str]) {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| path.clone());
 
-    let mut compiler = Compiler;
+    let mut compiler = Compiler::new();
 
     if tokens {
         inspect_tokens(&compiler, &source);

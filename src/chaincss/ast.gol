@@ -1,0 +1,263 @@
+// ast.gol — Phase 2A. Type-only port of the StyleDefinition AST layer.
+//
+// Source:  chaincss/src/shared/types/style-types.ts  (StyleDefinition,
+//          StyleObject, CSSProperties, PseudoClasses, PseudoStyles,
+//          AtRule, NestedRule, ParsedStyleObject, DynamicValueGetter)
+// Mirrors: ir_types.gol (same conventions: Option for optional fields,
+//          Map[String, Json] for open-record bodies, Json for unions
+//          of primitives, List[Json] for any[] envelopes).
+//
+// G1 (index signature) and G23 (function-valued fields) apply here.
+// See LANGUAGE_GAPS.md G24 — the AST layer's specialization of G1/G23.
+//
+// Conventions carried over from ir_types.gol:
+// - string | number              -> Json
+// - Record<string, T>            -> Map[String, T]
+// - any[] / Record<string,any>[] -> List[Json] with typed envelope where
+//                                   a shape matters (AtRuleNode, NestedRuleNode)
+// - T | (() => T) (Dynamic)      -> Json (function-form is G23-unrepresentable;
+//                                   the shim resolves the dynamic variable
+//                                   name before crossing the seam)
+// - string-literal unions        -> String (validation deferred)
+// - open-index interface body    -> Map[String, Json] (G1)
+
+import "json.gol"
+
+// ─── AtRuleNode ──────────────────────────────────────────────────────
+//
+// Typed envelope for the shapes parse_ir.gol dispatches on. Covers
+// every AtRule form in TS parser.ts:
+//   - media / supports / container / layer     use "styles"
+//   - keyframes                                 use "steps"
+//   - font-face / property / counter-style
+//     / page                                    use "properties"
+//   - import / namespace                        use "query" + "name" only
+//
+// typeName is String because the TS type is a 14-variant string union;
+// validation is deferred (matches IRAtRule.type in ir_types.gol).
+
+pub rec AtRuleNode
+    pub typeName: String
+    pub query: Option[String]
+    pub name: Option[String]
+    pub styles: Option[Map<String, Json>]
+    pub steps: Option[Map<String, Json>]
+    pub properties: Option[Map<String, Json>]
+
+// ─── NestedRuleNode ──────────────────────────────────────────────────
+//
+// Typed envelope for the shape isNestedRuleV2 accepts:
+//   { selector: string, styles: { ... } }
+
+pub rec NestedRuleNode
+    pub selector: String
+    pub styles: Map<String, Json>
+
+// ─── IfConditionNode ─────────────────────────────────────────────────
+//
+// Typed envelope for styleDef._ifConditions entries.
+
+pub rec IfConditionNode
+    pub property: String
+    pub variable: String
+    pub conditions: Map<String, Json>
+    pub defaultValue: Json
+
+// ─── StyleDefinition ─────────────────────────────────────────────────
+//
+// The top-level object produced by chain() in a .chain.ts file.
+//
+// "body" holds the arbitrary CSS-property tail (open-index signature,
+// G1). "hover"/"focus"/"active" are the legacy chain().hover().end()
+// blocks that TS parser.ts handles at lines ~150-190. "themes" is the
+// themes: {...} field. All are Option so the common case (body only)
+// stays cheap.
+//
+// Phase 3 (full parser) will emit this record. Until then parse_ir.gol
+// consumes the JSON shim directly, and this record is the target shape
+// for the eventual seam replacement (Phase 4 re-verification).
+//
+// Precedence note: style_definition_to_json emits body keys first, then
+// the legacy hover/focus/active blocks. Map.insert is last-write-wins,
+// so an explicit hover: block correctly shadows a raw "hover" body key,
+// matching TypeScript's duplicate-key semantics.
+
+pub rec StyleDefinition
+    pub selectors: Option[Json]               // Str | Arr[Str]
+    pub selector: Option[String]
+    pub body: Map<String, Json>               // open-record tail
+    pub atRules: Option[List[Json]]           // List[AtRuleNode] as Json
+    pub nestedRules: Option[List[Json]]       // List[NestedRuleNode] as Json
+    pub ifConditions: Option[List[Json]]      // List[IfConditionNode] as Json
+    pub themes: Option[Json]
+    pub hover: Option[Map<String, Json>]
+    pub focus: Option[Map<String, Json>]
+    pub active: Option[Map<String, Json>]
+    pub classes: Option[List[String]]         // _classes
+    pub mixed: Option[Bool]                   // _mixed
+    pub transforms: Option[List[Json]]        // _transforms
+    pub name: Option[String]                  // _name
+    pub intents: Option[List[String]]         // _intents
+
+// ─── ParsedStyleObject ───────────────────────────────────────────────
+//
+// Output of parseStyleObject in style-types.ts (guards.ts). Split form:
+// the open body is separated into regularProps / pseudoClasses / atRules
+// / nestedRules / selectors. Consumed by future callers that pre-classify
+// before handing to parse_ir.gol.
+
+pub rec ParsedStyleObject
+    pub regularProps: Map<String, Json>
+    pub pseudoClasses: Map<String, Map<String, Json>>
+    pub atRules: List[Json]
+    pub nestedRules: List[Json]
+    pub selectors: Option[Json]
+
+// ============================================================================
+// Serialization: ast records -> Json
+// ============================================================================
+//
+// Matches JSON.stringify's "undefined fields are omitted" behavior by
+// emitting a field only when its Option is Some. Optional field order
+// within each object is by construction; Map.keys() order is
+// lexicographic in the interpreter (G6) — parity comparison must be
+// structural (G6).
+
+pub proc at_rule_node_to_json(ar: AtRuleNode) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("type", Json.Str(ar.typeName))
+    match ar.query {
+        case Some(q) then { m.insert("query", Json.Str(q)) }
+        case None then {}
+    }
+    match ar.name {
+        case Some(n) then { m.insert("name", Json.Str(n)) }
+        case None then {}
+    }
+    match ar.styles {
+        case Some(sm) then { m.insert("styles", Json.Obj(sm)) }
+        case None then {}
+    }
+    match ar.steps {
+        case Some(sm) then { m.insert("steps", Json.Obj(sm)) }
+        case None then {}
+    }
+    match ar.properties {
+        case Some(pm) then { m.insert("properties", Json.Obj(pm)) }
+        case None then {}
+    }
+    return Json.Obj(m)
+
+pub proc nested_rule_node_to_json(nr: NestedRuleNode) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("selector", Json.Str(nr.selector))
+    m.insert("styles", Json.Obj(nr.styles))
+    return Json.Obj(m)
+
+pub proc if_condition_node_to_json(ic: IfConditionNode) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("property", Json.Str(ic.property))
+    m.insert("variable", Json.Str(ic.variable))
+    var cond_map: Map<String, Json> := Map<String, Json> {}
+    for k in ic.conditions.keys() {
+        match ic.conditions.get(k) {
+            case Some(v) then { cond_map.insert(k, v) }
+            case None then {}
+        }
+    }
+    m.insert("conditions", Json.Obj(cond_map))
+    m.insert("defaultValue", ic.defaultValue)
+    return Json.Obj(m)
+
+pub proc string_list_to_json(items: List[String]) -> Json
+    var arr: List[Json] := []
+    for s in items {
+        arr.append(Json.Str(s))
+    }
+    return Json.Arr(arr)
+
+pub proc style_definition_to_json(sd: StyleDefinition) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    match sd.selectors {
+        case Some(sv) then { m.insert("selectors", sv) }
+        case None then {}
+    }
+    match sd.selector {
+        case Some(s) then { m.insert("selector", Json.Str(s)) }
+        case None then {}
+    }
+    // body tail — emitted first so legacy blocks can shadow on collision
+    for k in sd.body.keys() {
+        match sd.body.get(k) {
+            case Some(v) then { m.insert(k, v) }
+            case None then {}
+        }
+    }
+    match sd.atRules {
+        case Some(ars) then { m.insert("_atRules", Json.Arr(ars)) }
+        case None then {}
+    }
+    match sd.nestedRules {
+        case Some(nrs) then { m.insert("_nestedRules", Json.Arr(nrs)) }
+        case None then {}
+    }
+    match sd.ifConditions {
+        case Some(ifs) then { m.insert("_ifConditions", Json.Arr(ifs)) }
+        case None then {}
+    }
+    match sd.themes {
+        case Some(tv) then { m.insert("themes", tv) }
+        case None then {}
+    }
+    match sd.hover {
+        case Some(hm) then { m.insert("hover", Json.Obj(hm)) }
+        case None then {}
+    }
+    match sd.focus {
+        case Some(fm) then { m.insert("focus", Json.Obj(fm)) }
+        case None then {}
+    }
+    match sd.active {
+        case Some(am) then { m.insert("active", Json.Obj(am)) }
+        case None then {}
+    }
+    match sd.classes {
+        case Some(cs) then { m.insert("_classes", string_list_to_json(cs)) }
+        case None then {}
+    }
+    match sd.mixed {
+        case Some(b) then { m.insert("_mixed", Json.Bool(b)) }
+        case None then {}
+    }
+    match sd.transforms {
+        case Some(ts) then { m.insert("_transforms", Json.Arr(ts)) }
+        case None then {}
+    }
+    match sd.name {
+        case Some(n) then { m.insert("_name", Json.Str(n)) }
+        case None then {}
+    }
+    match sd.intents {
+        case Some(is) then { m.insert("_intents", string_list_to_json(is)) }
+        case None then {}
+    }
+    return Json.Obj(m)
+
+pub proc parsed_style_object_to_json(p: ParsedStyleObject) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("regularProps", Json.Obj(p.regularProps))
+    var pcs: Map<String, Json> := Map<String, Json> {}
+    for k in p.pseudoClasses.keys() {
+        match p.pseudoClasses.get(k) {
+            case Some(inner) then { pcs.insert(k, Json.Obj(inner)) }
+            case None then {}
+        }
+    }
+    m.insert("pseudoClasses", Json.Obj(pcs))
+    m.insert("atRules", Json.Arr(p.atRules))
+    m.insert("nestedRules", Json.Arr(p.nestedRules))
+    match p.selectors {
+        case Some(sv) then { m.insert("selectors", sv) }
+        case None then {}
+    }
+    return Json.Obj(m)

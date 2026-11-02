@@ -1,0 +1,32 @@
+// config_parity.gol — Phase 4 config-loading parity driver, ALGOL26 side.
+//
+// Reads /tmp/chaincss-parity/current_config.json (a user config .json),
+// applies get_default_config + load_config_from_json, and writes the
+// fully-resolved ChainCSSConfig as JSON.
+
+import "json.gol"
+import "config.gol"
+
+proc main
+    val input := File.read("/tmp/chaincss-parity/current_config.json")
+    match parse(input) {
+        case Ok(user_json) then { handle_ok(user_json) }
+        case Error(msg) then { handle_parse_err(msg) }
+    }
+
+proc handle_ok(user_json: Json) -> Void
+    match load_config_from_json(user_json) {
+        case Ok(config) then { handle_config_ok(config) }
+        case Error(msg) then { handle_config_err(msg) }
+    }
+
+proc handle_config_ok(config: ChainCSSConfig) -> Void
+    val out := config_to_json(config)
+    File.write("/tmp/chaincss-parity/current_config_output.json", stringify(out))
+
+proc handle_config_err(msg: String) -> Void
+    print("ERROR: " + msg)
+    File.write("/tmp/chaincss-parity/current_config_output.json", "ERROR: " + msg)
+
+proc handle_parse_err(msg: String) -> Void
+    print("ERROR parsing JSON: " + msg)

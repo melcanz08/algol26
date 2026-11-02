@@ -29,7 +29,21 @@ pub(super) fn verify_value(value: &TypedIRValue, env: &VerifyEnv) -> Result<Type
                 .ok_or_else(|| format!("Use of undefined variable '{}' in verified IR", name))?
                 .clone();
 
-            if !claimed.is_unknown() && !actual.is_unknown() && claimed != &actual {
+            // G25. When the verifier's scope has no information about
+            // a binding (Unknown), trust the builder's claimed type.
+            // The builder declared the variable with a concrete type
+            // at construction; the verifier's Unknown means it hasn't
+            // tracked that binding (e.g. union pattern payloads, which
+            // the Switch verifier currently declares as Unknown).
+            // Replacing the claimed type with Unknown here loses
+            // information the builder correctly propagated, and breaks
+            // any downstream check that requires the concrete type
+            // (e.g. `Some(s)` in a `WriteReference`).
+            if actual.is_unknown() {
+                return Ok(claimed.clone());
+            }
+
+            if !claimed.is_unknown() && claimed != &actual {
                 return Err(format!(
                     "Variable '{}' claimed type {:?} but declared as {:?}",
                     name, claimed, actual

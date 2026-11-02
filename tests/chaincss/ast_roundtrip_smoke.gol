@@ -1,0 +1,285 @@
+// ast_roundtrip_smoke.gol — Phase 2A exit-criterion harness.
+//
+// Seam test: verifies that StyleDefinition -> style_definition_to_json
+// is a faithful envelope for the Json that parse_ir.gol consumes.
+//
+// Reads (shared with parse_ir_parity.gol):
+//   /tmp/chaincss-parity/current_input.json   (style source JSON)
+//   /tmp/chaincss-parity/current_source.txt   (source name, one line)
+//
+// Path A (existing):
+//   parse(Json) -> parse_ir -> style_ir_to_json -> stringify
+// Path B (round-trip):
+//   parse(Json) -> StyleDefinition
+//              -> style_definition_to_json
+//              -> parse_ir -> style_ir_to_json -> stringify
+//
+// Prints "OK" if both strings match, "MISMATCH" (with both strings)
+// otherwise.
+//
+// Note — match in return-position. ALGOL26 requires that all arms of
+// a value-yielding match either yield an expression or all use control-
+// flow exits — they cannot be mixed (E0002). House style (from
+// parse_ir.gol): statement-position match with `return` in the "real"
+// arm, `{}` in the default, followed by a trailing `return`.
+// json_to_style_definition follows that shape.
+//
+// json_to_style_definition lives here, not in ast.gol, because it is
+// test scaffolding: it re-classifies the input Json into the typed
+// StyleDefinition shape so the round-trip can be exercised without
+// changing parse_ir's signature. When parse_ir learns to consume
+// StyleDefinition directly (Phase 4 re-verification), this scaffolding
+// disappears.
+
+import "../../src/chaincss/json.gol"
+import "../../src/chaincss/ir_types.gol"
+import "../../src/chaincss/ir_factory.gol"
+import "../../src/chaincss/parser.gol"
+import "../../src/chaincss/parse_ir.gol"
+import "../../src/chaincss/ast.gol"
+
+// ─── Scaffolding: Json -> StyleDefinition ───────────────────────────
+
+proc json_to_style_definition(j: Json) -> StyleDefinition
+    match j {
+        case Obj(m) then { return build_style_definition(m) }
+        case _ then {}
+    }
+    return empty_style_definition()
+
+proc empty_style_definition() -> StyleDefinition
+    return StyleDefinition {
+        selectors: None,
+        selector: None,
+        body: Map<String, Json> {},
+        atRules: None,
+        nestedRules: None,
+        ifConditions: None,
+        themes: None,
+        hover: None,
+        focus: None,
+        active: None,
+        classes: None,
+        mixed: None,
+        transforms: None,
+        name: None,
+        intents: None
+    }
+
+proc build_style_definition(m: Map<String, Json>) -> StyleDefinition
+    var selectors_opt: Option[Json] := None
+    var selector_opt: Option[String] := None
+    var body: Map<String, Json> := Map<String, Json> {}
+    var at_rules_opt: Option[List[Json]] := None
+    var nested_rules_opt: Option[List[Json]] := None
+    var if_conds_opt: Option[List[Json]] := None
+    var themes_opt: Option[Json] := None
+    var hover_opt: Option[Map<String, Json>] := None
+    var focus_opt: Option[Map<String, Json>] := None
+    var active_opt: Option[Map<String, Json>] := None
+    var classes_opt: Option[List[String]] := None
+    var mixed_opt: Option[Bool] := None
+    var transforms_opt: Option[List[Json]] := None
+    var name_opt: Option[String] := None
+    var intents_opt: Option[List[String]] := None
+
+    for key in m.keys() {
+        match m.get(key) {
+            case Some(v) then {
+                dispatch_field(key, v,
+                    &mut selectors_opt, &mut selector_opt, &mut body,
+                    &mut at_rules_opt, &mut nested_rules_opt, &mut if_conds_opt,
+                    &mut themes_opt, &mut hover_opt, &mut focus_opt, &mut active_opt,
+                    &mut classes_opt, &mut mixed_opt, &mut transforms_opt,
+                    &mut name_opt, &mut intents_opt)
+            }
+            case None then {}
+        }
+    }
+
+    return StyleDefinition {
+        selectors: selectors_opt,
+        selector: selector_opt,
+        body: body,
+        atRules: at_rules_opt,
+        nestedRules: nested_rules_opt,
+        ifConditions: if_conds_opt,
+        themes: themes_opt,
+        hover: hover_opt,
+        focus: focus_opt,
+        active: active_opt,
+        classes: classes_opt,
+        mixed: mixed_opt,
+        transforms: transforms_opt,
+        name: name_opt,
+        intents: intents_opt
+    }
+
+proc dispatch_field(
+    key: String,
+    v: Json,
+    selectors_opt: &mut Option[Json],
+    selector_opt: &mut Option[String],
+    body: &mut Map<String, Json>,
+    at_rules_opt: &mut Option[List[Json]],
+    nested_rules_opt: &mut Option[List[Json]],
+    if_conds_opt: &mut Option[List[Json]],
+    themes_opt: &mut Option[Json],
+    hover_opt: &mut Option[Map<String, Json>],
+    focus_opt: &mut Option[Map<String, Json>],
+    active_opt: &mut Option[Map<String, Json>],
+    classes_opt: &mut Option[List[String]],
+    mixed_opt: &mut Option[Bool],
+    transforms_opt: &mut Option[List[Json]],
+    name_opt: &mut Option[String],
+    intents_opt: &mut Option[List[String]]
+) -> Void
+    if key = "selectors" {
+        *selectors_opt := Some(v)
+        return
+    }
+    if key = "selector" {
+        match v {
+            case Str(s) then { *selector_opt := Some(s) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_atRules" {
+        match v {
+            case Arr(items) then { *at_rules_opt := Some(items) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_nestedRules" {
+        match v {
+            case Arr(items) then { *nested_rules_opt := Some(items) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_ifConditions" {
+        match v {
+            case Arr(items) then { *if_conds_opt := Some(items) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "themes" {
+        *themes_opt := Some(v)
+        return
+    }
+    if key = "hover" {
+        match v {
+            case Obj(hm) then { *hover_opt := Some(hm) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "focus" {
+        match v {
+            case Obj(fm) then { *focus_opt := Some(fm) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "active" {
+        match v {
+            case Obj(am) then { *active_opt := Some(am) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_classes" {
+        match v {
+            case Arr(items) then {
+                var out: List[String] := []
+                for item in items {
+                    match item {
+                        case Str(s) then { out.append(s) }
+                        case _ then {}
+                    }
+                }
+                *classes_opt := Some(out)
+            }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_mixed" {
+        match v {
+            case Bool(b) then { *mixed_opt := Some(b) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_transforms" {
+        match v {
+            case Arr(items) then { *transforms_opt := Some(items) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_name" {
+        match v {
+            case Str(s) then { *name_opt := Some(s) }
+            case _ then {}
+        }
+        return
+    }
+    if key = "_intents" {
+        match v {
+            case Arr(items) then {
+                var out: List[String] := []
+                for item in items {
+                    match item {
+                        case Str(s) then { out.append(s) }
+                        case _ then {}
+                    }
+                }
+                *intents_opt := Some(out)
+            }
+            case _ then {}
+        }
+        return
+    }
+    // Otherwise: body field (open-record tail)
+    (*body).insert(key, v)
+
+// ─── Path A and Path B ──────────────────────────────────────────────
+
+proc path_a(styles_json: Json, source_name: String) -> String
+    val ir := parse_ir(styles_json, source_name)
+    return stringify(style_ir_to_json(ir))
+
+proc path_b(styles_json: Json, source_name: String) -> String
+    val sd := json_to_style_definition(styles_json)
+    val roundtripped := style_definition_to_json(sd)
+    val ir := parse_ir(roundtripped, source_name)
+    return stringify(style_ir_to_json(ir))
+
+// ─── main ───────────────────────────────────────────────────────────
+
+proc main
+    val input := File.read("/tmp/chaincss-parity/current_input.json")
+    val raw_source := File.read("/tmp/chaincss-parity/current_source.txt")
+    val source_name := trim_ascii(raw_source)
+    match parse(input) {
+        case Ok(styles_json) then { run_comparison(styles_json, source_name) }
+        case Error(msg) then { handle_err(msg) }
+    }
+
+proc run_comparison(styles_json: Json, source_name: String) -> Void
+    val a := path_a(styles_json, source_name)
+    val b := path_b(styles_json, source_name)
+    if a = b {
+        print("OK: ast roundtrip is lossless (source=" + source_name + ")")
+    } else {
+        print("MISMATCH (source=" + source_name + ")")
+        print("  path A (direct json -> parse_ir): " + a)
+        print("  path B (sd -> to_json -> parse_ir): " + b)
+    }
+
+proc handle_err(msg: String) -> Void
+    print("ERROR parsing input JSON: " + msg)

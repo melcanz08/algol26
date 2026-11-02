@@ -1,0 +1,45 @@
+// g25_write_ref_some_typing.gol — regression for G25.
+//
+// The bug: `*ref := Some(x)` where `x` is bound by a match arm
+// (`case Str(s)`) was rejected by the verifier with
+//   "WriteReference value type Option(Unknown) does not coerce to
+//    MutBorrow target type Option(String)"
+// even though the analyzer's type table and the builder's IR both
+// carried `Variable("s", String)` — the Some(...) node's claimed type
+// was correct.
+//
+// Root cause: `verify_value`'s Variable arm returned env.variables[name]
+// unconditionally, discarding the claimed type. The verifier's Switch
+// scope declares union-payload bindings as Unknown, so `Variable("s",
+// String)` verified as Unknown, and Some(...) became Option(Unknown).
+//
+// Fix: value.rs's Variable arm returns the claimed type when
+// env.variables[name] is Unknown. Trust the builder's claim when the
+// verifier's scope has no info; the two are checked against each other
+// when both are concrete.
+//
+// This file must compile, verify, and run to completion with no error.
+// It intentionally reproduces the exact shape from the diagnostic trace.
+import "json.gol"
+
+proc needs_string(x: String) -> Void
+    print(x)
+
+proc match_and_set(v: Json, opt: &mut Option[String]) -> Void
+    match v {
+        case Str(s) then {
+            // 1. call-arg position with String parameter (was already OK)
+            needs_string(s)
+            // 2. Some(s) inside a WriteReference (was broken)
+            *opt := Some(s)
+        }
+        case _ then {}
+    }
+
+proc main
+    var o: Option[String] := None
+    match_and_set(Json.Str("world"), &mut o)
+    match o {
+        case Some(s) then { print("result: " + s) }
+        case None then { print("result: <none>") }
+    }

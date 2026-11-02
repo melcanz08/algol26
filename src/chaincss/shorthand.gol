@@ -1,0 +1,322 @@
+// shorthand.gol — Phase 2A. Port of src/shared/types/shorthand-types.ts
+// and src/shared/types/math-types.ts.
+//
+// Every shorthand field in TS is Dynamic<T> = T | (() => T). Function
+// form is not representable in ALGOL26 (G23). Each field is Option[Json]
+// so scalar (Str/NumInt/NumFloat/Bool/Arr) and "resolved at the seam"
+// forms share one carrier. Matches ir_types.gol's value: Json.
+//
+// String-literal unions ("row"|"column"|"flex-start"|...) become String
+// (validation deferred — matches IRAtRule.type, IRDiagnostic.severity).
+//
+// MathResult.toString / .toCalc are function-valued fields and are
+// omitted (G23). MathResult.value / .unit / .expression / .resolved /
+// .explanations are kept.
+
+import "json.gol"
+
+// ─── Grid ────────────────────────────────────────────────────────────
+
+pub rec GridOptions
+    pub columns: Option[Json]
+    pub rows: Option[Json]
+    pub gap: Option[Json]
+    pub columnGap: Option[Json]
+    pub rowGap: Option[Json]
+    pub area: Option[Json]
+    pub autoFlow: Option[Json]
+    pub autoColumns: Option[Json]
+    pub autoRows: Option[Json]
+    pub template: Option[Json]
+    pub placeItems: Option[Json]
+    pub placeContent: Option[Json]
+    pub justifyItems: Option[Json]
+    pub c: Option[Json]
+    pub r: Option[Json]
+    pub g: Option[Json]
+    pub a: Option[Json]
+
+// ─── Flex ────────────────────────────────────────────────────────────
+
+pub rec FlexOptions
+    pub direction: Option[Json]
+    pub wrap: Option[Json]
+    pub grow: Option[Json]
+    pub shrink: Option[Json]
+    pub basis: Option[Json]
+    pub align: Option[Json]
+    pub justify: Option[Json]
+    pub alignContent: Option[Json]
+    pub alignSelf: Option[Json]
+    pub gap: Option[Json]
+    pub d: Option[Json]
+    pub w: Option[Json]
+    pub gr: Option[Json]
+    pub sh: Option[Json]
+    pub b: Option[Json]
+    pub ai: Option[Json]
+    pub jc: Option[Json]
+    pub f: Option[Json]
+
+// ─── Animation ───────────────────────────────────────────────────────
+
+pub rec AnimationOptions
+    pub name: Option[Json]
+    pub duration: Option[Json]
+    pub timing: Option[Json]
+    pub delay: Option[Json]
+    pub iterationCount: Option[Json]
+    pub direction: Option[Json]
+    pub fillMode: Option[Json]
+    pub playState: Option[Json]
+    pub n: Option[Json]
+    pub d: Option[Json]
+    pub t: Option[Json]
+    pub dl: Option[Json]
+    pub i: Option[Json]
+    pub a: Option[Json]
+
+// ─── Background ──────────────────────────────────────────────────────
+
+pub rec BackgroundOptions
+    pub color: Option[Json]
+    pub image: Option[Json]
+    pub position: Option[Json]
+    pub size: Option[Json]
+    pub repeat: Option[Json]
+    pub attachment: Option[Json]
+    pub origin: Option[Json]
+    pub clip: Option[Json]
+    pub blendMode: Option[Json]
+    pub c: Option[Json]
+    pub i: Option[Json]
+    pub p: Option[Json]
+    pub s: Option[Json]
+    pub r: Option[Json]
+    pub bg: Option[Json]
+
+// ─── Typography ──────────────────────────────────────────────────────
+
+pub rec TypographyOptions
+    pub fontFamily: Option[Json]
+    pub fontSize: Option[Json]
+    pub fontWeight: Option[Json]
+    pub fontStyle: Option[Json]
+    pub lineHeight: Option[Json]
+    pub letterSpacing: Option[Json]
+    pub textAlign: Option[Json]
+    pub textTransform: Option[Json]
+    pub textDecoration: Option[Json]
+    pub textIndent: Option[Json]
+    pub wordSpacing: Option[Json]
+    pub whiteSpace: Option[Json]
+    pub wordBreak: Option[Json]
+    pub color: Option[Json]
+    pub opacity: Option[Json]
+    pub textOverflow: Option[Json]
+    pub lineClamp: Option[Json]
+    pub textWrap: Option[Json]
+    pub ff: Option[Json]
+    pub fs: Option[Json]
+    pub fw: Option[Json]
+    pub lh: Option[Json]
+    pub ta: Option[Json]
+    pub tt: Option[Json]
+    pub f: Option[Json]
+
+// ─── Box ─────────────────────────────────────────────────────────────
+
+pub rec BoxOptions
+    pub margin: Option[Json]
+    pub marginTop: Option[Json]
+    pub marginRight: Option[Json]
+    pub marginBottom: Option[Json]
+    pub marginLeft: Option[Json]
+    pub padding: Option[Json]
+    pub paddingTop: Option[Json]
+    pub paddingRight: Option[Json]
+    pub paddingBottom: Option[Json]
+    pub paddingLeft: Option[Json]
+    pub border: Option[Json]
+    pub borderRadius: Option[Json]
+    pub borderWidth: Option[Json]
+    pub borderColor: Option[Json]
+    pub borderStyle: Option[Json]
+    pub borderTop: Option[Json]
+    pub borderRight: Option[Json]
+    pub borderBottom: Option[Json]
+    pub borderLeft: Option[Json]
+    pub width: Option[Json]
+    pub minWidth: Option[Json]
+    pub maxWidth: Option[Json]
+    pub height: Option[Json]
+    pub minHeight: Option[Json]
+    pub maxHeight: Option[Json]
+    pub overflow: Option[Json]
+    pub overflowX: Option[Json]
+    pub overflowY: Option[Json]
+    pub boxSizing: Option[Json]
+    pub aspectRatio: Option[Json]
+    pub m: Option[Json]
+    pub p: Option[Json]
+    pub br: Option[Json]
+    pub w: Option[Json]
+    pub h: Option[Json]
+
+// ─── Position ────────────────────────────────────────────────────────
+
+pub rec PositionOptions
+    pub type: Option[Json]
+    pub top: Option[Json]
+    pub right: Option[Json]
+    pub bottom: Option[Json]
+    pub left: Option[Json]
+    pub inset: Option[Json]
+    pub zIndex: Option[Json]
+    pub t: Option[Json]
+    pub z: Option[Json]
+
+// ─── Transition ──────────────────────────────────────────────────────
+
+pub rec TransitionOptions
+    pub property: Option[Json]
+    pub duration: Option[Json]
+    pub timing: Option[Json]
+    pub delay: Option[Json]
+    pub behavior: Option[Json]
+    pub p: Option[Json]
+    pub d: Option[Json]
+    pub t: Option[Json]
+    pub tr: Option[Json]
+
+// ─── Transform ───────────────────────────────────────────────────────
+
+pub rec TransformOptions
+    pub translate: Option[Json]
+    pub translateX: Option[Json]
+    pub translateY: Option[Json]
+    pub translateZ: Option[Json]
+    pub scale: Option[Json]
+    pub scaleX: Option[Json]
+    pub scaleY: Option[Json]
+    pub rotate: Option[Json]
+    pub skew: Option[Json]
+    pub skewX: Option[Json]
+    pub skewY: Option[Json]
+    pub origin: Option[Json]
+
+// ─── Filter ──────────────────────────────────────────────────────────
+
+pub rec FilterOptions
+    pub blur: Option[Json]
+    pub brightness: Option[Json]
+    pub contrast: Option[Json]
+    pub grayscale: Option[Json]
+    pub hueRotate: Option[Json]
+    pub invert: Option[Json]
+    pub filterOpacity: Option[Json]
+    pub saturate: Option[Json]
+    pub sepia: Option[Json]
+    pub dropShadow: Option[Json]
+    pub backdrop: Option[Json]
+
+// ─── Shadow ──────────────────────────────────────────────────────────
+
+pub rec ShadowOptions
+    pub box: Option[Json]
+    pub text: Option[Json]
+    pub color: Option[Json]
+    pub x: Option[Json]
+    pub y: Option[Json]
+    pub blur: Option[Json]
+    pub spread: Option[Json]
+    pub inset: Option[Json]
+
+// ─── Container / Aspect ──────────────────────────────────────────────
+
+pub rec ContainerOptions
+    pub type: Option[Json]
+    pub name: Option[Json]
+
+pub rec AspectOptions
+    pub ratio: Option[Json]
+    pub objectFit: Option[Json]
+    pub objectPosition: Option[Json]
+
+// ─── Outline ─────────────────────────────────────────────────────────
+
+pub rec OutlineOptions
+    pub width: Option[Json]
+    pub style: Option[Json]
+    pub color: Option[Json]
+    pub offset: Option[Json]
+    pub w: Option[Json]
+    pub s: Option[Json]
+    pub c: Option[Json]
+    pub o: Option[Json]
+
+// ─── Scroll ──────────────────────────────────────────────────────────
+
+pub rec ScrollOptions
+    pub behavior: Option[Json]
+    pub snapType: Option[Json]
+    pub snapAlign: Option[Json]
+    pub snapStop: Option[Json]
+    pub margin: Option[Json]
+    pub marginTop: Option[Json]
+    pub marginRight: Option[Json]
+    pub marginBottom: Option[Json]
+    pub marginLeft: Option[Json]
+    pub padding: Option[Json]
+    pub paddingTop: Option[Json]
+    pub paddingRight: Option[Json]
+    pub paddingBottom: Option[Json]
+    pub paddingLeft: Option[Json]
+    pub scrollbarWidth: Option[Json]
+    pub scrollbarColor: Option[Json]
+    pub overflowX: Option[Json]
+    pub overflowY: Option[Json]
+    pub b: Option[Json]
+
+// ─── List ────────────────────────────────────────────────────────────
+
+pub rec ListOptions
+    pub style: Option[Json]
+    pub position: Option[Json]
+    pub image: Option[Json]
+    pub list: Option[Json]
+
+// ============================================================================
+// math-types.ts
+// ============================================================================
+//
+// CSSUnit is a 26-string union. Modelled as String (validation deferred).
+// MathResult.toString / .toCalc are function-valued (G23) and omitted.
+
+pub rec CSSMathValue
+    pub value: Float
+    pub unit: String
+
+pub rec MathContext
+    pub rootFontSize: Option[Float]
+    pub viewportWidth: Option[Float]
+    pub viewportHeight: Option[Float]
+    pub parentFontSize: Option[Float]
+    pub dpi: Option[Float]
+    pub elementWidth: Option[Float]
+    pub elementHeight: Option[Float]
+
+pub rec MathResult
+    pub value: Float
+    pub unit: String
+    pub expression: String
+    pub resolved: Option[CSSMathValue]
+    pub explanations: List[String]
+
+pub rec FluidTypeConfig
+    pub minSize: Float
+    pub maxSize: Float
+    pub minWidth: Option[Float]
+    pub maxWidth: Option[Float]
+    pub unit: Option[String]
+    pub rootFontSize: Option[Float]

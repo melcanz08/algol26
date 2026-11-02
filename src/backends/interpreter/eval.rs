@@ -543,6 +543,25 @@ impl Interpreter {
                 base.projections.push(Projection::Index(idx as usize));
                 Some(base)
             }
+            // G27 fix. `*r` where `r: &mut T`. The receiver of
+            // `(*r).insert(k, v)` (or `.append`, or any future
+            // place-mutating builtin) is a `ReadReference`.
+            //
+            // Return the *inner* expression's place — the place
+            // where the reference variable lives — with no `Deref`
+            // projection. `resolve_place` and `assign_place`'s
+            // reference-chase branches (G19c) handle the dereference
+            // implicitly: when they look up the base variable and
+            // find a `RuntimeValue::Reference(inner_place)`, they
+            // redirect to `inner_place`.
+            //
+            // Adding a `Deref` projection here would double-deref —
+            // the base-variable chase already strips one `Deref` if
+            // present, and if we add one to `projections`, the
+            // chase's `rest_projs = &projections[1..]` would include
+            // it, and then `apply_projection` would hit the
+            // `Projection::Deref` unsupported arm.
+            TypedIRValue::ReadReference { expr, .. } => self.place_of_ir_value(expr),
             _ => None,
         }
     }
@@ -1860,6 +1879,23 @@ impl Interpreter {
             }
 
             let result = self.execute_function(&callee);
+
+            // G27 fix. Check for errors BEFORE checking the return
+            // value. If `execute_function` errored, `self.return_value`
+            // is None because the error occurred before reaching a
+            // `return` instruction — but the real error is much more
+            // informative than "returned no value". Prior to this fix,
+            // the "returned no value" message masked the actual error
+            // (e.g. "Map.insert on non-place receiver") at every
+            // enclosing call frame, turning a targeted diagnostic into
+            // an opaque one.
+            if let Err(e) = &result {
+                self.pop_frame();
+                self.return_value = saved_ret;
+                self.region_stack = saved_regions;
+                return Err(EvalError::Runtime(format!("in {}: {}", callee.name, e)));
+            }
+
             let ret = match self.return_value.take() {
                 Some(v) => v,
                 None if callee.return_type == Type::Void => RuntimeValue::Void,
@@ -1968,6 +2004,17 @@ impl Interpreter {
         }
 
         let result = self.execute_function(&callee);
+
+        // G27 fix. Same as `eval_call`: check for errors before
+        // checking the return value, or the real error gets masked
+        // by "returned no value".
+        if let Err(e) = &result {
+            self.pop_frame();
+            self.return_value = saved_ret;
+            self.region_stack = saved_regions;
+            return Err(EvalError::Runtime(format!("in {}: {}", callee.name, e)));
+        }
+
         let ret = match self.return_value.take() {
             Some(v) => v,
             None if callee.return_type == Type::Void => RuntimeValue::Void,

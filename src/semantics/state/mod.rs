@@ -534,8 +534,7 @@ impl SemanticState {
         self.borrows
             .retain(|_, b| !matches!(b.lifetime, BorrowLifetime::Temporary(_)));
         let removed = before - self.borrows.len();
-        if removed > 0 {
-        }
+        if removed > 0 {}
     }
 
     pub fn end_temporary_borrows(&mut self, call_id: CallId) {

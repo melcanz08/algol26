@@ -718,3 +718,302 @@ Deferred with correct magnitude:
 - G18d (stub-depth equality) — workaround in place, fix deferred
 
 Phase 4 exit criterion met.
+
+
+---
+
+## G27 — Two bugs: `ReadReference` not a place; `eval_call` masks real errors
+
+Two intertwined bugs surfaced together while running the Phase 2A seam
+test (`ast_roundtrip_smoke.gol`) against the `003-lenient-passthrough`
+corpus entry. Either one alone would block the smoke test; together they
+produced a misleading error chain that took several rounds to unravel.
+
+### Bug A — `place_of_ir_value` had no `ReadReference` arm
+
+**Symptom.** `(*m).insert(k, v)` where `m: &mut Map<String, Json>`
+reported:
+
+    interpreter does not support `Map.insert on non-place receiver`:
+    the receiver must be a variable, field, or other place
+
+**Root cause.** `place_of_ir_value` in
+`src/backends/interpreter/eval.rs` matched `Variable`, `FieldAccess`,
+`ArrayAccess`, and `_ => None`. `TypedIRValue::ReadReference { expr }`
+— the IR node for `*r` where `r: &mut T` — fell into the `_` arm and
+returned `None`. Every place-mutating builtin (`Map.insert`,
+`List.append`, and any future one) rejected `(*r).method(...)`
+receivers.
+
+**Fix.** Add a `ReadReference` arm that delegates to the inner
+expression's place:
+
+    TypedIRValue::ReadReference { expr, .. } => self.place_of_ir_value(expr)
+
+No `Deref` projection is added. The reference chase in
+`resolve_place` and `assign_place` (G19c) already handles the
+dereference implicitly: when the base variable's runtime value is
+`Reference(inner_place)`, those functions redirect to `inner_place`
+and strip any leading `Deref` projection. Adding one here would
+double-deref and hit the `Projection::Deref` unsupported arm.
+
+### Bug B — `eval_call` masked real errors as "returned no value"
+
+**Symptom.** Every error from a nested `execute_function` call reached
+the top level as:
+
+    function `path_b` returned no value but its return type is `String`
+
+— regardless of what actually failed inside. Bug A's actual error
+message (`Map.insert on non-place receiver`) was invisible; the
+outermost frame's "returned no value" message was what users saw. This
+masked the real bug for multiple debugging rounds.
+
+**Root cause.** In both `eval_call` and `call_function_with_values`,
+the return-value check happened **before** the error check:
+
+    let result = self.execute_function(&callee);
+    let ret = match self.return_value.take() {
+        Some(v) => v,
+        None if callee.return_type == Type::Void => RuntimeValue::Void,
+        None => {
+            return Err(... "returned no value" ...);   // fires on error too
+        }
+    };
+    // result.is_err() check came here — too late; return above
+    // already fired
+
+When `execute_function` errored, `self.return_value` was `None`, so
+the "returned no value" message was emitted, and the real error in
+`result` was silently discarded.
+
+**Fix.** Reorder: check `result.is_err()` first, propagate the real
+error with the frame name for context, then check the return value:
+
+    let result = self.execute_function(&callee);
+    if let Err(e) = &result {
+        self.pop_frame();
+        self.return_value = saved_ret;
+        self.region_stack = saved_regions;
+        return Err(EvalError::Runtime(
+            format!("in {}: {}", callee.name, e)));
+    }
+    let ret = match self.return_value.take() {
+        Some(v) => v,
+        None if callee.return_type == Type::Void => RuntimeValue::Void,
+        None => { ... "returned no value" ... }
+    };
+
+### Verification
+
+- `tests/chaincss/compiler_bugs/g27_mut_map_insert_via_read_reference.gol` — minimal repro for Bug A: `(*m).insert(k, v)` inside a proc that received `m: &mut Map<String, Json>`. Fails before the fix with `Map.insert on non-place receiver`; passes after.
+- `tests/chaincss/compiler_bugs/g27_error_propagation.gol` — minimal repro for Bug B: any proc that calls a proc which errors should surface the *inner* error, not the outer "returned no value". Fails before the fix with the outer "returned no value" message; passes after.
+- `tests/chaincss/ast_roundtrip_smoke.gol` — Phase 2A seam test. Runs to completion on all 3 corpus entries, printing `OK: ast roundtrip is lossless`.
+
+### Methodology note
+
+Every "returned no value" diagnostic in the last several debugging
+rounds was **a real error masked by Bug B**. The smoke test's apparent
+failure (no prints, no return) was a `Map.insert on non-place receiver`
+error occurring three frames deep — invisible because each enclosing
+`eval_call` replaced it with "returned no value" before propagating.
+
+**Lesson:** when the error message doesn't name the actual cause, the
+error-propagation layer itself may be the bug. A compiler or
+interpreter whose errors are informative at the leaf but opaque at the
+root is not just inconvenient — it hides real bugs from the very
+people trying to fix them. Check that error *propagation* preserves the
+original message before concluding that the error message itself is
+wrong.
+
+**Status:** Fixed. Both arms landed in one commit.
+
+
+---
+
+## G28 — `Date.now()` / `Math.random()` not portable
+
+**Symptom.** `src/compiler/diagnostics/reporter.ts` depends on
+`Date.now()` for `Diagnostic.timestamp` and `DiagnosticReport.generatedAt`,
+and on `Math.random()` for `Diagnostic.id` (`diag-<now>-<random_b36>`).
+ALGOL26 has no time or RNG primitive.
+
+**Same class as G23** (TS/JS execution model not portable). Timestamps
+and IDs generated inside the JS runtime have no ALGOL26 equivalent
+without embedding a clock/RNG.
+
+**Mitigation used in the port.** `src/chaincss/diagnostics.gol`
+substitutes:
+- `timestamp: 0` for `Date.now()`
+- `generatedAt: 0` for `Date.now()`
+- `id: "diag-0-<counter>"` where `counter` is a monotonic field on
+  `DiagnosticReporter` (substitutes `Date.now() + Math.random()`)
+
+`format_report` renders the fixed `generatedAt` as the ISO 8601 epoch
+zero string: `"1970-01-01T00:00:00.000Z"` — exactly what TS's
+`new Date(0).toISOString()` produces.
+
+**Parity strategy.** The comparator
+(`diff-corpus/compare_diagnostics.py`) normalizes non-deterministic
+fields (id, timestamp, generatedAt) and compares the rendered string
+byte-for-byte after the TS harness normalizes its own timestamp line.
+The TS harness's `.replace()` on the rendered output forces both sides
+to the same fixed clock.
+
+**Note — this makes the port *more deterministic* than the TS
+original.** The TS `formatReport()` calls `generateReport()` internally
+and produces a fresh `Date.now()` each time; the ALGOL26 port always
+emits epoch zero. This is a *feature*, not a divergence — it means
+diagnostic output is reproducible across runs, which is generally
+desirable for CI goldens and diffing.
+
+**Status:** Accepted divergence. Convention: `timestamp: 0` /
+`generatedAt: 0` / counter-based IDs. Matches the convention already
+established by `ir_types.gol` (`make_transform_record` uses
+`timestamp: 0` and documents the same rationale).
+
+---
+
+## G29 — `match`-arm mixed-yield requires explicit `Void` discarding
+
+**Symptom.** A `match` where one arm ends with a value-returning call
+and another arm ends with `{}` or a `Void` expression fails:
+
+    error[E0002]: match arms produce inconsistent results:
+    some arms yield a value, others do not
+
+**Example.**
+
+    proc report_one(r: &mut DiagnosticReporter, entry: Json) -> Void
+        match entry {
+            case Obj(m) then {
+                ...
+                report(r, ...)      // returns Diagnostic — yields Diagnostic
+            }
+            case _ then {}          // yields Void
+        }
+
+Both arms of the outer `match entry` reach different yields: `Diagnostic`
+from `report(...)` in the `Obj` arm, `Void` from `{}` in the `_` arm.
+
+**Not a language bug.** The check is correct — mixed yields within one
+`match` are a type error, and that error is exactly what a
+strongly-typed language should produce. The issue is **ergonomic**: it's
+easy to write the "obvious" code (call the function in statement
+position) and hit this because "statement position" and "the last
+statement of a match arm" are treated differently by the yield-inference
+pass.
+
+**Fix pattern.** When an arm ends with a value-returning call and other
+arms yield `Void`, wrap the call:
+
+    val _discarded := report(r, ...)
+
+`val _ := expr` binds the value to an unused variable, discards it, and
+yields `Void` — matching the other arms. Alternatives:
+- `return` after the call (in a `Void` proc)
+- Move the call into a helper proc (`Void`-returning)
+
+**Same fix, same shape.** Both `ast_roundtrip_smoke.gol`'s
+`json_to_style_definition` and `diagnostics_format_parity.gol`'s
+`report_one` / `main` arms needed this. It has surfaced three times in
+Phase 2 alone.
+
+**Port pattern for future files.** Before writing a `match` where any arm
+ends with a value-returning call, check whether the other arms yield
+`Void`. If yes, wrap the call in `val _ := ...`.
+
+**Common return types that trigger this:**
+- `report(...)` → `Diagnostic`
+- `File.write(...)` → `Int` (bytes written)
+- `r.diagnostics.append(d)` → `Void` (safe, no wrap needed)
+- `some_proc(...) -> T` for any concrete `T`
+
+**Status:** Client-side pattern, not a language gap. Documented for
+future ports. Not worth a compiler change (the check is correct; a
+compiler-side "auto-discard in Void position" rule would be less
+predictable than an explicit `val _`).
+
+**Methodology note.** This is the third pattern we've hit that isn't a
+language gap but is a *usability* cost: (a) the `Map<...]` typo class
+(G-less, documented via lint script), (b) `match`-in-return-position
+mixed yield (this entry), (c) `Some(s)` in `WriteReference` requiring
+G25. All three have been "the port code was written the obvious way;
+the compiler wanted the other way; the difference isn't a bug in either."
+Recorded as **ergonomic patterns**, distinct from **language gaps** that
+require compiler fixes. The two categories need separate tracking, or
+the gap log becomes cluttered with non-bugs.
+
+
+### G29 — resolution: Design 1 landed (2026-11-02)
+
+**Behavior change.** A `match` with mixed `Void` / non-`Void` arms
+is now legal. The match yields `Void`; non-`Void` arm trailing
+values are discarded at IR-build time via `Instruction::Nop`. This
+removes the friction that forced `val _ := f()` at every such site.
+
+**Strictness preserved.** Two different non-`Void` arm types still
+flow through `common_supertype` exactly as before. Note that
+`common_supertype(Void, T) == Unknown` (default arm, `types.rs:893`)
+— not `Void`. The analyzer's new branches bypass this by explicitly
+yielding `Void` for mixed cases; without the branches, the fold
+would produce `Unknown`, which silently skips downstream checks
+instead of failing. The explicit `all_void` / `any_void` short-circuit
+is load-bearing.
+
+**Warning deferred.** The `Diagnostic::Warning` type exists
+(`src/common/diagnostics.rs`) and is used by the IR builder
+(`build_semantic_ir_program` prints them via
+`Diagnostic::Warning(...).display()`), but `SemanticAnalyzer` has
+no `warnings` field or `take_warnings()` method — there is no
+analyzer warning infrastructure. Emitting "non-Void arm value
+discarded" requires that infrastructure. Deferred to a future
+warning-system ADR; G29's warning will be its first use. This
+means the *behavior* fix ships now, and the *visibility* fix
+ships whenever the warning system does.
+
+**Files touched:**
+- `src/semantics/analyzer/expr.rs` — `ExprKind::Match` yield-check
+  replaced with `all_void` / `any_void` short-circuit branches
+- `src/semantics/builder/blocks.rs` — `translate_block_with_result`
+  Void-target discard via `Nop` when trailing value type ≠ `Void`
+- `src/semantics/analyzer/tests.rs` —
+  `test_match_arm_void_mismatch_rejected` replaced by
+  `test_match_arm_mixed_void_accepted_statement`, plus two
+  regression tests (`all_void`, `all_value`)
+- `tests/chaincss/compiler_bugs/g29_mixed_void_match.gol` — new
+  regression, exercises the exact port shape
+
+**Verification:**
+- `cargo test` — all suites green (including the two new
+  regression tests and the updated mixed-Void test)
+- `g29_mixed_void_match.gol` — prints `hello` under the interpreter
+- `ast_roundtrip_smoke.gol` — still produces
+  `OK: ast roundtrip is lossless` on all 3 corpus entries
+- `diagnostics_format_parity.gol` — still runs cleanly
+  (4/4 diagnostics scenarios passed via `run_diagnostics_parity.sh`)
+
+**Port impact.** The ChainCSS port can now write mixed-Void matches
+directly:
+
+    match v
+      case Str(s)
+        report(r, ...)     // returns Diagnostic — discarded
+        print(s)           // continues normally
+      case _
+        {}
+
+The `val _ := report(...)` wrapper is no longer needed. Existing
+code that uses the wrapper continues to work; it's just no longer
+required.
+
+**Methodology note.** This is the first change in the G-series
+that is a *language-design* change rather than a compiler-bug fix.
+G9, G11, G15/16, G18, G19b/c, G25, G27 were all "the compiler was
+wrong"; G29 is "the compiler was right but user-hostile." Both
+classes matter, but they need separate discipline: bug fixes get
+regression tests, design changes get **both** regression tests and
+a design rationale (this section). The task was scoped as a split
+— behavior now, warning infrastructure later — because shipping
+the warning requires its own subsystem, not a small extension of
+the analyzer.

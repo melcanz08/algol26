@@ -445,6 +445,11 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `extern` (FFI) | ✅ | ✅ | ⛔ | ✅ | — |
 | `import` | ✅ | ✅ | ✅ | ✅ | — |
 | `Set<T>` | ✅ | ✅ | ✅ | ✅ | — |
+| `enum` types | ✅ | ✅ | ✅ | ✅ | 61 |
+| `nominal` types | ✅ | ✅ | ✅ | ✅ | — |
+| `subrange` types | ✅ | ✅ | ✅ | ✅ | — |
+| Associated constants | ✅ | ✅ | ✅ | ✅ | — |
+| Where-clauses on impls | ✅ | ✅ | ✅ | ✅ | — |
 
 **Note on canonical IR names.** The IR builder emits
 `BorrowShared` / `BorrowMutable` / `ReadReference` / `SendChannel`

@@ -1063,3 +1063,130 @@ Regression coverage:
 
 A negative audit result is a result. Recorded so a future reader
 knows the search was done, what was searched, and what was found.
+
+
+---
+
+## G30 — Parser diagnostics: mixed bracket families in generics
+
+**Not a language gap.** The parser rejects the malformed program
+correctly. The gap is *diagnostic quality*: the message names the
+parser's expectation but not the user's mistake. Fixed by adding a
+targeted branch at the generic-close site; also records a deferred
+general improvement to `expect_token`'s token display.
+
+**Symptom.** Writing `Map<String, Json]` (opened with `<`, closed
+with `]`) — a common hand-typo, six occurrences during the Phase
+2A session — produced:
+
+    error[E0001]: Expected '>', found RBracket
+
+Which tells the user what the parser wanted, not what they did
+wrong or how to fix it. `RBracket` is also a token-variant name,
+not the character `]`, which is another source of confusion
+(see "Deferred" below).
+
+**Root cause.** `Parser::expect_token` (`src/frontend/parser/mod.rs`)
+renders the expected/found tokens with `{:?}`, so any token-name
+mismatch produces a message that references internal variant names
+rather than source characters. The generic-close site in
+`parse_type_syntax_atom` (`src/frontend/parser/types.rs`) called
+`expect_token(Token::Gt, "'>'")` — so `Expected '>', found
+RBracket` was the best it could produce. It did not know that
+`RBracket` after `<` was *specifically* a mixed-bracket-family
+typo, only that it wasn't the token it wanted.
+
+**Fix.** Targeted branch at the angle-close site:
+
+    if is_bracket {
+        self.expect_token(Token::RBracket, "']'")?;
+    } else {
+        // G30. Targeted diagnostic for the mixed-bracket-family typo.
+        if matches!(self.peek(), Token::RBracket) {
+            return Err(self
+                .error("Expected '>' to close a generic type, found ']'")
+                .with_suggestion(
+                    "Write `Map<K, V>` with `>` to close angle-\
+                     bracketed generics. `]` closes only square-\
+                     bracketed forms (`List[...]`, `Option[...]`). \
+                     See tools/lint_generic_brackets.py for the same \
+                     check at source-text level.",
+                ));
+        }
+        self.expect_token(Token::Gt, "'>'")?;
+    }
+
+Produces:
+
+    error[E0001]: Expected '>' to close a generic type, found ']'
+      --> src/....gol:2:35
+       |
+     2 |     pub m: Option[Map<String, Json]]
+       |                                   ^
+       |
+       = help: Write `Map<K, V>` with `>` to close angle-bracketed
+               generics. `]` closes only square-bracketed forms
+               (`List[...]`, `Option[...]`). See
+               tools/lint_generic_brackets.py for the same check at
+               source-text level.
+
+**Complementary mechanism.** `tools/lint_generic_brackets.py` (added
+during Phase 2A) catches the same class at **source-text level**
+before compilation. It scans every `.gol` file and reports unbalanced
+bracket depth or `]`-closing-angle-generic on a per-line basis.
+The parser catches the same class at **token level** with an
+actionable message. Two mechanisms, two layers:
+
+| Layer | Mechanism | When | What it catches |
+|---|---|---|---|
+| Pre-compile | lint script | CI, pre-commit, ad hoc | Any `.gol` file, any line |
+| Compile-time | parser | `algol26 check` / `build` / `run` | Any program being compiled |
+
+The redundancy is intentional. The lint catches the typo *before*
+anyone tries to compile; the parser catches it *when* someone does.
+Neither is authoritative over the other — they're different
+checkpoints on the same typo class.
+
+**Deferred — general token display.** This fix bypasses
+`expect_token` for the specific mixed-bracket case. The *general*
+issue remains: every `expect_token` error says `found RParen`,
+`found Comma`, `found RBracket` — variant names, not source
+characters (`)`, `,`, `]`). That's a diagnostic-quality gap across
+the whole parser, not just the generic-close site.
+
+Fixing it fully requires:
+- A `Token::display_char() -> Option<char>` (or `display_str() ->
+  Option<&str>`) method that renders the source character for
+  single-character tokens and leaves multi-character tokens
+  (identifiers, keywords, string literals) unchanged.
+- `expect_token` updated to use `display_char()` for the "found"
+  portion.
+- Every parser error site updated to use the new display.
+
+That's a multiple-hour refactor that touches the whole parser's
+error-reporting surface. Worth doing when the parser is being
+touched for other reasons (Phase 5 normalization may cause such
+a visit). Recorded here as the deferred part of G30; the targeted
+mixed-bracket fix is what ships now.
+
+**Not a compiler bug.** The parser correctly rejects malformed
+input. This is a diagnostic-quality improvement, in the same class
+as G4's "check ADRs/tests before declaring a gap" — the language
+was working, the messaging wasn't.
+
+**Files touched:**
+- `src/frontend/parser/types.rs` — targeted mixed-bracket branch
+  at the generic-close site
+- `tests/frontend/parser_diagnostics.rs` — new test file, three
+  tests: mixed-bracket typo produces targeted message; correct
+  angle-close still parses; correct square-close still parses
+- `tests/frontend/mod.rs` — added `pub mod parser_diagnostics;`
+
+**Verification:**
+- `cargo test --test frontend_tests`: 3 new tests pass; existing
+  frontend tests unaffected
+- `cargo test`: full suite green
+- `/tmp/g30_probe.gol` — the failing probe now names the actual
+  mistake and points at the lint script
+- `/tmp/g30_probe_good.gol` — the correct version still parses
+  cleanly after `import "json.gol"` resolves `Json`

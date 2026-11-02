@@ -94,6 +94,33 @@ impl Parser {
             if is_bracket {
                 self.expect_token(Token::RBracket, "']'")?;
             } else {
+                // G30. Targeted diagnostic for the `Map<...]` typo
+                // class: the user opened with `<` but is closing
+                // with `]`. That's almost always a typo, and the
+                // generic `expect_token` message ("Expected '>',
+                // found RBracket") tells them what the parser
+                // wanted, not what they did wrong or how to fix
+                // it. Common enough (six occurrences in the
+                // Phase 2A session alone) to deserve a specific
+                // message.
+                //
+                // Note: the `while` loop above terminates on
+                // `RBracket` because `is_bracket` forms use `]` as
+                // the closer. This branch fires when the user
+                // opened with `<` (so `is_bracket` is false) and
+                // is closing with `]` — the two bracket families
+                // are mixed.
+                if matches!(self.peek(), Token::RBracket) {
+                    return Err(self
+                        .error("Expected '>' to close a generic type, found ']'")
+                        .with_suggestion(
+                            "Write `Map<K, V>` with `>` to close \
+                             angle-bracketed generics. `]` closes only \
+                             square-bracketed forms (`List[...]`, \
+                             `Option[...]`). See tools/lint_generic_brackets.py \
+                             for the same check at source-text level.",
+                        ));
+                }
                 self.expect_token(Token::Gt, "'>'")?;
             }
             Ok(TypeSyntax::Generic { name: base, args })

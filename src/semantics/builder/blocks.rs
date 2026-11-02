@@ -72,6 +72,24 @@ impl SemanticIRBuilder {
             if self.block_is_terminated(func, assign_block) {
                 return None;
             }
+            // G29 — Design 1. Void-target match arms discard
+            // non-Void trailing values. The analyzer now permits
+            // mixed-Void matches and types the match as Void; a
+            // value-producing arm's trailing expression carries
+            // type T, which would fail the IR verifier if assigned
+            // to a Void target. A Nop preserves execution (the
+            // expression's side effects were emitted into
+            // `final_block` above) while discarding the value.
+            //
+            // When the value is already Void (the common case —
+            // statement-position match where every arm ends with a
+            // call returning Void), we keep the existing Assign —
+            // Void-to-Void is a no-op the verifier accepts.
+            if target_type == Type::Void && value.type_of() != Type::Void {
+                self.safe_push_instruction(func, assign_block, Instruction::Nop);
+                return Some(assign_block);
+            }
+
             let coerced = self.coerce_value(value, &target_type);
             self.safe_push_instruction(
                 func,

@@ -1,0 +1,390 @@
+// diagnostics.gol — Phase 2D. Port of src/compiler/diagnostics/reporter.ts
+//
+// Source:  chaincss/src/compiler/diagnostics/reporter.ts
+// Mirrors: config.gol, ast.gol (Option for optional fields, Json for
+//          open metadata, proc-per-method with &mut self receiver).
+//
+// G28 (portability): Date.now() and Math.random() are not portable.
+// The port substitutes:
+//   - timestamp: 0            (was Date.now())
+//   - generatedAt: 0          (was Date.now())
+//   - id: "diag-0-<counter>"  (was "diag-<Date.now()>-<Math.random_b36>")
+// The parity comparator normalizes timestamps and IDs. The rendered
+// generatedAt field is the ISO 8601 rendering of Unix epoch zero:
+// "1970-01-01T00:00:00.000Z" — exactly what new Date(0).toISOString()
+// produces in TS.
+//
+// Diagnostics are NOT IRDiagnostics. IRDiagnostic is attached to an
+// IR node (nodeId); Diagnostic is attached to a source location
+// (file/line/column). The two are different concepts; the port keeps
+// them separate. A `ir_diagnostic_to_diagnostic` adapter will be
+// added when normalizer/optimizer want to report IRDiagnostics
+// through this reporter.
+
+import "json.gol"
+
+// ─── Diagnostic ──────────────────────────────────────────────────────
+
+pub rec Diagnostic
+    pub id: String
+    pub severity: String                    // "info" | "warning" | "error" | "debug"
+    pub message: String
+    pub file: Option[String]
+    pub line: Option[Int]
+    pub column: Option[Int]
+    pub code: Option[String]
+    pub suggestion: Option[String]
+    pub timestamp: Int                       // 0 (G28)
+    pub metadata: Option[Json]
+
+// ─── DiagnosticSummary ───────────────────────────────────────────────
+
+pub rec DiagnosticSummary
+    pub total: Int
+    pub errors: Int
+    pub warnings: Int
+    pub info: Int
+    pub debug: Int
+
+// ─── DiagnosticReport ────────────────────────────────────────────────
+
+pub rec DiagnosticReport
+    pub diagnostics: List[Diagnostic]
+    pub summary: DiagnosticSummary
+    pub generatedAt: Int                     // 0 (G28)
+    pub version: String
+
+// ─── DiagnosticReporter ──────────────────────────────────────────────
+//
+// Stateful accumulator. `next_id` substitutes Math.random() — each
+// `report` call consumes one counter value, so IDs are stable within
+// a single reporter's lifetime.
+
+pub rec DiagnosticReporter
+    pub diagnostics: List[Diagnostic]
+    pub version: String
+    pub next_id: Int
+
+// ─── Constructor ─────────────────────────────────────────────────────
+
+pub proc new_reporter() -> DiagnosticReporter
+    return DiagnosticReporter {
+        diagnostics: [],
+        version: "2.14.5",
+        next_id: 0
+    }
+
+// ─── ID generation (G28 substitute for Date.now + Math.random) ───────
+
+pub proc generate_id(r: &mut DiagnosticReporter) -> String
+    val n := r.next_id
+    r.next_id := n + 1
+    return "diag-0-" + Int.to_string(n)
+
+// ─── Core report method ──────────────────────────────────────────────
+//
+// TS signature: report(diagnostic: Omit<Diagnostic, "timestamp" | "id">)
+// ALGOL26 has no named-argument call syntax, so this is positional.
+// The optional fields (file, line, column, code, suggestion, metadata)
+// use Option to preserve "omitted" vs "present" semantics — matching
+// TS's `undefined` distinction.
+
+pub proc report(
+    r: &mut DiagnosticReporter,
+    severity: String,
+    message: String,
+    file: Option[String],
+    line: Option[Int],
+    column: Option[Int],
+    code: Option[String],
+    suggestion: Option[String],
+    metadata: Option[Json]
+) -> Diagnostic
+    val d := Diagnostic {
+        id: generate_id(r),
+        severity: severity,
+        message: message,
+        file: file,
+        line: line,
+        column: column,
+        code: code,
+        suggestion: suggestion,
+        timestamp: 0,
+        metadata: metadata
+    }
+    r.diagnostics.append(d)
+    return d
+
+// ─── Sugar wrappers ──────────────────────────────────────────────────
+//
+// `error(msg, opts)`, `warning(msg, opts)`, `info(msg, opts)`,
+// `debug(msg, opts)` — each fixes severity and delegates to `report`.
+// Matching TS's method-sugar where opts is optional, the ALGOL26
+// versions take all eight optional fields as separate parameters.
+// This is verbose at the call site but preserves the "same underlying
+// method" semantics.
+
+pub proc error(
+    r: &mut DiagnosticReporter,
+    message: String,
+    file: Option[String],
+    line: Option[Int],
+    column: Option[Int],
+    code: Option[String],
+    suggestion: Option[String],
+    metadata: Option[Json]
+) -> Diagnostic
+    return report(r, "error", message, file, line, column, code, suggestion, metadata)
+
+pub proc warning(
+    r: &mut DiagnosticReporter,
+    message: String,
+    file: Option[String],
+    line: Option[Int],
+    column: Option[Int],
+    code: Option[String],
+    suggestion: Option[String],
+    metadata: Option[Json]
+) -> Diagnostic
+    return report(r, "warning", message, file, line, column, code, suggestion, metadata)
+
+pub proc info(
+    r: &mut DiagnosticReporter,
+    message: String,
+    file: Option[String],
+    line: Option[Int],
+    column: Option[Int],
+    code: Option[String],
+    suggestion: Option[String],
+    metadata: Option[Json]
+) -> Diagnostic
+    return report(r, "info", message, file, line, column, code, suggestion, metadata)
+
+pub proc debug(
+    r: &mut DiagnosticReporter,
+    message: String,
+    file: Option[String],
+    line: Option[Int],
+    column: Option[Int],
+    code: Option[String],
+    suggestion: Option[String],
+    metadata: Option[Json]
+) -> Diagnostic
+    return report(r, "debug", message, file, line, column, code, suggestion, metadata)
+
+// ─── Accessors ───────────────────────────────────────────────────────
+
+pub proc get_diagnostics(r: DiagnosticReporter) -> List[Diagnostic]
+    return r.diagnostics
+
+pub proc get_errors(r: DiagnosticReporter) -> List[Diagnostic]
+    var out: List[Diagnostic] := []
+    for d in r.diagnostics {
+        if d.severity = "error" {
+            out.append(d)
+        }
+    }
+    return out
+
+pub proc get_warnings(r: DiagnosticReporter) -> List[Diagnostic]
+    var out: List[Diagnostic] := []
+    for d in r.diagnostics {
+        if d.severity = "warning" {
+            out.append(d)
+        }
+    }
+    return out
+
+pub proc clear(r: &mut DiagnosticReporter) -> Void
+    r.diagnostics := []
+
+// ─── generate_report — compute summary counts ────────────────────────
+
+pub proc generate_report(r: DiagnosticReporter) -> DiagnosticReport
+    var errors := 0
+    var warnings := 0
+    var info_count := 0
+    var debug_count := 0
+    for d in r.diagnostics {
+        if d.severity = "error" {
+            errors := errors + 1
+        } else {
+            if d.severity = "warning" {
+                warnings := warnings + 1
+            } else {
+                if d.severity = "info" {
+                    info_count := info_count + 1
+                } else {
+                    if d.severity = "debug" {
+                        debug_count := debug_count + 1
+                    }
+                }
+            }
+        }
+    }
+    val summary := DiagnosticSummary {
+        total: r.diagnostics.length(),
+        errors: errors,
+        warnings: warnings,
+        info: info_count,
+        debug: debug_count
+    }
+    return DiagnosticReport {
+        diagnostics: r.diagnostics,
+        summary: summary,
+        generatedAt: 0,
+        version: r.version
+    }
+
+// ─── format_report — the byte-level output ───────────────────────────
+//
+// Matches reporter.ts's formatReport line-for-line:
+//   - 43 '═' chars on the top and bottom banners
+//   - " ChainCSS Diagnostic Report" header
+//   - " Generated: <ISO timestamp>" (G28: fixed epoch zero)
+//   - " Version: 2.14.5"
+//   - Summary block with Total/Errors/Warnings/Info/Debug counts
+//   - " ── Diagnostics ──" section (only when diagnostics non-empty)
+//   - Per-diagnostic line: " <icon> [SEVERITY] <message> (<file>:<line>)?"
+//   - Per-diagnostic suggestion line (only when present):
+//     "   💡 <suggestion>"
+
+pub proc severity_icon(severity: String) -> String
+    if severity = "error" {
+        return "✗"
+    }
+    if severity = "warning" {
+        return "⚠"
+    }
+    if severity = "info" {
+        return "ℹ"
+    }
+    return "🔍"
+
+pub proc location_suffix(d: Diagnostic) -> String
+    match d.file {
+        case Some(f) then {
+            match d.line {
+                case Some(ln) then {
+                    return " (" + f + ":" + Int.to_string(ln) + ")"
+                }
+                case None then {
+                    return " (" + f + ")"
+                }
+            }
+        }
+        case None then {
+            return ""
+        }
+    }
+
+pub proc format_report(r: DiagnosticReporter) -> String
+    val report := generate_report(r)
+    var lines: List[String] := []
+
+    lines.append("═══════════════════════════════════════════")
+    lines.append(" ChainCSS Diagnostic Report")
+    lines.append("═══════════════════════════════════════════")
+    lines.append("")
+    // G28: generatedAt = 0; renders as ISO 8601 epoch zero.
+    lines.append(" Generated: 1970-01-01T00:00:00.000Z")
+    lines.append(" Version: " + report.version)
+    lines.append("")
+    lines.append(" Summary:")
+    lines.append("   Total: " + Int.to_string(report.summary.total))
+    lines.append("   Errors: " + Int.to_string(report.summary.errors))
+    lines.append("   Warnings: " + Int.to_string(report.summary.warnings))
+    lines.append("   Info: " + Int.to_string(report.summary.info))
+    lines.append("   Debug: " + Int.to_string(report.summary.debug))
+    lines.append("")
+
+    if report.diagnostics.length() > 0 {
+        lines.append(" ── Diagnostics ──")
+        for d in report.diagnostics {
+            val icon := severity_icon(d.severity)
+            val loc := location_suffix(d)
+            lines.append(" " + icon + " [" + String.to_upper(d.severity) + "] " + d.message + loc)
+            match d.suggestion {
+                case Some(sug) then {
+                    lines.append("   💡 " + sug)
+                }
+                case None then {}
+            }
+        }
+    }
+
+    lines.append("")
+    lines.append("═══════════════════════════════════════════")
+
+    var out := ""
+    var first := true
+    for line in lines {
+        if first {
+            first := false
+        } else {
+            out := out + "\n"
+        }
+        out := out + line
+    }
+    return out
+
+// ─── Serialization for parity comparison ─────────────────────────────
+//
+// diag_to_json serializes a Diagnostic (optional fields omitted when
+// None, matching JSON.stringify's undefined handling). The comparator
+// normalizes id and timestamp; those fields are emitted as-is so a
+// normalized-field diff shows both sides' raw values if a mismatch
+// occurs.
+
+pub proc diag_to_json(d: Diagnostic) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("id", Json.Str(d.id))
+    m.insert("severity", Json.Str(d.severity))
+    m.insert("message", Json.Str(d.message))
+    match d.file {
+        case Some(f) then { m.insert("file", Json.Str(f)) }
+        case None then {}
+    }
+    match d.line {
+        case Some(ln) then { m.insert("line", Json.NumInt(ln)) }
+        case None then {}
+    }
+    match d.column {
+        case Some(c) then { m.insert("column", Json.NumInt(c)) }
+        case None then {}
+    }
+    match d.code {
+        case Some(c) then { m.insert("code", Json.Str(c)) }
+        case None then {}
+    }
+    match d.suggestion {
+        case Some(s) then { m.insert("suggestion", Json.Str(s)) }
+        case None then {}
+    }
+    m.insert("timestamp", Json.NumInt(d.timestamp))
+    match d.metadata {
+        case Some(md) then { m.insert("metadata", md) }
+        case None then {}
+    }
+    return Json.Obj(m)
+
+pub proc summary_to_json(s: DiagnosticSummary) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("total", Json.NumInt(s.total))
+    m.insert("errors", Json.NumInt(s.errors))
+    m.insert("warnings", Json.NumInt(s.warnings))
+    m.insert("info", Json.NumInt(s.info))
+    m.insert("debug", Json.NumInt(s.debug))
+    return Json.Obj(m)
+
+pub proc report_to_json(r: DiagnosticReport) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    var ds: List<Json> := []
+    for d in r.diagnostics {
+        ds.append(diag_to_json(d))
+    }
+    m.insert("diagnostics", Json.Arr(ds))
+    m.insert("summary", summary_to_json(r.summary))
+    m.insert("generatedAt", Json.NumInt(r.generatedAt))
+    m.insert("version", Json.Str(r.version))
+    return Json.Obj(m)

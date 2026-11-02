@@ -1,0 +1,23 @@
+// g29_mixed_void_match.gol — regression for G29 (Design 1).
+//
+// A `match` with mixed Void / non-Void arms in statement position
+// is legal: the match yields Void and non-Void arm trailing values
+// are discarded. Before G29 this was a hard E0002 error.
+//
+// This file must compile and run cleanly, printing `hello`.
+import "json.gol"
+
+proc f_returns_int(x: Int) -> Int
+    return x * 2
+
+proc prints_something(v: Json) -> Void
+    match v {
+        case Str(s) then {
+            f_returns_int(42)
+            print(s)
+        }
+        case _ then {}
+    }
+
+proc main
+    prints_something(Json.Str("hello"))

@@ -732,17 +732,37 @@ impl SemanticAnalyzer {
                     arm_exits.push(arm_exit);
                 }
 
-                let first_is_void = arm_types[0] == Type::Void;
-                for t in &arm_types[1..] {
-                    if (t == &Type::Void) != first_is_void {
-                        return Err(CompileError::at(self.current_span, "match arms produce inconsistent results: some arms yield a value, others do not", ErrorCode::E0002)
-                        .with_suggestion("Ensure all arms end with an expression, or none do"));
-                    }
-                }
-
-                let result_type = arm_types[1..]
-                    .iter()
-                    .fold(arm_types[0].clone(), |acc, t| acc.common_supertype(t));
+                // G29 — Design 1. A match with mixed Void / non-Void
+                // arms is legal: the match yields Void, and any
+                // non-Void arm's trailing value is discarded (see
+                // `translate_block_with_result`'s Void-target
+                // discard branch). Before this, the mixed case was a
+                // hard E0002, forcing `val _ := f()` at every such
+                // site just to satisfy the yield-consistency check.
+                //
+                // Strictness preserved: two *different* non-Void arm
+                // types still flow through `common_supertype` exactly
+                // as before. Note that `common_supertype(Void, T)`
+                // returns `Unknown` (default arm), not `Void` — so
+                // the fold alone would produce `Unknown` for a mixed
+                // match, which silently skips downstream checks
+                // instead of failing. The explicit branches below are
+                // what make mixed-Void yield a concrete `Void`.
+                //
+                // TODO G29-warning: emit "non-Void arm value discarded"
+                // once the analyzer has a warning sink. Deferred —
+                // see LANGUAGE_GAPS.md G29.
+                let any_void = arm_types.iter().any(|t| t == &Type::Void);
+                let all_void = arm_types.iter().all(|t| t == &Type::Void);
+                let result_type = if all_void {
+                    Type::Void
+                } else if any_void {
+                    Type::Void
+                } else {
+                    arm_types[1..]
+                        .iter()
+                        .fold(arm_types[0].clone(), |acc, t| acc.common_supertype(t))
+                };
 
                 self.state = SemanticState::join_all(&arm_exits);
                 Ok(result_type)

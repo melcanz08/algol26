@@ -131,18 +131,66 @@ proc main
 }
 
 #[test]
-fn test_match_arm_void_mismatch_rejected() {
+fn test_match_arm_mixed_void_accepted_statement() {
+    // G29 — Design 1. Mixed-Void match is now legal: the match
+    // yields Void, and non-Void arm values are discarded at IR
+    // build time. Before G29 this was a hard E0002 that forced
+    // `val _ := f()` at every such site.
+    //
+    // The motivating case: a Void proc's body containing a `match`
+    // where one arm ends with a value-returning call. This is
+    // exactly the shape that `diagnostics_format_parity.gol`'s
+    // `report_one` and `ast_roundtrip_smoke.gol`'s `main` needed to
+    // work around before the fix.
     let source = "\
+fn f(x: Int) -> Int
+    x * 2
+
 proc main
-    val x := match 1
+    match 1
         case 1
-            42.0
+            f(42)
         case 2
             print(\"done\")
 ";
     assert!(
-        analyze(source).is_err(),
-        "match with mixed Void and value arms should be rejected"
+        analyze(source).is_ok(),
+        "G29: mixed-Void match in statement position should be accepted"
+    );
+}
+
+#[test]
+fn test_match_arm_all_void_still_accepted() {
+    // G29 regression: the pre-existing all-Void case is unchanged.
+    let source = "\
+proc main
+    match 1
+        case 1
+            print(\"a\")
+        case 2
+            print(\"b\")
+";
+    assert!(
+        analyze(source).is_ok(),
+        "all-Void match must still be accepted"
+    );
+}
+
+#[test]
+fn test_match_arm_all_value_still_accepted() {
+    // G29 regression: the pre-existing all-value case is unchanged.
+    let source = "\
+proc main
+    val x := match 1
+        case 1
+            1.0
+        case 2
+            2.0
+    print(x)
+";
+    assert!(
+        analyze(source).is_ok(),
+        "all-value match must still be accepted"
     );
 }
 

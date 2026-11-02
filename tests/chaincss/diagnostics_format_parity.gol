@@ -1,0 +1,148 @@
+// diagnostics_format_parity.gol — Phase 2D parity driver, ALGOL26 side.
+//
+// Reads:
+//   /tmp/chaincss-parity/current_scenario.json  (list of diagnostics)
+//   /tmp/chaincss-parity/current_scenario_name.txt (scenario name, one line)
+// Writes:
+//   /tmp/chaincss-parity/current_diag_output.json
+//     { "report": <DiagnosticReport json>, "rendered": <format_report string> }
+//
+// Mirror of ts-format-report.ts. The comparator (compare_diagnostics.py)
+// normalizes non-deterministic fields and diffs the results.
+
+import "../../src/chaincss/json.gol"
+import "../../src/chaincss/diagnostics.gol"
+
+// ─── Scenario parsing ───────────────────────────────────────────────
+//
+// A scenario is {"diagnostics": [ {severity, message, file?, line?,
+// column?, code?, suggestion?, metadata?} , ... ] }.
+//
+// Each optional field is read from the entry's map, defaulting to
+// None when absent. This mirrors how ts-format-report.ts reads the
+// same shape.
+
+proc get_str(m: Map<String, Json>, key: String) -> Option[String]
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case Str(s) then { return Some(s) }
+                case _ then { return None }
+            }
+        }
+        case None then { return None }
+    }
+
+proc get_int(m: Map<String, Json>, key: String) -> Option[Int]
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case NumInt(n) then { return Some(n) }
+                case _ then { return None }
+            }
+        }
+        case None then { return None }
+    }
+
+proc get_metadata(m: Map<String, Json>, key: String) -> Option[Json]
+    match m.get(key) {
+        case Some(v) then {
+            match v {
+                case Obj(_) then { return Some(v) }
+                case _ then { return None }
+            }
+        }
+        case None then { return None }
+    }
+
+// ─── One diagnostic from one entry ──────────────────────────────────
+
+proc report_one(r: &mut DiagnosticReporter, entry: Json) -> Void
+    match entry {
+        case Obj(m) then {
+            val severity := match get_str(m, "severity") {
+                case Some(s) then s
+                case None then "error"
+            }
+            val message := match get_str(m, "message") {
+                case Some(s) then s
+                case None then ""
+            }
+            val file_opt := get_str(m, "file")
+            val line_opt := get_int(m, "line")
+            val column_opt := get_int(m, "column")
+            val code_opt := get_str(m, "code")
+            val suggestion_opt := get_str(m, "suggestion")
+            val metadata_opt := get_metadata(m, "metadata")
+            // G29: `report(...)` returns Diagnostic, which would make the
+            // Obj arm yield Diagnostic while the `_` arm yields Void —
+            // triggering E0002 ("match arms produce inconsistent results").
+            // Binding to `_discarded` discards the return value; both
+            // arms now yield Void.
+            val _discarded := report(r, severity, message,
+                file_opt, line_opt, column_opt,
+                code_opt, suggestion_opt, metadata_opt)
+        }
+        case _ then {}
+    }
+    return
+
+// ─── Scenario driver ────────────────────────────────────────────────
+//
+// G29 note: the natural nested-match form triggered E0002 ("match arms
+// produce inconsistent results"). ALGOL26 requires that all arms of a
+// value-yielding match yield the same type, and the compiler's
+// consistency check treats nested matches containing statements
+// (not expressions) inconsistently. Same shape as G25-diagnostic
+// session's match-yield issue in ast_roundtrip_smoke.gol. Fix:
+// extract each nested match into its own proc; each proc's single
+// match has only {} arms and no value is yielded. Matches the
+// extract_selectors / parse_components pattern in parse_ir.gol.
+
+proc report_entries(r: &mut DiagnosticReporter, diag_json: Json) -> Void
+    match diag_json {
+        case Arr(entries) then {
+            for entry in entries {
+                report_one(r, entry)
+            }
+        }
+        case _ then {}
+    }
+    return
+
+proc report_diagnostics_field(r: &mut DiagnosticReporter, m: Map<String, Json>) -> Void
+    match m.get("diagnostics") {
+        case Some(diag_json) then {
+            report_entries(r, diag_json)
+        }
+        case None then {}
+    }
+
+proc run_scenario(scenario_json: Json) -> Json
+    var reporter := new_reporter()
+    match scenario_json {
+        case Obj(m) then {
+            report_diagnostics_field(&mut reporter, m)
+        }
+        case _ then {}
+    }
+    val report := generate_report(reporter)
+    val rendered := format_report(reporter)
+    var out_map: Map<String, Json> := Map<String, Json> {}
+    out_map.insert("report", report_to_json(report))
+    out_map.insert("rendered", Json.Str(rendered))
+    return Json.Obj(out_map)
+
+proc main
+    val scenario_text := File.read("/tmp/chaincss-parity/current_scenario.json")
+    match parse(scenario_text) {
+        case Ok(scenario_json) then {
+            // G29: File.write returns Int (bytes written); print returns
+            // Void. Discard File.write's return so both arms yield Void.
+            val out := run_scenario(scenario_json)
+            val _bytes := File.write("/tmp/chaincss-parity/current_diag_output.json", stringify(out))
+        }
+        case Error(msg) then {
+            print("ERROR parsing scenario JSON: " + msg)
+        }
+    }

@@ -5,7 +5,7 @@
 // `ExprId`, which the IR builder consumes to avoid re-inferring
 // types.
 
-use crate::common::diagnostics::{CompileError, ErrorCode, Result};
+use crate::common::diagnostics::{CompileError, CompileWarning, ErrorCode, Result, WarningConfig};
 use crate::common::span::Span;
 use crate::common::types::{NominalTypeId, Type};
 use crate::frontend::ast::{
@@ -215,6 +215,25 @@ pub struct SemanticAnalyzer {
     /// Letting the enclosing arm decide lets the conflict check
     /// use the correct projection list.
     pub(super) in_place_expr: bool,
+
+    /// ADR 0063. Warnings collected during analysis. Populated by
+    /// arms of `analyze_expr_inner` / `analyze_stmt` that detect a
+    /// user-actionable pattern (e.g., G29's mixed-Void match
+    /// discarding a value). Taken by `type_check_program` via
+    /// `take_warnings` and threaded to `TypedProgram.warnings`.
+    ///
+    /// Not a `HashSet` — ordering matters (ADR 0063 §Decision 3:
+    /// within a pass, warnings ordered by span; the collection order
+    /// is preserved here, sorting happens at aggregation).
+    pub(super) warnings: Vec<CompileWarning>,
+
+    /// ADR 0063. Configuration for which warnings fire and which
+    /// are promoted to errors. Set once by the driver before
+    /// analysis via `with_warning_config`; read by every warning
+    /// emission site to check `is_enabled(code)`.
+    ///
+    /// Default: `WarningConfig::new()` (all enabled, none denied).
+    pub(super) warning_config: WarningConfig,
 }
 
 /// ADR 0038 D4b. What the analyzer resolved at a `dyn Trait` method
@@ -350,7 +369,25 @@ impl SemanticAnalyzer {
             current_expr_id: ExprId::UNASSIGNED,
             defer_depth: 0,
             in_place_expr: false,
+            warnings: Vec::new(),
+            warning_config: WarningConfig::new(),
         }
+    }
+
+    /// ADR 0063. Set the warning configuration before analysis.
+    /// Builder-style so callers not interested in warnings can
+    /// ignore this entirely (`SemanticAnalyzer::new()` defaults to
+    /// "all warnings enabled, none denied").
+    ///
+    /// Typical driver usage:
+    ///
+    ///     let mut analyzer = SemanticAnalyzer::new()
+    ///         .with_warning_config(driver_warning_config);
+    ///     analyzer.analyze_with_spans(...)?;
+    ///     let warnings = analyzer.take_warnings();
+    pub fn with_warning_config(mut self, config: WarningConfig) -> Self {
+        self.warning_config = config;
+        self
     }
 
     /// Analyze `f` on a snapshot of the current state; restore the
@@ -387,6 +424,13 @@ impl SemanticAnalyzer {
     /// to `TypedProgram`.
     pub fn take_instantiations(&mut self) -> Vec<Instantiation> {
         std::mem::take(&mut self.instantiations)
+    }
+
+    /// ADR 0063. Take ownership of the warnings collected during
+    /// analysis, so they can be handed to `TypedProgram.warnings`.
+    /// Drains the analyzer's buffer (mirrors `take_type_table_id`).
+    pub fn take_warnings(&mut self) -> Vec<CompileWarning> {
+        std::mem::take(&mut self.warnings)
     }
 
     /// Take ownership of the resolved nominal type table so it can be

@@ -4,8 +4,8 @@
 // applies get_default_config + load_config_from_json, and writes the
 // fully-resolved ChainCSSConfig as JSON.
 
-import "json.gol"
-import "config.gol"
+import "../../src/chaincss/json.gol"
+import "../../src/chaincss/config.gol"
 
 proc main
     val input := File.read("/tmp/chaincss-parity/current_config.json")

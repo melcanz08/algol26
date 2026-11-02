@@ -6,11 +6,11 @@
 // Writes:
 //   /tmp/chaincss-parity/current_output.json (StyleIR JSON)
 
-import "json.gol"
-import "ir_types.gol"
-import "ir_factory.gol"
-import "parser.gol"
-import "parse_ir.gol"
+import "../../src/chaincss/json.gol"
+import "../../src/chaincss/ir_types.gol"
+import "../../src/chaincss/ir_factory.gol"
+import "../../src/chaincss/parser.gol"
+import "../../src/chaincss/parse_ir.gol"
 
 proc main
     val input := File.read("/tmp/chaincss-parity/current_input.json")

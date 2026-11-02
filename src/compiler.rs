@@ -1,6 +1,6 @@
 // src/compiler.rs
 
-use crate::common::diagnostics::{CompileError, ErrorCode, Result};
+use crate::common::diagnostics::{CompileError, CompileWarning, ErrorCode, Result};
 use crate::compiler::context::{CompilerConfig, CompilerContext};
 use crate::compiler::program::{AstPayload, IrState, Program};
 use crate::frontend::ast::{
@@ -136,6 +136,17 @@ pub struct TypedProgram {
     /// re-resolving a `Projection` from AST (which lacks
     /// bound-trait context).
     pub function_returns: std::collections::HashMap<String, crate::common::types::Type>,
+    /// ADR 0063. Warnings collected by the analyzer during
+    /// type-checking. Travel with the program through the rest of
+    /// the pipeline; the driver reads them from
+    /// `ScheduleOutcome.warnings` after the pipeline completes.
+    ///
+    /// Populated by `type_check_program` from
+    /// `SemanticAnalyzer::take_warnings()`. Never empty for an
+    /// error-free compilation with warnings; empty for programs
+    /// that produce no warnings (the common case for the current
+    /// corpus).
+    pub warnings: Vec<CompileWarning>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeInfo {
@@ -292,6 +303,7 @@ pub fn type_check_program(
     let enum_types = analyzer.take_enum_types();
     let subrange_types = analyzer.take_subrange_types();
     let union_types = analyzer.take_union_types();
+    let warnings = analyzer.take_warnings();
     let mut plan = InstantiationPlan::from_instantiations(&instantiations);
     plan.close(functions);
 
@@ -316,6 +328,7 @@ pub fn type_check_program(
         traits: analyzer.trait_decls(),
         assoc_bindings: analyzer.assoc_bindings(),
         function_returns: analyzer.function_returns(),
+        warnings,
     })
 }
 

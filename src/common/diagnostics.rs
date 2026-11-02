@@ -325,6 +325,112 @@ impl fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+/// A non-fatal diagnostic. See ADR 0063 for the design.
+///
+/// `CompileWarning` is deliberately a distinct type from
+/// `CompileError`:
+///
+/// - `Result<T, CompileError>` cannot carry a warning, so the
+///   type system prevents accidentally failing compilation with a
+///   warning or silently swallowing a warning in a `?` chain.
+/// - `CompileError` has fields (`error_code`, `secondary`, `label`)
+///   that don't apply to warnings.
+///
+/// Warnings are collected by the analyzer (and later passes) into
+/// `TypedProgram.warnings` / `ScheduleOutcome.warnings`, then
+/// rendered by the CLI or promoted to errors under
+/// `--deny-warnings`. See ADR 0063 §Decision for the six
+/// load-bearing decisions.
+///
+/// Constructors and `with_*` methods mirror `CompileError` so call
+/// sites read the same way.
+#[derive(Debug, Clone)]
+pub struct CompileWarning {
+    pub message: String,
+    /// Source location. `Span::default()` (all zeros) means "no
+    /// location known."
+    pub span: Span,
+    /// Warning code, e.g. `"W0001"`. Sequential in v1 (ADR 0063
+    /// §Decision 10); buckets when the catalog grows.
+    pub code: String,
+    pub suggestion: Option<String>,
+    /// Supplementary notes rendered as `= note:` lines.
+    pub notes: Vec<String>,
+    /// Source file. `None` for warnings that have no file context.
+    /// Set by the driver from the filename it was given, mirroring
+    /// `CompileError::with_file`.
+    pub file: Option<String>,
+}
+
+impl CompileWarning {
+    /// Construct a warning at a `Span`. Mirrors `CompileError::at`.
+    pub fn at(span: Span, message: &str, code: &str) -> Self {
+        Self {
+            message: message.to_string(),
+            span,
+            code: code.to_string(),
+            suggestion: None,
+            notes: Vec::new(),
+            file: None,
+        }
+    }
+
+    /// Construct a warning from raw line/column, mirroring
+    /// `CompileError::simple`. Useful in tests and in
+    /// hand-constructed IR.
+    pub fn simple(message: &str, line: usize, column: usize, code: &str) -> Self {
+        Self {
+            message: message.to_string(),
+            span: Span::point(line, column),
+            code: code.to_string(),
+            suggestion: None,
+            notes: Vec::new(),
+            file: None,
+        }
+    }
+
+    pub fn with_file(mut self, file: impl Into<String>) -> Self {
+        self.file = Some(file.into());
+        self
+    }
+
+    pub fn with_suggestion(mut self, suggestion: &str) -> Self {
+        self.suggestion = Some(suggestion.to_string());
+        self
+    }
+
+    pub fn with_note(mut self, note: &str) -> Self {
+        self.notes.push(note.to_string());
+        self
+    }
+
+    /// Start line of the warning location. `0` means "unknown."
+    pub fn line(&self) -> usize {
+        self.span.start_line
+    }
+
+    /// Start column of the warning location. `0` means "unknown."
+    pub fn column(&self) -> usize {
+        self.span.start_column
+    }
+}
+
+impl fmt::Display for CompileWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Same message + suggestion shape as CompileError::Display
+        // (per ADR 0063 §Decision 9: no shared trait in v1; the
+        // pattern may diverge for warnings).
+        write!(f, "{}", self.message)?;
+        if let Some(s) = &self.suggestion {
+            write!(f, "\n  = help: {}", s)?;
+        }
+        for note in &self.notes {
+            write!(f, "\n  = note: {}", note)?;
+        }
+        Ok(())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, CompileError>;
 
 impl From<String> for CompileError {
@@ -394,6 +500,55 @@ mod tests {
             "Display must not add `= help:` when there's no suggestion. Got: {:?}",
             rendered
         );
+    }
+
+    #[test]
+    fn compile_warning_at_constructs_minimal_warning() {
+        let w = CompileWarning::at(Span::point(3, 5), "non-Void arm value discarded", "W0001");
+        assert_eq!(w.message, "non-Void arm value discarded");
+        assert_eq!(w.code, "W0001");
+        assert_eq!(w.line(), 3);
+        assert_eq!(w.column(), 5);
+        assert!(w.suggestion.is_none());
+        assert!(w.notes.is_empty());
+        assert!(w.file.is_none());
+    }
+
+    #[test]
+    fn compile_warning_simple_uses_point_span() {
+        let w = CompileWarning::simple("msg", 10, 20, "W0001");
+        assert_eq!(w.line(), 10);
+        assert_eq!(w.column(), 20);
+        assert_eq!(w.span.start_line, w.span.end_line);
+        assert_eq!(w.span.start_column, w.span.end_column);
+    }
+
+    #[test]
+    fn compile_warning_with_helpers_chain() {
+        let w = CompileWarning::at(Span::point(1, 1), "msg", "W0001")
+            .with_file("src/foo.gol")
+            .with_suggestion("try this")
+            .with_note("see ADR 0063");
+        assert_eq!(w.file.as_deref(), Some("src/foo.gol"));
+        assert_eq!(w.suggestion.as_deref(), Some("try this"));
+        assert_eq!(w.notes, vec!["see ADR 0063".to_string()]);
+    }
+
+    #[test]
+    fn compile_warning_display_includes_suggestion_and_notes() {
+        let w = CompileWarning::at(Span::point(1, 1), "base", "W0001")
+            .with_suggestion("try this")
+            .with_note("see ADR 0063");
+        let rendered = format!("{}", w);
+        assert!(rendered.contains("base"));
+        assert!(rendered.contains("= help: try this"));
+        assert!(rendered.contains("= note: see ADR 0063"));
+    }
+
+    #[test]
+    fn compile_warning_display_without_extras_renders_only_message() {
+        let w = CompileWarning::at(Span::point(1, 1), "plain", "W0001");
+        assert_eq!(format!("{}", w), "plain");
     }
 
     #[test]

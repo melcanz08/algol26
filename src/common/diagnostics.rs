@@ -295,7 +295,31 @@ impl CompileError {
 
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
+        // G31. Render the message, plus the suggestion as a
+        // rustc-style `= help:` line. This is a *narrow* scope:
+        // only the suggestion, because that's the field that
+        // completes the error's meaning for a human reader. The
+        // other structured fields (`severity`, `error_code`,
+        // `label`, `secondary`, `notes`) belong to a planned
+        // rustc-style renderer (Phase 3), which will own the full
+        // multi-line format (`error[E####]:` prefix, `--> file:line:col`
+        // location, and `= help:` suggestion) including source-line carets.
+        //
+        // Until that renderer exists, this Display is the simple
+        // API for tests and library consumers who want
+        // "message + suggestion" as a single string. The CLI
+        // continues to use its own wrapper (adding the
+        // `error[E####]:` prefix) on top of this.
+        //
+        // Additive change: every existing test that does
+        // `format!("{}", err).contains(...)` on the message part
+        // is unaffected; every test that accesses `.suggestion`
+        // directly is unaffected.
+        write!(f, "{}", self.message)?;
+        if let Some(s) = &self.suggestion {
+            write!(f, "\n  = help: {}", s)?;
+        }
+        Ok(())
     }
 }
 
@@ -331,6 +355,45 @@ mod tests {
         assert_eq!(e.secondary.len(), 1);
         assert_eq!(e.secondary[0].1, "borrowed here");
         assert_eq!(e.notes, vec!["see ADR 0005"]);
+    }
+
+    #[test]
+    fn g31_display_includes_suggestion() {
+        // G31 — Display used to render only the message. The
+        // suggestion field was dropped, forcing tests to access
+        // `.suggestion` directly. This test asserts the suggestion
+        // is present in the Display output.
+        let err = CompileError::simple("base message", 0, 0, "", ErrorCode::E0002)
+            .with_suggestion("try this instead");
+        let rendered = format!("{}", err);
+        assert!(
+            rendered.contains("base message"),
+            "Display must include the message. Got: {:?}",
+            rendered
+        );
+        assert!(
+            rendered.contains("try this instead"),
+            "G31 regression: Display must include the suggestion. Got: {:?}",
+            rendered
+        );
+        assert!(
+            rendered.contains("= help:"),
+            "G31: suggestion should be rendered with `= help:` prefix. Got: {:?}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn g31_display_without_suggestion_renders_only_message() {
+        // No suggestion → no trailing help line.
+        let err = CompileError::simple("plain error", 0, 0, "", ErrorCode::E0002);
+        let rendered = format!("{}", err);
+        assert_eq!(rendered, "plain error");
+        assert!(
+            !rendered.contains("= help:"),
+            "Display must not add `= help:` when there's no suggestion. Got: {:?}",
+            rendered
+        );
     }
 
     #[test]

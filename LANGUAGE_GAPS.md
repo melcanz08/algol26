@@ -1190,3 +1190,128 @@ was working, the messaging wasn't.
   mistake and points at the lint script
 - `/tmp/g30_probe_good.gol` — the correct version still parses
   cleanly after `import "json.gol"` resolves `Json`
+
+
+---
+
+## G31 — `CompileError::Display` dropped the suggestion
+
+**Symptom.** `format!("{}", err)` rendered only `err.message`; the
+`suggestion` field was silently lost. Tests that wanted to assert
+the suggestion was present had to access `.suggestion` directly
+rather than the Display output.
+
+**Root cause.** `impl Display for CompileError` was:
+
+    write!(f, "{}", self.message)
+
+No other field rendered. The CLI wrapped this with its own
+`error[E####]: {msg}` prefix and rendered suggestions separately,
+so the *user-facing* output was correct. The *programmatic* API
+(Display) was not.
+
+**Fix (narrow scope).** Display now renders message plus a
+`= help: <suggestion>` line:
+
+    write!(f, "{}", self.message)?;
+    if let Some(s) = &self.suggestion {
+        write!(f, "\n  = help: {}", s)?;
+    }
+    Ok(())
+
+**Why narrow.** The other structured fields (`severity`,
+`error_code`, `label`, `secondary`, `notes`, `file`, `line`,
+`column`) belong to a planned rustc-style renderer, Phase 3 work.
+Rendering them in `Display` here would preempt that renderer's
+design and produce an inconsistent format. The comment in the
+`CompileError` struct says explicitly: *"Consumed by the
+rustc-style renderer (Phase 3)."*
+
+Rendering the suggestion is different: the suggestion is a single
+sentence that completes the error's meaning for a human reader.
+It's not structural context — it's the "what to do" that every
+diagnostic in the CLI already shows. Making `Display` include it
+is the minimum needed to make Display output match what a user
+would see.
+
+**Additive.** No existing test broke. `msg.contains(...)` on the
+message part still works; `err.suggestion.as_deref() == Some(...)`
+field access still works; only tests doing exact-equality on
+`format!("{}", err)` would be affected (there were none).
+
+**Regression coverage.**
+- `src/common/diagnostics.rs::tests::g31_display_includes_suggestion`
+  — asserts message + suggestion + `= help:` prefix all appear.
+- `src/common/diagnostics.rs::tests::g31_display_without_suggestion_renders_only_message`
+  — asserts no `= help:` line when there's no suggestion.
+
+**Discovered by** G30's test — the G30 test originally asserted
+`format!("{}", err).contains("angle-bracketed")` (the suggestion
+text), which failed because Display dropped the suggestion. G30's
+test was rewritten to access fields directly; G31 fixes the
+underlying issue that motivated the original assertion style.
+
+**Status:** Fixed. See G32 for the deferred renderer.
+
+---
+
+## G32 — Unified rustc-style diagnostic renderer (deferred)
+
+**Symptom.** Two rendering paths coexist:
+
+1. `CompileError::Display` — message + suggestion (after G31). Used
+   by tests and library consumers.
+2. The CLI's own renderer — prepends `error[E####]:`, renders
+   `--> file:line:col`, includes the source line and caret, and
+   prints the suggestion separately.
+
+The two produce different output for the same error. `CompileError`
+also carries structured fields (`severity`, `label`, `secondary`,
+`notes`) that neither path consumes — they exist for the planned
+Phase 3 renderer.
+
+**Not a bug.** The two paths are consistent in *user-visible*
+behavior today: `algol26 check` / `run` show the full format;
+`format!("{}", err)` shows the plain message + suggestion. A test
+author chooses the appropriate path for their purpose.
+
+**Deferred work.** A `rustc-style renderer` would:
+
+- Consume every structured field on `CompileError`.
+- Render `severity` as `error:` / `warning:` / `note:`.
+- Render `error_code` as `error[E####]:`.
+- Render `file:line:col` with the source line and caret.
+- Render `label` as the primary span label.
+- Render each `secondary` span as a supplementary `--> file:line:col`
+  with its own source line.
+- Render `notes` as `= note: ...`.
+- Render `suggestion` as `= help: ...`.
+
+The output format matches Rust's compiler diagnostics. Once the
+renderer exists, `Display` for `CompileError` should delegate to
+it, and the CLI should also delegate rather than rolling its own.
+
+**Why deferred.** The source-line-and-caret rendering requires
+careful handling of:
+- Tab expansion (how many columns does a tab occupy?)
+- Multi-byte UTF-8 codepoints (a 4-byte codepoint occupies one
+  "column" for the caret, not four).
+- Column offsets from `Span.start_column` (which may not be
+  1-based in all cases).
+- Consistent behavior between `--emit llvm`, `--interpreter`, and
+  the standard `check` output.
+
+Each of those is a small ADR. Rushing the renderer to close G31
+would leave the format inconsistent with the CLI's current output
+and lock in decisions before they're considered.
+
+**Phase 3 scope.** Tracked here so the gap log records the deferral
+and the fields on `CompileError` aren't mistaken for dead code.
+The Phase 3 session that adds the renderer should:
+- Write an ADR for the renderer format.
+- Move the CLI's error formatting into the renderer.
+- Update `Display` to delegate.
+- Add tests for each structured-field rendering.
+- Add tests for edge cases (tabs, UTF-8, missing location).
+
+**Status:** Deferred to Phase 3. Not blocking any current work.

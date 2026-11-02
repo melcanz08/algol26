@@ -59,7 +59,7 @@ fn verify_pass_agrees_with_direct_call_on_conformance_valid() {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
-        let mut compiler = Compiler;
+        let mut compiler = Compiler::new();
         let sem = match compiler.build_semantic_ir_for(&source, &filename) {
             Ok(s) => s,
             // Frontend rejections are not what this test is about; the
@@ -119,12 +119,12 @@ fn optimize_pass_produces_identical_ir_to_direct_call() {
         // Build IR twice. `build_semantic_ir_for` is deterministic
         // (see backends_tests::test_semantic_ir_is_deterministic),
         // so the two inputs are byte-identical.
-        let mut compiler = Compiler;
+        let mut compiler = Compiler::new();
         let mut ir_a = match compiler.build_semantic_ir_for(&source, &filename) {
             Ok(s) => s,
             Err(_) => continue,
         };
-        let mut compiler = Compiler;
+        let mut compiler = Compiler::new();
         let ir_b = compiler.build_semantic_ir_for(&source, &filename).unwrap();
 
         // Path A: direct.
@@ -180,7 +180,7 @@ fn build_ir_pass_produces_identical_ir_to_direct_call() {
 
         // Build the typed AST once via the existing helper — this is
         // the same input both paths consume.
-        let mut compiler = Compiler;
+        let mut compiler = Compiler::new();
         let typed = match compiler.type_check_source_for(&source, &filename) {
             Ok(t) => t,
             Err(_) => continue,
@@ -326,13 +326,14 @@ fn type_check_pass_agrees_with_direct_call() {
 
         // Run the frontend *once*. Both paths below consume this same
         // `parsed` value.
-        let mut compiler = Compiler;
+        let mut compiler = Compiler::new();
         let parsed = match compiler.parse_source_for(&source, &filename) {
             Ok(p) => p,
             Err(_) => continue,
         };
 
         // Path A: the free function directly.
+        let warning_config = algol26::common::diagnostics::WarningConfig::new();
         let direct = match algol26::compiler::type_check_program(
             &parsed.functions,
             &parsed.traits,
@@ -342,6 +343,7 @@ fn type_check_pass_agrees_with_direct_call() {
             &parsed.distincts,
             &parsed.enums,
             &parsed.subranges,
+            &warning_config,
         ) {
             Ok(t) => t,
             Err(_) => continue,
@@ -390,7 +392,7 @@ fn type_table_complete_passes_on_conformance_suite() {
         let source = std::fs::read_to_string(&path).unwrap();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
 
-        let mut compiler = Compiler;
+        let mut compiler = Compiler::new();
         let typed = match compiler.type_check_source_for(&source, &filename) {
             Ok(t) => t,
             Err(_) => continue,

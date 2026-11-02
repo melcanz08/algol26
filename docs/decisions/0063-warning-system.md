@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed (2026-11-02). Implementation tracked in patches 1–10
-(below). Will be updated to `Accepted` when all ten land, with any
-divergences from this plan recorded as implementation notes.
+Accepted (2026-11-02). Implemented across 10 patches (see
+§Implementation notes below). All divergences from the proposed
+plan are recorded there.
 
 ## Context
 
@@ -359,6 +359,56 @@ small group of commits) referencing this ADR.
   suppression becomes burdensome and source-level becomes
   necessary. That's the trigger to revisit.
 
+## Implementation notes
+
+Ten patches landed (with the planned ones adjusted for
+implementation realities):
+
+- Patch 1 (`cf99d06`) — `CompileWarning` type.
+- Patch 2 (`5f0dd64`) — `WarningConfig` type.
+- Patch 3 (`ff563d8`) — `SemanticAnalyzer.warnings` +
+  `warning_config` field + `take_warnings()` + `with_warning_config`
+  builder.
+- Patch 4 (`b8079fc`) — `TypedProgram.warnings` + populate in
+  `type_check_program`.
+- Patch 5+9 merged (`db9118c`) — analyzer emits W0001 with correct
+  span. Span selection requires saving the match's span at the
+  *start* of the `Match` arm (before nested `analyze_expr` calls
+  overwrite `self.current_span`). Patch 5 alone would emit with
+  the wrong span; patch 9 alone would be dead code. Merged.
+- Patch 6 (`80cb872`) — `ScheduleOutcome.warnings` +
+  `TypeCheckPass` drains `TypedProgram.warnings` into
+  `ctx.warnings` + scheduler drains `ctx.warnings` into
+  `ScheduleOutcome.warnings`.
+- Patch 7 (`c2f4c4e`) — `CompilerConfig.warning_config` threaded
+  to `type_check_program`.
+- Patch 7.5 (`f70a452`, new) — `CompileError.code_override:
+  Option<String>`. Not in the original plan. Necessary to render
+  `error[W0001]:` per §Decision 7 without extending the
+  `ErrorCode` enum (which is `E0001..E0013` today). The renderer
+  checks `code_override` first, falls back to `error_code.as_str()`.
+- Patch 8 (`cbb45f2`) — driver renders warnings via
+  `render_one_with_source` with severity and code_override;
+  CLI flags `--no-warn=CODE[,CODE]` and `--deny-warnings`.
+  `WarningConfig.is_denied` gained `"*"` wildcard support for
+  `--deny-warnings` (deny all without knowing the catalog).
+
+Deferred from §Decision as originally proposed (unchanged):
+- Source-level suppression (`#[allow(...)]`-style).
+- Cross-pass span ordering (warnings grouped by pass).
+- Warning code categories (`W1xxx`/`W2xxx`).
+- JSON output.
+
+Verification:
+- `cargo test --lib`: 494 tests pass (including 14 new
+  warning-system tests across patches 1–8).
+- `cargo test --test integration_tests warning_system`: 7 tests
+  pass (end-to-end).
+- Manual probes confirm all three CLI behaviors:
+  default renders `warning[W0001]` and exits 0;
+  `--no-warn=W0001` suppresses the warning and exits 0;
+  `--deny-warnings` renders `error[W0001]` and exits 1.
+
 ## References
 
 - `ADR 0018` — canonical pipeline (the pass infrastructure this
@@ -377,18 +427,18 @@ small group of commits) referencing this ADR.
 
 ## Implementation tracking
 
-As patches land, this section is updated with commit hashes.
+All patches landed 2026-11-02:
 
-- Patch 1: (pending)
-- Patch 2: (pending)
-- Patch 3: (pending)
-- Patch 4: (pending)
-- Patch 5: (pending)
-- Patch 6: (pending)
-- Patch 7: (pending)
-- Patch 8: (pending)
-- Patch 9: (pending)
-- Patch 10: (pending)
+- Patch 1: `cf99d06`
+- Patch 2: `5f0dd64`
+- Patch 3: `ff563d8`
+- Patch 4: `b8079fc`
+- Patch 5+9 (merged): `db9118c`
+- Patch 6: `80cb872`
+- Patch 7: `c2f4c4e`
+- Patch 7.5 (new): `f70a452`
+- Patch 8: `cbb45f2`
+- Patch 10: (this commit)
 
 ## Backfill note
 

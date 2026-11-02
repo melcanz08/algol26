@@ -381,10 +381,12 @@ impl SemanticAnalyzer {
     ///
     /// Typical driver usage:
     ///
-    ///     let mut analyzer = SemanticAnalyzer::new()
-    ///         .with_warning_config(driver_warning_config);
-    ///     analyzer.analyze_with_spans(...)?;
-    ///     let warnings = analyzer.take_warnings();
+    /// ```text
+    /// let mut analyzer = SemanticAnalyzer::new()
+    ///     .with_warning_config(driver_warning_config);
+    /// analyzer.analyze_with_spans(...)?;
+    /// let warnings = analyzer.take_warnings();
+    /// ```
     pub fn with_warning_config(mut self, config: WarningConfig) -> Self {
         self.warning_config = config;
         self

@@ -518,9 +518,12 @@ impl WarningConfig {
     }
 
     /// Is the given code denied (promoted to error)?
-    /// Returns `true` iff the code was passed to `with_denied`.
+    /// Returns `true` iff the code was passed to `with_denied`,
+    /// or if `"*"` is in the denied set (the `--deny-warnings`
+    /// flag sets this to deny all warnings without knowing their
+    /// codes in advance).
     pub fn is_denied(&self, code: &str) -> bool {
-        self.denied.contains(code)
+        self.denied.contains(code) || self.denied.contains("*")
     }
 }
 

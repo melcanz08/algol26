@@ -1315,3 +1315,89 @@ The Phase 3 session that adds the renderer should:
 - Add tests for edge cases (tabs, UTF-8, missing location).
 
 **Status:** Deferred to Phase 3. Not blocking any current work.
+
+
+### G29 — resolution: warning (W0001) shipped (2026-11-02)
+
+**Warning emitted, configurable, deniable.** The behavior fix
+(mixed-Void match yields Void) shipped in `ad08a53`. The warning
+that surfaces the discard — which was deferred because it required
+building warning infrastructure — is now complete (ADR 0063).
+
+**What works end-to-end:**
+
+- `algol26 check prog.gol` renders
+  `warning[W0001]: non-Void arm value discarded in mixed-Void match`
+  with a span at the whole match expression, and a suggestion.
+  Exit 0; compilation continues.
+- `algol26 check --no-warn=W0001 prog.gol` suppresses the warning.
+  Exit 0.
+- `algol26 check --deny-warnings prog.gol` promotes the warning
+  to `error[W0001]: ...` and exits 1. `--deny-warnings` uses a
+  `"*"` wildcard in `WarningConfig.denied` (deny all codes
+  without knowing the catalog).
+
+**Infrastructure delivered (ADR 0063):**
+
+- `CompileWarning` type (distinct from `CompileError`; ADR 0063
+  §Decision 1).
+- `WarningConfig` with `is_enabled`, `is_denied`, `"*"` wildcard.
+- `SemanticAnalyzer.warnings` + `warning_config` fields +
+  `take_warnings()` + `with_warning_config` builder.
+- `TypedProgram.warnings` (structural truth for the program).
+- `CompilerContext.warnings` (pass-to-scheduler channel).
+- `ScheduleOutcome.warnings` (aggregated across passes).
+- `CompilerConfig.warning_config` (threaded to the analyzer and
+  the denial check).
+- `CompileError.code_override: Option<String>` — renders
+  `error[W0001]:` / `warning[W0001]:` instead of `error[E0002]:`.
+  Added in patch 7.5 as the mechanism for the ADR §Decision 7
+  rendering promise.
+- CLI flags `--no-warn=CODE[,CODE]` and `--deny-warnings`.
+- Driver renders warnings via `render_one_with_source`, with
+  correct severity and code.
+
+**Deferred from ADR 0063 (unchanged):**
+
+- Source-level suppression (`#[allow(...)]`). Requires attribute
+  syntax; separate feature.
+- Cross-pass span ordering (currently warnings grouped by pass
+  completion, not interleaved by span).
+- Warning code categories (`W1xxx` vs `W2xxx`). Sequential codes
+  until the catalog grows.
+- JSON output for CI/IDE.
+
+**Divergences from ADR 0063 as originally proposed (all
+documented in ADR 0063 §Implementation notes):**
+
+- **Patches 5 and 9 merged.** Span selection for W0001 requires
+  saving the match's span at the *start* of the `Match` arm (not
+  `self.current_span` at emission time, which by then points at
+  the last arm's last sub-expression). Patch 5 alone would emit
+  with the wrong span; patch 9 alone would be dead code. Merged
+  into one patch, `db9118c`.
+- **Patch 7 split.** Threading `warning_config` to the analyzer
+  (patch 7, `c2f4c4e`) is distinct from the driver's denial
+  check + CLI wiring (patch 8, `cbb45f2`). Splitting kept each
+  patch testable in isolation.
+- **New patch 7.5.** `CompileError.code_override` was not in the
+  original ten-patch plan. Adding it made §Decision 7's
+  `error[W0001]:` rendering promise implementable without
+  extending the `ErrorCode` enum. `f70a452`.
+- **`WarningConfig.is_denied` gained `"*"` wildcard.** `--deny-warnings`
+  needs to deny *every* warning without knowing the catalog in
+  advance. One-line addition to `is_denied`.
+
+**Regression coverage:** `tests/integration/warning_system.rs`
+(7 tests):
+- `warning_w0001_fires_by_default`
+- `warning_w0001_suppressed_by_no_warn_config`
+- `warning_w0001_denied_fails_compilation`
+- `warning_config_wildcard_denies_all`
+- `warning_config_specific_denial_leaves_others_enabled`
+- `no_warning_for_non_mixed_void_match`
+- `no_warning_for_all_value_match`
+
+**Status:** Complete. G29 has both behavior (ad08a53) and warning
+(this entry). ADR 0063's proposed design is implemented; divergences
+are recorded in the ADR's implementation notes.

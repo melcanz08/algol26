@@ -431,6 +431,64 @@ impl fmt::Display for CompileWarning {
     }
 }
 
+/// Configuration for which warnings are enabled and which are
+/// promoted to errors. See ADR 0063 §Decision 6 (config-level
+/// suppression in v1) and §Decision 7 (--deny-warnings).
+///
+/// Codes are strings like `"W0001"`. The CLI translates
+/// `--no-warn=W0001,W0002` into `WarningConfig::with_disabled(&["W0001", "W0002"])`
+/// and `--deny-warnings` into `WarningConfig::with_denied(&["W0001", ...])`
+/// (or into a wildcard-denied config for "all warnings are errors").
+///
+/// Source-level suppression (`#[allow(...)]`) is deferred to a
+/// future ADR; the `WarningConfig` shape supports adding it later
+/// without breaking the current API.
+#[derive(Debug, Clone, Default)]
+pub struct WarningConfig {
+    /// Codes that are explicitly disabled. A code in this set does
+    /// not fire.
+    disabled: std::collections::HashSet<String>,
+    /// Codes that are promoted to errors. A code in this set that
+    /// fires aborts compilation (after the pipeline completes,
+    /// rendered identically to a real error but with the `W` prefix).
+    denied: std::collections::HashSet<String>,
+}
+
+impl WarningConfig {
+    /// Construct a config with all warnings enabled and none denied.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Disable the given warning codes.
+    pub fn with_disabled(mut self, codes: &[&str]) -> Self {
+        for code in codes {
+            self.disabled.insert((*code).to_string());
+        }
+        self
+    }
+
+    /// Deny the given warning codes (promote to errors).
+    pub fn with_denied(mut self, codes: &[&str]) -> Self {
+        for code in codes {
+            self.denied.insert((*code).to_string());
+        }
+        self
+    }
+
+    /// Is the given code enabled (not disabled)?
+    /// Returns `true` unless the code was passed to `with_disabled`.
+    pub fn is_enabled(&self, code: &str) -> bool {
+        !self.disabled.contains(code)
+    }
+
+    /// Is the given code denied (promoted to error)?
+    /// Returns `true` iff the code was passed to `with_denied`.
+    pub fn is_denied(&self, code: &str) -> bool {
+        self.denied.contains(code)
+    }
+}
+
 pub type Result<T> = std::result::Result<T, CompileError>;
 
 impl From<String> for CompileError {
@@ -549,6 +607,44 @@ mod tests {
     fn compile_warning_display_without_extras_renders_only_message() {
         let w = CompileWarning::at(Span::point(1, 1), "plain", "W0001");
         assert_eq!(format!("{}", w), "plain");
+    }
+
+    #[test]
+    fn warning_config_default_enables_everything() {
+        let cfg = WarningConfig::new();
+        assert!(cfg.is_enabled("W0001"));
+        assert!(cfg.is_enabled("W9999")); // any code
+        assert!(!cfg.is_denied("W0001"));
+    }
+
+    #[test]
+    fn warning_config_disabled_codes_are_not_enabled() {
+        let cfg = WarningConfig::new().with_disabled(&["W0001", "W0002"]);
+        assert!(!cfg.is_enabled("W0001"));
+        assert!(!cfg.is_enabled("W0002"));
+        assert!(cfg.is_enabled("W0003"));
+    }
+
+    #[test]
+    fn warning_config_denied_codes_are_denied() {
+        let cfg = WarningConfig::new().with_denied(&["W0001"]);
+        assert!(cfg.is_denied("W0001"));
+        assert!(!cfg.is_denied("W0002"));
+    }
+
+    #[test]
+    fn warning_config_disable_and_deny_are_independent() {
+        // A code can be both disabled and denied in the same
+        // config — the semantics are "disabled wins" (if disabled,
+        // it never fires, so denying it is moot). This test just
+        // asserts the two sets are tracked independently so a
+        // future change that requires them to be mutually exclusive
+        // is a deliberate decision, not an accident.
+        let cfg = WarningConfig::new()
+            .with_disabled(&["W0001"])
+            .with_denied(&["W0001"]);
+        assert!(!cfg.is_enabled("W0001"));
+        assert!(cfg.is_denied("W0001"));
     }
 
     #[test]

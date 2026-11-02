@@ -1017,3 +1017,49 @@ a design rationale (this section). The task was scoped as a split
 — behavior now, warning infrastructure later — because shipping
 the warning requires its own subsystem, not a small extension of
 the analyzer.
+
+
+#### G27B — audit (2026-11-02)
+
+Searched `src/backends/interpreter/eval.rs` and
+`src/backends/interpreter/mod.rs` for siblings of the
+`returned no value` mask. The mask shape is: an error path that
+constructs a new message instead of propagating the original
+error. Every candidate was inspected:
+
+**`eval.rs`**
+- L1410 (`File.read`) — constructs `format!("File.read: cannot read
+  '{}': {}", path, e)`. **Includes** the original cause. Not a mask.
+- L1428 (`File.write`) — same shape. Not a mask.
+- L820 (`integer division by zero`), L947/L962/L980/L999 (builtin
+  arity errors), L1250/L1263/L1282 (`.unwrap_or("none")` in error
+  argument formatting) — all leaves, not masks.
+- L78 (`GLOBAL_FRAME` fallback), L502/L886 (`unwrap_or(0)` for
+  `checked_shl`) — not error paths.
+
+**`mod.rs`**
+- Every `Err(EvalError::Runtime(...))` is a leaf from an
+  instruction handler (division, bounds check, infinite loop,
+  unsupported op). No error is discarded. Not a mask.
+
+**`call_function_with_values`** — same fix as `eval_call`
+(ad08a53). Both now check `result.is_err()` before checking
+`self.return_value.take()`.
+
+**Conclusion: one mask (G27B), one fix, zero siblings.**
+
+The audit was worth doing because two things were true:
+1. The mask had existed for a long time before being noticed.
+   If it existed, siblings might also.
+2. The mask's shape — "error-checking order" — is easy to get
+   wrong in new code. Ruling out siblings gives confidence for
+   future work in this file.
+
+Regression coverage:
+- `tests/integration/interpreter_error_propagation.rs` —
+  three tests exercising the invariant at depth 1, 2, and 3, with
+  both division-by-zero and builtin-leaf errors. Each test asserts
+  the `returned no value` mask string is absent.
+
+A negative audit result is a result. Recorded so a future reader
+knows the search was done, what was searched, and what was found.

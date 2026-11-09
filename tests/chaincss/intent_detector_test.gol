@@ -1,0 +1,209 @@
+// intent_detector_test.gol — unit tests for the intent-detector port.
+//
+// Not a parity test — this exercises the pure functions directly.
+// The corpus (.chain.ts files) does not carry intent markers,
+// because those are resolved by the fluent builder *before* the
+// .chain.ts file is written. See LANGUAGE_GAPS.md G44 for the
+// deferral note.
+//
+// Run with:
+//   cd ~/dev/algol26
+//   ./target/release/algol26 run tests/chaincss/intent_detector_test.gol --interpreter
+
+import "../../src/chaincss/json.gol"
+import "../../src/chaincss/ir_types.gol"
+import "../../src/chaincss/pipeline_types.gol"
+import "../../src/chaincss/intent_data.gol"
+import "../../src/chaincss/intent_detector.gol"
+
+proc check_eq_int(actual: Int, expected: Int, label: String) -> Bool
+    if actual = expected then {
+        print("PASS " + label)
+        return true
+    }
+    print("FAIL " + label + ": expected " + Int.to_string(expected) + ", got " + Int.to_string(actual))
+    return false
+
+proc check_some_string(actual: Option[String], expected: String, label: String) -> Bool
+    match actual {
+        case Some(s) then {
+            if s = expected then {
+                print("PASS " + label)
+                return true
+            }
+            print("FAIL " + label + ": expected \"" + expected + "\", got \"" + s + "\"")
+            return false
+        }
+        case None then {
+            print("FAIL " + label + ": expected Some(\"" + expected + "\"), got None")
+            return false
+        }
+    }
+
+proc main() -> Void
+    var pass := 0
+    var fail := 0
+
+    // ── Levenshtein parity ───────────────────────────────────────
+    if check_eq_int(levenshtein("pading", "padding", 4), 1, "levenshtein pading/padding") then { pass := pass + 1 } else { fail := fail + 1 }
+    if check_eq_int(levenshtein("pading", "padding", 0), 1, "levenshtein maxDist=0 still finds 1") then { pass := pass + 1 } else { fail := fail + 1 }
+    if check_eq_int(levenshtein("", "", 4), 0, "levenshtein empty/empty") then { pass := pass + 1 } else { fail := fail + 1 }
+    if check_eq_int(levenshtein("", "abc", 4), 3, "levenshtein empty/abc") then { pass := pass + 1 } else { fail := fail + 1 }
+    if check_eq_int(levenshtein("abc", "abc", 4), 0, "levenshtein identical") then { pass := pass + 1 } else { fail := fail + 1 }
+    if check_eq_int(levenshtein("kitten", "sitting", 4), 3, "levenshtein kitten/sitting") then { pass := pass + 1 } else { fail := fail + 1 }
+    if check_eq_int(levenshtein("abc", "xyz", 1), 2, "levenshtein early-exit maxDist+1") then { pass := pass + 1 } else { fail := fail + 1 }
+
+    // ── find_closest_property ────────────────────────────────────
+    val engine := new_intent_engine(
+        "/home/melcanz/dev/algol26/src/chaincss/data/intent_data.json",
+        "/home/melcanz/dev/algol26/src/chaincss/data/known_properties.json"
+    )
+    // Verify the data loaded
+    print("intent_data: semantic_intents=" + Int.to_string(engine.data.semantic_intents.length()) + ", known_properties=" + Int.to_string(engine.data.known_properties_ordered.length()))
+    // value_corrections is a Map. We can't directly get its length
+    // without converting to Json. Use a simple check: does it have
+    // the "display" key?
+    if check_some_string(find_closest_property(&engine, "pading"), "padding", "closest pading->padding") then { pass := pass + 1 } else { fail := fail + 1 }
+    if check_some_string(find_closest_property(&engine, "marign"), "margin", "closest marign->margin") then { pass := pass + 1 } else { fail := fail + 1 }
+
+    // ── detect_intent tests ──────────────────────────────────────
+    val flex_ctx := IntentContext {
+        property: Some("display"),
+        value: Some("flexbox"),
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+    match detect_intent(&engine, "flexbox", &flex_ctx) {
+        case Some(r) then {
+            if r.corrected = "flex" and r.intent = "flexbox-centering" then {
+                print("PASS detect_intent flexbox")
+                pass := pass + 1
+            } else {
+                print("FAIL detect_intent flexbox: corrected=" + r.corrected + " intent=" + r.intent)
+                fail := fail + 1
+            }
+        }
+        case None then {
+            print("FAIL detect_intent flexbox: returned None")
+            fail := fail + 1
+        }
+    }
+
+    val abs_ctx := IntentContext {
+        property: Some("position"),
+        value: Some("abs"),
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+    match detect_intent(&engine, "abs", &abs_ctx) {
+        case Some(r) then {
+            if r.corrected = "absolute" then {
+                print("PASS detect_intent abs")
+                pass := pass + 1
+            } else {
+                print("FAIL detect_intent abs: corrected=" + r.corrected)
+                fail := fail + 1
+            }
+        }
+        case None then {
+            print("FAIL detect_intent abs: returned None")
+            fail := fail + 1
+        }
+    }
+
+    val rounded_ctx := IntentContext {
+        property: Some("border-radius"),
+        value: Some("rounded"),
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+    match detect_intent(&engine, "rounded", &rounded_ctx) {
+        case Some(r) then {
+            if r.corrected = "9999px" then {
+                print("PASS detect_intent rounded")
+                pass := pass + 1
+            } else {
+                print("FAIL detect_intent rounded: corrected=" + r.corrected)
+                fail := fail + 1
+            }
+        }
+        case None then {
+            print("FAIL detect_intent rounded: returned None")
+            fail := fail + 1
+        }
+    }
+
+    // ── correct / validate tests ─────────────────────────────────
+    val ctx := IntentContext {
+        property: Some("display"),
+        value: Some("flexbox"),
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+
+    // correct: typo'd property.
+    match correct(&engine, "pading", "12", &ctx) {
+        case Some(r) then {
+            if r.corrected = "padding" and r.intent = "property-correction" then {
+                print("PASS correct pading->padding")
+                pass := pass + 1
+            } else {
+                print("FAIL correct pading->padding: corrected=" + r.corrected + " intent=" + r.intent)
+                fail := fail + 1
+            }
+        }
+        case None then {
+            print("FAIL correct pading->padding: None")
+            fail := fail + 1
+        }
+    }
+
+    // correct: value typo.
+    match correct(&engine, "display", "flexbox", &ctx) {
+        case Some(r) then {
+            if r.corrected = "flex" and r.intent = "flexbox-centering" then {
+                print("PASS correct display:flexbox->flex")
+                pass := pass + 1
+            } else {
+                print("FAIL correct display:flexbox->flex: corrected=" + r.corrected + " intent=" + r.intent)
+                fail := fail + 1
+            }
+        }
+        case None then {
+            print("FAIL correct display:flexbox->flex: None")
+            fail := fail + 1
+        }
+    }
+
+    // validate: unknown property.
+    val vr := validate(&engine, "pading", "12")
+    if not vr.valid then {
+        match vr.suggestion {
+            case Some(s) then {
+                if s = "padding" then {
+                    print("PASS validate pading")
+                    pass := pass + 1
+                } else {
+                    print("FAIL validate pading: suggestion=" + s)
+                    fail := fail + 1
+                }
+            }
+            case None then {
+                print("FAIL validate pading: no suggestion")
+                fail := fail + 1
+            }
+        }
+    } else {
+        print("FAIL validate pading: valid=true")
+        fail := fail + 1
+    }
+
+    // validate: known property, valid value.
+    val vr2 := validate(&engine, "display", "flex")
+    if vr2.valid then {
+        print("PASS validate display:flex")
+        pass := pass + 1
+    } else {
+        print("FAIL validate display:flex: valid=false")
+        fail := fail + 1
+    }
+
+    print("")
+    print("Summary: " + Int.to_string(pass) + " pass, " + Int.to_string(fail) + " fail")
+

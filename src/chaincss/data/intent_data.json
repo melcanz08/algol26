@@ -1,0 +1,87 @@
+{
+  "semantic_intents": [
+    {
+      "pattern_id": "flexbox",
+      "description": "flexbox -> flex + centering"
+    },
+    {
+      "pattern_id": "abs",
+      "description": "abs -> absolute"
+    },
+    {
+      "pattern_id": "rel",
+      "description": "rel -> relative"
+    },
+    {
+      "pattern_id": "hidden",
+      "description": "invisible/hidden -> visibility: hidden or display: none"
+    },
+    {
+      "pattern_id": "full",
+      "description": "full -> 100%"
+    },
+    {
+      "pattern_id": "rounded",
+      "description": "rounded -> pill"
+    }
+  ],
+  "value_corrections": {
+    "display": [
+      {
+        "wrong": "flexbox",
+        "correct": "flex",
+        "confidence": 0.95
+      },
+      {
+        "wrong": "inline-flexbox",
+        "correct": "inline-flex",
+        "confidence": 0.95
+      }
+    ],
+    "position": [
+      {
+        "wrong": "abs",
+        "correct": "absolute",
+        "confidence": 0.9
+      },
+      {
+        "wrong": "rel",
+        "correct": "relative",
+        "confidence": 0.9
+      }
+    ],
+    "text-align": [
+      {
+        "wrong": "centered",
+        "correct": "center",
+        "confidence": 0.85
+      },
+      {
+        "wrong": "justified",
+        "correct": "justify",
+        "confidence": 0.85
+      }
+    ],
+    "overflow": [
+      {
+        "wrong": "scrollable",
+        "correct": "auto",
+        "confidence": 0.8
+      }
+    ],
+    "cursor": [
+      {
+        "wrong": "hand",
+        "correct": "pointer",
+        "confidence": 0.9
+      }
+    ],
+    "user-select": [
+      {
+        "wrong": "unselectable",
+        "correct": "none",
+        "confidence": 0.85
+      }
+    ]
+  }
+}

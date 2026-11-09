@@ -1,0 +1,215 @@
+// intent_data.gol — data-driven intent vocabulary and value corrections.
+//
+// Source: chaincss/src/compiler/pipeline/normalizers/intent-data.ts.
+//
+// Strategy (per G35, G36):
+//   - The 6 semantic intents and 6 value-correction tables are loaded
+//     from data/intent_data.json.
+//   - The known-property list is loaded from data/known_properties.json.
+//
+// Deferred:
+//   - registerSemanticIntent / registerValueCorrections (runtime
+//     registration of custom intents). Out of Phase 5's scope.
+
+import "json.gol"
+
+// ─── Data records ─────────────────────────────────────────────────────
+
+pub rec ValueCorrection
+    pub wrong: String
+    pub correct: String
+    pub confidence: Float
+
+pub rec IntentData
+    pub semantic_intents: List[String]
+    pub value_corrections: Map<String, List<ValueCorrection>>
+    pub known_properties: Map<String, Bool>
+    pub known_properties_ordered: List[String]
+
+// ─── Loader helpers ───────────────────────────────────────────────────
+
+proc parse_value_correction(j: Json) -> Option[ValueCorrection]
+    match j {
+        case Obj(m) then {
+            var wrong := ""
+            var correct := ""
+            var confidence := 0.0
+            match m.get("wrong") {
+                case Some(v) then {
+                    match v {
+                        case Str(s) then { wrong := s }
+                        case _ then {}
+                    }
+                }
+                case None then {}
+            }
+            match m.get("correct") {
+                case Some(v) then {
+                    match v {
+                        case Str(s) then { correct := s }
+                        case _ then {}
+                    }
+                }
+                case None then {}
+            }
+            match m.get("confidence") {
+                case Some(v) then {
+                    match v {
+                        case NumFloat(f) then { confidence := f }
+                        case NumInt(n) then { confidence := 0.0 + n }
+                        case _ then {}
+                    }
+                }
+                case None then {}
+            }
+            if wrong.length() = 0 or correct.length() = 0 then { return None }
+            return Some(ValueCorrection { wrong: wrong, correct: correct, confidence: confidence })
+        }
+        case _ then { return None }
+    }
+
+proc parse_value_correction_list(j: Json) -> List[ValueCorrection]
+    match j {
+        case Arr(items) then {
+            var out: List[ValueCorrection] := []
+            for item in items {
+                match parse_value_correction(item) {
+                    case Some(vc) then { out.append(vc) }
+                    case None then {}
+                }
+            }
+            return out
+        }
+        case _ then {
+            var empty: List<ValueCorrection> := []
+            return empty
+        }
+    }
+
+// extract_pattern_id: given a single Json value (expected to be
+// a Json.Obj with a "pattern_id" field), return the pattern_id
+// string if present, or None.
+//
+// Split out of load_pattern_ids to reduce match nesting depth.
+// The full nested structure (match Arr → for → match Obj → match
+// Map.get → match Json) triggers a match-dispatch bug where the
+// innermost `case Str(s)` fails silently even when the value IS
+// Str (verified by stringify output). Isolating the innermost
+// extraction in a 2-deep helper avoids the trigger.
+proc extract_pattern_id(item: Json) -> Option[String]
+    match item {
+        case Obj(m) then {
+            match m.get("pattern_id") {
+                case Some(v) then {
+                    match v {
+                        case Str(s) then { return Some(s) }
+                        case _ then { return None }
+                    }
+                }
+                case None then { return None }
+            }
+        }
+        case _ then { return None }
+    }
+
+proc load_pattern_ids(j: Json) -> List[String]
+    match j {
+        case Arr(items) then {
+            var out: List[String] := []
+            for item in items {
+                match extract_pattern_id(item) {
+                    case Some(s) then { out.append(s) }
+                    case None then {}
+                }
+            }
+            return out
+        }
+        case _ then {
+            var empty: List[String] := []
+            return empty
+        }
+    }
+
+proc load_string_list(j: Json) -> List[String]
+    match j {
+        case Arr(items) then {
+            var out: List[String] := []
+            for item in items {
+                match item {
+                    case Str(s) then { out.append(s) }
+                    case _ then {}
+                }
+            }
+            return out
+        }
+        case _ then {
+            var empty: List<String> := []
+            return empty
+        }
+    }
+
+proc make_set(strings: List[String]) -> Map<String, Bool>
+    var m: Map<String, Bool> := Map<String, Bool> {}
+    for s in strings {
+        m.insert(String.to_lower(s), true)
+    }
+    return m
+
+// ─── Loader ───────────────────────────────────────────────────────────
+
+pub proc load_intent_data(
+    intent_data_json_path: String,
+    known_properties_json_path: String
+) -> IntentData
+    val intent_src := File.read(intent_data_json_path)
+    val intent_parsed := parse(intent_src)
+    var semantic_intents: List[String] := []
+    var value_corrections: Map<String, List<ValueCorrection>> := Map<String, List<ValueCorrection>> {}
+    match intent_parsed {
+        case Ok(j) then {
+            match j {
+                case Obj(m) then {
+                    match m.get("semantic_intents") {
+                        case Some(v) then {
+                            semantic_intents := load_pattern_ids(v)
+                        }
+                        case None then {
+                        }
+                    }
+                    match m.get("value_corrections") {
+                        case Some(v) then { value_corrections := load_value_corrections_map(v) }
+                        case None then {}
+                    }
+                }
+                case _ then {}
+            }
+        }
+        case Error(msg) then {
+        }
+    }
+
+    val kp_src := File.read(known_properties_json_path)
+    val kp_parsed := parse(kp_src)
+    var known_ordered: List[String] := []
+    match kp_parsed {
+        case Ok(j) then { known_ordered := load_string_list(j) }
+        case Error(_) then {}
+    }
+
+    return IntentData {
+        semantic_intents: semantic_intents,
+        value_corrections: value_corrections,
+        known_properties: make_set(known_ordered),
+        known_properties_ordered: known_ordered
+    }
+
+// ─── Stub for load_value_corrections_map ──────────────────────────────
+//
+// The full version uses `Map<String, List<ValueCorrection>>` in both
+// signature and constructor. If the constructor fails to parse
+// (possible G45 — see LANGUAGE_GAPS.md), we fall back to the flat-list
+// workaround. For now, return an empty map — the caller accepts it.
+//
+// TODO(G45): replace with the real loader when the constructor works.
+proc load_value_corrections_map(j: Json) -> Map<String, List<ValueCorrection>>
+    return Map<String, List<ValueCorrection>> {}

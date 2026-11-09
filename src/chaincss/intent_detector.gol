@@ -1,0 +1,553 @@
+// intent_detector.gol — part 1 of the intent-detector port.
+//
+// Source: chaincss/src/compiler/pipeline/normalizers/intent-detector.ts
+// and the pure helpers from intent-data.ts.
+//
+// This file ports the *engine state* and *pure functions*:
+//   - IntentEngine — holds the loaded IntentData, a correction cache,
+//     and the set of custom intent keys (registered by callers).
+//   - levenshtein — two-row DP with the TS early-exit behavior.
+//   - find_closest_property — iterates the ordered known-property
+//     list with first-match tie-breaking.
+//
+// Deferred to parts 2 and 3:
+//   - detect_intent (6 pattern handlers) — part 2
+//   - correct / validate / cache / register_custom_keys — part 3
+//
+// G38 pattern: engine state is a record, passed as `&mut IntentEngine`
+// by mutation methods (matching DiagnosticReporter in diagnostics.gol).
+// No module-level mutable state.
+
+import "json.gol"
+import "ir_types.gol"
+import "pipeline_types.gol"
+import "intent_data.gol"
+import "parser.gol"
+
+// ─── Engine state ─────────────────────────────────────────────────────
+
+pub rec IntentEngine
+    pub data: IntentData
+    // G46 workaround: custom_keys as List<String>, not Map<String, Bool>.
+    // A record field with Map<_, Bool> corrupts sibling functions'
+    // type tables (see LANGUAGE_GAPS.md G46). Revert to Map<String, Bool>
+    // when the compiler bug is fixed.
+    pub custom_keys: List<String>
+    pub cache: Map<String, Json>
+    pub next_counter: Int
+
+
+// ─── Constructor ──────────────────────────────────────────────────────
+
+pub proc new_intent_engine(
+    intent_data_json_path: String,
+    known_properties_json_path: String
+) -> IntentEngine
+    val data := load_intent_data(intent_data_json_path, known_properties_json_path)
+    var empty_keys: List<String> := []
+    return IntentEngine {
+        data: data,
+        custom_keys: empty_keys,
+        cache: Map<String, Json> {},
+        next_counter: 0
+    }
+
+// ─── Levenshtein (two-row DP, TS-exact) ───────────────────────────────
+//
+// Mirrors intent-data.ts's levenshtein(a, b, maxDist):
+//   - Early length-difference rejection: |al - bl| > maxDist -> maxDist+1
+//   - Two-row DP, not full matrix
+//   - Early-exit: if min cost in a row > maxDist -> maxDist+1
+//   - Final return: prev[bl]
+//
+// Character indexing uses String.to_chars (materialized once, outside
+// the loops) — NOT String.charAt, which would re-materialize the
+// char list per iteration.
+
+pub proc levenshtein(a: String, b: String, max_dist: Int) -> Int
+    // G46 workaround: avoid Stmt::ArrayAssign entirely. `cur[idx] := v`
+    // triggers a type-table bug (see LANGUAGE_GAPS.md G46) — the
+    // ArrayAssign analyzer doesn't record the array expression's type,
+    // so the IR builder falls back to a stale type. The `append`-based
+    // form below uses fresh rows per outer iteration, so no
+    // literal-index assignment is needed. Same algorithm, different
+    // allocation pattern.
+    val ac := String.to_chars(a)
+    val bc := String.to_chars(b)
+    val al := ac.length()
+    val bl := bc.length()
+    var diff := bl - al
+    if al > bl then { diff := al - bl }
+    if diff > max_dist then { return max_dist + 1 }
+    if al = 0 then { return bl }
+    if bl = 0 then { return al }
+
+    // Initialise the "previous row" — the base case of the DP.
+    var prev: List[Int] := []
+    var j := 0
+    while j <= bl {
+        prev.append(j)
+        j := j + 1
+    }
+
+    var i := 1
+    while i <= al {
+        // Fresh row per outer iteration. First element is i.
+        var cur: List[Int] := []
+        cur.append(i)
+        var min_in_row := i
+        val ca := Char.to_int(ac[i - 1])
+        var jj := 1
+        while jj <= bl {
+            val cb := Char.to_int(bc[jj - 1])
+            var cost := 1
+            if ca = cb then { cost := 0 }
+            val pj := prev[jj] + 1
+            val cj := cur[jj - 1] + 1
+            val pjc := prev[jj - 1] + cost
+            var best := pj
+            if cj < best then { best := cj }
+            if pjc < best then { best := pjc }
+            cur.append(best)
+            if best < min_in_row then { min_in_row := best }
+            jj := jj + 1
+        }
+        if min_in_row > max_dist then { return max_dist + 1 }
+        prev := cur
+        i := i + 1
+    }
+    return prev[bl]
+
+pub proc find_closest_property(
+    engine: &IntentEngine,
+    input: String
+) -> Option[String]
+    val in_len := input.length()
+    val half_len := in_len / 2 + 1
+    var max_allowed := half_len
+    if half_len > 3 then { max_allowed := 3 }
+
+    var best: Option[String] := None
+    var min_dist := 999999
+
+    // Candidate list = known_properties_ordered + custom_keys.
+    // Custom keys (from fluent-builder registration, Phase 10) are
+    // rare; they go after the builtin list, matching TS order.
+    var candidates: List[String] := engine.data.known_properties_ordered
+    for k in engine.custom_keys {
+        candidates.append(k)
+    }
+
+    for candidate in candidates {
+        val cand_len := candidate.length()
+        var length_diff := in_len - cand_len
+        if cand_len > in_len then { length_diff := cand_len - in_len }
+        if length_diff <= max_allowed then {
+            val d := levenshtein(input, candidate, max_allowed)
+            if d < min_dist and d <= max_allowed then {
+                min_dist := d
+                best := Some(candidate)
+            }
+        }
+    }
+    return best
+
+// ─── register_custom_keys / invalidate_cache ─────────────────────────
+//
+// These are the only mutating operations on the engine in part 1.
+// correct / validate (part 3) call register_custom_keys and
+// invalidate_cache as needed.
+
+pub proc register_custom_keys(engine: &mut IntentEngine, keys: List[String]) -> Void
+    for k in keys {
+        engine.custom_keys.append(k)
+    }
+    engine.cache := Map<String, Json> {}
+
+pub proc invalidate_cache(engine: &mut IntentEngine) -> Void
+    engine.cache := Map<String, Json> {}
+
+// ─── Accessors for testing ───────────────────────────────────────────
+
+pub proc get_known_properties(engine: &IntentEngine) -> List[String]
+    var out: List[String] := []
+    for k in engine.data.known_properties_ordered {
+        out.append(k)
+    }
+    for k in engine.custom_keys {
+        out.append(k)
+    }
+    return out
+
+// ─── detect_intent + pattern handlers ────────────────────────────────
+//
+// Port of intent-data.ts's BUILTIN_SEMANTIC_INTENTS + detectIntent.
+// Each pattern is an anchored alternation (`/^(a|b|c)$/i`), which in
+// ALGOL26 is "lowercase the input, compare against a list of strings"
+// (see LANGUAGE_GAPS.md G35). The handler constructs the same
+// CorrectionResult that the TS version builds — original, property,
+// corrected, defaults, confidence, intent, explanation.
+
+proc build_correction(
+    original: String,
+    property: String,
+    corrected: String,
+    defaults: Map<String, Json>,
+    confidence: Float,
+    intent: String,
+    explanation: String
+) -> CorrectionResult
+    return CorrectionResult {
+        original: original,
+        property: property,
+        corrected: corrected,
+        defaults: Some(defaults),
+        confidence: confidence,
+        intent: intent,
+        explanation: explanation
+    }
+
+// handle_flexbox: `flexbox` -> display: flex + centering defaults.
+proc handle_flexbox(v: String, property: String) -> CorrectionResult
+    var defaults: Map<String, Json> := Map<String, Json> {}
+    defaults.insert("display", Json.Str("flex"))
+    defaults.insert("justifyContent", Json.Str("center"))
+    defaults.insert("alignItems", Json.Str("center"))
+    return build_correction(
+        v,
+        property,
+        "flex",
+        defaults,
+        0.95,
+        "flexbox-centering",
+        "\"flexbox\" mapped to display: flex with centering defaults."
+    )
+
+// handle_abs: `abs` / `absolutely` -> position: absolute.
+proc handle_abs(v: String, property: String) -> CorrectionResult
+    var defaults: Map<String, Json> := Map<String, Json> {}
+    defaults.insert("position", Json.Str("absolute"))
+    return build_correction(
+        v,
+        property,
+        "absolute",
+        defaults,
+        0.9,
+        "absolute-position",
+        "\"abs/absolutely\" -> position: absolute"
+    )
+
+// handle_rel: `rel` / `relatively` -> position: relative.
+proc handle_rel(v: String, property: String) -> CorrectionResult
+    var defaults: Map<String, Json> := Map<String, Json> {}
+    defaults.insert("position", Json.Str("relative"))
+    return build_correction(
+        v,
+        property,
+        "relative",
+        defaults,
+        0.9,
+        "relative-position",
+        "\"rel/relatively\" -> position: relative"
+    )
+
+// handle_hidden: context-sensitive. `overflow*` properties pass
+// through. `display: hidden/invisible` -> `display: none`. Otherwise
+// -> `visibility: hidden`.
+proc handle_hidden(v: String, property: String) -> Option[CorrectionResult]
+    // If the property is overflow-*, do not correct.
+    if starts_with(property, "overflow") then { return None }
+    val low := String.to_lower(v)
+    if property = "display" then {
+        var defaults: Map<String, Json> := Map<String, Json> {}
+        defaults.insert("display", Json.Str("none"))
+        return Some(build_correction(
+            v,
+            "display",
+            "none",
+            defaults,
+            0.95,
+            "display-none",
+            "\"hidden\" on display -> display: none"
+        ))
+    }
+    // Do not bind `var corr_val := low` — that moves `low` and the
+    // `if` below reads it. Bind in each branch instead.
+    var corr_val := ""
+    if low = "invisible" then {
+        corr_val := "hidden"
+    } else {
+        corr_val := low
+    }
+    var defaults: Map<String, Json> := Map<String, Json> {}
+    defaults.insert("visibility", Json.Str("hidden"))
+    val prop := if property.length() > 0 then property else "visibility"
+    return Some(build_correction(
+        v,
+        prop,
+        corr_val,
+        defaults,
+        0.9,
+        "visibility-toggle",
+        "\"" + v + "\" -> visibility: hidden"
+    ))
+
+// handle_full: `full` / `fullscreen` / `full-screen` -> 100%.
+// Width-only, height-only, or both, depending on the property.
+proc handle_full(v: String, property: String) -> CorrectionResult
+    val is_width_only := property = "width" or property = "min-width" or property = "max-width"
+    val is_height_only := property = "height" or property = "min-height" or property = "max-height"
+    var defaults: Map<String, Json> := Map<String, Json> {}
+    if is_width_only then {
+        defaults.insert("width", Json.Str("100%"))
+    } else if is_height_only then {
+        defaults.insert("height", Json.Str("100%"))
+    } else {
+        defaults.insert("width", Json.Str("100%"))
+        defaults.insert("height", Json.Str("100%"))
+    }
+    val prop := if property.length() > 0 then property else "size"
+    return build_correction(
+        v,
+        prop,
+        "100%",
+        defaults,
+        0.85,
+        "full-size",
+        "\"full/fullscreen\" -> 100%"
+    )
+
+// handle_rounded: `rounded` / `round` -> pill radius.
+proc handle_rounded(v: String, property: String) -> CorrectionResult
+    var defaults: Map<String, Json> := Map<String, Json> {}
+    defaults.insert("borderRadius", Json.Str("9999px"))
+    val prop := if property.length() > 0 then property else "border-radius"
+    return build_correction(
+        v,
+        prop,
+        "9999px",
+        defaults,
+        0.8,
+        "rounded-pill",
+        "\"rounded\" -> border-radius: 9999px (pill)"
+    )
+
+// match_pattern: given a lowercased value and a pattern_id from
+// IntentData.semantic_intents, return the handler's result or None.
+proc match_pattern(pattern_id: String, v: String, property: String) -> Option[CorrectionResult]
+    if pattern_id = "flexbox" then {
+        if v = "flexbox" then { return Some(handle_flexbox(v, property)) }
+        return None
+    }
+    if pattern_id = "abs" then {
+        if v = "abs" or v = "absolutely" then { return Some(handle_abs(v, property)) }
+        return None
+    }
+    if pattern_id = "rel" then {
+        if v = "rel" or v = "relatively" then { return Some(handle_rel(v, property)) }
+        return None
+    }
+    if pattern_id = "hidden" then {
+        if v = "hidden" or v = "invisible" then { return handle_hidden(v, property) }
+        return None
+    }
+    if pattern_id = "full" then {
+        if v = "full" or v = "fullscreen" or v = "full-screen" then {
+            return Some(handle_full(v, property))
+        }
+        return None
+    }
+    if pattern_id = "rounded" then {
+        if v = "rounded" or v = "round" then { return Some(handle_rounded(v, property)) }
+        return None
+    }
+    return None
+
+// detect_intent: iterate the loaded semantic intent pattern_ids and
+// return the first match. Mirrors intent-data.ts's detectIntent.
+pub proc detect_intent(
+    engine: &IntentEngine,
+    value: String,
+    ctx: &IntentContext
+) -> Option[CorrectionResult]
+    val lv := String.to_lower(value)
+    val prop := match ctx.property {
+        case Some(p) then p
+        case None then ""
+    }
+    for pattern_id in engine.data.semantic_intents {
+        match match_pattern(pattern_id, lv, prop) {
+            case Some(result) then { return Some(result) }
+            case None then {}
+        }
+    }
+    return None
+
+// ─── Part 3 — correct and validate ────────────────────────────────────
+//
+// Port of intent-detector.ts's `intent.correct` and `intent.validate`.
+//
+// The cache is deferred (it's a performance-only optimization;
+// the corpus is tiny). `custom_keys` short-circuit is honored.
+// Map.get returns Option[&Json] in some contexts — split helpers
+// avoid the G18-addendum match-depth issue.
+
+// ValidateResult — the return shape of `validate`.
+pub rec ValidateResult
+    pub valid: Bool
+    pub suggestion: Option[String]
+
+// find_value_correction: look up `property` in engine.data.value_corrections
+// and find a ValueCorrection whose `wrong` matches `value_lower`.
+proc find_value_correction(
+    engine: &IntentEngine,
+    property: String,
+    value_lower: String
+) -> Option[ValueCorrection]
+    match engine.data.value_corrections.get(property) {
+        case Some(corrections) then {
+            for c in corrections {
+                if c.wrong = value_lower then { return Some(c) }
+            }
+            return None
+        }
+        case None then { return None }
+    }
+
+// correct: the main entry point. Mirrors intent.correct in the TS.
+pub proc correct(
+    engine: &IntentEngine,
+    property: String,
+    value: String,
+    ctx: &IntentContext
+) -> Option[CorrectionResult]
+    // 1. Custom keys are never auto-corrected.
+    for k in engine.custom_keys {
+        if k = property then { return None }
+    }
+
+    // 2. Property correction: if the closest known property differs
+    // from the (lowercased) input, suggest it.
+    val normalized_prop := String.to_lower(property)
+    match find_closest_property(engine, property) {
+        case Some(pc) then {
+            if pc != normalized_prop then {
+                // Custom-key check on the candidate.
+                var is_custom := false
+                for k in engine.custom_keys {
+                    if k = pc then { is_custom := true }
+                }
+                if not is_custom then {
+                    val d := levenshtein(normalized_prop, pc, 999)
+                    val max_len := if property.length() > pc.length() then property.length() else pc.length()
+                    var confidence := 1.0 - 0.0
+                    if max_len > 0 then {
+                        val ratio := (0.0 + d) / (0.0 + max_len)
+                        confidence := 1.0 - ratio
+                    }
+                    if confidence < 0.0 then { confidence := 0.0 }
+                    var empty_defaults: Map<String, Json> := Map<String, Json> {}
+                    return Some(CorrectionResult {
+                        original: property,
+                        property: property,
+                        corrected: pc,
+                        defaults: Some(empty_defaults),
+                        confidence: confidence,
+                        intent: "property-correction",
+                        explanation: "Unknown property \"" + property + "\". Did you mean \"" + pc + "\"?"
+                    })
+                }
+            }
+        }
+        case None then {}
+    }
+
+    // 3. Semantic intent detection.
+    match detect_intent(engine, value, ctx) {
+        case Some(si) then { return Some(si) }
+        case None then {}
+    }
+
+    // 4. Value correction lookup.
+    val val_lower := String.to_lower(value)
+    match find_value_correction(engine, property, val_lower) {
+        case Some(c) then {
+            var defaults: Map<String, Json> := Map<String, Json> {}
+            defaults.insert(property, Json.Str(c.correct))
+            return Some(CorrectionResult {
+                original: value,
+                property: property,
+                corrected: c.correct,
+                defaults: Some(defaults),
+                confidence: c.confidence,
+                intent: "value-correction",
+                explanation: "\"" + value + "\" is not valid for " + property + ". Did you mean \"" + c.correct + "\"?"
+            })
+        }
+        case None then {}
+    }
+
+    return None
+
+// validate: check whether a property/value pair is valid, with a
+// suggestion if not. Mirrors intent.validate in the TS.
+pub proc validate(
+    engine: &IntentEngine,
+    property: String,
+    value: String
+) -> ValidateResult
+    // Custom keys are always valid.
+    for k in engine.custom_keys {
+        if k = property then { return ValidateResult { valid: true, suggestion: None } }
+    }
+
+    // Property must be known.
+    val norm_prop := String.to_lower(property)
+    match engine.data.known_properties.get(norm_prop) {
+        case Some(_) then {
+            // Known — continue to value validation.
+        }
+        case None then {
+            // Unknown — suggest closest if any.
+            match find_closest_property(engine, property) {
+                case Some(s) then {
+                    var is_custom := false
+                    for k in engine.custom_keys {
+                        if k = s then { is_custom := true }
+                    }
+                    if not is_custom then {
+                        return ValidateResult { valid: false, suggestion: Some(s) }
+                    }
+                    return ValidateResult { valid: false, suggestion: None }
+                }
+                case None then {
+                    return ValidateResult { valid: false, suggestion: None }
+                }
+            }
+        }
+    }
+
+    // Value must not match a semantic intent.
+    val ctx := IntentContext {
+        property: Some(property),
+        value: Some(value),
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+    match detect_intent(engine, value, &ctx) {
+        case Some(si) then {
+            return ValidateResult { valid: false, suggestion: Some(si.corrected) }
+        }
+        case None then {}
+    }
+
+    // Value must not be in the correction table.
+    val val_lower := String.to_lower(value)
+    match find_value_correction(engine, property, val_lower) {
+        case Some(c) then {
+            return ValidateResult { valid: false, suggestion: Some(c.correct) }
+        }
+        case None then {}
+    }
+
+    return ValidateResult { valid: true, suggestion: None }
+

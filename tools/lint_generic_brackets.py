@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 """lint_generic_brackets.py — flag `Map<...]` / unbalanced brackets in .gol files.
+# Known limitation: this linter detects `Map<...]` (angle opened,
+# square closed) but NOT the reverse `Map[...> ` (square opened,
+# angle closed). The reverse class is caught by the compiler as
+# "Expected ']', found Gt" — same G30 diagnostic family, different
+# direction. Run `algol26 check` after this linter to be sure.
+#
+# If both bracket families are valid openers (List<...>, List[...]),
+# the linter's job is harder — it would need to track which opener
+# was used and verify the matching closer. Deferred.
 
 Catches the recurring typo class:
   - `Map<...]` or `List<...]` (angle generic closed with square bracket)

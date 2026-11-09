@@ -1433,3 +1433,1049 @@ in a tree-sitter-aware editor).
 
 **Status:** Open. Non-blocking. Deferred until the tree-sitter
 grammar is touched for other reasons.
+
+---
+
+## G35 — no regex engine (ergonomic, not a gap)
+
+`intent-data.ts` uses six anchored alternation regexes, all of the
+form `/^(a|b|c)$/i`:
+
+| Intent     | Pattern                                       |
+|------------|-----------------------------------------------|
+| flexbox    | `/^flexbox$/i`                                |
+| abs        | `/^(absolutely\|abs)$/i`                     |
+| rel        | `/^(rel\|relatively)$/i`                     |
+| hidden     | `/^(hidden\|invisible)$/i`                   |
+| full       | `/^(full\|fullscreen\|full-screen)$/i`      |
+| rounded    | `/^(rounded\|round)$/i`                      |
+
+ALGOL26 has no regex engine. Every one of these is "the whole
+string, lowercased, equals one of {a, b, c}" — a set-membership
+check, not a regex match. The port replaces each with an
+equality-against-list on the lowercased input. Behaviorally
+identical; no language work needed.
+
+`intent-normalizer.ts` also uses:
+- `/[A-Z]/g` (uppercase detection, with an offset-aware replacement
+  callback in `toUnprefixedKebab`)
+- `/^-?(?:webkit|moz|ms|o)-/` (vendor prefix strip)
+- `/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i` (numeric-string test)
+
+and `layout-macros.ts` uses:
+- `/(\d+)[,\s]+\s*(\d+)[,\s]+\s*(\d+)/` (RGB triple)
+- `/hsl[a]?\(\s*\d+deg?[,\s]+\s*[\d.]+%?[,\s]+\s*([\d.]+)%/` (HSL)
+
+Each is hand-ported as a linear scanner. See G36 for the
+`autoContrast`-specific pair; the others are in `unit_normalizer.alg`
+and are noted at the call sites.
+
+**What would turn this into a real gap:** a normalizer that needs
+lookahead, backreferences, or unbounded quantifiers. None of the
+Phase-5 sources do. If one appears in Phase 6+, that is the trigger
+to design a pattern type (or vendor a small regex engine). Until
+then, hand-porting is the correct shape — it keeps the port free of
+a regex runtime that only six patterns need.
+
+**Status:** Ergonomic note. No compiler change.
+
+
+## G36 — regex-heavy color parsing in `autoContrast` (mechanical)
+
+`layout-macros.ts`'s `autoContrast` parses `rgb()` / `hsl()` strings
+with two regexes:
+
+```
+/(\d+)[,\s]+\s*(\d+)[,\s]+\s*(\d+)/
+/hsl[a]?\(\s*\d+deg?[,\s]+\s*[\d.]+%?[,\s]+\s*([\d.]+)%/
+```
+
+Both are **linear-scan patterns** — no lookahead, no backreferences,
+fixed repeat count (three captures in the first, one in the second).
+Hand-ported as ~25-line and ~20-line matchers in `layout_macros.alg`.
+`NAMED_COLORS` (17 entries) moves to `data/named_colors.json`; the
+matcher loads the map at init.
+
+This is the same shape as G35 but called out separately because
+the port is larger (~45 lines of scanner) and because it is the
+only place in Phase 5 that parses *color syntax*, which Phase 6's
+`accessibility-optimizer` will also need. If `accessibility-optimizer`
+adds more color-syntax parsing, the right move is to extract a
+shared `parse_css_color` in `chaincss/color_parse.gol`, not to
+duplicate scanners. Note for Phase 6.
+
+**Verification:** 5 RGB strings, 3 HSL strings, 17 named colors,
+plus the empty / `var(...)` / `transparent` early-returns. Golden
+file `tests/chaincss/auto_contrast_parity.gol` covers them.
+
+**Status:** Ergonomic note. No compiler change.
+
+
+## G37 — union-typed `normalizeRule` casts cannot be ported structurally
+
+Both `unit-normalizer.ts` and `intent-normalizer.ts` define a
+recursive helper with a union-typed parameter:
+
+```ts
+function normalizeRule(rule: IRRule | IRAtRule) {
+  if (!rule || ("isDead" in rule && rule.isDead)) return;
+  // ...
+  if ("pseudoClasses" in rule && rule.pseudoClasses) { ... }
+  if ("atRules" in rule && rule.atRules) { ... }
+  // ...
+}
+```
+
+and both cast `IRPseudoClass` and `IRKeyframeFrame` to `IRRule`:
+
+```ts
+normalizeRule(pseudoClasses[i] as unknown as IRRule);
+normalizeRule(keyframes[j] as unknown as IRRule);
+```
+
+The casts work at TS runtime because `IRPseudoClass` and
+`IRKeyframeFrame` simply **don't have** the fields
+(`isDead`, `pseudoClasses`, `nestedRules`, `atRules`), so the
+`in`-guards are false and the branches are skipped. The pseudo-
+class / keyframe case therefore normalizes declarations but does
+**not** recurse — a behavior the type system does not express.
+
+ALGOL26 types are nominal; `as unknown as IRRule` has no
+equivalent. The port must make the split explicit:
+
+- `normalize_rule(rule: &mut IRRule)` — full recursion (checks `is_dead`,
+  walks pseudoClasses / nestedRules / atRules).
+- `normalize_at_rule(at: &mut IRAtRule)` — no `is_dead` check, walks
+  nestedRules and keyframes.
+- `normalize_declarations_only(decls: &mut List[IRDeclaration], ...)` —
+  used for pseudo-class bodies and keyframe frames.
+
+Three functions instead of one. **Behaviorally equivalent** — the
+union-typed TS version only branches on `"isDead" in rule`,
+`"pseudoClasses" in rule`, and `"atRules" in rule`, each of which is
+a static property of the concrete type at runtime.
+
+**Cost:** every Phase-5+ normalizer that recurses will need the same
+three-way split. `intent-normalizer.ts`, `unit-normalizer.ts`,
+`token-lowering.ts`, `scroll-timeline.ts`, `specificity-sorter.ts`,
+`dead-code-eliminator.ts` all have the same shape. That is six files
+× three functions = eighteen functions instead of six. Worth logging
+because it is a recurring cost of nominal typing over structural
+typing, not a one-off.
+
+**What would make this a real language gap:** if a future normalizer
+needs to iterate over a heterogeneous list of IR nodes (e.g. a
+`List[IRNode]` where `IRNode = IRRule | IRAtRule | IRPseudoClass`).
+None of the Phase-5 sources do; they recurse over homogeneous lists
+(`nestedRules: List[IRRule]`, `pseudoClasses: List[IRPseudoClass]`).
+If that changes, ALGOL26 needs a tagged-node form (a union of
+records) or the port needs a `NodeKind` enum + dispatch. Defer.
+
+**Status:** Accepted ergonomic cost. No compiler change.
+
+
+## G38 — module-level mutable state has no natural ALGOL26 form
+
+Four Phase-5 sources use module-level mutable singletons:
+
+| Source                   | Module-level state                                       |
+|--------------------------|----------------------------------------------------------|
+| `intent-detector.ts`     | `correctionCache: Map`, `customKeys: Set`                |
+| `intent-data.ts`         | `SEMANTIC_INTENTS`, `VALUE_CORRECTIONS`, `KNOWN_PROPERTIES`, `customKnown`, `customKnownProperties`, `propertyCache` |
+| `layout-macros.ts`       | `LAYOUT_MACROS`, `contrastCache`                         |
+| `scroll-timeline.ts`     | `animCounter`, `entangleCounter`, `kebabCache`           |
+
+Each is initialized at module load, mutated by `register*` /
+`reset*` / `invalidate*` functions, and consumed by the pass entry
+point. The TS module system gives them process-global lifetime for
+free.
+
+ALGOL26 has no module-level `var` (verify against `src/chaincss/
+config.gol` and `diagnostics.gol` — both are pure or state-record
+based, neither uses module-global mutable state). The port threads
+state records explicitly:
+
+- `IntentEngine { corrections_cache, custom_keys, value_corrections,
+  known_properties, builtin_known, semantic_intents }`
+- `LayoutMacroRegistry { macros, contrast_cache }`
+- `ScrollCompiler { counter }`
+
+Each pass entry point takes `&mut Engine` as its first parameter.
+`register*` / `reset*` become `proc` with `&mut Engine` receivers,
+matching the `DiagnosticReporter` pattern already established in
+`diagnostics.gol`.
+
+**Two consequences the diff harness must know about:**
+
+1. **Cache eviction order.** TS evicts `correctionCache.keys().next()`
+   — insertion order. ALGOL26's `Map` iterates lexicographically
+   (G6). The eviction victim will differ. Cache eviction is
+   observationally inert (performance only), so the comparator
+   normalizes it away. Not a parity risk, but note it in
+   `run_normalizer_parity.sh`'s normalization step so a future
+   reader doesn't chase it.
+
+2. **`register*` call ordering.** The TS pipeline calls
+   `registerCustomIntentKeys`, `invalidateIntentCache`,
+   `registerCustomKnownProperties`, `resetLayoutMacros`, etc.
+   between phases. The ALGOL26 port must call the same functions
+   on the same engine instance in the same order. The diff harness
+   exercises these paths explicitly (see `normalizer_parity.gol`'s
+   `--stage=intent` mode which calls `register_custom_keys` before
+   normalization).
+
+**What would make this a real language gap:** if Phase 6's
+`pass-scheduler.ts` requires pass instances to be
+shared-and-mutated across scheduler ticks without an explicit
+owner. The current Phase-5 sources all have an explicit caller
+(`intentNormalizer.normalize(ir)`), so threading works. Phase 6
+should be checked before assuming the same.
+
+**Status:** Accepted ergonomic cost. Port pattern established
+(`IntentEngine`, `DiagnosticReporter`). No compiler change.
+
+## G39 — `match` does not auto-deref `&Union` (ergonomic, not a gap)
+
+**Symptom.** Matching on a reference to a union fails:
+
+    pub proc json_is_number(v: &Json) -> Bool
+        match v
+            case NumInt(_) then { return true }
+            ...
+
+produces:
+
+    error[E0002]: Variant pattern 'NumInt(..)' requires a union type,
+    found Borrow<Json>
+      --> src/chaincss/json_ext.gol:18:11
+
+**Cause.** `v: &Json` has type `Borrow<Json>`. Variant patterns
+(`NumInt(_)`, `Obj(inner)`, …) require the **union value**, not a
+reference to it. `match *v` dereferences and matches on the value.
+
+**Consequence — and this is the ergonomic cost.** Every `pub proc`
+that takes `v: &Json` (or `&Map`, `&List`, …) and matches on it
+must be written as `match *v`. Once matched, the bound variable is
+the moved-out value, not a reference — so the body uses `n`, `s`,
+`inner` directly (`0.0 + n`, not `0.0 + *n`).
+
+**Why this isn't a language bug.** Auto-deref on `match` would have
+to choose between move and borrow semantics per-arm, which is exactly
+the ambiguity Rust's match ergonomics are designed to avoid. ALGOL26's
+"explicit `*` at the match site" is a defensible design — it just
+costs one character per match.
+
+**Cost across Phase 5.** Every normalizer that pattern-matches on
+`Json` / `Option[Json]` / `Map` values will need `match *v`. In
+`json_ext.gol` alone it was six call sites. In `unit_normalizer.alg`
+it will be every declaration value check. In `intent_normalizer.alg`
+it will be every `passMeta` unwrap. The pattern is mechanical and
+the fix is always the same.
+
+**Pattern for future port files.** When a proc takes `v: &T` and
+matches on `v`, write `match *v` and use the arms as if `v` were
+`T`. If the arm binds a variable (`case NumInt(n) then`), use `n`
+as a value, not `*n`.
+
+**Status:** Accepted ergonomic cost. No compiler change planned.
+
+## G40 — `Option[T] = None` doesn't infer (ergonomic, not a gap)
+
+**Symptom.**
+
+    if m.get(k) = None then { m.insert(k, v) }
+
+produces:
+
+    error[E0002]: Equality requires matching types,
+    found Option<Json> and Option<Unknown>
+
+**Cause.** `m.get(k)` has type `Option[Json]`. The bare `None` in the
+comparison has type `Option[Unknown]` — the type parameter is not
+inferred from the left-hand side. Equality then fails.
+
+**Fix — use `match`, not equality.**
+
+    match m.get(k) {
+        case Some(_existing) then {}
+        case None then { m.insert(k, v) }
+    }
+
+This is the idiom `config.gol`, `ir_types.gol`, and `diagnostics.gol`
+already use everywhere else. The `= None` form was a one-off in the
+`declaration_meta_to_json` extensions merge.
+
+**Why this isn't a language bug.** Equality against `None` would
+need bidirectional type inference to pick `Option[Json]` for the
+right-hand side. ALGOL26's inference is left-to-right; the left side
+gives the right side nothing. Match-based unwrapping is more verbose
+but more predictable — and it composes with the `match *v` deref
+pattern (G39).
+
+**Pattern for future port files.** Never write `if x = None` or
+`if x = Some(_)`. Always use `match x { case Some(...) then ...;
+case None then ... }`. If the arm body is one statement, it's a
+one-line match — not noticeably longer than the equality form, and
+it compiles.
+
+**Status:** Accepted ergonomic cost. No compiler change planned.
+
+## G34 — `Float.to_string` diverges from JS `Number.prototype.toString`
+
+**Confirmed divergence, not a theoretical one.** `Float.to_string`
+(per `src/builtins.rs`'s signature table comment) is *"`%.6f` with
+trailing zeros stripped from the fractional part"*. That is not
+JS's `Number.prototype.toString`, which uses the shortest
+round-trip representation.
+
+Measured on ALGOL26 v0.8.0 (interpreter), 2026-11-08:
+
+| Value   | ALGOL26               | JS              | Diverges? |
+|---------|-----------------------|-----------------|-----------|
+| 12.0    | `12`                  | `12`            | no        |
+| 0.1     | `0.1`                 | `0.1`           | no        |
+| 1.5     | `1.5`                 | `1.5`           | no        |
+| 1e21    | `1000000000000000000000` | `1e+21`       | **yes**   |
+| 1e-7    | `0`                   | `1e-7`          | **yes**   |
+| -0.0    | `0`                   | `0`             | no        |
+
+Two distinct failures:
+
+1. **Format shape** (`1e21`): JS uses exponential notation above
+   `1e21` and below `1e-7`; ALGOL26 always uses fixed. Cosmetic
+   but byte-diffing.
+2. **Precision loss** (`1e-7 → 0`): `%.6f` rounds anything with a
+   magnitude below `0.0000005` to zero. For CSS this is
+   inconsequential (no real CSS value has more than ~4 decimal
+   places), but it's a **precision loss**, not just formatting.
+
+**Impact on Phase 5 (normalizer).** None. The unit-normalizer
+either appends `"px"` to an `Int` (via `Int.to_string`, exact) or
+appends it to a **string** that already matched a numeric regex
+(also exact — string concat). The float → string path is not
+exercised by the Phase-5 normalizers. Phase 5 will pass without a
+fix.
+
+**Impact on Phase 7 (emitter).** Blocking for byte-for-byte parity.
+If any declaration's final value is a non-integer float that came
+through the numeric path, the emitter must render it with JS's
+shortest round-trip.
+
+**Two options for Phase 7:**
+
+- **(a) Add `f64_to_js_string` builtin.** Port ECMA-262 §7.1.12.1
+  (Number::toString) exactly. ~150 lines. Well-specified; the
+  algorithm is in the spec and has reference implementations
+  (V8's `DoubleToString`, SpiderMonkey's `NumberToCString`,
+  Rust crate `ryu` for shortest-round-trip + manual exponent
+  adjustment). Unblocks Phase 7 without a comparator workaround.
+
+- **(b) Normalize floats in the comparator.** Compare
+  structurally, parse both sides' floats, compare as `f64`. Loses
+  byte-for-byte property but unblocks Phase 7.
+
+**Recommendation:** (a), before Phase 7. The `%.6f` behavior is
+also a **correctness** issue for any consumer of `Float.to_string`
+beyond the emitter, and `%.6f`-with-strip is a worse default than
+JS-exact in every non-CSS use too. Consider the fix as both a
+language improvement and a port unblocker.
+
+**Status:** Open. Confirmed by measurement. No fix needed before
+Phase 6. **Must be decided before Phase 7.**
+
+## G41 — `&mut list[i]` rejected for non-literal index (FIXED)
+
+**Symptom.** In a loop over a list, taking a mutable borrow
+of an element by variable index failed:
+
+    var i := 0
+    while i < xs.length() {
+        mutate_first(&mut xs[i])          // E0007
+        i := i + 1
+    }
+
+produced:
+
+    error[E0007]: Cannot take a mutable borrow of this expression:
+    mutable borrows require an addressable place (a variable,
+    a field, or a list element with a literal index)
+
+`&mut xs[0]` (literal) worked; `&mut xs[i]` (variable) did not.
+This blocked **every** in-place list-mutation loop, and therefore
+every Phase-5+ normalizer that walks a `List[IRDeclaration]` or
+similar by index.
+
+**Root cause.** `place_of_expr` in
+`src/semantics/analyzer/ownership.rs` (around line 453) required
+a literal `Int` index in the `ArrayAccess` arm and returned `None`
+for any other index expression. Its comment even said
+*"we bail and let the caller use the base name instead"* — but
+**the callers did not do that.** Both `expr.rs` borrow arms
+(lines 173 shared, 227 mutable) interpret `None` as "not an
+addressable place" and emit E0007. The documented fallback was
+never wired up.
+
+The `stmt.rs` write-through-borrow path (`Stmt::FieldAssign` /
+`Stmt::ArrayAccessAssign`, around line 550) already used the
+correct conservative fallback: non-literal index → whole-list
+place. That path **worked** for writes because it hand-rolled the
+fallback rather than relying on `place_of_expr`.
+
+**Fix.** `src/semantics/analyzer/ownership.rs`:
+
+    ExprKind::ArrayAccess { array, index, .. } => {
+        let mut base = self.place_of_expr(array)?;
+        match &index.as_ref().kind {
+            ExprKind::Int(n, _) => {
+                if *n < 0 {
+                    return None;   // negative literal: still rejected
+                }
+                base.projections.push(Projection::Index(*n as usize));
+            }
+            _ => {
+                // Non-literal index: whole-list conservative place.
+                // No projection pushed; two `&mut xs[i]` / `&mut xs[j]`
+                // with variable i, j overlap by `Place::overlaps`.
+            }
+        }
+        Some(base)
+    }
+
+Negative literal indexes (`xs[-1]`) still bail to `None`, preserving
+the existing compile-time rejection of out-of-bounds literal indexes.
+
+**Semantics.** Non-literal indexes now borrow the **whole list**.
+Two `&mut xs[i]` / `&mut xs[j]` (where i, j are variables) are
+treated as overlapping and the second is rejected — conservative
+but sound. `&mut xs[0]` and `&mut xs[1]` (literal indexes) remain
+**disjoint** — precise, matching the existing behavior. This is
+the exact model `stmt.rs` already uses for writes.
+
+**Verification.**
+
+- `probe_mut_index.gol` — `&mut xs[0]` and `&mut xs[i]` both pass.
+- `probe_overlap.gol` — `&mut xs[i]` + `&mut xs[j]` (non-literal)
+  correctly rejected with "Cannot mutably borrow 'xs' while it is
+  mutably borrowed"; `&mut ys[0]` + `&mut ys[1]` (literal) passes.
+- `cargo test` — full suite green (soundness suite, verifier
+  invariants, all borrow-checker tests).
+
+**Port impact.** The natural form
+
+    val corr := normalize_one_declaration(&mut decls[i], unitless)
+
+is now accepted by the analyzer for `decls: &mut List[IRDeclaration]`
+**modulo one remaining issue** — see G42 for that follow-up.
+
+**Status:** Fixed. Six-line change in `place_of_expr` plus updated
+comment. Regression tests added: `/tmp/probe_mut_index.gol` and
+`/tmp/probe_overlap.gol` should be promoted to `tests/` before
+Phase 5 completes.
+
+## G42 — interpreter rejects `&mut list[i]` for non-literal index (FIXED)
+
+**Symptom.** After G41 relaxed the analyzer to accept `&mut list[i]`
+with a variable index, the same code failed at *runtime*:
+
+    Runtime error: interpreter does not support `mutable reference
+    to non-addressable expression`: bind the value to a `var` first,
+    then take a `&mut` of the binding
+
+**Root cause.** G41 fixed `place_of_expr` in
+`src/semantics/analyzer/ownership.rs` — but the *interpreter* has
+an independent mirror of the same logic,
+`place_of_ir_value` in `src/backends/interpreter/eval.rs`
+(around line 542), and it still required a literal `Int` index:
+
+    TypedIRValue::ArrayAccess { array, index, .. } => {
+        let idx = match index.as_ref() {
+            TypedIRValue::Int(n) => *n,
+            _ => return None,        // ← same restriction as pre-G41
+        };
+        ...
+    }
+
+The `BorrowMutable` arm calls `place_of_ir_value(expr)`, gets
+`None`, and returns `EvalError::Unsupported`.
+
+**Fix.** Added `place_of_ir_value_precise` in `eval.rs` — a
+variant that *evaluates* the index expression when it is not a
+literal, obtaining a concrete `usize`. Used it in the
+`BorrowShared` / `AddrOf` and `BorrowMutable` arms.
+
+The semantics differ from the analyzer's fix, deliberately:
+
+- **Analyzer** (G41): drop the projection, whole-list conservative
+  place. Used for **overlap checking** at compile time. Two
+  `&mut xs[i]` / `&mut xs[j]` with variable `i`, `j` overlap; the
+  second is rejected.
+
+- **Interpreter** (G42): evaluate `index` to a concrete value at
+  borrow time, store `[Index(<value>)]` in the `Place`. Used for
+  **read/write** at runtime. If the program passed analysis (only
+  one `&mut xs[i]` live at a time), we know `i`'s value exactly;
+  the interpreter can be precise.
+
+This matches Rust: `&mut xs[i]` takes the address of *one element*
+at borrow time. If `i` later changes, the reference still points
+at the original element. Capturing `i`'s value at borrow time
+matches that.
+
+**Untouched:** the existing `place_of_ir_value` remains for
+`Map.insert` and `List.append` receivers, which are `Variable` or
+`FieldAccess` (no indexed receivers in the current code). A future
+builtin needing an indexed receiver gets the same fix pattern.
+
+**Verification.**
+
+- `probe_deref_list.gol` — `&mut (*xs)[i]` where `xs: &mut List`
+  inside a `while` loop, called once per element — passes and
+  produces `[2, 3]` after incrementing.
+- `probe_still_rejected.gol` — two `&mut xs[i]` / `&mut xs[j]`
+  with variable `i`, `j` — still rejected by the analyzer
+  ("Cannot mutably borrow 'xs' while it is mutably borrowed").
+  The G41 conservative overlap rule holds; G42 did not weaken it.
+- `cargo test` — full suite green (soundness suite, verifier
+  invariants, borrow-checker tests).
+
+**Port impact.** `unit_normalizer.gol`'s natural form
+
+    val corr := normalize_one_declaration(&mut (*decls)[i], unitless)
+
+now compiles **and** runs. Before G41+G42, the same code required
+the copy-out/copy-back workaround. Every Phase-5+ normalizer that
+walks a `List` by index and mutates in place is now unblocked.
+
+**Discovery.** Found while running the Phase-5 unit-normalizer
+differential harness (`run_unit_parity.sh`). The analyzer accepted
+the code; the interpreter rejected it at the first `&mut (*decls)[i]`.
+G41's fix was necessary but incomplete — the interpreter mirrors
+the analyzer's place logic and needs the same treatment.
+
+**Methodology note.** This is the second case in the G-series
+where a fix in one layer (analyzer) exposes the identical bug in a
+parallel layer (interpreter). The pattern: **when fixing a check
+in the analyzer, grep for the same logic in the interpreter.**
+`place_of_expr` (analyzer) and `place_of_ir_value` (interpreter)
+are siblings; both needed the same relaxation. The verification
+pattern — probe, build, run, compare to expected — was the same
+for both.
+
+**Status:** Fixed. `eval.rs` gains `place_of_ir_value_precise`;
+two borrow arms updated. Probes and full test suite green.
+
+## G43 — `Map` loses insertion order; JSON objects cannot preserve source order
+
+**Symptom.** When comparing the ALGOL26 unit-normalizer's output
+against the TS reference on `card.chain.ts`, the declaration order
+diverges:
+
+    TS:  display, flex-direction, gap, padding, background,
+         border-radius, box-shadow     (source order)
+
+    GOL: background, border-radius, box-shadow, display,
+         flex-direction, gap, padding  (alphabetical)
+
+Same seven declarations, same values, different order. The
+alphabetical order is `Map.keys()` — the interpreter sorts keys
+lexicographically (G6).
+
+**Impact — and why this is not cosmetic.** For CSS, declaration
+order is semantically significant: a later `color: red` overrides
+an earlier `color: blue`. The ChainCSS emitter iterates declarations
+in source order to produce byte-identical CSS. Alphabetical order
+would emit them in the wrong sequence, changing the CSS output.
+
+- **Phase 5 (normalizer):** order-insensitive. The normalizer
+  transforms values in place; order is preserved except through the
+  `Map` representation. Phase-5 parity can be checked with
+  order-normalized comparison.
+- **Phase 7 (emitter):** order-sensitive and blocking. Byte-for-byte
+  parity with TS requires source order.
+
+**Root cause.** `Map<K, V>` in ALGOL26 is a HashMap. `Map.keys()`
+returns sorted keys (interpreter's choice). `Json.Obj(Map<String, Json>)`
+therefore loses the key order of any parsed JSON object. `parse_ir.gol`
+iterates `Map.keys()`, so the source order of `card.chain.ts`'s
+declarations is gone by the time the IR is built.
+
+TS's `Object` and `JSON.parse` both preserve key insertion order;
+`Object.keys()` returns keys in the order they were first set. The
+ChainCSS pipeline relies on this at the emitter.
+
+**Two fix options (both are compiler-side):**
+
+**(a) Add an ordered-map primitive.** `Map<K, V>` gets an optional
+insertion-order list, or a separate `OrderedMap<K, V>` type is
+added. `parse()` produces `OrderedMap` from JSON objects;
+`parse_ir.gol` iterates in insertion order. Cost: touches every
+`Map` consumer if added to `Map`, or a parallel type if separate.
+
+**(b) Extend `Json` with an ordered object variant.**
+`Json.Obj` gains a sibling `Json.OrderedObj(List[(String, Json)])`;
+`parse()` emits the ordered form; consumers that don't care
+iterate the list, consumers that do care get source order. Cost:
+every `match json` arm needs a new variant, but the impact is
+contained to `json.gol` and its direct consumers.
+
+**(a)** is cleaner long-term (ordered maps are generally useful).
+**(b)** is more surgical (JSON is where order matters, so scope
+the fix to JSON).
+
+**Recommendation:** (a) if the codebase already has a use for
+ordered maps beyond JSON; otherwise (b), because it scopes the
+change to the actual problem.
+
+**Interim state (Phase 5).** The differential comparator
+(`compare_normalized.py`) sorts both `declarations` (by property)
+and `corrections` (by property + original) before comparison.
+**This is a temporary measure pending G43.** Once the compiler fix
+lands, both sorts are removed and the structural comparison becomes
+order-sensitive, matching TS's semantics exactly.
+
+Phase 5's unit-normalizer passes 4/4 with these sorts. The `ir`
+object matches structurally even without the `declarations` sort
+(the values were never wrong); only the array order diverges.
+The `corrections` array needs the sort because the corrections
+naturally emerge in source order from TS and alphabetical order
+from the ALGOL26 side — the same root cause (Map key iteration).
+
+**Discovery.** Found while running Phase 5's unit-normalizer
+differential harness (`run_unit_parity.sh`). The harness's first
+real comparison surfaced the divergence. Phase 2D's `parse_ir.gol`
+verification was structural and declaration-order-insensitive by
+G6's own note ("Phase 2D comparison must be structural, not
+byte-for-byte"), so the divergence wasn't caught there. It becomes
+observable only once we compare against the TS oracle field-for-field.
+
+**Status:** Open. Compiler fix required for Phase 7. Phase-5 parity
+proceeds with order-normalized comparison.
+
+**Methodology note.** This is the first gap in the G-series where
+the fix is a *feature addition* rather than a *bug fix*. The
+distinction matters:
+
+- **Bug fix:** the compiler does something wrong. Fix it. Ship
+  with a regression test. Examples: G9, G11, G19, G41, G42.
+- **Feature addition:** the language lacks a capability required
+  by a real workload. Design it (ADR), implement it, test it.
+  Examples: G1 (index signatures — partially deferred), G23
+  (JS execution — deferred), G43.
+
+Feature additions are not blockers for the current phase (Phase 5
+can proceed with the comparator workaround) but they are
+prerequisites for the phase that actually needs them (Phase 7
+needs G43). The roadmap should note this: **G43 must land before
+Phase 7 starts.**
+
+## Ergonomic note — square-opened generics closed with `>` (`[...>`)
+
+**Symptom.** The compiler reports:
+
+    error[E0001]: Expected ']', found Gt
+    --> src/file.gol:13:60
+    |
+ 13 |     pub value_corrections: Map<String, List[ValueCorrection>>
+    |                                                            ^
+
+The line looks correct at first glance. The `>>` at the end is
+right — `Map<String, List<ValueCorrection>>` should close both
+generics with `>`.
+
+**Root cause: `List[` was written instead of `List<`.**
+
+    Map<String, List[ValueCorrection>>
+                ^^^^ square opener
+
+The `[` after `List` opens a **square-bracket generic** (like
+`Option[...]`, `List[...]` — ALGOL26 supports both families).
+The parser then expects `]` to close it. Finding `>` (the `Gt`
+token) is an error — "expected `]`, found `Gt`".
+
+**Diagnosis method.** This is the fastest check:
+
+    sed -n '<reported_line>p' src/file.gol | hexdump -C
+
+Look for byte `5b` (`[`) where you expect `3c` (`<`). The
+hexdump is unambiguous — no visual ambiguity from characters
+that look similar in a terminal.
+
+**Linter gap.** `tools/lint_generic_brackets.py` catches the
+*reverse* class (`Map<...]` — angle opened, square closed), but
+not `List[...>` (square opened, angle closed). The linter's
+current rule set only checks one direction. The compiler catches
+both, so `tools/check_all.sh` (lint + compile) still catches it.
+
+**Client fix.** Change `List[` to `List<` where the generic is
+meant to be angle-bracketed. Everywhere `List[...]` appears with
+an angle `>` closer, the opener is wrong.
+
+**Why this isn't a language gap.** ALGOL26 supports both
+`List<T>` and `List[...]` — two families for the same generic.
+Mismatched families are a client-code typo. The diagnostic is
+clear ("expected `]`, found `Gt`") and points at the right line.
+The hexdump resolves the visual ambiguity.
+
+**Pattern to watch for.** Any `List[...>` (square open + angle
+close) or `Map<...]` (angle open + square close) is a typo. The
+family must match on both ends. The linter catches one direction;
+the compiler catches both.
+
+## Addendum to G40 — typed empty list literals
+
+Same class as `Option[T] = None` (main G40 entry): the compiler's
+type inference works forward, not backward.
+
+- `return []` in a `-> List[T]` function fails at runtime with
+  "return type mismatch: expected List(Record(...)), found
+  List(Unknown)".
+- `return List<T> []` fails at **compile time** with "Undefined
+  variable 'List'" — `List<ValueCorrection> []` is parsed as
+  `List < ValueCorrection > []` (a comparison expression), not a
+  typed constructor.
+
+**The working form is the `var`-annotated binding:**
+
+    var empty: List<ValueCorrection> := []
+    return empty
+
+The `var` annotation gives `empty` the concrete type. `return
+empty` returns that type. `Map<K, V> {}` works because `{ }` after
+`Map<...>` is unambiguously a constructor call, unlike `[]` after
+`List<...>`.
+
+**Pattern for future port files.** Any `return []` in a function
+whose return type is a concrete `List[T]` needs the `var` binding
+form. `return []` alone produces `List<Unknown>`. `return List<T>
+[]` doesn't parse. The `var`-binding form is the only one that
+works.
+
+## G46 — `Map<_, _>` record field corrupts `List<T>` type in sibling functions (Open)
+
+**Symptom.** A file containing:
+
+    pub rec IntentEngine
+        pub custom_keys: Map<String, Bool>
+        ...
+
+    pub proc levenshtein(a: String, b: String, max_dist: Int) -> Int
+        var cur: List[Int] := []
+        ...
+        cur[0] := i
+        ...
+
+fails at IR construction with:
+
+    error[E0002]: Variable 'cur' claimed type Bool but declared as List(Int)
+
+**Minimal repro** (`probe_engine.gol`):
+
+    pub rec IntentEngine
+        pub data: Int
+        pub custom_keys: Map<String, Bool>
+        pub cache: Map<String, Json>
+        pub next_counter: Int
+
+    pub proc levenshtein(a: String, b: String, max_dist: Int) -> Int
+        ...
+        var cur: List[Int] := []
+        ...
+        cur[0] := i
+        ...
+
+**The exact body of `levenshtein`, standalone in a fresh file
+without the `IntentEngine` record, works.** The record's presence
+corrupts the type table for the function.
+
+**Narrowing.** Removing `custom_keys: Map<String, Bool>` from
+the record (replacing with `List<String>`) makes the error
+disappear. The `Bool` type parameter in the record's map value
+position is the trigger.
+
+**Root cause (suspected).** The IR builder's type table walks
+each record's fields and, for reasons not yet traced, conflates
+one field's `Bool` type parameter with a later function's
+`List<Int>` variable's type. This is likely a type-table slot
+reuse or index collision — the `Bool` type parameter from
+`custom_keys` may be stored in a table slot that later gets
+reused for `cur`'s `List[Int]`.
+
+**Workaround.** Two options:
+
+**(a) Change the field type.** Replace `custom_keys: Map<String, Bool>`
+with `custom_keys: List<String>`. A set becomes a list (duplicates
+allowed, but caller can dedup). This works around the bug but
+loses the O(1) set-membership benefit.
+
+**(b) Reorder declarations.** Move `levenshtein` *above* the
+`IntentEngine` record. Since the corruption appears to be forward-
+affecting (record fields processed before functions), putting the
+function first may avoid it. Untested.
+
+**(c)** **The real fix** is in the IR builder's type table — a
+separate compiler session. When fixed, the workaround can be
+reverted.
+
+**Impact.** Any file with a `Map<_, Bool>` record field and a
+function that mutates a `List[Int]` will hit this. This is a
+specific, uncommon combination — but the port has hit it, and
+future ChainCSS files may as well.
+
+**Status:** Open. Workaround in `intent_detector.gol` (field
+retyped to `List<String>` for the moment — see fix commit).
+
+**Discovery.** Found while testing `intent_detector.gol`'s
+`levenshtein` function against the unit-test harness. Five
+progressive bisects narrowed the trigger from "the whole file"
+to "this specific record + this specific function".
+
+
+
+### Correction (2026-11-08) — trigger is nested generic, not `Map<_, Bool>`
+
+The initial diagnosis attributed the corruption to
+`custom_keys: Map<String, Bool>`. **That was wrong.** Changing
+`custom_keys` to `List<String>` did not fix the error.
+
+Bisecting further: replacing `data: IntentData` with a scalar
+(`data_dummy: Int`) makes the error disappear. So the actual
+trigger is **`IntentEngine.data: IntentData`**, and specifically
+`IntentData`'s `value_corrections: Map<String, List<ValueCorrection>>`
+field — **a nested generic (`Map<K, List<V>>`) inside a record
+field, inside another record field**.
+
+The `Map<_, Bool>` observation was a coincidence: `custom_keys`
+appeared in the same record as `data: IntentData`, and the
+manipulation of `custom_keys` in earlier tests gave a false
+positive when combined with other changes.
+
+**The minimal trigger is:**
+
+    pub rec Inner
+        pub m: Map<String, List<Int>>
+
+    pub rec Outer
+        pub inner: Inner
+
+    pub proc f() -> ...
+        var cur: List[Int] := []
+        cur[0] := 1    // ← "cur claimed type Bool"
+
+The exact mechanism is still under investigation. The IR builder
+appears to corrupt the type table when walking a record field
+whose type is `Map<K, List<V>>`, and the corruption is observed
+in the next function's local `List<Int>` variable.
+
+**Workaround for `intent_detector.gol`:** change `IntentData`'s
+`value_corrections` from `Map<String, List<ValueCorrection>>` to
+`Json`. Lossy but avoids the trigger. Revert when the compiler
+bug is fixed.
+
+**Previous workaround (custom_keys as List<String>):** unrelated
+to the actual bug, but still useful — O(n) lookup is fine for
+6 properties. Can stay or revert independently.
+
+### Definitive correction (2026-11-08) — trigger is any `Map` field in a record
+
+After ~15 rounds of bisection, the minimal repro is:
+
+    import "json.gol"
+
+    pub rec Holder
+        pub m: Map<String, Json>
+
+    pub proc test() -> Int
+        var cur: List[Int] := []
+        cur.append(0)
+        cur[0] := 5
+        return cur[0]
+
+**Fails with `error[E0002]: Variable 'cur' claimed type Bool but
+declared as List(Int)`.**
+
+**What triggers it:**
+- `Map<String, Bool>` as a record field → YES
+- `Map<String, Json>` as a record field → YES
+- `Map<String, Int>` as a record field → YES (presumed, same shape)
+- `Map<String, Bool>` as a **proc parameter** (not a record field) → NO (proven by `probe_cur*.gol`)
+- `Map<String, Bool>` as a **local `var`** → NO
+- Record-in-record alone → NO (`probe_rr.gol` passes)
+
+**The distinguishing factor:** `Map<_, _>` as a **record field type**. Not the element type, not the nesting depth. Any map field in a record.
+
+**Why `cur` specifically?** The `cur[0] := 5` line (literal-index list mutation). Any list variable mutated by literal index inside a function, while the file also contains a record with a `Map` field, will fail.
+
+**Root cause hypothesis:** the IR builder's type table has a per-record layout. For each `Map` field, it allocates some type slot (perhaps for the map's internal key-set representation, which may use a `Bool`-typed flag). When the same file's functions allocate `List[Int]` slots for their locals, the slot allocation collides — the `List[Int]` slot inherits the `Bool` from the map field's internal representation.
+
+**Workaround (proven):** keep `Map` fields out of records when a sibling function mutates a list by literal index. Options:
+
+1. **Store maps as `Json`** (change `Map<String, T>` → `Json` in the record). Access via `json_obj_get_*` helpers. Loses type safety but avoids the trigger.
+
+2. **Store maps as flat lists of key-value records** (`List[KVEntry]`). O(n) lookup, avoids the trigger.
+
+3. **Move the map field to a separate non-record container** (e.g., pass it as a proc argument rather than a record field).
+
+4. **Split the file:** put the record (with `Map` field) in one file, the list-mutating function in another. Both files import each other's declarations but the type table for the second file never sees the record's map field.
+
+**Impact:** this affects ANY port file with:
+- A record containing a `Map<_, _>` field
+- Any function that mutates a `List<T>` by literal index
+
+Which means most of `intent_detector.gol`, `intent_normalizer.gol`, `token_lowering.gol`, and probably several others in Phase 5b–8.
+
+**This is the most severe bug found by the port so far.** The workaround is mechanical but pervasive.
+
+**Status:** Open. Compiler fix required — the IR builder's type-table slot allocation for `Map` fields needs to not collide with sibling functions' `List<T>` locals.
+
+
+
+### Port-side workaround locations (G46)
+
+When the compiler fix lands, these workarounds should be reverted
+together (they're all the same class):
+
+1. **`src/chaincss/intent_detector.gol` — `levenshtein`**
+   - **Current:** append-based row construction (`var cur:
+     List[Int] := []; cur.append(i); cur.append(best); prev := cur`)
+   - **Original:** in-place `cur[0] := i`, `cur[jj] := best`,
+     copy-back `prev[k] := cur[k]`
+   - **Revert when:** `Stmt::ArrayAssign` records the array
+     expression's type (the compiler fix).
+
+2. **`src/chaincss/intent_data.gol` — `load_pattern_ids` and
+   `load_value_corrections_map`**
+   - **Current:** split into `extract_pattern_id` +
+     `load_pattern_ids`, and `parse_value_correction` +
+     `parse_value_correction_list` + `load_value_corrections_map`
+   - **Reason:** G18-addendum match-depth silent failure, NOT G46
+     — but the same class (match-depth related). Do NOT revert
+     these on G46's fix; they're a separate concern.
+   - **Revert when:** G18-addendum (match-depth) lands.
+
+3. **`src/chaincss/intent_detector.gol` — `IntentEngine.custom_keys`**
+   - **Current:** `List<String>` (was `Map<String, Bool>`)
+   - **Reason:** initially thought to be G46's trigger; actually
+     not. The `Map<String, Bool>` was replaced with `List<String>`
+     during the G46 diagnostic and the replacement was kept
+     because it works and is simpler.
+   - **Revert:** optional. `List<String>` is fine for 6 properties
+     (O(n) lookup), and `Map<String, Bool>` may or may not work
+     depending on the exact G46 trigger resolution. Only revert if
+     the fix specifically resolves it.
+
+**Note on file-splitting:** the port does NOT split files to avoid
+G46. Testing showed that the bug propagates across imports
+(`probe_split_impl.gol` fails even when the `Map`-field record is
+in a different file). The workaround is algorithmic, not structural.
+
+### Fix scope (2026-11-08)
+
+The compiler fix requires changing `Stmt::ArrayAssign`'s `array`
+field from `String` to `Expr` — **15 call sites across 9 files**:
+
+- `src/frontend/ast.rs` (definition + span)
+- `src/frontend/parser/stmt.rs` (construction)
+- `src/frontend/formatter/emit.rs` (display)
+- `src/frontend/ast_display.rs` (display)
+- `src/semantics/analyzer/stmt.rs` (analyze — the key site)
+- `src/semantics/analyzer/ownership.rs` (borrow check)
+- `src/semantics/builder/expr.rs` (IR build)
+- `src/compiler.rs` (walk)
+- `src/ir/loop_desugar.rs` (desugar)
+- `src/ir/instantiation_plan.rs` (instantiation)
+- `src/compiler/passes/type_table_complete.rs` (completeness)
+
+Deferred to a dedicated compiler session. The port-side workaround
+(append-based row construction in `levenshtein`) is applied and
+verified.
+
+### Status update
+
+- **Workaround applied** to `intent_detector.gol`'s `levenshtein`.
+- **Compiler fix scoped** (15 sites). Scheduled.
+- **Port unblocked** — Phase 5b Part 1 can proceed.
+
+### G18 addendum — depth limit applies to Map.get matches too
+
+**Discovered:** 2026-11-08, while porting `intent_data.gol`'s
+`load_pattern_ids`.
+
+**Symptom.** A function with 5 levels of nested `match` — `match
+Arr → for → match Obj → match Map.get → match Json` — silently
+fails at the innermost match. The `case Str(s)` arm never fires
+even when the value **IS** `Json.Str`:
+
+    match m.get("pattern_id") {
+        case Some(v) then {
+            match v {
+                case Str(s) then { out.append(s) }    // ← never fires
+                case _ then {
+                    // diagnostic: this fires instead
+                    print(stringify(v))    // prints "flexbox"
+                }
+            }
+        }
+        ...
+    }
+
+`stringify(v)` outputs `"flexbox"` (proving `v` is `Json.Str`),
+but the match says "not Str."
+
+**Root cause.** Same as the main G18 entry: match on a union at
+depth ≥ 2 loses the variant table. The main G18 fix (2026-11-01)
+rewrote union variant payload placeholders in the analyzer — that
+fix handled the case where the union is a *direct* field of another
+union. It did **not** handle the case where the innermost match is
+on a `Map.get(k)` result, because that path goes through a
+different type-inference route.
+
+**Workaround.** Split the innermost extraction into a helper:
+
+    proc extract_pattern_id(item: Json) -> Option[String]
+        match item {
+            case Obj(m) then {
+                match m.get("pattern_id") {
+                    case Some(v) then {
+                        match v {
+                            case Str(s) then { return Some(s) }
+                            case _ then { return None }
+                        }
+                    }
+                    case None then { return None }
+                }
+            }
+            case _ then { return None }
+        }
+
+    proc load_pattern_ids(j: Json) -> List[String]
+        match j {
+            case Arr(items) then {
+                var out: List[String] := []
+                for item in items {
+                    match extract_pattern_id(item) {
+                        case Some(s) then { out.append(s) }
+                        case None then {}
+                    }
+                }
+                return out
+            }
+            case _ then { ... }
+        }
+
+Each helper now has ≤ 3 levels of nested match, well within the
+safe range.
+
+**Impact.** This bug will bite any port code that pattern-matches
+on a `Map.get(k)` result inside a nested match context. In the
+ChainCSS port, that's:
+- `load_pattern_ids` (fixed via split)
+- `load_value_corrections_map` (has similar structure — **check
+  for the same issue**)
+- Any future value-correction or intent-catalog loader
+
+**Status.** Workaround applied. The underlying match-depth limit
+is architectural and needs a dedicated compiler session to diagnose.
+The same class of bug is documented in G12 (IR builder drops
+statements after certain patterns) — the two may share a root
+cause in the analyzer's context handling for deep nested match
+constructs.

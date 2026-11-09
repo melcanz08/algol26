@@ -450,18 +450,34 @@ impl SemanticAnalyzer {
                 Some(base)
             }
             ExprKind::ArrayAccess { array, index, .. } => {
-                // Only literal indices produce a stable place. A
-                // computed index i would make `xs[i]` and `xs[j]`
-                // indistinguishable, so we bail and let the caller
-                // use the base name instead.
-                let ExprKind::Int(n, _) = &index.as_ref().kind else {
-                    return None;
-                };
-                if *n < 0 {
-                    return None;
-                }
+                // Literal positive index: precise element place.
+                // Non-literal index: conservative whole-list place
+                // (base with no projection). This matches the
+                // fallback `stmt.rs` uses for writes — when we cannot
+                // prove which element is meant, any live borrow of
+                // the base array overlaps, so two `&mut xs[i]` /
+                // `&mut xs[j]` with variable i, j are rejected as
+                // overlapping. Over-rejects rather than under-rejects.
+                //
+                // Negative literal index: still rejected. `xs[-1]`
+                // has no valid element; rejecting here produces a
+                // clearer diagnostic than a runtime out-of-bounds
+                // error would.
                 let mut base = self.place_of_expr(array)?;
-                base.projections.push(Projection::Index(*n as usize));
+                match &index.as_ref().kind {
+                    ExprKind::Int(n, _) => {
+                        if *n < 0 {
+                            return None;
+                        }
+                        base.projections.push(Projection::Index(*n as usize));
+                    }
+                    _ => {
+                        // Non-literal index: no projection pushed.
+                        // The returned place is the base list alone,
+                        // so it overlaps with any other place on the
+                        // same base.
+                    }
+                }
                 Some(base)
             }
             ExprKind::Deref { expr, .. } => {

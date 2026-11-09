@@ -1,0 +1,15 @@
+// G41 regression: two &mut xs[i] / &mut xs[j] with variable i, j
+// must be rejected as overlapping. This test file is *expected to
+// fail* with E0007. The integration test runner uses it as a
+// negative case.
+
+proc main() -> Void
+    var xs: List[Int] := []
+    xs.append(1)
+    xs.append(2)
+    var i := 0
+    var j := 1
+    val a := &mut xs[i]
+    val b := &mut xs[j]
+    *a := 10
+    *b := 20

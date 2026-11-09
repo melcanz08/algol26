@@ -1,0 +1,14 @@
+// G41 regression: &mut xs[i] with a variable index must be
+// accepted by the analyzer. Literal indexes have always worked;
+// the fix extended this to variable indexes with a conservative
+// whole-list borrow.
+
+proc main() -> Void
+    var xs: List[Int] := []
+    xs.append(1)
+    xs.append(2)
+    var i := 1
+    mutate_first(&mut xs[i])
+
+proc mutate_first(x: &mut Int) -> Void
+    *x := 99

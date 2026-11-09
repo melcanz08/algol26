@@ -322,7 +322,7 @@ fixtures, and ADRs. The `--check` flag makes it suitable for CI.
 
 ## License
 
-MIT — Rommel Edorot Caneos
+MIT — Rommel Caneos
 
 ## Acknowledgments
 

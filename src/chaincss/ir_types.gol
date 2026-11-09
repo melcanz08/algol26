@@ -50,6 +50,59 @@ pub rec IRDynamicValue
     pub kind: String
     pub originalValue: Option[Json]
 
+// ─── ParsedValue ─────────────────────────────────────────────────────
+//
+// Mirror of TS types.ts ParsedValue (9-variant recursive union):
+//   dimension  { value, unit }
+//   number     { value }
+//   percentage { value }
+//   color      { hex }
+//   keyword    { value }
+//   string     { value }
+//   function   { name, args }
+//   list       { items, separator? }
+//   raw        { value }
+//
+// `function.args` and `list.items` are recursive — this is the shape
+// G18/G18d proved works (Json's recursive shape uses the same
+// mechanism). Variant names are prefixed (PNumber, PString, PList,
+// PFunction) to avoid colliding with Json variants (NumInt, Str, …)
+// when a ParsedValue and a Json are both in scope.
+//
+// Consumers: unit-normalizer (branches on kind), intent-normalizer
+// (via meta.parsed), token-lowering (reads dimension/number/color).
+
+pub union ParsedValue
+    Dimension(Float, String)
+    PNumber(Float)
+    Percentage(Float)
+    Color(String)
+    Keyword(String)
+    PString(String)
+    PFunction(String, List[ParsedValue])
+    PList(List[ParsedValue], Option[String])
+    PRaw(String)
+
+// ─── IRDeclarationMeta ───────────────────────────────────────────────
+//
+// Mirror of TS types.ts IRDeclarationMeta:
+//   parsed?: ParsedValue
+//   atomic?: boolean
+//   generated?: boolean
+//   ast?: CSSValueNode   (deferred — G2; kept as Option[Json])
+//   [key: string]: unknown   (extensions — G1)
+//
+// This is the record the *normalizers* populate. Phase 2/4 didn't
+// need it; Phase 5 does, because unit-normalizer reads/writes
+// meta.parsed and atomic-extractor reads/writes meta.atomic.
+
+pub rec IRDeclarationMeta
+    pub parsed: Option[ParsedValue]
+    pub atomic: Option[Bool]
+    pub generated: Option[Bool]
+    pub ast: Option[Json]
+    pub extensions: Json
+
 // ─── IRDeclaration ───────────────────────────────────────────────────
 
 pub rec IRDeclaration
@@ -59,7 +112,7 @@ pub rec IRDeclaration
     pub important: Option[Bool]
     pub source: Option[SourceLocation]
     pub history: List[IRTransformRecord]
-    pub meta: Option[Json]
+    pub meta: Option[IRDeclarationMeta]
     pub dynValue: Option[IRDynamicValue]
 
 // ─── IRPseudoClass ───────────────────────────────────────────────────
@@ -209,6 +262,120 @@ pub proc dynamic_value_to_json(dv: IRDynamicValue) -> Json
     }
     return Json.Obj(m)
 
+// ─── Serialization for the new Phase-5 records ──────────────────────
+
+pub proc parsed_value_to_json(pv: &ParsedValue) -> Json
+    match *pv
+        case Dimension(v, u) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("dimension"))
+            m.insert("value", Json.NumFloat(v))
+            m.insert("unit", Json.Str(u))
+            return Json.Obj(m)
+        }
+        case PNumber(v) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("number"))
+            m.insert("value", Json.NumFloat(v))
+            return Json.Obj(m)
+        }
+        case Percentage(v) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("percentage"))
+            m.insert("value", Json.NumFloat(v))
+            return Json.Obj(m)
+        }
+        case Color(h) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("color"))
+            m.insert("hex", Json.Str(h))
+            return Json.Obj(m)
+        }
+        case Keyword(k) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("keyword"))
+            m.insert("value", Json.Str(k))
+            return Json.Obj(m)
+        }
+        case PString(s) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("string"))
+            m.insert("value", Json.Str(s))
+            return Json.Obj(m)
+        }
+        case PFunction(name, args) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("function"))
+            m.insert("name", Json.Str(name))
+            var arr: List[Json] := []
+            for a in args {
+                arr.append(parsed_value_to_json(&a))
+            }
+            m.insert("args", Json.Arr(arr))
+            return Json.Obj(m)
+        }
+        case PList(items, sep) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("list"))
+            var arr: List[Json] := []
+            for it in items {
+                arr.append(parsed_value_to_json(&it))
+            }
+            m.insert("items", Json.Arr(arr))
+            match sep {
+                case Some(s) then { m.insert("separator", Json.Str(s)) }
+                case None then {}
+            }
+            return Json.Obj(m)
+        }
+        case PRaw(s) then {
+            var m: Map<String, Json> := Map<String, Json> {}
+            m.insert("kind", Json.Str("raw"))
+            m.insert("value", Json.Str(s))
+            return Json.Obj(m)
+        }
+
+pub proc declaration_meta_to_json(mt: &IRDeclarationMeta) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    match mt.parsed {
+        case Some(pv) then { m.insert("parsed", parsed_value_to_json(&pv)) }
+        case None then {}
+    }
+    match mt.atomic {
+        case Some(b) then { m.insert("atomic", Json.Bool(b)) }
+        case None then {}
+    }
+    match mt.generated {
+        case Some(b) then { m.insert("generated", Json.Bool(b)) }
+        case None then {}
+    }
+    match mt.ast {
+        case Some(a) then { m.insert("ast", a) }
+        case None then {}
+    }
+    // extensions: Json object of additional keys. Merge its entries
+    // into the top-level meta object, matching TS's open-index spread.
+    match mt.extensions {
+        case Obj(ext_map) then {
+            for k in ext_map.keys() {
+                match ext_map.get(k) {
+                    case Some(v) then {
+                        // Only insert if the key isn't already present.
+                        // Equality against None doesn't infer the
+                        // Option parameter, so use a match instead.
+                        match m.get(k) {
+                            case Some(_existing) then {}
+                            case None then { m.insert(k, v) }
+                        }
+                    }
+                    case None then {}
+                }
+            }
+        }
+        case _ then {}
+    }
+    return Json.Obj(m)
+
 pub proc declaration_to_json(d: IRDeclaration) -> Json
     var m: Map<String, Json> := Map<String, Json> {}
     m.insert("id", Json.Str(d.id))
@@ -228,7 +395,7 @@ pub proc declaration_to_json(d: IRDeclaration) -> Json
     }
     m.insert("history", Json.Arr(hist_json))
     match d.meta {
-        case Some(mt) then { m.insert("meta", mt) }
+        case Some(mt) then { m.insert("meta", declaration_meta_to_json(&mt)) }
         case None then {}
     }
     match d.dynValue {

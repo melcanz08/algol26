@@ -179,6 +179,38 @@ pub proc create_declaration(property: String, value: Json, source: Option[Source
         important: None,
         source: source,
         history: [make_transform_record("parser", "created", "Parsed from StyleDefinition")],
-        meta: Some(Json.Obj(Map<String, Json> {})),
+        meta: Some(IRDeclarationMeta {
+            parsed: None,
+            atomic: None,
+            generated: None,
+            ast: None,
+            extensions: Json.Obj(Map<String, Json> {})
+        }),
         dynValue: None
     }
+
+// record_history(d, pass, action, previous, reason) — append one
+// IRTransformRecord to the declaration's history. Called by every
+// normalizer (unit-normalizer, intent-normalizer, token-lowering).
+// `previous` is Some(original_value) so the history is auditable;
+// timestamp is 0 per G28 (no time primitive in ALGOL26).
+pub proc record_history(
+    d: &mut IRDeclaration,
+    pass: String,
+    action: String,
+    previous: Json,
+    reason: String
+) -> Void
+    // String parameters are by-value; callers pass literals or
+    // owned strings directly, no `&` needed. This matches the
+    // convention in parser.gol (starts_with, kebab_lower, …).
+    //
+    // `rec` is a keyword — use `history_rec` for the local binding.
+    val history_rec := IRTransformRecord {
+        pass: pass,
+        action: action,
+        timestamp: 0,
+        previous: Some(previous),
+        reason: Some(reason)
+    }
+    d.history.append(history_rec)

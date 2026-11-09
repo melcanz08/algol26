@@ -1,0 +1,152 @@
+// pipeline_types.gol — Phase 5 subset of pipeline-types.ts.
+//
+// Only the types the Phase-5 normalizers consume or return:
+//   - Correction          (returned inside NormalizationResult)
+//   - NormalizationResult (return type of every normalizer)
+//   - NormalizationPass   (identity wrapper — name + closure-ish)
+//   - CorrectionResult    (from intent-detector.ts, not here)
+//   - IntentContext       (input to intent.correct / detect)
+//   - HealResult / HealMode (input/output of intent.heal)
+//
+// Everything else (ValidationPass, OptimizationPass, LoweringPass,
+// CompilerPass, PipelineResult, Inspector types) is Phase 6+ and is
+// deferred. When Phase 6 starts, add the relevant subset here rather
+// than porting the whole file — matches the ir_types.gol convention.
+//
+// Convention notes:
+//   - Correction.original: any   -> Option[Json] (TS pushes
+//     `original: undefined` for injected defaults; Option preserves
+//     the absent-vs-null distinction).
+//   - Correction.corrected: any  -> Json (strings or numbers).
+//   - CorrectionResult.defaults  -> Option[Map[String, Json]]
+//     (TS types it `Record<string, string | number>`; widen to Json
+//     so a future registerSemanticIntent call passing a number does
+//     not require a type change).
+//   - IntentContext is `{[key: string]: unknown}` in intent-detector.ts;
+//     here it keeps the two named fields and puts the rest in
+//     extensions: Json.
+
+import "json.gol"
+import "ir_types.gol"
+
+// ─── Correction (Stage 1: Normalization) ─────────────────────────
+
+pub rec Correction
+    pub nodeId: String
+    pub property: Option[String]
+    pub original: Option[Json]
+    pub corrected: Json
+    pub reason: String
+
+pub rec NormalizationResult
+    pub ir: StyleIR
+    pub corrections: List[Correction]
+
+pub rec NormalizationContext
+    pub sourceFile: Option[String]
+    pub config: Option[Json]
+
+// ─── CorrectionResult (intent-detector.ts's return shape) ────────
+
+pub rec CorrectionResult
+    pub original: String
+    pub property: String
+    pub corrected: String
+    pub defaults: Option[Map[String, Json]]
+    pub confidence: Float
+    pub intent: String
+    pub explanation: String
+
+// ─── IntentContext (input to intent.correct / detectIntent) ──────
+
+// intent-detector.ts types it as `{ property?: string;
+// value?: string; [key: string]: unknown }` implicitly (the context
+// is spread into `{ property, value, ...context }`). The two named
+// fields are what the handlers actually read; everything else is
+// passed through as Json to preserve forward compatibility.
+
+pub rec IntentContext
+    pub property: Option[String]
+    pub value: Option[String]
+    pub extensions: Json
+
+// ─── HealMode / HealResult (input/output of intent.heal) ─────────
+
+// HealMode is "strict" | "smart" | "dev" in TS. Modelled as String
+// (same convention as IRAtRule.type / IRDiagnostic.severity).
+
+pub rec HealResult
+    pub fixed: Map[String, Json]
+    pub corrections: List[CorrectionResult]
+    pub warnings: List[String]
+    pub mode: String
+
+// ─── Constructors ────────────────────────────────────────────────
+
+pub proc empty_intent_context() -> IntentContext
+    return IntentContext {
+        property: None,
+        value: None,
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+
+pub proc intent_context_with_property(property: String) -> IntentContext
+    return IntentContext {
+        property: Some(property),
+        value: None,
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+
+pub proc intent_context_full(property: String, value: String) -> IntentContext
+    return IntentContext {
+        property: Some(property),
+        value: Some(value),
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+
+// ─── Serialization (parity harness) ──────────────────────────────
+
+pub proc correction_to_json(c: Correction) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("nodeId", Json.Str(c.nodeId))
+    match c.property {
+        case Some(p) then { m.insert("property", Json.Str(p)) }
+        case None then {}
+    }
+    match c.original {
+        case Some(o) then { m.insert("original", o) }
+        case None then {}
+    }
+    m.insert("corrected", c.corrected)
+    m.insert("reason", Json.Str(c.reason))
+    return Json.Obj(m)
+
+pub proc corrections_to_json(cs: List[Correction]) -> Json
+    var arr: List[Json] := []
+    for c in cs {
+        arr.append(correction_to_json(c))
+    }
+    return Json.Arr(arr)
+
+pub proc correction_result_to_json(r: CorrectionResult) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("original", Json.Str(r.original))
+    m.insert("property", Json.Str(r.property))
+    m.insert("corrected", Json.Str(r.corrected))
+    match r.defaults {
+        case Some(d) then {
+            var dm: Map<String, Json> := Map<String, Json> {}
+            for k in d.keys() {
+                match d.get(k) {
+                    case Some(v) then { dm.insert(k, v) }
+                    case None then {}
+                }
+            }
+            m.insert("defaults", Json.Obj(dm))
+        }
+        case None then {}
+    }
+    m.insert("confidence", Json.NumFloat(r.confidence))
+    m.insert("intent", Json.Str(r.intent))
+    m.insert("explanation", Json.Str(r.explanation))
+    return Json.Obj(m)

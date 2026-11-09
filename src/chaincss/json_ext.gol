@@ -1,0 +1,76 @@
+// json_ext.gol — Phase 5 type-discriminating accessors.
+//
+// The `json_get_*` value accessors (json_get_string, json_get_bool,
+// etc.) live in config.gol and are module-private. The normalizers
+// need different shapes: type predicates (json_is_number) and
+// structural accessors (json_obj_get_map). Those live here so both
+// files can evolve without stepping on each other.
+//
+// Two ALGOL26 idioms worth noting here:
+//   1. Nested matches are split into helpers — G18 (nested match
+//      on a union loses the variant table at depth >= 2).
+//   2. `match *v`, not `match v`, when v is a reference. Variant
+//      patterns (NumInt(_), Obj(_)) require the union value, not
+//      Borrow<Json>. See G39.
+
+import "json.gol"
+
+// ─── Type predicates ─────────────────────────────────────────────
+
+pub proc json_is_number(v: &Json) -> Bool
+    match *v
+        case NumInt(_) then { return true }
+        case NumFloat(_) then { return true }
+        case _ then { return false }
+
+pub proc json_is_string(v: &Json) -> Bool
+    match *v
+        case Str(_) then { return true }
+        case _ then { return false }
+
+// ─── Numeric coercions ───────────────────────────────────────────
+
+pub proc json_as_float(v: &Json) -> Float
+    match *v
+        case NumInt(n) then { return 0.0 + n }
+        case NumFloat(f) then { return f }
+        case _ then { return 0.0 }
+
+pub proc json_as_string(v: &Json) -> Option[String]
+    match *v
+        case Str(s) then { return Some(s) }
+        case _ then { return None }
+
+// ─── Structural accessors (inner match extracted, G18 shape) ─────
+
+// Unwrap a Json into Option[Map<String, Json>] if it is a Json.Obj.
+pub proc json_as_obj(v: &Json) -> Option[Map<String, Json>]
+    match *v
+        case Obj(inner) then { return Some(inner) }
+        case _ then { return None }
+
+// Unwrap a Json into Option[List[Json]] if it is a Json.Arr.
+pub proc json_as_arr(v: &Json) -> Option[List[Json]]
+    match *v
+        case Arr(items) then { return Some(items) }
+        case _ then { return None }
+
+// Look up `key` in `m` and return the raw Option[Json].
+pub proc json_obj_get(m: Map<String, Json>, key: String) -> Option[Json]
+    return m.get(key)
+
+// Look up `key` and unwrap to Map if present and an object.
+pub proc json_obj_get_map(m: Map<String, Json>, key: String) -> Option[Map<String, Json>]
+    match json_obj_get(m, key)
+        case Some(v) then { return json_as_obj(&v) }
+        case None then { return None }
+
+// Look up `key` and unwrap to List if present and an array.
+pub proc json_obj_get_arr(m: Map<String, Json>, key: String) -> Option[List[Json]]
+    match json_obj_get(m, key)
+        case Some(v) then { return json_as_arr(&v) }
+        case None then { return None }
+
+pub proc json_arr_is_nonempty(items: &List[Json]) -> Bool
+    // List.length takes List by value; deref the &List first.
+    return (*items).length() > 0

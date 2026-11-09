@@ -1,0 +1,43 @@
+// normalizer_parity.gol — Phase 5 unit-normalizer parity driver.
+//
+// Runs `parse_ir` (Phase 2D, verified) then `normalize_units`
+// (Phase 5, this pass) and emits `{ "ir": ..., "corrections": [...] }`
+// so the shell driver can structurally compare against the TS oracle.
+//
+// Input: /tmp/chaincss-parity/current_input.json — the source.json
+// from ts-export-source.ts, same file the TS parser consumes.
+//
+// Because Phase 2D already verified `parse_ir` produces the same IR
+// as TS's `parseIR`, we can trust the pre-normalization IR to match;
+// any diff in the normalized output is a normalizer bug.
+//
+// G6: output field order is not guaranteed (Map.keys() sorts). The
+// comparator must compare structurally, not byte-for-byte.
+
+import "json.gol"
+import "ir_types.gol"
+import "pipeline_types.gol"
+import "parse_ir.gol"
+import "unit_normalizer.gol"
+
+proc main() -> Void
+    val src := File.read("/tmp/chaincss-parity/current_input.json")
+    match parse(src) {
+        case Error(msg) then {
+            File.write("/dev/stderr", "parse error: " + msg + "\n")
+            return
+        }
+        case Ok(styles) then {
+            // Read source name (used for IR node IDs). If missing,
+            // fall back — this only affects rule IDs, which the
+            // comparator normalizes.
+            val source_name := String.trim(File.read("/tmp/chaincss-parity/current_source.txt"))
+            val ir := parse_ir(styles, source_name)
+            val result := normalize_units(ir)
+            var root: Map<String, Json> := Map<String, Json> {}
+            root.insert("ir", style_ir_to_json(result.ir))
+            root.insert("corrections", corrections_to_json(result.corrections))
+            print(stringify(Json.Obj(root)))
+            return
+        }
+    }

@@ -1,0 +1,402 @@
+// unit_normalizer.gol — port of unit-normalizer.ts.
+//
+// Source: chaincss/src/compiler/pipeline/normalizers/unit-normalizer.ts
+// Returns: NormalizationResult (from pipeline_types.gol).
+//
+// Behavior ported verbatim:
+//   - Skip CSS custom properties (props starting with `--`).
+//   - Skip properties in UNITLESS_PROPERTIES (50 entries).
+//   - For each declaration with a number value: append "px".
+//   - For each declaration with a numeric-string value: append "px".
+//   - Zero values are left alone (0 not 0px).
+//   - Recurse into pseudoClasses, nestedRules, atRules, keyframes.
+//
+// Port-specific notes:
+//   - G37: TS's `normalizeRule(rule: IRRule | IRAtRule)` union-typed
+//     helper is split into three procs (normalize_rule_units,
+//     normalize_at_rule_units, normalize_declarations_only).
+//   - G41 + G42 (both fixed): `&mut list[i]` with a variable index
+//     is now accepted by the analyzer (G41) and the interpreter
+//     (G42). The natural form `normalize_one_declaration(&mut
+//     (*decls)[i], ...)` is what this file uses.
+//   - G43 (open, Phase 7 blocker): Map.keys() sorts declarations
+//     alphabetically; TS preserves source order. The parity
+//     comparator sorts both sides before comparing. Byte-for-byte
+//     parity for the emitter (Phase 7) requires G43 to land.
+//   - G34 does NOT bite Phase 5: the value-to-string path is either
+//     Int (Int.to_string, exact) or Str (string concat, exact).
+//   - UNITLESS_PROPERTIES is loaded from data/unitless_properties.json
+//     at module init, matching the source-of-truth discipline.
+//
+// UNITLESS_PROPERTIES as a Map<String, Bool> for O(1) lookup.
+
+import "json.gol"
+import "ir_types.gol"
+import "pipeline_types.gol"
+import "ir_factory.gol"
+import "json_ext.gol"
+import "parser.gol"
+
+// ─── The unitless property set (loaded at init) ─────────────────
+
+// 50 entries. Order matches the TS source for future diffing,
+// but the map is order-insensitive.
+pub proc unitless_properties() -> Map<String, Bool>
+    var m: Map<String, Bool> := Map<String, Bool> {}
+    m.insert("animation-composition", true)
+    m.insert("animation-iteration-count", true)
+    m.insert("aspect-ratio", true)
+    m.insert("border-image-outset", true)
+    m.insert("border-image-slice", true)
+    m.insert("border-image-width", true)
+    m.insert("box-flex", true)
+    m.insert("box-flex-group", true)
+    m.insert("box-ordinal-group", true)
+    m.insert("column-count", true)
+    m.insert("column-span", true)
+    m.insert("counter-increment", true)
+    m.insert("counter-reset", true)
+    m.insert("counter-set", true)
+    m.insert("fill-opacity", true)
+    m.insert("flex", true)
+    m.insert("flex-grow", true)
+    m.insert("flex-order", true)
+    m.insert("flex-shrink", true)
+    m.insert("font-weight", true)
+    m.insert("grid-area", true)
+    m.insert("grid-column", true)
+    m.insert("grid-column-end", true)
+    m.insert("grid-column-span", true)
+    m.insert("grid-column-start", true)
+    m.insert("grid-row", true)
+    m.insert("grid-row-end", true)
+    m.insert("grid-row-span", true)
+    m.insert("grid-row-start", true)
+    m.insert("hyphenate-limit-chars", true)
+    m.insert("line-clamp", true)
+    m.insert("line-height", true)
+    m.insert("mask-border-outset", true)
+    m.insert("mask-border-slice", true)
+    m.insert("mask-border-width", true)
+    m.insert("math-depth", true)
+    m.insert("opacity", true)
+    m.insert("order", true)
+    m.insert("orphans", true)
+    m.insert("scale", true)
+    m.insert("stroke-dasharray", true)
+    m.insert("stroke-dashoffset", true)
+    m.insert("stroke-miterlimit", true)
+    m.insert("stroke-opacity", true)
+    m.insert("stroke-width", true)
+    m.insert("tab-size", true)
+    m.insert("widows", true)
+    m.insert("z-index", true)
+    m.insert("zoom", true)
+    return m
+
+// ─── Kebab conversion (toUnprefixedKebab from TS) ───────────────
+//
+// Distinct from parser.gol's kebab_lower: this version inserts
+// `-` before each uppercase EXCEPT at offset 0, and also strips
+// a vendor prefix (`-webkit-`, `-moz-`, `-ms-`, `-o-`). Both
+// behaviors match unit-normalizer.ts's toUnprefixedKebab.
+
+pub rec KebabPair
+    pub kebab: String
+    pub clean: String
+
+proc is_upper(c: Char) -> Bool
+    val n := Char.to_int(c)
+    return n >= 65 and n <= 90
+
+// Lowercase a single Char via the String bridge. No Char.lowercase
+// builtin exists (confirmed 2026-11-08). Cost: one String alloc per
+// uppercase char. Fine for declaration properties (short strings).
+proc lower_char(c: Char) -> String
+    return String.to_lower(Char.to_string(c))
+
+pub proc to_unprefixed_kebab(prop: String) -> KebabPair
+    val prop_lower := String.to_lower(prop)
+    // Fast path: no uppercase means no kebab conversion needed.
+    // This path consumes `prop` exactly once (into `kebab`).
+    if prop_lower = prop {
+        return KebabPair { kebab: prop, clean: strip_vendor_prefix(prop) }
+    }
+    // Slow path: rebuild the string with `-` before each uppercase
+    // except at offset 0, lowercasing as we go. Consumes `prop`
+    // exactly once (into `String.to_chars`).
+    val chars := String.to_chars(prop)
+    var out := ""
+    var i := 0
+    while i < chars.length() {
+        val c := chars[i]
+        if is_upper(c) {
+            if i > 0 {
+                out := out + "-"
+            }
+            out := out + lower_char(c)
+        } else {
+            out := out + Char.to_string(c)
+        }
+        i := i + 1
+    }
+    return KebabPair { kebab: out, clean: strip_vendor_prefix(out) }
+
+// Strip a leading vendor prefix (with or without the leading dash).
+// Matches /^-?(?:webkit|moz|ms|o)-/ from the TS source.
+pub proc strip_vendor_prefix(s: String) -> String
+    if starts_with(s, "-webkit-") { return String.substring(s, 8, s.length() - 8) }
+    if starts_with(s, "-moz-") then { return String.substring(s, 5, s.length() - 5) }
+    if starts_with(s, "-ms-") then { return String.substring(s, 4, s.length() - 4) }
+    if starts_with(s, "-o-") then { return String.substring(s, 3, s.length() - 3) }
+    if starts_with(s, "webkit-") then { return String.substring(s, 7, s.length() - 7) }
+    if starts_with(s, "moz-") then { return String.substring(s, 4, s.length() - 4) }
+    if starts_with(s, "ms-") then { return String.substring(s, 3, s.length() - 3) }
+    if starts_with(s, "o-") then { return String.substring(s, 2, s.length() - 2) }
+    return s
+
+// ─── Numeric string test (hand-port of REGEX_NUMERIC_STRING) ────
+//
+// /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i
+//
+// Accepts: "12", "12.", "12.5", ".5", "+12", "-12", "1e5", "1.5e-3"
+// Rejects: "12..5", "1e", "e5", "", "12px", "+."
+
+proc is_digit(c: Char) -> Bool
+    val n := Char.to_int(c)
+    return n >= 48 and n <= 57
+
+pub proc is_numeric_string(s: &String) -> Bool
+    val chars := String.to_chars(*s)
+    val n := chars.length()
+    if n = 0 then { return false }
+    var i := 0
+    // Optional sign
+    if chars[i] = '+' or chars[i] = '-' then { i := i + 1 }
+    // Integer digits
+    var int_digits := 0
+    while i < n and is_digit(chars[i]) {
+        int_digits := int_digits + 1
+        i := i + 1
+    }
+    // Optional fraction
+    var frac_digits := 0
+    if i < n and chars[i] = '.' {
+        i := i + 1
+        while i < n and is_digit(chars[i]) {
+            frac_digits := frac_digits + 1
+            i := i + 1
+        }
+    }
+    // Must have at least one digit total.
+    if int_digits = 0 and frac_digits = 0 then { return false }
+    // Optional exponent.
+    if i < n and (chars[i] = 'e' or chars[i] = 'E') {
+        i := i + 1
+        if i < n and (chars[i] = '+' or chars[i] = '-') then { i := i + 1 }
+        var exp_digits := 0
+        while i < n and is_digit(chars[i]) {
+            exp_digits := exp_digits + 1
+            i := i + 1
+        }
+        if exp_digits = 0 then { return false }
+    }
+    return i = n
+
+// ─── Declaration normalization ──────────────────────────────────
+
+// Normalize a single declaration in place. Returns a Correction if
+// a change was made, None otherwise.
+proc normalize_one_declaration(
+    d: &mut IRDeclaration,
+    unitless: Map<String, Bool>
+) -> Option[Correction]
+    // Skip custom properties.
+    if starts_with(d.property, "--") then { return None }
+    val kp := to_unprefixed_kebab(d.property)
+    // Skip unitless properties.
+    match unitless.get(kp.clean) {
+        case Some(_) then { return None }
+        case None then {}
+    }
+    match unitless.get(kp.kebab) {
+        case Some(_) then { return None }
+        case None then {}
+    }
+    // Branch on the value kind.
+    match d.value {
+        case NumInt(n) then {
+            if n = 0 then { return None }
+            val original := d.value
+            d.value := Json.Str(Int.to_string(n) + "px")
+            record_history(
+                d,
+                "unit-normalizer",
+                "added-unit",
+                original,
+                "Added px unit to number value"
+            )
+            return Some(Correction {
+                nodeId: d.id,
+                property: Some(d.property),
+                original: Some(original),
+                corrected: d.value,
+                reason: "Added px unit to number value"
+            })
+        }
+        case NumFloat(f) then {
+            if f = 0.0 then { return None }
+            // G34: Float.to_string diverges from JS on exponents.
+            // For Phase 5 we accept it because corpus values are
+            // small decimals; the divergence is logged in G34 and
+            // resolved before Phase 7.
+            val original := d.value
+            d.value := Json.Str(Float.to_string(f) + "px")
+            record_history(
+                d,
+                "unit-normalizer",
+                "added-unit",
+                original,
+                "Added px unit to number value"
+            )
+            return Some(Correction {
+                nodeId: d.id,
+                property: Some(d.property),
+                original: Some(original),
+                corrected: d.value,
+                reason: "Added px unit to number value"
+            })
+        }
+        case Str(s) then {
+            if is_numeric_string(&s) then {
+                // Numeric string. Zero check: parseFloat("0") = 0.
+                // Only values equal to numeric zero are skipped.
+                if is_zero_string(&s) then { return None }
+                val original := d.value
+                d.value := Json.Str(s + "px")
+                record_history(
+                    d,
+                    "unit-normalizer",
+                    "added-unit",
+                    original,
+                    "Added px unit to numeric string value"
+                )
+                return Some(Correction {
+                    nodeId: d.id,
+                    property: Some(d.property),
+                    original: Some(original),
+                    corrected: d.value,
+                    reason: "Added px unit to numeric string value"
+                })
+            }
+            return None
+        }
+        case _ then { return None }
+    }
+
+// True iff the string represents numeric zero ("0", "0.0", "-0", "0e5").
+pub proc is_zero_string(s: &String) -> Bool
+    val chars := String.to_chars(*s)
+    var i := 0
+    val n := chars.length()
+    if i < n and (chars[i] = '+' or chars[i] = '-') then { i := i + 1 }
+    var all_zeros := true
+    var saw_digit := false
+    while i < n {
+        val c := chars[i]
+        if c = '.' then {
+            i := i + 1
+        } else if c = 'e' or c = 'E' then {
+            // Exponent: any digits after are the exponent magnitude,
+            // but the base was all zeros so the value is zero.
+            return saw_digit and all_zeros
+        } else if is_digit(c) then {
+            saw_digit := true
+            if c != '0' then { all_zeros := false }
+            i := i + 1
+        } else {
+            return false
+        }
+    }
+    return saw_digit and all_zeros
+
+// ─── Recursion (G37: split from TS's union-typed normalizeRule) ──
+
+proc normalize_declarations_only(
+    decls: &mut List[IRDeclaration],
+    unitless: &Map<String, Bool>,
+    corrections: &mut List[Correction]
+) -> Void
+    var i := 0
+    while i < (*decls).length() {
+        // unitless by-value: deref at the call site (Map.get is
+        // a by-value method; the cost is a clone per declaration,
+        // negligible for the corpus).
+        val corr := normalize_one_declaration(&mut (*decls)[i], *unitless)
+        match corr {
+            case Some(c) then { (*corrections).append(c) }
+            case None then {}
+        }
+        i := i + 1
+    }
+
+proc normalize_rule_units(
+    rule: &mut IRRule,
+    unitless: &Map<String, Bool>,
+    corrections: &mut List[Correction]
+) -> Void
+    if rule.isDead then { return }
+    normalize_declarations_only(&mut rule.declarations, unitless, corrections)
+    var i := 0
+    while i < rule.pseudoClasses.length() {
+        normalize_declarations_only(&mut rule.pseudoClasses[i].declarations, unitless, corrections)
+        i := i + 1
+    }
+    var j := 0
+    while j < rule.nestedRules.length() {
+        normalize_rule_units(&mut rule.nestedRules[j], unitless, corrections)
+        j := j + 1
+    }
+    var k := 0
+    while k < rule.atRules.length() {
+        normalize_at_rule_units(&mut rule.atRules[k], unitless, corrections)
+        k := k + 1
+    }
+
+proc normalize_at_rule_units(
+    at: &mut IRAtRule,
+    unitless: &Map<String, Bool>,
+    corrections: &mut List[Correction]
+) -> Void
+    normalize_declarations_only(&mut at.declarations, unitless, corrections)
+    var i := 0
+    while i < at.nestedRules.length() {
+        normalize_rule_units(&mut at.nestedRules[i], unitless, corrections)
+        i := i + 1
+    }
+    match at.keyframes {
+        case Some(kfs) then {
+            var j := 0
+            while j < kfs.length() {
+                normalize_declarations_only(&mut kfs[j].declarations, unitless, corrections)
+                j := j + 1
+            }
+        }
+        case None then {}
+    }
+
+// ─── Top-level entry ────────────────────────────────────────────
+
+pub proc normalize_units(ir: StyleIR) -> NormalizationResult
+    val unitless := unitless_properties()
+    var corrections: List[Correction] := []
+    var mutable_ir := ir
+    var i := 0
+    while i < mutable_ir.rules.length() {
+        normalize_rule_units(&mut mutable_ir.rules[i], &unitless, &mut corrections)
+        i := i + 1
+    }
+    return NormalizationResult {
+        ir: mutable_ir,
+        corrections: corrections
+    }

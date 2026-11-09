@@ -1,0 +1,23 @@
+// G42 regression: &mut (*xs)[i] where xs: &mut List[Int], inside
+// a while loop. Before G42 the analyzer accepted this (G41's fix)
+// but the interpreter rejected it at runtime with "mutable reference
+// to non-addressable expression". This test exercises the runtime
+// path.
+
+proc mutate_all(xs: &mut List[Int]) -> Void
+    var i := 0
+    while i < (*xs).length() {
+        mutate_one(&mut (*xs)[i])
+        i := i + 1
+    }
+
+proc mutate_one(x: &mut Int) -> Void
+    *x := *x + 1
+
+proc main() -> Void
+    var xs: List[Int] := []
+    xs.append(1)
+    xs.append(2)
+    mutate_all(&mut xs)
+    print(Int.to_string(xs[0]))
+    print(Int.to_string(xs[1]))

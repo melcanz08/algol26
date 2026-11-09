@@ -297,7 +297,12 @@ impl Interpreter {
                 // value. Reads through the reference clone the
                 // value; it does not outlive the enclosing
                 // expression.
-                match self.place_of_ir_value(expr) {
+                // G42 fix. Use the precise variant so `&xs[i]` with a
+                // non-literal `i` captures a reference to `xs[<value of i>]`,
+                // not the whole list. Falls back to TempRef only if the
+                // expression truly has no place (a call result, a literal,
+                // an arithmetic expression).
+                match self.place_of_ir_value_precise(expr) {
                     Some(place) => RuntimeValue::Reference(place),
                     None => {
                         let value = self.eval_value(expr)?;
@@ -310,11 +315,18 @@ impl Interpreter {
                 // would be discarded when the temporary goes out
                 // of scope, which is almost always a user bug.
                 // Only place-based mutable borrows are legal.
-                let place = self.place_of_ir_value(expr).ok_or(EvalError::Unsupported {
-                    construct: "mutable reference to non-addressable expression",
-                    hint: "bind the value to a `var` first, then take \
-                           a `&mut` of the binding",
-                })?;
+                // G42 fix. Same precise variant as BorrowShared, so
+                // `&mut xs[i]` with a non-literal `i` resolves `i` to
+                // a concrete index at borrow time. This matches Rust:
+                // `&mut xs[i]` takes the address of one element, not
+                // "the element at whatever i is now".
+                let place = self
+                    .place_of_ir_value_precise(expr)
+                    .ok_or(EvalError::Unsupported {
+                        construct: "mutable reference to non-addressable expression",
+                        hint: "the expression must resolve to a variable, field, \
+                           or list element — a call result or literal has no place",
+                    })?;
                 RuntimeValue::Reference(place)
             }
             TypedIRValue::ReadReference { expr, .. } => {
@@ -562,6 +574,65 @@ impl Interpreter {
             // it, and then `apply_projection` would hit the
             // `Projection::Deref` unsupported arm.
             TypedIRValue::ReadReference { expr, .. } => self.place_of_ir_value(expr),
+            _ => None,
+        }
+    }
+
+    /// G42 fix. Like `place_of_ir_value`, but evaluates non-literal
+    /// indexes to concrete values. Used by `BorrowShared` and
+    /// `BorrowMutable` so `&mut xs[i]` captures a reference to
+    /// `xs[<value of i>]` rather than the whole list.
+    ///
+    /// Semantics: `&mut xs[i]` in Rust takes the address of one
+    /// element. If `i` changes after the borrow, the reference still
+    /// points at the original element. Evaluating `index` here (at
+    /// borrow time) matches that.
+    ///
+    /// The analyzer (post-G41) treats `&mut xs[i]` conservatively —
+    /// two `&mut xs[i]` / `&mut xs[j]` borrows overlap. That rule
+    /// runs at compile time. At runtime, if the program passed
+    /// analysis, we know at most one borrow of any element of `xs`
+    /// is live. So the interpreter can be precise: resolve `i` to a
+    /// concrete `usize` and store `[Index(i)]` in the place.
+    ///
+    /// On any failure to evaluate `index` to a non-negative `Int`,
+    /// returns `None` (caller falls back to the pre-G42 behavior).
+    pub(super) fn place_of_ir_value_precise(
+        &mut self,
+        v: &TypedIRValue,
+    ) -> Option<crate::semantics::state::Place> {
+        use crate::semantics::state::{Place, Projection};
+        match v {
+            TypedIRValue::Variable(name, _) => {
+                Some(Place::in_frame(self.current_frame_id(), name.clone()))
+            }
+            TypedIRValue::FieldAccess { object, field, .. } => {
+                let mut base = self.place_of_ir_value_precise(object)?;
+                base.projections.push(Projection::Field(field.clone()));
+                Some(base)
+            }
+            TypedIRValue::ArrayAccess { array, index, .. } => {
+                let mut base = self.place_of_ir_value_precise(array)?;
+                match index.as_ref() {
+                    TypedIRValue::Int(n) => {
+                        if *n < 0 {
+                            return None;
+                        }
+                        base.projections.push(Projection::Index(*n as usize));
+                    }
+                    _ => {
+                        // Evaluate the index to a concrete Int.
+                        match self.eval_value(index) {
+                            Ok(RuntimeValue::Int(n)) if n >= 0 => {
+                                base.projections.push(Projection::Index(n as usize));
+                            }
+                            _ => return None,
+                        }
+                    }
+                }
+                Some(base)
+            }
+            TypedIRValue::ReadReference { expr, .. } => self.place_of_ir_value_precise(expr),
             _ => None,
         }
     }

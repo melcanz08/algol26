@@ -378,8 +378,26 @@ impl<'ctx> IRCodeGen<'ctx> {
             Type::Result { ok, error } => {
                 // Result = { bool is_ok, Ok value, Error value }.
                 // Same caveat as Option.
-                let ok_ty = self.map_type(ok);
-                let err_ty = self.map_type(error);
+                //
+                // If either payload is Unknown (the analyzer couldn't
+                // infer it — common in try/catch, where the Ok path
+                // gives T but not E, and the Error path gives E but
+                // not T), substitute i64 as a placeholder payload.
+                // The switch only reads the tag and extracts the
+                // *matching* payload; the unused slot is never read.
+                // Without this substitution, `map_type(Unknown)` hits
+                // the fail-closed `unreachable!()` below, and try/catch
+                // panics under LLVM.
+                let ok_ty = if matches!(ok.as_ref(), Type::Unknown) {
+                    self.context.i64_type().into()
+                } else {
+                    self.map_type(ok)
+                };
+                let err_ty = if matches!(error.as_ref(), Type::Unknown) {
+                    self.context.i64_type().into()
+                } else {
+                    self.map_type(error)
+                };
                 let bool_ty = self.context.bool_type();
                 self.context
                     .struct_type(&[bool_ty.into(), ok_ty, err_ty], false)

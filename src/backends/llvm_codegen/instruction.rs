@@ -689,10 +689,14 @@ impl<'ctx> IRCodeGen<'ctx> {
     pub(super) fn compile_instruction(&mut self, instr: &Instruction) -> Result<()> {
         match instr {
             Instruction::Nop => Ok(()),
-            Instruction::TryCatchMarker => unreachable!(
-                "try/catch marker reached LLVM codegen — the capability \
-                 scan should have refused this program (Feature::TryCatch)"
-            ),
+            Instruction::TryCatchMarker => {
+                // Marker only — the IR builder has already lowered
+                // try/catch into a Switch on the Result tag plus
+                // payload extracts and a join. Nothing to emit here.
+                // See the interpreter's handler (`mod.rs:327`) for
+                // the same no-op.
+                Ok(())
+            }
             Instruction::UnionConstruct {
                 target,
                 union_name: _,

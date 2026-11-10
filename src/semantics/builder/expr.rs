@@ -2226,6 +2226,18 @@ impl SemanticIRBuilder {
                         _ => (vec![Stmt::Expression(try_branch.as_ref().clone())], None),
                     };
 
+                // Infer the Result<T, E> type from the try body's
+                // trailing expression. The analyzer has already
+                // filled type_table_id for it. If the trailing
+                // expression's type is unavailable (unusual), fall
+                // back to Unknown — the LLVM/WASM backends will
+                // then panic, surfacing the gap clearly rather than
+                // silently producing wrong code.
+                let try_value_type = try_trailing
+                    .as_deref()
+                    .and_then(|e| self.type_of_expr(e))
+                    .unwrap_or(Type::result(Type::Unknown, Type::Unknown));
+
                 // Allocate the try_value variable before branching.
                 self.safe_push_instruction(
                     func,
@@ -2233,7 +2245,7 @@ impl SemanticIRBuilder {
                     Instruction::Declare {
                         name: try_value_name.clone(),
                         mutable: true,
-                        type_: Type::result(Type::Unknown, Type::Unknown),
+                        type_: try_value_type.clone(),
                         value: TypedIRValue::Void,
                     },
                 );
@@ -2245,7 +2257,7 @@ impl SemanticIRBuilder {
                     &try_stmts,
                     try_trailing.as_deref(),
                     &try_value_name,
-                    Type::result(Type::Unknown, Type::Unknown),
+                    try_value_type.clone(),
                 );
 
                 let after_try = match try_flow {
@@ -2284,7 +2296,7 @@ impl SemanticIRBuilder {
 
                 let switch_value = TypedIRValue::Variable(
                     try_value_name.clone(),
-                    Type::result(Type::Unknown, Type::Unknown),
+                    try_value_type.clone(),
                 );
 
                 self.safe_set_terminator(

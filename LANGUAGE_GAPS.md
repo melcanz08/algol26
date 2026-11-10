@@ -1467,7 +1467,7 @@ and `layout-macros.ts` uses:
 - `/hsl[a]?\(\s*\d+deg?[,\s]+\s*[\d.]+%?[,\s]+\s*([\d.]+)%/` (HSL)
 
 Each is hand-ported as a linear scanner. See G36 for the
-`autoContrast`-specific pair; the others are in `unit_normalizer.alg`
+`autoContrast`-specific pair; the others are in `unit_normalizer.gol`
 and are noted at the call sites.
 
 **What would turn this into a real gap:** a normalizer that needs
@@ -1492,7 +1492,7 @@ with two regexes:
 
 Both are **linear-scan patterns** — no lookahead, no backreferences,
 fixed repeat count (three captures in the first, one in the second).
-Hand-ported as ~25-line and ~20-line matchers in `layout_macros.alg`.
+Hand-ported as ~25-line and ~20-line matchers in `layout_macros.gol`.
 `NAMED_COLORS` (17 entries) moves to `data/named_colors.json`; the
 matcher loads the map at init.
 
@@ -1667,8 +1667,8 @@ costs one character per match.
 
 **Cost across Phase 5.** Every normalizer that pattern-matches on
 `Json` / `Option[Json]` / `Map` values will need `match *v`. In
-`json_ext.gol` alone it was six call sites. In `unit_normalizer.alg`
-it will be every declaration value check. In `intent_normalizer.alg`
+`json_ext.gol` alone it was six call sites. In `unit_normalizer.gol`
+it will be every declaration value check. In `intent_normalizer.gol`
 it will be every `passMeta` unwrap. The pattern is mechanical and
 the fix is always the same.
 
@@ -2327,47 +2327,6 @@ Which means most of `intent_detector.gol`, `intent_normalizer.gol`, `token_lower
 
 **Status:** Open. Compiler fix required — the IR builder's type-table slot allocation for `Map` fields needs to not collide with sibling functions' `List<T>` locals.
 
-
-
-### Port-side workaround locations (G46)
-
-When the compiler fix lands, these workarounds should be reverted
-together (they're all the same class):
-
-1. **`src/chaincss/intent_detector.gol` — `levenshtein`**
-   - **Current:** append-based row construction (`var cur:
-     List[Int] := []; cur.append(i); cur.append(best); prev := cur`)
-   - **Original:** in-place `cur[0] := i`, `cur[jj] := best`,
-     copy-back `prev[k] := cur[k]`
-   - **Revert when:** `Stmt::ArrayAssign` records the array
-     expression's type (the compiler fix).
-
-2. **`src/chaincss/intent_data.gol` — `load_pattern_ids` and
-   `load_value_corrections_map`**
-   - **Current:** split into `extract_pattern_id` +
-     `load_pattern_ids`, and `parse_value_correction` +
-     `parse_value_correction_list` + `load_value_corrections_map`
-   - **Reason:** G18-addendum match-depth silent failure, NOT G46
-     — but the same class (match-depth related). Do NOT revert
-     these on G46's fix; they're a separate concern.
-   - **Revert when:** G18-addendum (match-depth) lands.
-
-3. **`src/chaincss/intent_detector.gol` — `IntentEngine.custom_keys`**
-   - **Current:** `List<String>` (was `Map<String, Bool>`)
-   - **Reason:** initially thought to be G46's trigger; actually
-     not. The `Map<String, Bool>` was replaced with `List<String>`
-     during the G46 diagnostic and the replacement was kept
-     because it works and is simpler.
-   - **Revert:** optional. `List<String>` is fine for 6 properties
-     (O(n) lookup), and `Map<String, Bool>` may or may not work
-     depending on the exact G46 trigger resolution. Only revert if
-     the fix specifically resolves it.
-
-**Note on file-splitting:** the port does NOT split files to avoid
-G46. Testing showed that the bug propagates across imports
-(`probe_split_impl.gol` fails even when the `Map`-field record is
-in a different file). The workaround is algorithmic, not structural.
-
 ### Fix scope (2026-11-08)
 
 The compiler fix requires changing `Stmt::ArrayAssign`'s `array`
@@ -2479,3 +2438,106 @@ The same class of bug is documented in G12 (IR builder drops
 statements after certain patterns) — the two may share a root
 cause in the analyzer's context handling for deep nested match
 constructs.
+
+## G50 — LLVM/WASM emit invalid IR for records passed by value
+
+**Symptom:** `proc add(a: Point, b: Point) -> Point` compiles under
+`--interpreter`, but `algol26 build` (LLVM) and `algol26 wasm` fail
+with "Generated LLVM/WASM IR is invalid: Call parameter type does
+not match function signature" — the call passes `ptr %Point_tmp`
+where the function signature expects `%Point` (by value).
+
+**Impact:** records-by-value is claimed `ok` in the capability
+matrix (both LLVM and WASM), but fails. Every port file that uses
+records passed by value will not compile to native binaries.
+
+**Root cause:** the LLVM and WASM codegens disagree on the calling
+convention for records passed by value. One side emits `ptr`, the
+other expects the record value.
+
+**Fix scope:** ~20-50 lines in `llvm_codegen/instruction.rs` and
+`wasm_backend.rs`. Unify on one calling convention.
+
+**Status:** Open. `capability_matrix_is_accurate` test fails on
+`records.by-value × llvm` and `× wasm`.
+
+## G52 — LLVM/WASM panic on UnionConstruct with unrecorded target
+
+**Symptom:** `match s { case Circle(r) then ... }` where
+`s := Shape.Circle(3.0)` compiles under `--interpreter`, but
+`algol26 build` (LLVM) and `algol26 wasm` fail with:
+
+    error[E0009]: LLVM codegen: UnionConstruct target `s` has no
+    recorded type. A builder producer emitted UnionConstruct without
+    registering the target's Type::Union in var_types.
+
+**Impact:** unions work in the interpreter but not in native
+backends. The matrix claims `union × llvm: ok`, `× wasm: ok`.
+Same class as G47 (panic instead of clean refusal).
+
+**Root cause:** the builder's `UnionConstruct` path doesn't register
+the target's `Type::Union` in `var_types`. Either the builder or
+the verifier should catch this.
+
+**Fix scope:** ~5-20 lines in `semantics/builder/expr.rs` (register
+the type) or `ir/verifier/instruction.rs` (add the check).
+Same class as G47 — a verifier hole.
+
+**Status:** Open. `capability_matrix_is_accurate` test fails on
+`union × llvm` and `× wasm`.
+
+## G53 — try/catch: analyzer doesn't infer T and E into a unified Result
+
+**Symptom.** `try { Ok(5) } catch e { 99 }` produces IR with
+`Result<Int, Unknown>` (Ok path knows T=Int but not E). `try {
+Error(0) } catch e { 99 }` produces `Result<Unknown, Int>` (Error
+path knows E=Int but not T). And the whole try/catch expression's
+result type is `Unknown` when the try body is an `Error(...)` —
+because the Ok arm's payload type is never observed.
+
+**Consequence.** LLVM codegen panics on the `Unknown` type
+reaching `map_type`. WASM refuses `try_catch` because `Result`
+is refused under WASM (independent).
+
+**Root cause.** The analyzer's `type_of_expr` for the try/catch
+expression doesn't unify `T` from the Ok arm with `T` inferred
+from the catch body, nor `E` from the Error arm with `E` inferred
+from context. Each arm's expression contributes only its own
+payload type; the other is `Unknown`.
+
+**Current state.** Codegen workarounds in place:
+- `try_value_type` derived from the trailing expression's type
+  (so Ok path gets `Result<Int, Unknown>`, an improvement over
+  `Result<Unknown, Unknown>`).
+- `i64` placeholder for `Unknown` payloads in `map_type(Result)`
+  (the unused slot is never read — safe).
+
+These don't fix the `result_var: Unknown` case (the whole
+try/catch expression's type when the try body never produces
+an Ok payload). That case still panics under LLVM.
+
+**Capability matrix.** `try_catch × interpreter: ok`.
+`try_catch × llvm: refused` (G53 — analyzer gap).
+`try_catch × wasm: refused` (`Feature::Result` refused under
+WASM).
+
+**Fix scope.** Extend the analyzer's try/catch inference to:
+1. Unify `T` from the Ok arm's payload and the catch body's type.
+2. Unify `E` from the Error arm's payload and the catch variable's
+   declared type (or default `Void` if unconstrained).
+3. Handle the "try body never produces Ok" case — infer `T = Void`
+   when the try body is a pure `Error(...)` constructor.
+
+The third case is unsound in general (a `try` body with an
+early `return Ok(...)` is not a pure `Error(...)`), so the fix
+may require a small dataflow analysis or a conservative default
+of `Void` for `T` when the Ok path is provably unreachable.
+
+Alternatively: require an explicit type annotation on the
+try/catch result:
+    val err: Int := try { Error(0) } catch e { 99 }
+The annotation pins `T = Int`, and no analyzer change is needed.
+
+**Status.** Open. `try_catch × llvm` is `refused` in the
+capability matrix until this is fixed. `try_catch × interpreter`
+works.

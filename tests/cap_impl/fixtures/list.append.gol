@@ -1,0 +1,4 @@
+proc main() -> Void
+    var xs: List[Int] := []
+    xs.append(42)
+    print(Int.to_string(xs[0]))

@@ -1,0 +1,3 @@
+proc main() -> Void
+    val ch: Channel[Int] := Channel[Int]()
+    ch.send(1)

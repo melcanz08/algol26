@@ -1,0 +1,119 @@
+{
+  "features": {
+    "result": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "try_catch": {
+      "interpreter": "ok",
+      "llvm": "refused",
+      "wasm": "refused"
+    },
+    "spawn": {
+      "interpreter": "ok",
+      "llvm": "refused",
+      "wasm": "refused"
+    },
+    "channels": {
+      "interpreter": "refused",
+      "llvm": "refused",
+      "wasm": "refused"
+    },
+    "ffi": {
+      "interpreter": "refused",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "string.ops": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "string.split": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "file.*": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "list.agg": {
+      "interpreter": "ok",
+      "llvm": "refused",
+      "wasm": "refused"
+    },
+    "print(list)": {
+      "interpreter": "ok",
+      "llvm": "refused",
+      "wasm": "refused"
+    },
+    "option": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "raw-memory": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "references": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "args": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "records": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "union": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "records.by-value": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "records.generic": {
+      "interpreter": "ok",
+      "llvm": "refused",
+      "wasm": "refused"
+    },
+    "int.to_string": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "string.to_int": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "map": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "refused"
+    },
+    "list.append": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    },
+    "dyn-trait": {
+      "interpreter": "ok",
+      "llvm": "ok",
+      "wasm": "ok"
+    }
+  }
+}

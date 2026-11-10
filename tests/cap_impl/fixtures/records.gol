@@ -1,0 +1,7 @@
+pub rec Point
+    pub x: Int
+    pub y: Int
+
+proc main() -> Void
+    val p := Point { x: 1, y: 2 }
+    print(Int.to_string(p.x))

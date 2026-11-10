@@ -1,0 +1,10 @@
+pub rec Point
+    pub x: Int
+    pub y: Int
+
+proc add(a: Point, b: Point) -> Point
+    return Point { x: a.x + b.x, y: a.y + b.y }
+
+proc main() -> Void
+    val p := add(Point { x: 1, y: 2 }, Point { x: 3, y: 4 })
+    print(Int.to_string(p.x))

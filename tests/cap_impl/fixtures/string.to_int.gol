@@ -1,0 +1,5 @@
+proc main() -> Void
+    match String.to_int("42") {
+        case Some(n) then { print(Int.to_string(n)) }
+        case None then { print("not a number") }
+    }

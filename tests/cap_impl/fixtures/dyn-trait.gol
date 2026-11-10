@@ -1,0 +1,13 @@
+trait Speak
+    proc speak() -> String
+
+rec Dog
+    name: String
+
+impl Speak for Dog
+    proc speak() -> String
+        return "woof"
+
+proc main() -> Void
+    val d := Dog { name: "Rex" }
+    print(d.speak())

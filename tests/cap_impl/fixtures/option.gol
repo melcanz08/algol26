@@ -1,0 +1,6 @@
+proc main() -> Void
+    val o: Option[Int] := Some(42)
+    match o {
+        case Some(n) then { print(Int.to_string(n)) }
+        case None then {}
+    }

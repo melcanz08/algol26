@@ -1,0 +1,3 @@
+proc main() -> Void
+    val parts := String.split("a,b,c", ",")
+    print(Int.to_string(parts.length()))

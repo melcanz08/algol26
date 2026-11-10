@@ -1,0 +1,7 @@
+proc main() -> Void
+    var m: Map<String, Int> := Map<String, Int> {}
+    m.insert("a", 1)
+    match m.get("a") {
+        case Some(v) then { print(Int.to_string(v)) }
+        case None then {}
+    }

@@ -1,0 +1,4 @@
+proc main() -> Void
+    var xs: List[Int] := []
+    xs.append(1)
+    print(xs)

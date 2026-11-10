@@ -1041,6 +1041,25 @@ impl<'ctx> IRCodeGen<'ctx> {
             // Variadic extra arg — nothing to compare against.
             return Ok(val);
         };
+        // G50: parameter expects a struct (by value), argument is a
+        // pointer. Load from the pointer and pass the struct value.
+        // This must run BEFORE the `expects_ptr = false` early-return
+        // below: the parameter is NOT a pointer (it's a struct), but
+        // the argument IS a pointer. Without this ordering, the
+        // early-return fires first and the mismatch reaches codegen.
+        if let BasicMetadataTypeEnum::StructType(st) = expected {
+            if val.is_pointer_value() {
+                let loaded = self
+                    .builder
+                    .build_load(
+                        *st,
+                        val.into_pointer_value(),
+                        "load_record_arg",
+                    )
+                    .unwrap();
+                return Ok(loaded);
+            }
+        }
         let expects_ptr = matches!(expected, BasicMetadataTypeEnum::PointerType(_));
         if !expects_ptr {
             return Ok(val);

@@ -1,0 +1,3 @@
+proc main() -> Void
+    print(String.to_upper("hello"))
+    print(String.substring("hello", 1, 3))

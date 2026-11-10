@@ -1,0 +1,5 @@
+proc main() -> Void
+    unsafe {
+        val p := alloc(16)
+        free(p)
+    }

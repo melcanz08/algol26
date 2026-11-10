@@ -1,0 +1,4 @@
+proc main() -> Void
+    spawn {
+        print("spawned")
+    }

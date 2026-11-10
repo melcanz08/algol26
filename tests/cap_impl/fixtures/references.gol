@@ -1,0 +1,7 @@
+proc bump(x: &mut Int) -> Void
+    *x := *x + 1
+
+proc main() -> Void
+    var n := 41
+    bump(&mut n)
+    print(Int.to_string(n))

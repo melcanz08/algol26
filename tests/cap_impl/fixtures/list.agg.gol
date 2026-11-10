@@ -1,0 +1,5 @@
+proc main() -> Void
+    var xs: List[Int] := []
+    xs.append(1)
+    xs.append(2)
+    print(Float.to_string(List.sum(xs)))

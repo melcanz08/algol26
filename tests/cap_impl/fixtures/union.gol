@@ -1,0 +1,10 @@
+pub union Shape
+    Circle(Float)
+    Square(Float)
+
+proc main() -> Void
+    val s := Shape.Circle(3.0)
+    match s {
+        case Circle(r) then { print(Float.to_string(r)) }
+        case Square(_) then {}
+    }

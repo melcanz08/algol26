@@ -1,0 +1,5 @@
+extern "C" proc putchar(c: Int) -> Int from "c"
+
+proc main() -> Int
+    putchar(65)
+    return 0

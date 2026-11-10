@@ -1,0 +1,3 @@
+proc main() -> Void
+    val a := args()
+    print(Int.to_string(a.length()))

@@ -202,6 +202,23 @@ impl SemanticIRBuilder {
                         payload,
                         target_type,
                     } => {
+                        // G52: Declare must precede UnionConstruct so
+                        // the LLVM codegen's Declare handler populates
+                        // var_types[target] before UnionConstruct reads
+                        // it. The UnionConstruct handler expects the
+                        // target's type to already be in var_types
+                        // (see llvm_codegen/instruction.rs UnionConstruct
+                        // arm).
+                        self.safe_push_instruction(
+                            func,
+                            current_block,
+                            Instruction::Declare {
+                                name: name.clone(),
+                                mutable: true,
+                                type_: target_type.clone(),
+                                value: TypedIRValue::Void,
+                            },
+                        );
                         self.safe_push_instruction(
                             func,
                             current_block,

@@ -1,0 +1,6 @@
+pub rec Box<T>
+    pub value: T
+
+proc main() -> Void
+    val b: Box<Int> := Box<Int> { value: 42 }
+    print(Int.to_string(b.value))

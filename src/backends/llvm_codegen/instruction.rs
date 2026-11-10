@@ -761,6 +761,21 @@ impl<'ctx> IRCodeGen<'ctx> {
                 value,
                 mutable: _,
             } => {
+                // G52: unions are declared-then-constructed. The
+                // Instruction::UnionConstruct handler (below) handles
+                // the alloca, store, and var_types registration.
+                // Falling through to the scalar path stores a Void and
+                // misses the var_types insert, causing UnionConstruct
+                // to panic with "no recorded type".
+                if matches!(type_, Type::Union { .. }) {
+                    // G52: populate var_types so the subsequent
+                    // UnionConstruct handler (which does the alloca
+                    // and store) can find the type. Without this,
+                    // UnionConstruct panics with "no recorded type".
+                    self.var_types.insert(name.clone(), type_.clone());
+                    return Ok(());
+                }
+
                 if let TypedIRValue::List(elems, elem_ty) = value {
                     let len = elems.len();
                     let elem_llvm_ty = self.map_type(elem_ty);

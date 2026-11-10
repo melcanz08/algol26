@@ -1,0 +1,6 @@
+proc main() -> Void
+    val r: Result[Int, String] := Ok(42)
+    match r {
+        case Ok(n) then { print(Int.to_string(n)) }
+        case Error(msg) then { print(msg) }
+    }

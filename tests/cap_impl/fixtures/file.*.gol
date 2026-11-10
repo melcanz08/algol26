@@ -1,0 +1,3 @@
+proc main() -> Void
+    File.write("/tmp/probe.txt", "hello")
+    print(File.read("/tmp/probe.txt"))

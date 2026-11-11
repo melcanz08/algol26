@@ -303,6 +303,9 @@ impl BackendCapabilities {
         supported.insert(Feature::ListAppend);
         // ADR 0060. Same IR codegen as LLVM (shared IRCodeGen).
         supported.insert(Feature::Unions);
+        // runtime/wasm/host.js provides algol26_string_split
+        // and algol26_string_join.
+        supported.insert(Feature::StringSplit);
         BackendCapabilities {
             name: "WASM",
             supported,

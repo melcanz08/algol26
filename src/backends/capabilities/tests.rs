@@ -936,6 +936,24 @@ fn llvm_accepts_args() {
 }
 
 #[test]
+fn wasm_accepts_string_split() {
+    // runtime/wasm/host.js provides algol26_string_split and
+    // algol26_string_join. The shared IRCodeGen lowers
+    // String.split to a call to algol26_string_split; the module
+    // loads and runs under host.js.
+    const SOURCE: &str = r#"
+proc main
+    val parts := "a,b,c".split(",")
+    print(parts.length())
+"#;
+    let program = build_ir(SOURCE);
+    assert!(
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept String.split after host.js port",
+    );
+}
+
+#[test]
 fn wasm_rejects_conversions() {
     let program = program_with(
         Instruction::Print {

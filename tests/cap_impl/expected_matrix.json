@@ -33,7 +33,7 @@
     "string.split": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "file.*": {
       "interpreter": "ok",

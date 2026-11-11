@@ -1,8 +1,8 @@
-// supported: interpreter llvm
+// supported: interpreter llvm wasm
 // String.split returns List<String>. LLVM lowers it via
-// runtime/string.c (algol26_string_split); WASM still refuses at
-// the capability boundary (Feature::StringSplit is not in
-// wasm().supported).
+// runtime/string.c (algol26_string_split); WASM reaches the same
+// runtime symbol through runtime/wasm/host.js, which now provides
+// algol26_string_split and algol26_string_join.
 proc main
     val parts := "a,b,c".split(",")
     print(Int.to_string(parts.length()))

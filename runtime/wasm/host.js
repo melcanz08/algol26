@@ -320,6 +320,70 @@ const env = {
         // wasm32 i64 return: must be BigInt.
         return BigInt(count);
     },
+    // algol26_string_split(s, sep, out_count) — matches Rust's
+    // `str::split(sep)`. For non-empty `sep`, JS's String.split
+    // matches Rust exactly (leading/trailing/double-sep all
+    // preserved). For empty `sep`, both produce one element per
+    // codepoint wrapped in leading and trailing empties.
+    // Returns char** (array of u32 pointers); each element is
+    // malloc'd. Writes element count through out_count.
+    algol26_string_split: function (s_ptr, sep_ptr, out_count_ptr) {
+        const s = readCString(s_ptr);
+        const sep = readCString(sep_ptr);
+        let parts;
+        if (sep === '') {
+            // Empty separator: Rust yields ["", c1, c2, ..., ""].
+            parts = [''].concat(Array.from(s), ['']);
+        } else {
+            parts = s.split(sep);
+        }
+        const arrPtr = env.malloc(parts.length * 4);
+        const mem = new Uint8Array(linearMemory.buffer);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        for (let i = 0; i < parts.length; i++) {
+            const str = parts[i];
+            const len = Buffer.byteLength(str, 'utf8');
+            const strPtr = env.malloc(len + 1);
+            const buf = Buffer.from(str, 'utf8');
+            mem.set(buf, strPtr);
+            mem[strPtr + len] = 0;
+            u32[(arrPtr >> 2) + i] = strPtr;
+        }
+        // Write int64_t count as two little-endian u32 words.
+        // Counts here fit in u32; high word stays 0.
+        u32[out_count_ptr >> 2] = parts.length;
+        u32[(out_count_ptr >> 2) + 1] = 0;
+        return arrPtr;
+    },
+
+    // algol26_string_join(items, count, sep) — matches Rust's
+    // `slice::join(sep)`. `items` is char** (array of u32 ptrs),
+    // `count` is int64_t (BigInt), `sep` is char*.
+    algol26_string_join: function (items_ptr, count_bigint, sep_ptr) {
+        const count = Number(count_bigint);
+        const sep = readCString(sep_ptr);
+        if (count <= 0) {
+            // Empty list → empty string.
+            const empty = env.malloc(1);
+            new Uint8Array(linearMemory.buffer)[empty] = 0;
+            return empty;
+        }
+        const u32 = new Uint32Array(linearMemory.buffer);
+        const parts = [];
+        for (let i = 0; i < count; i++) {
+            const strPtr = u32[(items_ptr >> 2) + i];
+            parts.push(strPtr ? readCString(strPtr) : '');
+        }
+        const joined = parts.join(sep);
+        const len = Buffer.byteLength(joined, 'utf8');
+        const outPtr = env.malloc(len + 1);
+        const buf = Buffer.from(joined, 'utf8');
+        const mem = new Uint8Array(linearMemory.buffer);
+        mem.set(buf, outPtr);
+        mem[outPtr + len] = 0;
+        return outPtr;
+    },
+
     strcmp: function (a, b) {
         const sa = readCString(a);
         const sb = readCString(b);

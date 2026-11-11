@@ -311,6 +311,9 @@ impl BackendCapabilities {
         supported.insert(Feature::CommandLineArgs);
         // runtime/wasm/host.js provides algol26_string_to_int.
         supported.insert(Feature::StringToInt);
+        // runtime/wasm/host.js provides algol26_file_* via
+        // Node's fs module. Paths are host paths (not sandboxed).
+        supported.insert(Feature::FileFunctions);
         BackendCapabilities {
             name: "WASM",
             supported,

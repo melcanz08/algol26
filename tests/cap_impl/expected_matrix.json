@@ -38,7 +38,7 @@
     "file.*": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "list.agg": {
       "interpreter": "ok",

@@ -659,6 +659,63 @@ const env = {
         return 1;
     },
 
+    // ── File.* runtime (Node fs) ──
+    //
+    // These mirror runtime/file.c. Paths are host paths, not
+    // sandbox paths — same contract as the interpreter and LLVM
+    // backends. Under a sandboxed WASM runtime (wasmtime, browser)
+    // these would need WASI; under Node's host.js, fs is directly
+    // available.
+
+    // algol26_file_read(path) -> malloc'd char* | NULL.
+    // Byte-transparent: does NOT validate UTF-8, matching the C
+    // contract. Returns NULL on any error (fs.readFileSync throws).
+    algol26_file_read: function (path_ptr) {
+        const path = readCString(path_ptr);
+        try {
+            // Read as Buffer to preserve bytes exactly (a String
+            // would UTF-8 decode and throw on invalid data).
+            const data = fs.readFileSync(path);
+            const ptr = env.malloc(data.length + 1);
+            const mem = new Uint8Array(linearMemory.buffer);
+            mem.set(data, ptr);
+            mem[ptr + data.length] = 0;
+            return ptr;
+        } catch (e) {
+            return 0;  // NULL
+        }
+    },
+
+    // algol26_file_write(path, content) -> i64 byte count | -1.
+    // Truncates (fs.writeFileSync default).
+    algol26_file_write: function (path_ptr, content_ptr) {
+        const path = readCString(path_ptr);
+        const content = readCString(content_ptr);
+        try {
+            // Content comes from ALGOL26 as a NUL-terminated UTF-8
+            // string; Buffer.from preserves the exact bytes.
+            const buf = Buffer.from(content, 'utf8');
+            fs.writeFileSync(path, buf);
+            return BigInt(buf.length);
+        } catch (e) {
+            return -1n;
+        }
+    },
+
+    // algol26_file_append(path, content) -> i64 byte count | -1.
+    // Creates the file if absent (appendFileSync default).
+    algol26_file_append: function (path_ptr, content_ptr) {
+        const path = readCString(path_ptr);
+        const content = readCString(content_ptr);
+        try {
+            const buf = Buffer.from(content, 'utf8');
+            fs.appendFileSync(path, buf);
+            return BigInt(buf.length);
+        } catch (e) {
+            return -1n;
+        }
+    },
+
     strcmp: function (a, b) {
         const sa = readCString(a);
         const sb = readCString(b);

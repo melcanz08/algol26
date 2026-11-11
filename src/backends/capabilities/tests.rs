@@ -872,6 +872,27 @@ fn llvm_accepts_file_io() {
 }
 
 #[test]
+fn wasm_accepts_file_io() {
+    // Symmetric pin for the WASM File.* flip: host.js provides
+    // algol26_file_read / _write / _append via Node's fs.
+    use crate::ir::semantic_ir::Instruction;
+    let program = program_with(
+        Instruction::Print {
+            value: TypedIRValue::Call {
+                function: "File.read".to_string(),
+                args: vec![TypedIRValue::String("/tmp/x".to_string())],
+                return_type: Type::String,
+            },
+        },
+        simple_return(),
+    );
+    assert!(
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept File.read after host.js port",
+    );
+}
+
+#[test]
 fn llvm_accepts_file_write() {
     use crate::ir::semantic_ir::Instruction;
     let program = program_with(

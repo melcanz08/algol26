@@ -453,8 +453,8 @@ pub const MATRIX: &[FeatureRow] = &[
         conformance_dir: None,
         interpreter: Support::Full,
         llvm: Support::Full,
-        wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_conversions"],
+        wasm: Support::Full,
+        refusal_tests: &[],
         notes: "LLVM: full. `String.to_int` lowers via \
                 `algol26_string_to_int` in `runtime/string.c` (strict \
                 i64 parser matching the interpreter's \

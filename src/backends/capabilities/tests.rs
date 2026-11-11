@@ -971,7 +971,9 @@ proc main
 }
 
 #[test]
-fn wasm_rejects_conversions() {
+fn wasm_accepts_string_to_int() {
+    // runtime/wasm/host.js provides algol26_string_to_int (strict
+    // i64 parser matching the interpreter's str::parse::<i64>).
     let program = program_with(
         Instruction::Print {
             value: TypedIRValue::Call {
@@ -982,11 +984,9 @@ fn wasm_rejects_conversions() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
     assert!(
-        err.message.contains("String.to_int"),
-        "expected String.to_int diagnostic, got: {}",
-        err.message
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept String.to_int after host.js port",
     );
 }
 

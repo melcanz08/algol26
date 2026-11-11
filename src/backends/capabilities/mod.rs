@@ -309,6 +309,8 @@ impl BackendCapabilities {
         // runtime/wasm/host.js provides algol26_args_init,
         // _count, _get via process.argv.
         supported.insert(Feature::CommandLineArgs);
+        // runtime/wasm/host.js provides algol26_string_to_int.
+        supported.insert(Feature::StringToInt);
         BackendCapabilities {
             name: "WASM",
             supported,

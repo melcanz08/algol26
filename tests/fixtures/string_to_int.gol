@@ -1,0 +1,13 @@
+// supported: interpreter llvm wasm
+// String.to_int returns Option<Int>. Exercises both the Some and
+// None arms so the WASM module loads and runs the full feature.
+
+proc main
+    match String.to_int("42") {
+        case Some(n) then { print(Int.to_string(n)) }
+        case None then { print("not a number") }
+    }
+    match String.to_int("not a number") {
+        case Some(n) then { print(Int.to_string(n)) }
+        case None then { print("not a number") }
+    }

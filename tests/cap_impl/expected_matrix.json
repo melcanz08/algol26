@@ -98,7 +98,7 @@
     "string.to_int": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "map": {
       "interpreter": "ok",

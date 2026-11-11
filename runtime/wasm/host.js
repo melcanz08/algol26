@@ -626,6 +626,39 @@ const env = {
         return ptr;
     },
 
+    // algol26_string_to_int(s, out_i64_ptr) -> i32 (0 | 1).
+    // Strict i64 parser matching runtime/string.c:
+    //   - optional '+' or '-'
+    //   - one or more ASCII digits
+    //   - end of string (rejects whitespace, "0x", "1.5", "1e5", "Infinity")
+    //   - range check: INT64_MIN ..= INT64_MAX
+    // Returns 1 on success (writing through out_ptr), 0 on failure.
+    // The out-pointer is int64_t* — two little-endian u32 words on
+    // wasm32.
+    algol26_string_to_int: function (s_ptr, out_ptr) {
+        const s = readCString(s_ptr);
+        // Rust's str::parse::<i64> contract:
+        //   ^[+-]?[0-9]+$ and the value fits in i64.
+        if (!/^[+-]?[0-9]+$/.test(s)) return 0;
+        let v;
+        try {
+            v = BigInt(s);
+        } catch (e) {
+            return 0;
+        }
+        const I64_MIN = -(1n << 63n);
+        const I64_MAX = (1n << 63n) - 1n;
+        if (v < I64_MIN || v > I64_MAX) return 0;
+        // Write as two u32 words (little-endian two's complement).
+        const bits = BigInt.asUintN(64, v);
+        const low = Number(bits & 0xFFFFFFFFn);
+        const high = Number((bits >> 32n) & 0xFFFFFFFFn);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        u32[out_ptr >> 2] = low;
+        u32[(out_ptr >> 2) + 1] = high;
+        return 1;
+    },
+
     strcmp: function (a, b) {
         const sa = readCString(a);
         const sb = readCString(b);

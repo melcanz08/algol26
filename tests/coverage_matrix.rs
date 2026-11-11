@@ -234,21 +234,32 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "list_print",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Refused,
-        wasm: Support::Unknown,
-        refusal_tests: &["llvm_rejects_list_print"],
-        notes: "LLVM refuses `print(list)` via capability check. No dedicated \
-                conformance fixture. WASM support unverified.",
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "Printing a list lowers to `compile_print_list`, which \
+                dispatches to the per-element-type formatter \
+                (`algol26_print_list_{int,float,str}`). LLVM links \
+                `runtime/list.c` directly; WASM reaches the same \
+                symbols via `runtime/wasm/host.js`. The old \
+                `llvm_rejects_list_print` test was replaced by \
+                `llvm_accepts_print_list` and `wasm_accepts_print_list`.",
     },
     FeatureRow {
         name: "list_sum_max_min",
         conformance_dir: None,
         interpreter: Support::Full,
-        llvm: Support::Unknown,
-        wasm: Support::Unknown,
+        llvm: Support::Full,
+        wasm: Support::Full,
         refusal_tests: &[],
-        notes: "No conformance fixture. No LLVM/WASM lowering seen in codegen; \
-                verify whether these builtins are lowered or refused.",
+        notes: "`List.sum` / `.max` / `.min` lower via `runtime/list.c` \
+                (`algol26_list_{sum,max,min}_{int,float}`). LLVM links \
+                the C directly; WASM reaches the same symbols via \
+                `runtime/wasm/host.js`. The C symbol is selected by \
+                element type; the return value is always `Float` \
+                (matching the interpreter and the canonical builtins \
+                table). Pinned by `llvm_accepts_list_aggregates` and \
+                `wasm_accepts_list_aggregates`.",
     },
     // ─── option / result ───
     FeatureRow {

@@ -1506,6 +1506,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                 Ok(())
             }
             Instruction::Print { value } => {
+                // print(list) dispatches to the element-type-specific
+                // formatter. compile_print_list is &mut self (it
+                // builds the per-element printf loop), so the
+                // dispatch must happen here rather than inside
+                // emit_print (which is &self).
+                if let Type::List(_) = value.type_of() {
+                    return self.compile_print_list(std::slice::from_ref(value));
+                }
                 let v = self.compile_value(value)?;
                 self.emit_print(v, value.type_of())?;
                 Ok(())
@@ -1670,7 +1678,13 @@ impl<'ctx> IRCodeGen<'ctx> {
                             .first()
                             .expect("arg_vals has an element but args does not")
                             .type_of();
-                        self.emit_print(*first, ty)?;
+                        // print(list) dispatches to the element-specific
+                        // formatter, same as Instruction::Print above.
+                        if let Type::List(_) = &ty {
+                            self.compile_print_list(&args[..1])?;
+                        } else {
+                            self.emit_print(*first, ty)?;
+                        }
                     }
                 } else {
                     self.compile_builtin_call(&callee_name, args, result)?;

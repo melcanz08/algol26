@@ -2771,11 +2771,8 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ));
                     }
                 };
-                let suffix = if matches!(elem_ty, Type::Float) {
-                    "float"
-                } else {
-                    "int"
-                };
+                let is_float = matches!(elem_ty, Type::Float);
+                let suffix = if is_float { "float" } else { "int" };
                 let op = match name {
                     "List.sum" => "sum",
                     "List.max" => "max",
@@ -2796,7 +2793,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .builder
                     .build_call(f, &[buf.into(), len.into()], "agg_call")
                     .unwrap();
-                let raw = match call.try_as_basic_value() {
+                let raw_int = match call.try_as_basic_value() {
                     inkwell::values::ValueKind::Basic(v) => v,
                     _ => {
                         return Err(CompileError::unsupported_operation(
@@ -2805,8 +2802,24 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ))
                     }
                 };
+                // Normalize to Float: List.sum/max/min return Float
+                // regardless of element type — matches the interpreter
+                // (always Value::Float) and the canonical builtins
+                // table (`return_type: Type::Float`).
+                let raw: BasicValueEnum = if is_float {
+                    raw_int
+                } else {
+                    self.builder
+                        .build_signed_int_to_float(
+                            raw_int.into_int_value(),
+                            self.context.f64_type(),
+                            "list_agg_to_f64",
+                        )
+                        .unwrap()
+                        .into()
+                };
                 if name == "List.sum" {
-                    return Ok((raw, elem_ty));
+                    return Ok((raw, Type::Float));
                 }
                 let len_int = len.into_int_value();
                 let has = self
@@ -2818,11 +2831,14 @@ impl<'ctx> IRCodeGen<'ctx> {
                         "agg_has",
                     )
                     .unwrap();
-                let opt_ty = match self.map_type(&Type::option(elem_ty.clone())) {
+                let opt_ty = match self.map_type(&Type::option(Type::Float)) {
                     inkwell::types::BasicTypeEnum::StructType(s) => s,
                     _ => {
                         return Err(CompileError::unsupported_operation(
-                            &format!("Option<{}> did not map to a struct", elem_ty),
+                            &format!(
+                                "Option<Float> did not map to a struct (elem was {})",
+                                elem_ty
+                            ),
                             "llvm",
                         ))
                     }
@@ -2838,7 +2854,7 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .build_insert_value(with_tag, raw, 1, "agg_payload")
                     .unwrap()
                     .into_struct_value();
-                Ok((with_payload.into(), Type::option(elem_ty)))
+                Ok((with_payload.into(), Type::option(Type::Float)))
             }
             other => Err(CompileError::simple(
                 &format!(
@@ -2931,7 +2947,7 @@ impl<'ctx> IRCodeGen<'ctx> {
         Ok(())
     }
     /// Lower `print(list)` to a call to the runtime formatter.
-    fn compile_print_list(&mut self, args: &[TypedIRValue]) -> Result<()> {
+    pub(super) fn compile_print_list(&mut self, args: &[TypedIRValue]) -> Result<()> {
         let recv = self.compile_value(&args[0])?;
         if !recv.is_struct_value() {
             return Err(CompileError::unsupported_operation(

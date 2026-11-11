@@ -42,13 +42,13 @@
     },
     "list.agg": {
       "interpreter": "ok",
-      "llvm": "refused",
-      "wasm": "refused"
+      "llvm": "ok",
+      "wasm": "ok"
     },
     "print(list)": {
       "interpreter": "ok",
-      "llvm": "refused",
-      "wasm": "refused"
+      "llvm": "ok",
+      "wasm": "ok"
     },
     "option": {
       "interpreter": "ok",

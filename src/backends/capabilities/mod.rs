@@ -264,6 +264,9 @@ impl BackendCapabilities {
         // that Result *values* work; a program using try/catch
         // will still fail at codegen with a specific error.
         supported.insert(Feature::Result);
+        // runtime/list.c: sum/max/min + print formatters.
+        supported.insert(Feature::ListAggregates);
+        supported.insert(Feature::ListPrint);
         // try/catch: NOT yet supported on LLVM. The builder lowers it
         // to a Switch on a Result tag, but the generated IR hits an
         // unresolved-type panic in `types.rs:460` — see the
@@ -314,6 +317,9 @@ impl BackendCapabilities {
         // runtime/wasm/host.js provides algol26_file_* via
         // Node's fs module. Paths are host paths (not sandboxed).
         supported.insert(Feature::FileFunctions);
+        // runtime/wasm/host.js list aggregate + print.
+        supported.insert(Feature::ListAggregates);
+        supported.insert(Feature::ListPrint);
         BackendCapabilities {
             name: "WASM",
             supported,

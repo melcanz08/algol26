@@ -43,6 +43,11 @@ function readCString(ptr) {
     return Buffer.from(mem.buffer, ptr, end - ptr).toString('utf8');
 }
 
+// Track every malloc so realloc can look up the old size
+// and copy the caller's bytes forward. The bump allocator
+// itself never reuses, so this Map is purely metadata.
+const allocations = new Map();
+
 const env = {
     // `sprintf` — like printf but writes to a memory buffer instead
     // of stdout. Used by Int.to_string and other number→string
@@ -270,6 +275,7 @@ const env = {
                 return 0;
             }
         }
+        allocations.set(ptr, sz);
         return ptr;
     },
     free: function () {
@@ -277,6 +283,21 @@ const env = {
         // only when the module exits. This is a deliberate
         // simplification for the test host; a real WASM runtime
         // would provide a full allocator.
+    },
+
+    // realloc(ptr, new_size): allocate new, copy min(old, new), let
+    // the bump allocator's old block leak. Sufficient for tests.
+    // The `allocations` Map records each malloc's size so we know
+    // how many bytes to copy.
+    realloc: function (ptr, new_size) {
+        if (ptr === 0) return env.malloc(new_size);
+        const old_sz = allocations.get(ptr) || 0;
+        const new_sz = Number(new_size);
+        const new_ptr = env.malloc(new_size);
+        const mem = new Uint8Array(linearMemory.buffer);
+        const copy_n = Math.min(old_sz, new_sz);
+        for (let i = 0; i < copy_n; i++) mem[new_ptr + i] = mem[ptr + i];
+        return new_ptr;
     },
 
     // ─── math (LLVM lowerings use the C names) ───
@@ -714,6 +735,112 @@ const env = {
         } catch (e) {
             return -1n;
         }
+    },
+
+    // ── List aggregates (runtime/list.c) ──
+    _read_i64: function (ptr) {
+        const u32 = new Uint32Array(linearMemory.buffer);
+        const lo = BigInt(u32[ptr >> 2]);
+        const hi = BigInt(u32[(ptr >> 2) + 1]);
+        const raw = (hi << 32n) | lo;
+        const sign_bit = 1n << 63n;
+        return raw >= sign_bit ? raw - (1n << 64n) : raw;
+    },
+    _read_f64: function (ptr) {
+        const f64 = new Float64Array(linearMemory.buffer);
+        return f64[ptr >> 3];
+    },
+    algol26_list_sum_int: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        let acc = 0n;
+        for (let i = 0; i < len; i++) acc += env._read_i64(buf + i * 8);
+        return acc;
+    },
+    algol26_list_sum_float: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        let acc = 0;
+        for (let i = 0; i < len; i++) acc += env._read_f64(buf + i * 8);
+        return acc;
+    },
+    algol26_list_max_int: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        if (len === 0) return 0n;
+        let m = env._read_i64(buf);
+        for (let i = 1; i < len; i++) {
+            const v = env._read_i64(buf + i * 8);
+            if (v > m) m = v;
+        }
+        return m;
+    },
+    algol26_list_max_float: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        if (len === 0) return 0;
+        let m = env._read_f64(buf);
+        for (let i = 1; i < len; i++) {
+            const v = env._read_f64(buf + i * 8);
+            if (v > m) m = v;
+        }
+        return m;
+    },
+    algol26_list_min_int: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        if (len === 0) return 0n;
+        let m = env._read_i64(buf);
+        for (let i = 1; i < len; i++) {
+            const v = env._read_i64(buf + i * 8);
+            if (v < m) m = v;
+        }
+        return m;
+    },
+    algol26_list_min_float: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        if (len === 0) return 0;
+        let m = env._read_f64(buf);
+        for (let i = 1; i < len; i++) {
+            const v = env._read_f64(buf + i * 8);
+            if (v < m) m = v;
+        }
+        return m;
+    },
+    _write_and_print: function (str) {
+        const len = Buffer.byteLength(str, 'utf8');
+        const ptr = env.malloc(len + 1);
+        const mem = new Uint8Array(linearMemory.buffer);
+        mem.set(Buffer.from(str, 'utf8'), ptr);
+        mem[ptr + len] = 0;
+        env.printf(ptr);
+    },
+    algol26_print_list_int: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        let out = "[";
+        for (let i = 0; i < len; i++) {
+            if (i > 0) out += ", ";
+            out += env._read_i64(buf + i * 8).toString();
+        }
+        out += "]";
+        env._write_and_print(out);
+    },
+    algol26_print_list_float: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        let out = "[";
+        for (let i = 0; i < len; i++) {
+            if (i > 0) out += ", ";
+            out += env._read_f64(buf + i * 8).toFixed(6);
+        }
+        out += "]";
+        env._write_and_print(out);
+    },
+    algol26_print_list_str: function (buf, len_bigint) {
+        const len = Number(len_bigint);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        let out = "[";
+        for (let i = 0; i < len; i++) {
+            if (i > 0) out += ", ";
+            const str_ptr = u32[(buf >> 2) + i];
+            out += str_ptr ? readCString(str_ptr) : '';
+        }
+        out += "]";
+        env._write_and_print(out);
     },
 
     strcmp: function (a, b) {

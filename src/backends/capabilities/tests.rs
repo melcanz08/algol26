@@ -316,42 +316,6 @@ fn interpreter_rejects_ffi() {
     let err = check_backend(&program, &BackendCapabilities::interpreter()).unwrap_err();
     assert!(err.message.contains("foreign"));
 }
-#[test]
-fn llvm_rejects_list_print() {
-    let mut program = SemanticProgram::new();
-    let entry = program.new_block_id();
-    program.functions.push(SemanticFunction {
-        name: "main".to_string(),
-        params: vec![],
-        return_type: Type::Void,
-        blocks: vec![SemanticBlock {
-            id: entry,
-            instructions: vec![
-                Instruction::Declare {
-                    name: "xs".to_string(),
-                    mutable: false,
-                    type_: Type::list(Type::Float),
-                    value: TypedIRValue::List(vec![TypedIRValue::Float(1.0)], Type::Float),
-                },
-                Instruction::Print {
-                    value: TypedIRValue::Variable("xs".to_string(), Type::list(Type::Float)),
-                },
-            ],
-            terminator: Some(Terminator::Return {
-                value: None,
-                type_: Type::Void,
-            }),
-        }],
-        entry_block: entry,
-        is_extern: false,
-    });
-    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
-    assert!(
-        err.message.contains("printing a list"),
-        "expected list-print diagnostic, got: {}",
-        err.message
-    );
-}
 
 #[test]
 fn interpreter_accepts_list_print() {
@@ -1038,6 +1002,62 @@ proc main
     var xs: List<Int> := []
     xs.append(1)
 "#;
+
+#[test]
+fn llvm_accepts_list_aggregates() {
+    const SOURCE: &str = r#"
+proc main
+    var xs: List<Int> := [1, 2, 3]
+    print(Float.to_string(List.sum(xs)))
+"#;
+    let program = build_ir(SOURCE);
+    assert!(
+        check_backend(&program, &BackendCapabilities::llvm()).is_ok(),
+        "LLVM should accept List.sum after runtime/list.c link",
+    );
+}
+
+#[test]
+fn wasm_accepts_list_aggregates() {
+    const SOURCE: &str = r#"
+proc main
+    var xs: List<Int> := [1, 2, 3]
+    print(Float.to_string(List.sum(xs)))
+"#;
+    let program = build_ir(SOURCE);
+    assert!(
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept List.sum after host.js port",
+    );
+}
+
+#[test]
+fn llvm_accepts_print_list() {
+    const SOURCE: &str = r#"
+proc main
+    var xs: List<Int> := [1, 2, 3]
+    print(xs)
+"#;
+    let program = build_ir(SOURCE);
+    assert!(
+        check_backend(&program, &BackendCapabilities::llvm()).is_ok(),
+        "LLVM should accept print(list) after codegen dispatch fix",
+    );
+}
+
+#[test]
+fn wasm_accepts_print_list() {
+    const SOURCE: &str = r#"
+proc main
+    var xs: List<Int> := [1, 2, 3]
+    print(xs)
+"#;
+    let program = build_ir(SOURCE);
+    assert!(
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept print(list) after host.js port",
+    );
+}
 
 #[test]
 fn interpreter_accepts_list_append() {

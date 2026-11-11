@@ -103,7 +103,7 @@
     "map": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "list.append": {
       "interpreter": "ok",

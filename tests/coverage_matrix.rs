@@ -551,8 +551,8 @@ pub const MATRIX: &[FeatureRow] = &[
         conformance_dir: None,
         interpreter: Support::Full,
         llvm: Support::Partial,
-        wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_maps"],
+        wasm: Support::Partial,
+        refusal_tests: &[],
         notes: "No conformance fixture yet. `Map<K, V>` is interpreter-only \
                 in full; ADR 0027 v1 lowers `Map<Int, Int>` on LLVM via \
                 `runtime/map.c` (insert/get/contains/length working; \

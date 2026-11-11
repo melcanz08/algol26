@@ -1084,10 +1084,10 @@ fn llvm_accepts_list_append() {
 }
 
 #[test]
-fn wasm_rejects_maps() {
-    // The Map shape doesn't matter for the capability boundary —
-    // any Map triggers Feature::Map, and WASM doesn't support it
-    // until runtime/wasm/host.js provides the algol26_map_* imports.
+fn wasm_accepts_maps() {
+    // runtime/wasm/host.js provides all 24 Map symbols across the
+    // 3 supported shapes (int_int, str_int, str_str) x 8 ops
+    // (new/free/insert/get/contains/length/keys/values).
     let program = program_with(
         Instruction::Declare {
             name: "m".to_string(),
@@ -1103,8 +1103,8 @@ fn wasm_rejects_maps() {
         simple_return(),
     );
     assert!(
-        check_backend(&program, &BackendCapabilities::wasm()).is_err(),
-        "WASM should refuse Map until host.js provides the runtime",
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept Map<Int, Int> after host.js port",
     );
 }
 

@@ -1,7 +1,29 @@
 proc main() -> Void
-    var m: Map<String, Int> := Map<String, Int> {}
-    m.insert("a", 1)
-    match m.get("a") {
+    // Shape 1: Map<String, Int>
+    var m1: Map<String, Int> := Map<String, Int> {}
+    m1.insert("a", 1)
+    m1.insert("b", 2)
+    m1.insert("c", 3)
+    print(Int.to_string(m1.length()))
+    match m1.get("b") {
         case Some(v) then { print(Int.to_string(v)) }
-        case None then {}
+        case None then { print("missing") }
+    }
+    if m1.contains("a") {
+        print("has a")
+    }
+
+    // Shape 2: Map<Int, Int>
+    var m2: Map<Int, Int> := Map<Int, Int> {}
+    m2.insert(10, 100)
+    m2.insert(20, 200)
+    print(Int.to_string(m2.length()))
+
+    // Shape 3: Map<String, String>
+    var m3: Map<String, String> := Map<String, String> {}
+    m3.insert("x", "hello")
+    print(Int.to_string(m3.length()))
+    match m3.get("x") {
+        case Some(v) then { print(v) }
+        case None then { print("missing") }
     }

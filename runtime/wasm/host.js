@@ -843,6 +843,253 @@ const env = {
         env._write_and_print(out);
     },
 
+    // ── Map<K, V> runtime ──
+    //
+    // Approach: opaque handle map. Each `algol26_map_new_*` call
+    // returns a fresh integer handle; all subsequent calls look up
+    // a JS Map keyed by that handle. The C layout of AlgoIntMap etc.
+    // is never mirrored — it's an implementation detail of
+    // runtime/map.c, not part of the wasm contract. The codegen
+    // treats map pointers as opaque (only passed to algol26_map_*
+    // calls), so this is safe.
+    //
+    // The Map grows unboundedly (matching the interpreter's HashMap).
+    // Keys and values round-trip through the appropriate codec:
+    //   int_int:  i64 key, i64 value
+    //   str_int:  string key, i64 value
+    //   str_str:  string key, string value
+    //
+    // Int keys are stored in the JS Map as a numeric-prefixed string
+    // ("i:" + bigint) to avoid colliding with genuine strings. Since
+    // the three shapes never mix within one map, the prefix could
+    // be omitted — but keeping it makes debugging easier.
+    //
+    // Sort order for keys/values: sorted ascending by key (matching
+    // the interpreter's `keys().sort()` and the C's qsort
+    // comparators). For int_int, that's i64 ascending. For str_int
+    // and str_str, byte-lex strcmp order (JS `a < b` on strings
+    // matches for well-formed UTF-8).
+
+    _mapStates: null,   // initialized below to a Map<ptr, {shape, data}>
+    _nextMapHandle: 1,
+    _mapMakeHandle: function (shape) {
+        if (env._mapStates === null) env._mapStates = new Map();
+        const h = env._nextMapHandle++;
+        env._mapStates.set(h, { shape, data: new Map() });
+        return h;
+    },
+    _mapState: function (ptr) {
+        if (env._mapStates === null) env._mapStates = new Map();
+        return env._mapStates.get(ptr);
+    },
+    _mapFree: function (ptr) {
+        if (env._mapStates !== null) env._mapStates.delete(ptr);
+    },
+    // Helper: write an i64 through a pointer (two u32 words).
+    _mapWriteI64: function (ptr, v) {
+        const bits = BigInt.asUintN(64, v);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        u32[ptr >> 2] = Number(bits & 0xFFFFFFFFn);
+        u32[(ptr >> 2) + 1] = Number((bits >> 32n) & 0xFFFFFFFFn);
+    },
+    // Helper: write a JS string as a malloc'd C string, return its ptr.
+    _mapWriteStr: function (s) {
+        const len = Buffer.byteLength(s, 'utf8');
+        const ptr = env.malloc(len + 1);
+        const mem = new Uint8Array(linearMemory.buffer);
+        mem.set(Buffer.from(s, 'utf8'), ptr);
+        mem[ptr + len] = 0;
+        return ptr;
+    },
+
+    // ── Map<Int, Int> ──
+    algol26_map_new_int: function (capacity_bigint) {
+        return env._mapMakeHandle('int_int');
+    },
+    algol26_map_free_int: function (ptr) { env._mapFree(ptr); },
+    algol26_map_length_int: function (ptr) {
+        const s = env._mapState(ptr);
+        return s ? BigInt(s.data.size) : 0n;
+    },
+    algol26_map_contains_int: function (ptr, k_bigint) {
+        const s = env._mapState(ptr);
+        if (!s) return 0;
+        return s.data.has('i:' + k_bigint.toString()) ? 1 : 0;
+    },
+    algol26_map_get_int: function (ptr, k_bigint, out_ptr) {
+        const s = env._mapState(ptr);
+        if (!s) return 0;
+        const v = s.data.get('i:' + k_bigint.toString());
+        if (v === undefined) return 0;
+        env._mapWriteI64(out_ptr, v);
+        return 1;
+    },
+    algol26_map_insert_int: function (ptr, k_bigint, v_bigint) {
+        const s = env._mapState(ptr);
+        if (!s) return;
+        s.data.set('i:' + k_bigint.toString(), v_bigint);
+    },
+    algol26_map_keys_int: function (ptr, out_count_ptr) {
+        const s = env._mapState(ptr);
+        if (!s || s.data.size === 0) {
+            env._mapWriteI64(out_count_ptr, 0n);
+            return 0;
+        }
+        // Extract ints, sort ascending.
+        const keys = [];
+        for (const k of s.data.keys()) keys.push(BigInt(k.slice(2)));
+        keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const buf = env.malloc(keys.length * 8);
+        for (let i = 0; i < keys.length; i++) env._mapWriteI64(buf + i * 8, keys[i]);
+        env._mapWriteI64(out_count_ptr, BigInt(keys.length));
+        return buf;
+    },
+    algol26_map_values_int: function (ptr, out_count_ptr) {
+        const s = env._mapState(ptr);
+        if (!s || s.data.size === 0) {
+            env._mapWriteI64(out_count_ptr, 0n);
+            return 0;
+        }
+        // Sort by key, project value.
+        const entries = [];
+        for (const [k, v] of s.data.entries()) {
+            entries.push([BigInt(k.slice(2)), v]);
+        }
+        entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+        const buf = env.malloc(entries.length * 8);
+        for (let i = 0; i < entries.length; i++) {
+            env._mapWriteI64(buf + i * 8, entries[i][1]);
+        }
+        env._mapWriteI64(out_count_ptr, BigInt(entries.length));
+        return buf;
+    },
+
+    // ── Map<String, Int> ──
+    algol26_map_new_str_int: function (capacity_bigint) {
+        return env._mapMakeHandle('str_int');
+    },
+    algol26_map_free_str_int: function (ptr) { env._mapFree(ptr); },
+    algol26_map_length_str_int: function (ptr) {
+        const s = env._mapState(ptr);
+        return s ? BigInt(s.data.size) : 0n;
+    },
+    algol26_map_contains_str_int: function (ptr, k_ptr) {
+        const s = env._mapState(ptr);
+        if (!s) return 0;
+        const k = readCString(k_ptr);
+        return s.data.has(k) ? 1 : 0;
+    },
+    algol26_map_get_str_int: function (ptr, k_ptr, out_ptr) {
+        const s = env._mapState(ptr);
+        if (!s) return 0;
+        const k = readCString(k_ptr);
+        const v = s.data.get(k);
+        if (v === undefined) return 0;
+        env._mapWriteI64(out_ptr, v);
+        return 1;
+    },
+    algol26_map_insert_str_int: function (ptr, k_ptr, v_bigint) {
+        const s = env._mapState(ptr);
+        if (!s) return;
+        s.data.set(readCString(k_ptr), v_bigint);
+    },
+    algol26_map_keys_str_int: function (ptr, out_count_ptr) {
+        const s = env._mapState(ptr);
+        if (!s || s.data.size === 0) {
+            env._mapWriteI64(out_count_ptr, 0n);
+            return 0;
+        }
+        const keys = Array.from(s.data.keys());
+        keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const arr = env.malloc(keys.length * 4);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        for (let i = 0; i < keys.length; i++) {
+            u32[(arr >> 2) + i] = env._mapWriteStr(keys[i]);
+        }
+        env._mapWriteI64(out_count_ptr, BigInt(keys.length));
+        return arr;
+    },
+    algol26_map_values_str_int: function (ptr, out_count_ptr) {
+        const s = env._mapState(ptr);
+        if (!s || s.data.size === 0) {
+            env._mapWriteI64(out_count_ptr, 0n);
+            return 0;
+        }
+        const entries = Array.from(s.data.entries());
+        entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+        const buf = env.malloc(entries.length * 8);
+        for (let i = 0; i < entries.length; i++) {
+            env._mapWriteI64(buf + i * 8, entries[i][1]);
+        }
+        env._mapWriteI64(out_count_ptr, BigInt(entries.length));
+        return buf;
+    },
+
+    // ── Map<String, String> ──
+    algol26_map_new_str_str: function (capacity_bigint) {
+        return env._mapMakeHandle('str_str');
+    },
+    algol26_map_free_str_str: function (ptr) { env._mapFree(ptr); },
+    algol26_map_length_str_str: function (ptr) {
+        const s = env._mapState(ptr);
+        return s ? BigInt(s.data.size) : 0n;
+    },
+    algol26_map_contains_str_str: function (ptr, k_ptr) {
+        const s = env._mapState(ptr);
+        if (!s) return 0;
+        const k = readCString(k_ptr);
+        return s.data.has(k) ? 1 : 0;
+    },
+    algol26_map_get_str_str: function (ptr, k_ptr, out_ptr) {
+        const s = env._mapState(ptr);
+        if (!s) return 0;
+        const k = readCString(k_ptr);
+        const v = s.data.get(k);
+        if (v === undefined) return 0;
+        // out_ptr is char** — write pointer to a malloc'd C string.
+        const str_ptr = env._mapWriteStr(v);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        u32[out_ptr >> 2] = str_ptr;
+        return 1;
+    },
+    algol26_map_insert_str_str: function (ptr, k_ptr, v_ptr) {
+        const s = env._mapState(ptr);
+        if (!s) return;
+        s.data.set(readCString(k_ptr), readCString(v_ptr));
+    },
+    algol26_map_keys_str_str: function (ptr, out_count_ptr) {
+        const s = env._mapState(ptr);
+        if (!s || s.data.size === 0) {
+            env._mapWriteI64(out_count_ptr, 0n);
+            return 0;
+        }
+        const keys = Array.from(s.data.keys());
+        keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const arr = env.malloc(keys.length * 4);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        for (let i = 0; i < keys.length; i++) {
+            u32[(arr >> 2) + i] = env._mapWriteStr(keys[i]);
+        }
+        env._mapWriteI64(out_count_ptr, BigInt(keys.length));
+        return arr;
+    },
+    algol26_map_values_str_str: function (ptr, out_count_ptr) {
+        const s = env._mapState(ptr);
+        if (!s || s.data.size === 0) {
+            env._mapWriteI64(out_count_ptr, 0n);
+            return 0;
+        }
+        const entries = Array.from(s.data.entries());
+        entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+        const arr = env.malloc(entries.length * 4);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        for (let i = 0; i < entries.length; i++) {
+            u32[(arr >> 2) + i] = env._mapWriteStr(entries[i][1]);
+        }
+        env._mapWriteI64(out_count_ptr, BigInt(entries.length));
+        return arr;
+    },
+
     strcmp: function (a, b) {
         const sa = readCString(a);
         const sb = readCString(b);

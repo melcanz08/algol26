@@ -320,6 +320,9 @@ impl BackendCapabilities {
         // runtime/wasm/host.js list aggregate + print.
         supported.insert(Feature::ListAggregates);
         supported.insert(Feature::ListPrint);
+        // runtime/wasm/host.js provides map_new/free/insert/get/
+        // contains/length/keys/values for the 3 supported shapes.
+        supported.insert(Feature::Map);
         BackendCapabilities {
             name: "WASM",
             supported,

@@ -463,9 +463,10 @@ pub const MATRIX: &[FeatureRow] = &[
                 `llvm_accepts_string_to_int` in \
                 `capabilities/tests.rs`. The Option wrapper is \
                 handled by the `String.to_int` arm, not by a generic \
-                Option lowering. WASM: refused because `Feature::StringToInt` \
-                is not in `wasm().supported` — no `host.js` export for \
-                the runtime symbol. Pinned by `wasm_rejects_conversions`.",
+                Option lowering. WASM: full — `Feature::StringToInt` is \
+                in `wasm().supported`; `runtime/string.c` is linked via \
+                `linker.rs` and the shared `IRCodeGen` lowers the call. \
+                Pinned by `wasm_accepts_string_to_int`.",
     },
     FeatureRow {
         name: "string_ops",
@@ -528,10 +529,11 @@ pub const MATRIX: &[FeatureRow] = &[
                 Pinned by `corpus_51_args_llvm` and by \
                 `llvm_accepts_args` in `capabilities/tests.rs`. No \
                 static conformance fixture is possible — `args()` \
-                returns the process's arguments. WASM: refused via \
-                `Feature::CommandLineArgs` not being in \
-                `wasm().supported` (the WASM host has no argc/argv \
-                mechanism). Pinned by `wasm_rejects_args`.",
+                returns the process's arguments. WASM: full — \
+                `Feature::CommandLineArgs` is in `wasm().supported`; \
+                `runtime/args.c` is linked via `linker.rs` and the \
+                main wrapper calls `algol26_args_init`. Pinned by \
+                `wasm_accepts_args`.",
     },
     FeatureRow {
         name: "map",
@@ -544,9 +546,10 @@ pub const MATRIX: &[FeatureRow] = &[
                 in full; ADR 0027 v1 lowers `Map<Int, Int>` on LLVM via \
                 `runtime/map.c` (insert/get/contains/length working; \
                 keys/values and non-Int key/value shapes refused at \
-                codegen). WASM still refuses all Map programs at the \
-                capability check (`Feature::Map` not in `wasm().supported`), \
-                pinned by `wasm_rejects_maps`. The prior \
+                codegen). WASM: full for the supported shapes — \
+                `Feature::Map` is in `wasm().supported`; `runtime/map*.c` \
+                is linked via `linker.rs` and the shared `IRCodeGen` \
+                lowers identically. Pinned by `wasm_accepts_maps`. The prior \
                 `llvm_rejects_map_method_calls_without_literal` test was \
                 rewritten to `llvm_accepts_map_int_int_method_calls` \
                 (asserting acceptance, since Map is now supported for \

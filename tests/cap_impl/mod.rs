@@ -25,8 +25,8 @@ struct CapabilityMismatch {
 }
 
 fn load_matrix() -> ExpectedMatrix {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/cap_impl/expected_matrix.json");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cap_impl/expected_matrix.json");
     let json = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("expected_matrix.json not found: {}", e));
     serde_json::from_str(&json).expect("expected_matrix.json is malformed")
@@ -37,7 +37,11 @@ fn fixture_for(feature: &str) -> PathBuf {
         .join("tests/cap_impl/fixtures")
         .join(format!("{}.gol", feature));
     if !path.exists() {
-        panic!("missing fixture for feature `{}`: {}", feature, path.display());
+        panic!(
+            "missing fixture for feature `{}`: {}",
+            feature,
+            path.display()
+        );
     }
     path
 }
@@ -75,7 +79,13 @@ fn capability_matrix_is_accurate() {
         for (backend, expected) in backends {
             checked += 1;
             let (ok, detail, is_panic) = build_with_backend(&fixture, backend);
-            let actual = if is_panic { "panicked" } else if ok { "ok" } else { "refused" };
+            let actual = if is_panic {
+                "panicked"
+            } else if ok {
+                "ok"
+            } else {
+                "refused"
+            };
             if actual != expected {
                 failures.push(CapabilityMismatch {
                     feature: feature.clone(),
@@ -89,7 +99,11 @@ fn capability_matrix_is_accurate() {
     }
 
     if !failures.is_empty() {
-        eprintln!("\n{} capability mismatches (out of {} checks):", failures.len(), checked);
+        eprintln!(
+            "\n{} capability mismatches (out of {} checks):",
+            failures.len(),
+            checked
+        );
         for f in &failures {
             eprintln!(
                 "  {} x {}: expected {}, got {}\n    {}",
@@ -107,7 +121,11 @@ fn no_feature_is_missing_a_fixture() {
     let matrix = load_matrix();
     for feature in matrix.features.keys() {
         let fixture = fixture_for(feature);
-        assert!(fixture.exists(), "missing fixture for feature `{}`", feature);
+        assert!(
+            fixture.exists(),
+            "missing fixture for feature `{}`",
+            feature
+        );
     }
 }
 
@@ -125,7 +143,10 @@ fn matrix_matches_inspect_capabilities() {
             let expected_symbol = match expected.as_str() {
                 "ok" => "✓",
                 "refused" => "✗",
-                _ => panic!("bad expected value for {}x{}: {}", feature, backend, expected),
+                _ => panic!(
+                    "bad expected value for {}x{}: {}",
+                    feature, backend, expected
+                ),
             };
             let line = stdout
                 .lines()

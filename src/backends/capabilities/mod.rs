@@ -222,18 +222,14 @@ impl BackendCapabilities {
         supported.insert(Feature::RawMemory);
         // File.*: runtime/file.c (read returns String, write/append
         // return byte count; errors abort via printf + exit(1)).
-        supported.insert(Feature::FileFunctions);
         // args(): runtime/args.c; main wrapper stashes argc/argv.
-        supported.insert(Feature::CommandLineArgs);
         supported.insert(Feature::References);
         supported.insert(Feature::Records);
         supported.insert(Feature::IntToString);
         // String.to_int: strict i64 parser (runtime/string.c).
-        supported.insert(Feature::StringToInt);
         supported.insert(Feature::StringOps);
         // String.split / String.join: runtime/string.c
         // (codepoint-aware split, byte-exact substring match).
-        supported.insert(Feature::StringSplit);
         supported.insert(Feature::Option);
         // By-value record parameters and returns use the LLVM
         // struct ABI: parameters arrive as struct values, returns
@@ -254,7 +250,6 @@ impl BackendCapabilities {
         // lowering (runtime/map.c + builtins in llvm_codegen).
         // Other key/value combinations are refused at codegen
         // with a targeted error, not at the capability boundary.
-        supported.insert(Feature::Map);
         // ADR 0060. Union types are lowered on LLVM via
         // `%Union_<Name> = { i32 tag, [N x i64] payload }`
         // (map_type), `Instruction::UnionConstruct` codegen, and
@@ -269,6 +264,21 @@ impl BackendCapabilities {
         // that Result *values* work; a program using try/catch
         // will still fail at codegen with a specific error.
         supported.insert(Feature::Result);
+        // try/catch: NOT yet supported on LLVM. The builder lowers it
+        // to a Switch on a Result tag, but the generated IR hits an
+        // unresolved-type panic in `types.rs:460` — see the
+        // `try_catch.gol` capability contract test. Refused at the
+        // capability boundary until that lowering is fixed.
+        // runtime/args.c
+        supported.insert(Feature::CommandLineArgs);
+        // runtime/file.c
+        supported.insert(Feature::FileFunctions);
+        // runtime/map*.c
+        supported.insert(Feature::Map);
+        // runtime/string.c
+        supported.insert(Feature::StringToInt);
+        // runtime/string.c
+        supported.insert(Feature::StringSplit);
         BackendCapabilities {
             name: "LLVM",
             supported,

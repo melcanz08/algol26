@@ -768,6 +768,49 @@ impl<'ctx> IRCodeGen<'ctx> {
         let realloc_fn = self.module.add_function("realloc", realloc_ty, None);
         self.functions.insert("realloc".to_string(), realloc_fn);
 
+        // ── runtime/list.c — List.sum / max / min ──
+        // T f(const T* buf, i64 len). The Option<T> wrapper for
+        // max/min is built in IR from the list length.
+        let i64_list_ty = self
+            .context
+            .i64_type()
+            .fn_type(&[i8_ptr.into(), self.context.i64_type().into()], false);
+        for sym in [
+            "algol26_list_sum_int",
+            "algol26_list_max_int",
+            "algol26_list_min_int",
+        ] {
+            let f = self.module.add_function(sym, i64_list_ty, None);
+            self.functions.insert(sym.to_string(), f);
+        }
+        let f64_list_ty = self
+            .context
+            .f64_type()
+            .fn_type(&[i8_ptr.into(), self.context.i64_type().into()], false);
+        for sym in [
+            "algol26_list_sum_float",
+            "algol26_list_max_float",
+            "algol26_list_min_float",
+        ] {
+            let f = self.module.add_function(sym, f64_list_ty, None);
+            self.functions.insert(sym.to_string(), f);
+        }
+
+        // ── runtime/list.c — print(list) formatters ──
+        // void f(const T* buf, i64 len). Prints directly to stdout.
+        let void_list_ty = self
+            .context
+            .void_type()
+            .fn_type(&[i8_ptr.into(), self.context.i64_type().into()], false);
+        for sym in [
+            "algol26_print_list_int",
+            "algol26_print_list_float",
+            "algol26_print_list_str",
+        ] {
+            let f = self.module.add_function(sym, void_list_ty, None);
+            self.functions.insert(sym.to_string(), f);
+        }
+
         let free_ty = self.context.void_type().fn_type(&[i8_ptr.into()], false);
         let free_fn = self.module.add_function("free", free_ty, None);
         self.functions.insert("free".to_string(), free_fn);
@@ -2692,6 +2735,111 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .into_struct_value();
                 Ok((sv.into(), Type::list(value_ty)))
             }
+            // ─── List.agg: sum / max / min (runtime/list.c) ───
+            "List.sum" | "List.max" | "List.min" => {
+                if args.len() != 1 {
+                    return Err(CompileError::simple(
+                        &format!("{} expects exactly 1 argument", name),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0002,
+                    ));
+                }
+                let recv = self.compile_value(&args[0])?;
+                if !recv.is_struct_value() {
+                    return Err(CompileError::unsupported_operation(
+                        &format!("{}: receiver is not a list descriptor", name),
+                        "llvm",
+                    ));
+                }
+                let desc = recv.into_struct_value();
+                let buf = self
+                    .builder
+                    .build_extract_value(desc, 0, "agg_buf")
+                    .unwrap();
+                let len = self
+                    .builder
+                    .build_extract_value(desc, 1, "agg_len")
+                    .unwrap();
+                let elem_ty = match args[0].type_of() {
+                    Type::List(e) => (*e).clone(),
+                    t => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("{}: receiver is not a list ({})", name, t),
+                            "llvm",
+                        ));
+                    }
+                };
+                let suffix = if matches!(elem_ty, Type::Float) {
+                    "float"
+                } else {
+                    "int"
+                };
+                let op = match name {
+                    "List.sum" => "sum",
+                    "List.max" => "max",
+                    "List.min" => "min",
+                    _ => unreachable!(),
+                };
+                let symbol = format!("algol26_list_{}_{}", op, suffix);
+                let f = self.module.get_function(&symbol).ok_or_else(|| {
+                    CompileError::simple(
+                        &format!("runtime/list.c not linked ({} missing)", symbol),
+                        0,
+                        0,
+                        "",
+                        ErrorCode::E0009,
+                    )
+                })?;
+                let call = self
+                    .builder
+                    .build_call(f, &[buf.into(), len.into()], "agg_call")
+                    .unwrap();
+                let raw = match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => v,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("{} returned void", symbol),
+                            "llvm",
+                        ))
+                    }
+                };
+                if name == "List.sum" {
+                    return Ok((raw, elem_ty));
+                }
+                let len_int = len.into_int_value();
+                let has = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::SGT,
+                        len_int,
+                        len_int.get_type().const_zero(),
+                        "agg_has",
+                    )
+                    .unwrap();
+                let opt_ty = match self.map_type(&Type::option(elem_ty.clone())) {
+                    inkwell::types::BasicTypeEnum::StructType(s) => s,
+                    _ => {
+                        return Err(CompileError::unsupported_operation(
+                            &format!("Option<{}> did not map to a struct", elem_ty),
+                            "llvm",
+                        ))
+                    }
+                };
+                let undef = opt_ty.get_undef();
+                let with_tag = self
+                    .builder
+                    .build_insert_value(undef, has, 0, "agg_tag")
+                    .unwrap()
+                    .into_struct_value();
+                let with_payload = self
+                    .builder
+                    .build_insert_value(with_tag, raw, 1, "agg_payload")
+                    .unwrap()
+                    .into_struct_value();
+                Ok((with_payload.into(), Type::option(elem_ty)))
+            }
             other => Err(CompileError::simple(
                 &format!(
                     "LLVM codegen: unhandled builtin '{}' in compile_builtin_value \
@@ -2716,6 +2864,13 @@ impl<'ctx> IRCodeGen<'ctx> {
         // store into; dispatch `affirm` separately.
         if name == "affirm" {
             return self.compile_affirm(args);
+        }
+
+        // `print(list)` is void-returning, not value-producing.
+        if name == "print" && args.len() == 1 {
+            if let Type::List(_) = args[0].type_of() {
+                return self.compile_print_list(args);
+            }
         }
 
         // `compile_builtin_value` reports the ALGOL26 type alongside
@@ -2775,6 +2930,54 @@ impl<'ctx> IRCodeGen<'ctx> {
         }
         Ok(())
     }
+    /// Lower `print(list)` to a call to the runtime formatter.
+    fn compile_print_list(&mut self, args: &[TypedIRValue]) -> Result<()> {
+        let recv = self.compile_value(&args[0])?;
+        if !recv.is_struct_value() {
+            return Err(CompileError::unsupported_operation(
+                "print(list): argument is not a list descriptor",
+                "llvm",
+            ));
+        }
+        let desc = recv.into_struct_value();
+        let buf = self.builder.build_extract_value(desc, 0, "pl_buf").unwrap();
+        let len = self.builder.build_extract_value(desc, 1, "pl_len").unwrap();
+        let elem_ty = match args[0].type_of() {
+            Type::List(e) => (*e).clone(),
+            t => {
+                return Err(CompileError::unsupported_operation(
+                    &format!("print(list): element type is {}", t),
+                    "llvm",
+                ))
+            }
+        };
+        let suffix = match elem_ty {
+            Type::Int | Type::Char | Type::Bool => "int",
+            Type::Float => "float",
+            Type::String => "str",
+            other => {
+                return Err(CompileError::unsupported_operation(
+                    &format!("print(list): element type {} not supported", other),
+                    "llvm",
+                ))
+            }
+        };
+        let symbol = format!("algol26_print_list_{}", suffix);
+        let f = self.module.get_function(&symbol).ok_or_else(|| {
+            CompileError::simple(
+                &format!("runtime/list.c not linked ({} missing)", symbol),
+                0,
+                0,
+                "",
+                ErrorCode::E0009,
+            )
+        })?;
+        self.builder
+            .build_call(f, &[buf.into(), len.into()], "")
+            .unwrap();
+        Ok(())
+    }
+
     /// Lower `affirm(cond, msg)` to LLVM.
     ///
     /// ADR 0022. If `cond` is true, execution continues. If false,

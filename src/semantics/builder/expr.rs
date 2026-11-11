@@ -2294,10 +2294,8 @@ impl SemanticIRBuilder {
                     .unwrap_or_else(|| format!("__err_unused_{}", self.iter_counter));
                 self.iter_counter += 1;
 
-                let switch_value = TypedIRValue::Variable(
-                    try_value_name.clone(),
-                    try_value_type.clone(),
-                );
+                let switch_value =
+                    TypedIRValue::Variable(try_value_name.clone(), try_value_type.clone());
 
                 self.safe_set_terminator(
                     func,

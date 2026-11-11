@@ -131,6 +131,27 @@ pub fn link_llvm_ir(ir_path: &Path, output_name: &str, libraries: &[String]) -> 
     }
     cmd.arg(&file_runtime);
 
+    // runtime/list.c — List.sum / max / min and print(list)
+    // formatters. Same fail-closed pattern as the other runtime
+    // files: a program that uses one of these builtins must be
+    // able to link the C implementation.
+    let list_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("runtime")
+        .join("list.c");
+    if !list_runtime.exists() {
+        return Err(CompileError::simple(
+            &format!(
+                "runtime/list.c not found at {} — required for List.sum/max/min and print(list) lowering",
+                list_runtime.display()
+            ),
+            0,
+            0,
+            "",
+            ErrorCode::E0001,
+        ));
+    }
+    cmd.arg(&list_runtime);
+
     // runtime/args.c — command-line arguments. Same pattern as
     // map_runtime, string_runtime, file_runtime.
     let args_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

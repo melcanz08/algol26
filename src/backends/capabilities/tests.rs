@@ -74,10 +74,10 @@ fn llvm_rejects_try_catch() {
     // from a hand-written `match` on a Result, so the builder emits
     // an `Instruction::TryCatchMarker` at the top of the lowering;
     // the capability scan reads it and inserts `Feature::TryCatch`.
-    // LLVM does not include that feature, so a program whose IR
-    // carries the marker is refused at the capability boundary —
-    // before the codegen's `map_type(Unknown)` can panic on the
-    // intermediate Result<Unknown, Unknown> declare.
+    // LLVM does not include that feature (the current lowering hits
+    // an unresolved-type panic in types.rs:460 — see the capability
+    // contract test), so a program whose IR carries the marker is
+    // refused at the capability boundary.
     let program = program_with(Instruction::TryCatchMarker, simple_return());
     let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
     assert!(
@@ -950,7 +950,7 @@ fn wasm_rejects_conversions() {
     let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
     assert!(
         err.message.contains("String.to_int"),
-        "expected conversion diagnostic, got: {}",
+        "expected String.to_int diagnostic, got: {}",
         err.message
     );
 }
@@ -994,11 +994,6 @@ fn interpreter_accepts_list_append() {
     );
 }
 
-const MAP_SOURCE: &str = r#"
-proc main
-    val m := Map { "a": 1 }
-    print(m.length())
-"#;
 
 #[test]
 fn llvm_accepts_list_append() {
@@ -1015,12 +1010,26 @@ fn llvm_accepts_list_append() {
 
 #[test]
 fn wasm_rejects_maps() {
-    let program = build_ir(MAP_SOURCE);
-    let result = super::check_backend(&program, &super::BackendCapabilities::wasm());
+    // The Map shape doesn't matter for the capability boundary —
+    // any Map triggers Feature::Map, and WASM doesn't support it
+    // until runtime/wasm/host.js provides the algol26_map_* imports.
+    let program = program_with(
+        Instruction::Declare {
+            name: "m".to_string(),
+            mutable: true,
+            type_: Type::Map(Box::new(Type::Int), Box::new(Type::Int)),
+            value: TypedIRValue::Map {
+                key_type: Type::Int,
+                value_type: Type::Int,
+                entries: vec![],
+                map_type: Type::Map(Box::new(Type::Int), Box::new(Type::Int)),
+            },
+        },
+        simple_return(),
+    );
     assert!(
-        result.is_err(),
-        "WASM should refuse maps, got: {:?}",
-        result.ok()
+        check_backend(&program, &BackendCapabilities::wasm()).is_err(),
+        "WASM should refuse Map until host.js provides the runtime",
     );
 }
 

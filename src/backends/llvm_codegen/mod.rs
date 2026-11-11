@@ -1051,11 +1051,7 @@ impl<'ctx> IRCodeGen<'ctx> {
             if val.is_pointer_value() {
                 let loaded = self
                     .builder
-                    .build_load(
-                        *st,
-                        val.into_pointer_value(),
-                        "load_record_arg",
-                    )
+                    .build_load(*st, val.into_pointer_value(), "load_record_arg")
                     .unwrap();
                 return Ok(loaded);
             }

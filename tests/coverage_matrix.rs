@@ -473,8 +473,8 @@ pub const MATRIX: &[FeatureRow] = &[
         conformance_dir: None,
         interpreter: Support::Full,
         llvm: Support::Full,
-        wasm: Support::Full,
-        refusal_tests: &[],
+        wasm: Support::Refused,
+        refusal_tests: &["wasm_rejects_string_ops"],
         notes: "Capability gate for String.concat / substring / trim / \
                 to_upper / to_lower. Individual op conformance is tracked \
                 by the string_concat / string_substring / \

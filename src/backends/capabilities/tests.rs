@@ -936,6 +936,25 @@ fn llvm_accepts_args() {
 }
 
 #[test]
+fn wasm_rejects_string_ops() {
+    // host.js provides some string runtime symbols but not the full
+    // StringOps surface (substring, char_at, trim, to_upper,
+    // to_lower, char_to_string, char_at_cp, to_chars). Until those
+    // are ported, refuse Feature::StringOps at the capability
+    // boundary so a WASM build doesn't produce a module that fails
+    // at load time.
+    const SOURCE: &str = r#"
+proc main
+    print("hello".to_upper())
+"#;
+    let program = build_ir(SOURCE);
+    assert!(
+        check_backend(&program, &BackendCapabilities::wasm()).is_err(),
+        "WASM should refuse StringOps until host.js ports the runtime",
+    );
+}
+
+#[test]
 fn wasm_accepts_string_split() {
     // runtime/wasm/host.js provides algol26_string_split and
     // algol26_string_join. The shared IRCodeGen lowers
@@ -1011,7 +1030,6 @@ fn interpreter_accepts_list_append() {
         result.err()
     );
 }
-
 
 #[test]
 fn llvm_accepts_list_append() {

@@ -291,7 +291,6 @@ impl BackendCapabilities {
         supported.insert(Feature::Records);
         supported.insert(Feature::References);
         supported.insert(Feature::IntToString);
-        supported.insert(Feature::StringOps);
         supported.insert(Feature::Option);
         // WASM shares IRCodeGen with LLVM; the by-value record ABI
         // applies to both.

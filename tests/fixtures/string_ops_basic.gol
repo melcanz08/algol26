@@ -1,4 +1,4 @@
-// supported: interpreter llvm wasm
+// supported: interpreter llvm
 // String.concat, to_upper, to_lower, length. These should lower
 // on all three backends (LLVM/WASM lower via libc strlen/strcat).
 proc main

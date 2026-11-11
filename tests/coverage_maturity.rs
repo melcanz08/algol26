@@ -100,7 +100,7 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     // strings
     ("string_literal", Maturity::AllBackends),
     ("string_length", Maturity::AllBackends),
-    ("string_ops", Maturity::Universal),
+    ("string_ops", Maturity::InterpreterAndLlvm),
     ("string_concat", Maturity::AllBackends),
     ("string_substring", Maturity::InterpreterAndLlvm),
     ("string_case_conversion", Maturity::InterpreterAndLlvm),

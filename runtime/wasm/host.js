@@ -590,6 +590,42 @@ const env = {
         return bufPtr;
     },
 
+    // ── Command-line args ──
+    //
+    // process.argv = [node, host.js, module.wasm, userArg1, ...]
+    // so slice(3) is what the program sees, matching the
+    // interpreter's std::env::args().skip(1) plus the host's own
+    // two argv entries (node executable, host.js script).
+    //
+    // algol26_args_init is a no-op under WASM: the host already
+    // has the argument vector in process.argv, and unlike the C
+    // runtime the module can't be re-invoked with different args.
+    // The generated main wrapper still calls this with (argc, argv)
+    // from the WASM main signature — we ignore those. _count and
+    // _get read process.argv directly.
+    algol26_args_init: function (argc, argv) {
+        // No-op; see comment above.
+    },
+
+    algol26_args_count: function () {
+        const userArgs = process.argv.slice(3);
+        // wasm32 i64 return: must be BigInt.
+        return BigInt(userArgs.length);
+    },
+
+    algol26_args_get: function (i) {
+        const userArgs = process.argv.slice(3);
+        const idx = Number(i);
+        if (idx < 0 || idx >= userArgs.length) return 0;   // NULL
+        const arg = userArgs[idx];
+        const len = Buffer.byteLength(arg, 'utf8');
+        const ptr = env.malloc(len + 1);
+        const mem = new Uint8Array(linearMemory.buffer);
+        mem.set(Buffer.from(arg, 'utf8'), ptr);
+        mem[ptr + len] = 0;
+        return ptr;
+    },
+
     strcmp: function (a, b) {
         const sa = readCString(a);
         const sb = readCString(b);

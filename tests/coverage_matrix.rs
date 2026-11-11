@@ -519,8 +519,8 @@ pub const MATRIX: &[FeatureRow] = &[
         conformance_dir: None,
         interpreter: Support::Full,
         llvm: Support::Full,
-        wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_args"],
+        wasm: Support::Full,
+        refusal_tests: &[],
         notes: "LLVM: full. The generated `main` wrapper forwards \
                 `(argc, argv)` to `algol26_args_init` in \
                 `runtime/args.c`; `args()` lowers to \

@@ -673,7 +673,10 @@ fn interpreter_accepts_args() {
 }
 
 #[test]
-fn wasm_rejects_args() {
+fn wasm_accepts_args() {
+    // runtime/wasm/host.js provides algol26_args_init (no-op),
+    // algol26_args_count, and algol26_args_get backed by
+    // process.argv.slice(3).
     let program = program_with(
         Instruction::Declare {
             name: "xs".to_string(),
@@ -687,11 +690,9 @@ fn wasm_rejects_args() {
         },
         simple_return(),
     );
-    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
     assert!(
-        err.message.contains("command-line"),
-        "expected args diagnostic, got: {}",
-        err.message
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept args() after host.js port",
     );
 }
 

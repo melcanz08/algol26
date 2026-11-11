@@ -1,0 +1,8 @@
+// supported: interpreter llvm wasm
+// args() returns List<String>. Under the test harness there are
+// no user arguments, so length is 0. Exists to verify that
+// args() runs end-to-end on all three backends.
+
+proc main
+    val a := args()
+    print(Int.to_string(a.length()))

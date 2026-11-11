@@ -68,7 +68,7 @@
     "args": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "records": {
       "interpreter": "ok",

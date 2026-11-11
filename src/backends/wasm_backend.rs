@@ -117,7 +117,14 @@ impl Backend for WasmBackend {
         // wasm-ld expects a relocatable object, so write LLVM's
         // output to a `.wasm.o` intermediate first, then link it
         // into a runnable module.
-        let obj_path = format!("{}.wasm.o", output_name);
+        //
+        // The `.o` path includes the process ID to prevent
+        // concurrent test binaries (which all compile the same
+        // fixture through `wasm`) from racing on the same
+        // intermediate file. The file lives in the same directory
+        // as `output_name` (usually the source fixture's parent),
+        // which is writable; it is removed after `wasm-ld` consumes it.
+        let obj_path = format!("{}.{}.wasm.o", output_name, std::process::id());
         machine
             .write_to_file(
                 &codegen.module,

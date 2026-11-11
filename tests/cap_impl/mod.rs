@@ -168,3 +168,117 @@ fn matrix_matches_inspect_capabilities() {
         }
     }
 }
+
+/// For every `(feature, backend)` pair the compiler knows about,
+/// the fixture MUST compile if and only if the backend's capability
+/// set claims to support that feature.
+///
+/// This is the direct invariant the other three capability tests
+/// only verify transitively. Their closure is:
+///
+///     fixture_compiles == expected_matrix.json
+///     expected_matrix.json == inspect --capabilities
+///     inspect --capabilities == BackendCapabilities::*().supported
+///
+/// If all three agree on the **wrong** answer, transitivity passes
+/// and the invariant fails. That happened at commit 7804cfe: the
+/// LLVM codegen for List.sum/max/min was written and linked, but
+/// the `Feature::ListAggregates` flip in `BackendCapabilities::llvm()`
+/// silently failed. The matrix stayed `refused`, `inspect` stayed
+/// `refused`, and every existing test passed — while the codegen
+/// sat as dead code for a full day, hiding eight subsequent bugs.
+///
+/// This test breaks the transitive chain by comparing
+/// `fixture_compiles` directly to `BackendCapabilities::<backend>
+/// .supported`, with no matrix in between. It would have failed
+/// on 7804cfe with:
+///
+///     list.agg x llvm: compiles=true claims_supported=false
+///         (codegen exists but capability gate is closed)
+#[test]
+fn codegen_exists_iff_capability_on() {
+    use algol26::backends::capabilities::{BackendCapabilities, Feature};
+
+    let matrix = load_matrix();
+    let mut failures: Vec<String> = Vec::new();
+    let mut checked = 0;
+
+    // Feature::name() is the canonical name; matrix keys use it
+    // verbatim (asserted by matrix_matches_inspect_capabilities,
+    // which finds each matrix key by exact prefix in the inspect
+    // output, which itself uses .name()).
+    let feature_by_name: HashMap<&str, Feature> =
+        Feature::all().iter().map(|f| (f.name(), *f)).collect();
+
+    let interpreter = BackendCapabilities::interpreter();
+    let llvm = BackendCapabilities::llvm();
+    let wasm = BackendCapabilities::wasm();
+    let backends: &[(&str, &BackendCapabilities)] = &[
+        ("interpreter", &interpreter),
+        ("llvm", &llvm),
+        ("wasm", &wasm),
+    ];
+
+    for feature_name in matrix.features.keys() {
+        let Some(feature) = feature_by_name.get(feature_name.as_str()).copied() else {
+            // Matrix has a key not in Feature::all(). That's a
+            // separate failure class — the matrix has drifted from
+            // the enum. Report it explicitly rather than skipping.
+            failures.push(format!(
+                "matrix key `{}` has no matching Feature::* variant",
+                feature_name
+            ));
+            continue;
+        };
+
+        let fixture = fixture_for(feature_name);
+
+        for (backend_name, caps) in backends {
+            checked += 1;
+
+            let (ok, _detail, is_panic) = build_with_backend(&fixture, backend_name);
+            let compiles = ok && !is_panic;
+            let claims_supported = caps.supported.contains(&feature);
+
+            if compiles != claims_supported {
+                // Explain the direction. Both are bugs, but the
+                // diagnosis differs:
+                //   compiles && !claims  -> dead codegen; the
+                //     capability flip was forgotten. This is
+                //     what 7804cfe triggered.
+                //   !compiles && claims  -> the capability is
+                //     lying; the codegen is broken or missing.
+                //     This is what `union`-on-LLVM looked like
+                //     before the fix, and what `StringOps`-on-WASM
+                //     looked like before the honest rollback.
+                let direction = if compiles {
+                    "codegen exists but capability gate is closed \
+                     (add the feature to BackendCapabilities::<backend>.supported, \
+                     or remove the codegen path)"
+                } else {
+                    "capability claims support but codegen is broken \
+                     (fix the codegen, or remove the feature from \
+                     BackendCapabilities::<backend>.supported)"
+                };
+                failures.push(format!(
+                    "{} x {}: compiles={} claims_supported={}\n    {}",
+                    feature_name, backend_name, compiles, claims_supported, direction
+                ));
+            }
+        }
+    }
+
+    if !failures.is_empty() {
+        panic!(
+            "{} capability/codegen mismatch(es) out of {} checks:\n\n{}",
+            failures.len(),
+            checked,
+            failures.join("\n\n")
+        );
+    }
+
+    eprintln!(
+        "all {} capability/codegen checks agree (codegen exists iff capability is on)",
+        checked
+    );
+}

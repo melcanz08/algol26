@@ -1,6 +1,6 @@
 # StringOps granularity gap
 
-**Status:** open — decision needed
+**Status:** RESOLVED (commit 12a68ab, 2026-11-12) — Option B: all 6 missing symbols ported to host.js
 **Discovered:** session ending 2026-11-11
 **Affects:** `src/backends/capabilities/mod.rs`, `wasm()`
 

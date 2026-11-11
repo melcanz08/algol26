@@ -384,6 +384,212 @@ const env = {
         return outPtr;
     },
 
+    // ── StringOps runtime ports ──
+    //
+    // These mirror the C implementations in runtime/string.c. They
+    // read/write ALGOL26 strings through linear memory, use env.malloc
+    // for allocation, and match the interpreter's semantics exactly
+    // (codepoint-indexed, Unicode-aware).
+
+    // Decode a single UTF-8 codepoint at a byte offset. Mirrors
+    // runtime/string.c's `decode_utf8`. Returns {cp, adv} where
+    // `adv` is the byte length (1..4). On malformed input, falls
+    // through to a 1-byte advance with the raw byte as the cp.
+    _decode_utf8: function (mem, ptr) {
+        const b0 = mem[ptr];
+        if (b0 < 0x80) return { cp: b0, adv: 1 };
+        if ((b0 & 0xE0) === 0xC0 && mem[ptr + 1] !== 0) {
+            return {
+                cp: ((b0 & 0x1F) << 6) | (mem[ptr + 1] & 0x3F),
+                adv: 2,
+            };
+        }
+        if ((b0 & 0xF0) === 0xE0 && mem[ptr + 1] !== 0 && mem[ptr + 2] !== 0) {
+            return {
+                cp: ((b0 & 0x0F) << 12)
+                    | ((mem[ptr + 1] & 0x3F) << 6)
+                    | (mem[ptr + 2] & 0x3F),
+                adv: 3,
+            };
+        }
+        if ((b0 & 0xF8) === 0xF0
+            && mem[ptr + 1] !== 0 && mem[ptr + 2] !== 0 && mem[ptr + 3] !== 0) {
+            return {
+                cp: ((b0 & 0x07) << 18)
+                    | ((mem[ptr + 1] & 0x3F) << 12)
+                    | ((mem[ptr + 2] & 0x3F) << 6)
+                    | (mem[ptr + 3] & 0x3F),
+                adv: 4,
+            };
+        }
+        // Malformed — consume one byte, expose it raw.
+        return { cp: b0, adv: 1 };
+    },
+
+    // Write a JS string to linear memory at `ptr`, UTF-8 encoded,
+    // with a NUL terminator. Returns the number of bytes written
+    // (excluding the terminator).
+    _write_cstr: function (mem, ptr, str) {
+        const buf = Buffer.from(str, 'utf8');
+        mem.set(buf, ptr);
+        mem[ptr + buf.length] = 0;
+        return buf.length;
+    },
+
+    // Match runtime/string.c's is_unicode_whitespace.
+    _is_unicode_whitespace: function (cp) {
+        return (cp >= 0x09 && cp <= 0x0D)
+            || cp === 0x20
+            || cp === 0x85
+            || cp === 0xA0
+            || cp === 0x1680
+            || (cp >= 0x2000 && cp <= 0x200A)
+            || cp === 0x2028
+            || cp === 0x2029
+            || cp === 0x202F
+            || cp === 0x205F
+            || cp === 0x3000;
+    },
+
+    // Encode one codepoint as UTF-8. Mirrors algol26_char_to_string.
+    _encode_utf8: function (cp) {
+        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+            // Replacement character.
+            return Buffer.from([0xEF, 0xBF, 0xBD]);
+        }
+        if (cp < 0x80) return Buffer.from([cp]);
+        if (cp < 0x800) {
+            return Buffer.from([0xC0 | (cp >> 6), 0x80 | (cp & 0x3F)]);
+        }
+        if (cp < 0x10000) {
+            return Buffer.from([
+                0xE0 | (cp >> 12),
+                0x80 | ((cp >> 6) & 0x3F),
+                0x80 | (cp & 0x3F),
+            ]);
+        }
+        return Buffer.from([
+            0xF0 | (cp >> 18),
+            0x80 | ((cp >> 12) & 0x3F),
+            0x80 | ((cp >> 6) & 0x3F),
+            0x80 | (cp & 0x3F),
+        ]);
+    },
+
+    // algol26_string_substring(s, start, length) → malloc'd char*.
+    // Codepoint-indexed. Clamps out-of-range to "". start/length
+    // arrive as BigInt (i64).
+    algol26_string_substring: function (s_ptr, start_bigint, length_bigint) {
+        const s = readCString(s_ptr);
+        let start = Number(start_bigint);
+        let length = Number(length_bigint);
+        if (start < 0) start = 0;
+        if (length < 0) length = 0;
+        const cps = Array.from(s);
+        const slice = cps.slice(start, start + length).join('');
+        const len = Buffer.byteLength(slice, 'utf8');
+        const outPtr = env.malloc(len + 1);
+        const mem = new Uint8Array(linearMemory.buffer);
+        env._write_cstr(mem, outPtr, slice);
+        return outPtr;
+    },
+
+    // algol26_string_char_at(s, i) → malloc'd 1-cp string | NULL.
+    // i arrives as BigInt.
+    algol26_string_char_at: function (s_ptr, i_bigint) {
+        const s = readCString(s_ptr);
+        const i = Number(i_bigint);
+        if (i < 0) return 0;
+        const cps = Array.from(s);
+        if (i >= cps.length) return 0;
+        const ch = cps[i];
+        const len = Buffer.byteLength(ch, 'utf8');
+        const outPtr = env.malloc(len + 1);
+        const mem = new Uint8Array(linearMemory.buffer);
+        env._write_cstr(mem, outPtr, ch);
+        return outPtr;
+    },
+
+    // algol26_string_trim(s) → malloc'd char* (Unicode-aware).
+    algol26_string_trim: function (s_ptr) {
+        const s = readCString(s_ptr);
+        // JS's String.prototype.trim handles the Unicode White_Space
+        // set (includes U+FEFF, which Rust does not — but Rust's
+        // char::is_whitespace does not include U+FEFF either, so
+        // we handle it explicitly).
+        const trimmed = Array.from(s)
+            .filter(c => true) // no-op, keeps codepoint array
+            .join('');
+        // Manual trim to match runtime/string.c exactly:
+        const cps = Array.from(trimmed);
+        let start = 0;
+        while (start < cps.length
+               && env._is_unicode_whitespace(cps[start].codePointAt(0))) {
+            start++;
+        }
+        if (start === cps.length) {
+            const empty = env.malloc(1);
+            new Uint8Array(linearMemory.buffer)[empty] = 0;
+            return empty;
+        }
+        let end = start;
+        for (let j = start; j < cps.length; j++) {
+            if (!env._is_unicode_whitespace(cps[j].codePointAt(0))) end = j + 1;
+        }
+        const result = cps.slice(start, end).join('');
+        const len = Buffer.byteLength(result, 'utf8');
+        const outPtr = env.malloc(len + 1);
+        const mem = new Uint8Array(linearMemory.buffer);
+        env._write_cstr(mem, outPtr, result);
+        return outPtr;
+    },
+
+    // algol26_char_to_string(cp) → malloc'd 1-cp UTF-8 string.
+    // cp arrives as i32 (Number).
+    algol26_char_to_string: function (cp) {
+        const buf = env._encode_utf8(cp);
+        const outPtr = env.malloc(buf.length + 1);
+        const mem = new Uint8Array(linearMemory.buffer);
+        mem.set(buf, outPtr);
+        mem[outPtr + buf.length] = 0;
+        return outPtr;
+    },
+
+    // algol26_string_char_at_cp(s, i, out_u32_ptr) → i32 (0 | 1).
+    // i arrives as BigInt. Writes the codepoint through out_ptr.
+    algol26_string_char_at_cp: function (s_ptr, i_bigint, out_ptr) {
+        const s = readCString(s_ptr);
+        const i = Number(i_bigint);
+        if (i < 0) return 0;
+        const cps = Array.from(s);
+        if (i >= cps.length) return 0;
+        const u32 = new Uint32Array(linearMemory.buffer);
+        u32[out_ptr >> 2] = cps[i].codePointAt(0);
+        return 1;
+    },
+
+    // algol26_string_to_chars(s, out_count_i64_ptr) → malloc'd i32 array | NULL.
+    // Empty string → NULL + out_count = 0.
+    algol26_string_to_chars: function (s_ptr, out_count_ptr) {
+        const s = readCString(s_ptr);
+        const cps = Array.from(s);
+        const u32 = new Uint32Array(linearMemory.buffer);
+        if (cps.length === 0) {
+            // out_count = 0 (two u32 words, both zero).
+            u32[out_count_ptr >> 2] = 0;
+            u32[(out_count_ptr >> 2) + 1] = 0;
+            return 0;
+        }
+        const bufPtr = env.malloc(cps.length * 4);
+        for (let i = 0; i < cps.length; i++) {
+            u32[(bufPtr >> 2) + i] = cps[i].codePointAt(0);
+        }
+        // Write int64_t count (two u32 words, low + high).
+        u32[out_count_ptr >> 2] = cps.length;
+        u32[(out_count_ptr >> 2) + 1] = 0;
+        return bufPtr;
+    },
+
     strcmp: function (a, b) {
         const sa = readCString(a);
         const sb = readCString(b);

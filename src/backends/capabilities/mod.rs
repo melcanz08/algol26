@@ -305,6 +305,7 @@ impl BackendCapabilities {
         // runtime/wasm/host.js provides algol26_string_split
         // and algol26_string_join.
         supported.insert(Feature::StringSplit);
+        supported.insert(Feature::StringOps);
         BackendCapabilities {
             name: "WASM",
             supported,

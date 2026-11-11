@@ -28,7 +28,7 @@
     "string.ops": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "string.split": {
       "interpreter": "ok",

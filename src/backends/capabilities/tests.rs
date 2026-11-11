@@ -936,21 +936,18 @@ fn llvm_accepts_args() {
 }
 
 #[test]
-fn wasm_rejects_string_ops() {
-    // host.js provides some string runtime symbols but not the full
-    // StringOps surface (substring, char_at, trim, to_upper,
-    // to_lower, char_to_string, char_at_cp, to_chars). Until those
-    // are ported, refuse Feature::StringOps at the capability
-    // boundary so a WASM build doesn't produce a module that fails
-    // at load time.
+fn wasm_accepts_string_ops() {
+    // host.js provides all 6 runtime symbols (substring, char_at,
+    // trim, char_to_string, char_at_cp, to_chars) plus strlen_utf8
+    // and strcmp; toupper/tolower are host exports already.
     const SOURCE: &str = r#"
 proc main
     print("hello".to_upper())
 "#;
     let program = build_ir(SOURCE);
     assert!(
-        check_backend(&program, &BackendCapabilities::wasm()).is_err(),
-        "WASM should refuse StringOps until host.js ports the runtime",
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept StringOps after host.js ports",
     );
 }
 

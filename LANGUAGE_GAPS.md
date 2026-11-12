@@ -2203,6 +2203,19 @@ prerequisites for the phase that actually needs them (Phase 7
 needs G43). The roadmap should note this: **G43 must land before
 Phase 7 starts.**
 
+**Status (2026-11-12):** ADR 0066 (`docs/decisions/0066-json-ordered-object.md`)
+resolves this gap. Decision: add `Json.OrderedObj(List[(String, Json)])`
+as a sibling of `Json.Obj`; the JSON parser emits `OrderedObj`;
+`parse_ir.gol` iterates its entries in source order. ADR 0027 is
+untouched — `Map` remains a hash map with unspecified order.
+
+Construction-site measurement: `grep -rn "Json.Obj(" src/chaincss/*.gol
+| wc -l` reports **76** as of 2026-11-12. Not small enough for
+replace-to-be-trivial, not large enough for coexist-to-be-permanent.
+Both variants coexist in v1. `Obj` deprecation is revisited in Phase 7
+prep when the emitter's `stringify` usage is settled.
+
+
 ## Ergonomic note — square-opened generics closed with `>` (`[...>`)
 
 **Symptom.** The compiler reports:

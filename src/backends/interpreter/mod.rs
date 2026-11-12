@@ -28,6 +28,10 @@ use crate::ir::semantic_ir::{
 use std::collections::HashMap;
 
 mod eval;
+// Public re-export so tests can pin `Float.to_string`'s
+// output to the JS oracle without exposing the whole
+// `eval` module. See LANGUAGE_GAPS.md G34.
+pub use eval::format_float_for_display;
 mod pattern;
 mod runtime;
 pub use runtime::{EvalError, RuntimeValue};

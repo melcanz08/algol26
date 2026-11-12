@@ -49,18 +49,25 @@ differential corpus in `tests/corpus/`, the conformance fixtures in
   switches on the tag and extracts the payload into the arm's
   binding. Both interpreter and LLVM support the construction
   and matching.
-- **`try` / `catch`** — interpreter-only. LLVM and WASM refuse
-  programs using `try`/`catch` at the capability boundary via
-  `Feature::TryCatch`, before codegen runs. Result *values*
-  (`Ok`/`Error` construction, `match` on `Result`) remain
-  supported on LLVM via the separate `Feature::Result` gate; only
-  the `try`/`catch` construct is interpreter-only. The builder
-  emits `Instruction::TryCatchMarker` at the top of the lowering
-  so the capability scan can distinguish the construct from a
-  hand-written `match` on a `Result`.
+- **`try` / `catch`** — interpreter and LLVM. WASM refuses programs
+  using `try`/`catch` at the capability boundary because
+  `Feature::Result` is not in `wasm().supported` (a separate gap:
+  `Result` codegen has never been exercised on WASM). The builder
+  lowers `try`/`catch` to a `Switch` on the `Result` tag plus
+  per-branch blocks and a merge; it emits an
+  `Instruction::TryCatchMarker` at the top of the lowering so the
+  capability scan can distinguish the construct from a
+  hand-written `match` on a `Result`. The marker is a no-op in
+  LLVM/WASM codegen. The `Ok`/`Error` value construction
+  normalizes `Unknown` payload positions to `i64` (see
+  `value.rs` `TypedIRValue::Ok` / `::Error`), so a try body like
+  `Ok(5)` (type `Result<Int, Unknown>`) produces a sized
+  `{ i1, i64, i64 }` struct.
 - **Not yet supported:** `?`-style propagation (not part of the
   language), converting between `Result` and `Option` (both exist
-  but no builtin), LLVM/WASM lowering for `try`/`catch`.
+  but no builtin), `Result` and `try`/`catch` on WASM (blocked on
+  `Feature::Result` for WASM — the LLVM codegen path is shared but
+  has never been exercised on WASM).
 
 ### Sum types (ADR 0055)
 
@@ -423,7 +430,7 @@ pass pipeline (`src/compiler/pipeline.rs`, `scheduler.rs`,
 | `match` (literal patterns) | ✅ | ✅ | ✅ | ✅ | — |
 | `match` (binding patterns) | ✅ | ✅ | ✅ | ✅ | 13 |
 | `Result` / `Ok` / `Error` | ✅ | ✅ | ✅ | ✅ | 14 |
-| `try` / `catch` | ✅ | ✅ | ✅ | ⛔ | 14 |
+| `try` / `catch` | ✅ | ✅ | ✅ | ✅ | 14 |
 | Traits + impls | ✅ | ✅ | ✅ | ✅ | 28, 29, 37 |
 | `&dyn Trait` / `&mut dyn Trait` | ✅ | ✅ | ✅ | ✅ | — |
 | Visibility (`pub`) | ✅ | ✅ | ✅ | ✅ | — |

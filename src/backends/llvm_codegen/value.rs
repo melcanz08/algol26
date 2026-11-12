@@ -1392,8 +1392,21 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ));
                     }
                 };
-                let ok_llvm_ty = self.map_type(ok);
-                let err_llvm_ty = self.map_type(error);
+                // Read the payload types from the *struct* that
+                // map_type built, not from the raw ok/error fields.
+                // map_type(Type::Result) substitutes `i64` for any
+                // Unknown payload (line 415-422), which is exactly
+                // what the struct layout needs — but calling
+                // map_type(ok) or map_type(error) directly on the
+                // raw fields bypasses that substitution and panics
+                // on Unknown. The struct has already normalized,
+                // so read from it.
+                let ok_llvm_ty = struct_ty
+                    .get_field_type_at_index(1)
+                    .expect("Result struct has no ok field at index 1");
+                let err_llvm_ty = struct_ty
+                    .get_field_type_at_index(2)
+                    .expect("Result struct has no error field at index 2");
 
                 // Compile the payload. If the payload's declared
                 // type is a struct (record/list/Option/Result) and
@@ -1437,8 +1450,21 @@ impl<'ctx> IRCodeGen<'ctx> {
                         ));
                     }
                 };
-                let ok_llvm_ty = self.map_type(ok);
-                let err_llvm_ty = self.map_type(error);
+                // Read the payload types from the *struct* that
+                // map_type built, not from the raw ok/error fields.
+                // map_type(Type::Result) substitutes `i64` for any
+                // Unknown payload (line 415-422), which is exactly
+                // what the struct layout needs — but calling
+                // map_type(ok) or map_type(error) directly on the
+                // raw fields bypasses that substitution and panics
+                // on Unknown. The struct has already normalized,
+                // so read from it.
+                let ok_llvm_ty = struct_ty
+                    .get_field_type_at_index(1)
+                    .expect("Result struct has no ok field at index 1");
+                let err_llvm_ty = struct_ty
+                    .get_field_type_at_index(2)
+                    .expect("Result struct has no error field at index 2");
 
                 let payload_val = self.compile_value(value)?;
                 let payload_val = match (payload_val, &err_llvm_ty) {

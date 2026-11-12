@@ -284,9 +284,9 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "try_catch",
         conformance_dir: Some("result"),
         interpreter: Support::Full,
-        llvm: Support::Refused,
+        llvm: Support::Full,
         wasm: Support::Refused,
-        refusal_tests: &["llvm_rejects_try_catch", "wasm_rejects_try_catch"],
+        refusal_tests: &["wasm_rejects_try_catch"],
         notes: "try/catch is interpreter-only. The builder lowers it \
                 to a Switch on a Result value plus per-branch blocks, \
                 but emits an `Instruction::TryCatchMarker` at the top \

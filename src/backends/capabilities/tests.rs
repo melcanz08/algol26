@@ -68,22 +68,16 @@ fn llvm_accepts_result_values() {
 }
 
 #[test]
-fn llvm_rejects_try_catch() {
-    // `try`/`catch` lowers (in the builder) to a Switch on a Result
-    // value plus per-branch blocks. The shape is indistinguishable
-    // from a hand-written `match` on a Result, so the builder emits
-    // an `Instruction::TryCatchMarker` at the top of the lowering;
-    // the capability scan reads it and inserts `Feature::TryCatch`.
-    // LLVM does not include that feature (the current lowering hits
-    // an unresolved-type panic in types.rs:460 — see the capability
-    // contract test), so a program whose IR carries the marker is
-    // refused at the capability boundary.
+fn llvm_accepts_try_catch() {
+    // The builder lowers try/catch into a Switch on the Result tag
+    // plus per-branch blocks; TryCatchMarker is a no-op in codegen.
+    // The Ok/Error construction normalizes Unknown payloads via the
+    // struct's field types (value.rs), so Result<Int, Unknown>
+    // produces a valid { i1, i64, i64 } layout.
     let program = program_with(Instruction::TryCatchMarker, simple_return());
-    let err = check_backend(&program, &BackendCapabilities::llvm()).unwrap_err();
     assert!(
-        err.message.contains("try/catch"),
-        "expected try/catch in the diagnostic, got: {}",
-        err.message
+        check_backend(&program, &BackendCapabilities::llvm()).is_ok(),
+        "LLVM should accept try/catch",
     );
 }
 

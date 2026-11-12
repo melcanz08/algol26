@@ -256,6 +256,10 @@ impl BackendCapabilities {
         // the `Switch` fast path (`compile_union_switch`) for
         // `match` on union values. See ADR 0060.
         supported.insert(Feature::Unions);
+        // Builder lowers try/catch into a Switch on the Result tag
+        // plus per-branch blocks; TryCatchMarker is a no-op in
+        // LLVM codegen (see instruction.rs).
+        supported.insert(Feature::TryCatch);
         // ADR 0030. `Result<T, E>` lowers to `{ i1, T, E }`;
         // `Ok`/`Error` construct the struct, and `match` on a
         // `Result` value switches on the tag. `try`/`catch` is

@@ -2200,7 +2200,18 @@ impl SemanticIRBuilder {
                 //   err_block: translate catch body; result_var := its value; Jump merge
                 //   merge: result_var holds the value
 
-                let result_type = self.type_of_expr(expr).unwrap_or(Type::Unknown);
+                // If the analyzer inferred Unknown for the ok type
+                // (happens when the try body constructs Error(_) and
+                // the catch arm ignores the bound variable, so no
+                // constraint on T reaches the analyzer), normalize
+                // to Int. Matches the try_value_type.ok normalization
+                // below, and matches the interpreter's dynamic
+                // behavior (the concrete choice is free; Int is the
+                // cheapest fixed layout).
+                let result_type = match self.type_of_expr(expr) {
+                    Some(Type::Unknown) | None => Type::Int,
+                    Some(t) => t,
+                };
 
                 let result_var = self.allocate_result_var(func, current_block, result_type.clone());
 
@@ -2223,7 +2234,7 @@ impl SemanticIRBuilder {
                             trailing_expr,
                             ..
                         } => (statements.clone(), trailing_expr.clone()),
-                        _ => (vec![Stmt::Expression(try_branch.as_ref().clone())], None),
+                        _ => (vec![], Some(Box::new(try_branch.as_ref().clone()))),
                     };
 
                 // Infer the Result<T, E> type from the try body's
@@ -2236,7 +2247,21 @@ impl SemanticIRBuilder {
                 let try_value_type = try_trailing
                     .as_deref()
                     .and_then(|e| self.type_of_expr(e))
-                    .unwrap_or(Type::result(Type::Unknown, Type::Unknown));
+                    .map(|t| match t {
+                        Type::Result { ok, error } => {
+                            let ok_norm = match *ok {
+                                Type::Unknown => Type::Int,
+                                ref other => other.clone(),
+                            };
+                            let err_norm = match *error {
+                                Type::Unknown => Type::Int,
+                                ref other => other.clone(),
+                            };
+                            Type::result(ok_norm, err_norm)
+                        }
+                        other => other,
+                    })
+                    .unwrap_or(Type::result(Type::Int, Type::Int));
 
                 // Allocate the try_value variable before branching.
                 self.safe_push_instruction(

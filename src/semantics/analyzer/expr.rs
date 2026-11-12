@@ -809,9 +809,34 @@ impl SemanticAnalyzer {
                 let try_type = self.analyze_expr(try_branch)?;
 
                 // The try body must evaluate to a Result<T, E>.
+                //
+                // Normalize Unknown to Int in either position. A
+                // bare `Ok(5)` leaves the error type unconstrained
+                // (Result<Int, Unknown>); a bare `Error(e)` leaves
+                // the ok type unconstrained (Result<Unknown, E>).
+                // The interpreter has dynamic values and does not
+                // care — the codegen needs concrete field sizes
+                // for the Result struct layout, and emits
+                // `unreachable!` on Unknown. Int is the cheapest
+                // fixed layout; code that only ever reads the
+                // populated side (the common case, since try/catch
+                // catches exactly one of Ok/Error at runtime) sees
+                // no difference.
                 let (ok_type, err_type) = match &try_type {
-                    Type::Result { ok, error } => ((**ok).clone(), (**error).clone()),
-                    Type::Unknown => (Type::Unknown, Type::Unknown),
+                    Type::Result { ok, error } => {
+                        let ok_norm = if matches!(**ok, Type::Unknown) {
+                            Type::Int
+                        } else {
+                            (**ok).clone()
+                        };
+                        let err_norm = if matches!(**error, Type::Unknown) {
+                            Type::Int
+                        } else {
+                            (**error).clone()
+                        };
+                        (ok_norm, err_norm)
+                    }
+                    Type::Unknown => (Type::Int, Type::Int),
                     other => {
                         return Err(CompileError::at(
                             self.current_span,

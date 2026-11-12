@@ -1,0 +1,18 @@
+// supported: interpreter llvm
+// try/catch lowers to a Switch on the Result tag plus per-branch
+// blocks. The TryCatchMarker instruction is a no-op in codegen.
+// WASM refuses: Feature::Result is not in wasm().supported
+// (separate gap; Result codegen has never been exercised on WASM).
+
+proc main
+    val ok := try
+        Ok(5)
+    catch e
+        99
+    print(Int.to_string(ok))
+
+    val err := try
+        Error(0)
+    catch e
+        99
+    print(Int.to_string(err))

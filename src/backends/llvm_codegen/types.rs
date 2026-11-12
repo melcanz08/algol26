@@ -74,6 +74,30 @@ impl<'ctx> IRCodeGen<'ctx> {
     /// a clear message is the correct failure mode for a verifier
     /// gap. Making this method return `Result` is a Tier 2 follow-up.
     pub(super) fn map_type(&self, ty: &Type) -> BasicTypeEnum<'ctx> {
+        // Normalize `Unknown` inside Result / Option / List to `Int`
+        // before computing the layout.
+        //
+        // The IR verifier accepts `Unknown` in nested value positions
+        // (can_coerce_to treats it as a wildcard), so a value like
+        // `Ok(5)` reaches codegen as `Result<Int, Unknown>` and there
+        // is no struct layout for it. `map_type` fails closed with
+        // `unreachable!` on top-level `Unknown` — that behavior is
+        // preserved (the match below still has the Unknown arm) — but
+        // `Unknown` inside a compound type is normalized here so the
+        // layout succeeds.
+        //
+        // The interpreter has no static types; the concrete choice is
+        // free. Int is the cheapest fixed layout and matches the
+        // typical case where the missing field is an unconstrained
+        // `Ok(...)` / `Error(...)` payload.
+        //
+        // A future session should move this normalization to the IR
+        // verifier (reject `Unknown` in any nested position) so
+        // genuinely-unresolved types fail at verification, not here.
+        // Until then, this is the last chance to give `Unknown` a
+        // concrete size.
+        let normalized = normalize_unknown_fields(ty);
+        let ty = &normalized;
         match ty {
             Type::Int => self.context.i64_type().into(),
             Type::Float => self.context.f64_type().into(),
@@ -465,6 +489,48 @@ impl<'ctx> IRCodeGen<'ctx> {
                 );
             }
         }
+    }
+}
+
+/// Substitute `Type::Unknown` inside `Result`, `Option`, and `List`
+/// with `Int` so the LLVM struct layout is computable.
+///
+/// The `Unknown` at the **top level** is a genuine compiler bug and
+/// still panics in `map_type` (the `unreachable!` arm). Only `Unknown`
+/// nested inside a compound type is normalized: it typically comes
+/// from an unconstrained `Ok(..)` / `Error(..)` construction whose
+/// error/ok type the analyzer left as a wildcard.
+///
+/// Recursion covers `List<List<Unknown>>` etc. as well; the same
+/// rationale applies at any depth.
+fn normalize_unknown_fields(ty: &Type) -> Type {
+    match ty {
+        Type::Result { ok, error } => {
+            let ok_n = match ok.as_ref() {
+                Type::Unknown => Type::Int,
+                other => normalize_unknown_fields(other),
+            };
+            let err_n = match error.as_ref() {
+                Type::Unknown => Type::Int,
+                other => normalize_unknown_fields(other),
+            };
+            Type::result(ok_n, err_n)
+        }
+        Type::Option(inner) => {
+            let inner_n = match inner.as_ref() {
+                Type::Unknown => Type::Int,
+                other => normalize_unknown_fields(other),
+            };
+            Type::option(inner_n)
+        }
+        Type::List(inner) => {
+            let inner_n = match inner.as_ref() {
+                Type::Unknown => Type::Int,
+                other => normalize_unknown_fields(other),
+            };
+            Type::list(inner_n)
+        }
+        other => other.clone(),
     }
 }
 

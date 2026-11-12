@@ -83,13 +83,13 @@ passes.
 `duplicate-declaration-detector`, `source-optimizer` — i.e., the
 majority of the pass pipeline.
 
-**Why.** `specificity-sorter.ts:...` sorts rules by specificity with
-a stable tie-break on original index. The tie-break only produces
+**Why.** `specificity-sorter.ts` sorts rules by specificity with a
+stable tie-break on original index. The tie-break only produces
 correct output if the *input* order matches TS's. But `parse_ir.gol`
-walks `style_map.keys()` where `style_map` is a
-`Map<String, Json>`. `Map.keys()` sorts lexicographically, not by
-source order. So `IRRule.specificity` is correct per-rule, but the
-list order fed into the sort does not match TS's.
+walks `style_map.keys()` where `style_map` is a `Map<String, Json>`.
+`Map.keys()` sorts lexicographically, not by source order. So
+`IRRule.specificity` is correct per-rule, but the list order fed into
+the sort does not match TS's.
 
 The `unit_normalizer.gol` header already documents this:
 
@@ -100,30 +100,58 @@ The `unit_normalizer.gol` header already documents this:
 
 Phase 5 got away with sorting both sides in the comparator. Phase 6
 cannot: `specificity-sorter` produces a *new* order, and the
-comparator cannot simply re-sort both sides (it would hide real
-bugs).
+comparator cannot simply re-sort both sides (it would hide real bugs).
 
-**Decision required.** Three options, from the weakness doc (G43):
+**Decision required.** Four options, from the weakness doc (G43) plus
+the grep audit of 2026-11-12:
 
 | Option | Cost | Verdict |
 |---|---|---|
-| (a) Add `OrderedMap<K, V>` as a new stdlib type | 2–3 weeks | Overkill for Phase 6, but the 'right' long-term answer |
-| (b) Extend `Json` with `Json.OrderedObj(List[(String, Json)])` | 1–2 weeks + 50–100 call-site updates | Surgical, but every `match json { case Obj(m) ... }` in Phase 2–5 needs a new arm |
-| (c) Make `Map` preserve insertion order and add `Map.keys_in_order()` | ~3–5 days (compiler change: `runtime/map.c` + `builtins.rs` + interpreter + LLVM/WASM) | Surgical *and* does not touch `Json`. Existing sorted `Map.keys()` calls stay unchanged. New code calls `keys_in_order()`. |
+| (a) Add `OrderedMap<K, V>` as a new stdlib type | 2–3 weeks | Overkill for Phase 6, but the "right" long-term answer if other code needs it |
+| (b) Extend `Json` with `Json.OrderedObj(List[(String, Json)])` | ~1–2 weeks | Surgical — no compiler or runtime changes; confines order-preservation to JSON where it matters |
+| (c) Make `Map` preserve insertion order and add `Map.keys_in_order()` | ~3–5 days compiler + a superseding ADR | Requires reversing ADR 0027's explicit "no insertion-order guarantee" decision |
+| (d) Make `Map.keys()` return insertion order | ~1–2 days compiler + broader breakage | Also reverses ADR 0027 *more aggressively*; breaks every caller relying on sorted iteration |
 
-**Recommendation: (c).** It is the smallest change that preserves
-source order end-to-end, and it does not require a `Json` variant
-sweep. `Map.keys()` continues to return sorted keys (backward-compat
-for Phase 5's comparator), but `Map.keys_in_order()` returns insertion
-order. The JSON parser (`json.gol`) uses insertion-order internally
-and `parse_ir.gol` switches to `keys_in_order()` where it matters.
+**Recommendation: (b) — `Json.OrderedObj`.** The grep audit of
+`.keys()` call sites (2026-11-12) rules out (c) and (d):
+
+- ADR 0027 explicitly chose hash iteration order and stated
+  "Ordered maps. No `Map.ordered` or insertion-order guarantee.
+  Hash order is unspecified. Programs that need order sort the
+  keys." Reversing that requires a superseding ADR, not a small
+  extension.
+- Every existing `.keys()` caller in `src/chaincss/` is fine with
+  sorted order — `config.gol` uses `.keys().length() > 0` for
+  emptiness checks (7 occurrences); `json.gol`'s `stringify_object`
+  *documents* sorted output as its behavior; `parse_ir.gol` and
+  `ast.gol` iterate with no order-dependency except where source
+  order matters (the parse path itself).
+- Several non-port consumers *rely* on sorted order for determinism:
+  `examples/wordfreq.gol`, `examples/wordcount_validation.gol`,
+  `tests/conformance/valid/result/wordcount.gol`,
+  `tests/corpus/corpus_57_map_keys_values_llvm.gol`. Changing
+  `keys()` (option d) breaks their expected outputs; changing
+  `Map` semantics (option c) breaks their assumptions.
+
+`Json.OrderedObj` keeps `Map` exactly as ADR 0027 designed it. It
+adds a second JSON object form that preserves insertion order at the
+boundary where order is created (the JSON parser) and consumed (the
+IR builder). `parse()` emits `OrderedObj` for every object; every
+`match json { case Obj(m) ... }` arm gains a sibling
+`case OrderedObj(entries) ...` arm (mechanical sweep, ~50–100 call
+sites across `src/chaincss/`). Consumers that don't care about order
+iterate `OrderedObj`'s list as if it were a sorted Map; the one
+consumer that cares (`parse_ir.gol`'s component iteration) reads the
+list directly.
 
 **Acceptance:** `parse_ir.gol` produces rules in source order, verified
 by a new `parse_ir_parity_source_order.gol` fixture that compares
 against the TS oracle *without* sorting.
 
-**Estimated:** 1 session to design + 1 session to implement + 1 to
-sweep call sites. See ADR slot for the decision.
+**Estimated:** 1 session to design (ADR 0066) + 2–3 sessions to
+implement `Json.OrderedObj` in `json.gol`, sweep every
+`match json { case Obj ... }` arm across `src/chaincss/`, and update
+the Phase 5 comparator to drop its "sort both sides" workaround.
 
 ### P2 — Extend `pipeline_types.gol` with the Optimization stage family
 
@@ -479,26 +507,45 @@ specific fixture. Pass-specific fixtures are for debugging.
 
 ## 8. The G43 ADR
 
-P1 needs an ADR (the decision is architectural). Suggested number:
-check `docs/decisions/` for the next free number.
+P1 needs an ADR (the decision is architectural). Next free number
+is 0066 (last used: 0065-spawn-fork).
 
 The ADR should cover:
 
-- The problem: `Map.keys()` sorts, source order lost at JSON parse.
-- The three options (a/b/c above) and their costs.
-- Decision: option (c) `Map` order preservation + `keys_in_order()`.
-- The `Map` type's contract change: `keys()` returns sorted;
-  `keys_in_order()` returns insertion order. Both valid; callers
-  choose.
-- The compiler change: `runtime/map.c` (LLVM/WASM) + `builtins.rs`
-  (interpreter) + the frontend resolution + the spec doc.
-- The consequences for Phase 5: `parse_ir.gol` switches to
-  `keys_in_order()`; parity comparator updates to *not* sort both
-  sides (the honest test).
+- The problem: JSON source order is lost at the parse boundary
+  because `Json.Obj`'s payload is `Map<String, Json>` and
+  `Map.keys()` sorts lexicographically. Phase 5 got away with
+  sorting both sides in the comparator; Phase 6's
+  `specificity-sorter` cannot, because its stable tie-break depends
+  on matching the input order TS saw.
+- Why options (c) and (d) are wrong: ADR 0027 explicitly rejected
+  insertion-order guarantees for `Map`, and the grep audit shows
+  every existing `.keys()` caller either tolerates or relies on
+  sorted order.
+- Decision: option (b) — add `Json.OrderedObj(List[(String, Json)])`
+  alongside `Json.Obj(Map<String, Json>)`. `parse()` emits
+  `OrderedObj`. Every `match json { case Obj(m) ... }` arm gains
+  a sibling `case OrderedObj(entries) ...` arm; consumers that
+  don't need order iterate the entries list. `parse_ir.gol`'s
+  component iteration reads the list directly.
+- The `Json` type's contract: `Obj` (unordered) and `OrderedObj`
+  (insertion-order) coexist. `stringify_object` sorts
+  `OrderedObj`'s keys when serializing, preserving the current
+  `stringify` output for parity tests. `Obj` continues to exist
+  for any code that constructs a JSON object programmatically and
+  doesn't care about order.
+- The consequences for Phase 5: no change — `unit_normalizer.gol`
+  doesn't care about order. The comparator can stay as it is until
+  Phase 6 uses `OrderedObj` to prove source-order preservation
+  end-to-end, at which point the "sort both sides" workaround
+  becomes a bug-hiding hack and is removed.
+- The consequences for Phase 6: `parse_ir.gol` iterates
+  `OrderedObj`'s entries list for `components.keys()`,
+  `style_map.keys()`, and any other order-sensitive iteration.
+  `specificity-sorter` receives rules in source order.
 
-**Estimated:** 1 session to write, review, and merge.
-
----
+**Estimated:** 1 session to write, review, and merge. Implementation
+is P1.2 (2–3 sessions per the acceptance block in §3).
 
 ## 9. What this document does not decide
 

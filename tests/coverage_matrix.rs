@@ -494,14 +494,19 @@ pub const MATRIX: &[FeatureRow] = &[
     },
     FeatureRow {
         name: "records",
-        conformance_dir: None,
+        conformance_dir: Some("records"),
         interpreter: Support::Full,
         llvm: Support::Full,
         wasm: Support::Full,
         refusal_tests: &[],
         notes: "All three backends support records (ADR 0036). Records \
                 lower to named LLVM structs; WASM inherits the LLVM \
-                codegen and links with wasm-ld.",
+                codegen and links with wasm-ld. The `records/` fixture \
+                exercises a record with a `Map<K, V>` field end-to-end \
+                on interpreter and LLVM (G46 regression). WASM is \
+                declared Full by inheritance from the LLVM codegen; the \
+                fixture is not currently listed on the WASM leg because \
+                no WASM CI runner exercises `records/map_field.gol` yet.",
     },
     // ─── unsafe / range ───
     FeatureRow {
@@ -553,7 +558,9 @@ pub const MATRIX: &[FeatureRow] = &[
         llvm: Support::Partial,
         wasm: Support::Partial,
         refusal_tests: &[],
-        notes: "No conformance fixture yet. `Map<K, V>` is interpreter-only \
+        notes: "No dedicated `map/` fixture yet; one `Map<String, Int>` \
+                shape is exercised indirectly via `records/map_field.gol` \
+                (G46 regression). `Map<K, V>` is interpreter-only \
                 in full; ADR 0027 v1 lowers `Map<Int, Int>` on LLVM via \
                 `runtime/map.c` (insert/get/contains/length working; \
                 keys/values and non-Int key/value shapes refused at \

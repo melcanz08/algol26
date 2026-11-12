@@ -1,0 +1,21 @@
+// G46 regression fixture: `Map<K, V>` as a record field type.
+//
+// Before the fix, `resolve_field_type_with_subst` lacked a `"map"`
+// arm, so `items: Map<String, Int>` resolved to
+// `Type::Record("Map", [String, Int])`. LLVM codegen then tried
+// `record_decls.get("Map")`, failed, and panicked. The interpreter
+// was unaffected (type-erases Map). See LANGUAGE_GAPS.md G46.
+
+// BACKEND: interpreter llvm
+// OUTPUT: 1
+// OUTPUT: true
+// OUTPUT: 1
+
+rec Holder
+    items: Map<String, Int>
+
+proc main
+    var h: Holder := Holder { items: Map<String, Int> { "a": 1 } }
+    print(h.items.length())
+    print(h.items.contains("a"))
+    print(h.items.length())

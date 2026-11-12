@@ -33,13 +33,32 @@ impl<'ctx> IRCodeGen<'ctx> {
             TypeSyntax::Generic { name, args } => {
                 let resolved_args: Vec<Type> =
                     args.iter().map(|a| self.resolve_field_type(a)).collect();
+                // G46 fix. Builtin type constructors must be matched
+                // by name before the record fallback. Otherwise
+                // `Map<K, V>` (or `Set<T>`, `Channel<T>`, ...) falls
+                // through to `Type::record("Map", [K, V])`, which
+                // LLVM codegen then looks up in `record_decls` and
+                // panics on ("unknown record 'Map'"). The interpreter
+                // type-erases Map, so this path only exists on LLVM.
+                //
+                // Must stay in sync with:
+                //   - backends/llvm_codegen/types.rs::resolve_field_type_with_subst
+                //   - semantics/builder/mod.rs::resolve_type_syntax
+                //   - semantics/analyzer/items.rs::resolve_type_syntax
+                //   - semantics/analyzer/items.rs::resolve_syntax_with_records
+                //   - frontend/ast.rs::TypeSyntax::to_type
                 match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
                     ("list", [inner]) => Type::list(inner.clone()),
                     ("option", [inner]) => Type::option(inner.clone()),
+                    ("result", [ok, err]) => Type::result(ok.clone(), err.clone()),
+                    ("pointer", [inner]) | ("ptr", [inner]) => Type::pointer(inner.clone()),
                     ("borrow", [inner]) => Type::borrow(inner.clone()),
                     ("mutborrow", [inner]) | ("mut_borrow", [inner]) => {
                         Type::mut_borrow(inner.clone())
                     }
+                    ("channel", [inner]) => Type::channel(inner.clone()),
+                    ("map", [k, v]) => Type::map(k.clone(), v.clone()),
+                    ("set", [inner]) => Type::set(inner.clone()),
                     _ if self.record_decls.contains_key(name) => Type::record(name, resolved_args),
                     _ => Type::Unknown,
                 }
@@ -91,16 +110,32 @@ impl<'ctx> IRCodeGen<'ctx> {
                     .iter()
                     .map(|a| self.resolve_field_type_with_subst(a, subst))
                     .collect();
+                // G46 fix. The `_` fallback used to be
+                // `Type::record(name, resolved_args)`, which turned
+                // *any* unrecognized generic — including the builtin
+                // `Map<K, V>` — into `Type::Record("Map", [K, V])`.
+                // LLVM codegen's `map_type` then looked `Map` up in
+                // `record_decls`, failed, and panicked. The fix adds
+                // the missing builtin arms and changes the fallback
+                // to `Type::Unknown` (fail-closed), matching
+                // `resolve_field_type`.
+                //
+                // Must stay in sync with `resolve_field_type` above
+                // and the other resolvers listed there.
                 match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
                     ("list", [inner]) => Type::list(inner.clone()),
                     ("option", [inner]) => Type::option(inner.clone()),
+                    ("result", [ok, err]) => Type::result(ok.clone(), err.clone()),
+                    ("pointer", [inner]) | ("ptr", [inner]) => Type::pointer(inner.clone()),
                     ("borrow", [inner]) => Type::borrow(inner.clone()),
                     ("mutborrow", [inner]) | ("mut_borrow", [inner]) => {
                         Type::mut_borrow(inner.clone())
                     }
-                    ("result", [ok, error]) => Type::result(ok.clone(), error.clone()),
-                    ("pointer", [inner]) | ("ptr", [inner]) => Type::pointer(inner.clone()),
-                    _ => Type::record(name, resolved_args),
+                    ("channel", [inner]) => Type::channel(inner.clone()),
+                    ("map", [k, v]) => Type::map(k.clone(), v.clone()),
+                    ("set", [inner]) => Type::set(inner.clone()),
+                    _ if self.record_decls.contains_key(name) => Type::record(name, resolved_args),
+                    _ => Type::Unknown,
                 }
             }
             _ => self.resolve_field_type(ts),

@@ -1,0 +1,20 @@
+// G46 regression fixture: `Map<K, V>` as a record field type.
+//
+// Before the fix (2026-11-12), `resolve_record_fields` routed
+// through `resolve_syntax_with_records`, whose `TypeSyntax::Generic`
+// dispatch had no `"map"` arm. `items: Map<String, Int>` resolved
+// to `Type::Record("Map", [String, Int])` instead of
+// `Type::Map(String, Int)`. The interpreter ran the program
+// correctly (it type-erases Map), but LLVM codegen panicked at
+// `types.rs:416` — "unknown record 'Map'" — because
+// `record_decls.get("Map")` failed.
+//
+// See LANGUAGE_GAPS.md G46.
+
+rec Holder
+    items: Map<String, Int>
+
+proc main
+    var h: Holder := Holder { items: Map<String, Int> { "a": 1 } }
+    print(h.items.get("a"))
+    print(h.items.length())

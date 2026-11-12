@@ -483,6 +483,25 @@ a follow-up commit will collapse them back into the natural
 nested-match form.
 ---
 
+
+### W0002 regression-test status
+
+The analyzer's G18 fallback resolves an empty variant table from
+`self.union_types` by name. On every shape we've tested —
+including the recursive `Json` union and a 4-deep nested match on
+it — this fallback succeeds, so W0002 does not fire. W0002 is
+defensive: it warns only if the analyzer reaches an empty-table
+state where the fallback *also* fails. Source programs cannot
+reliably reach that state, so there is no firing test.
+
+Tested: config plumbing (`--no-warn=W0002`, `--deny-warnings=W0002`)
+via `warning_w0002_not_emitted_on_shallow_match` and
+`warning_w0002_suppressed_by_no_warn` in
+`tests/integration/warning_system.rs`.
+
+The runtime symptom (silent fallthrough at depth >= 2) is deferred
+to the full G18-addendum fix.
+
 ## G19 — `&mut` doesn't propagate through two forwarding layers — RESOLVED
 
 **Symptom:** `main → dispatch(&mut r) → handle(&mut r) → *r := v`
@@ -1780,8 +1799,124 @@ beyond the emitter, and `%.6f`-with-strip is a worse default than
 JS-exact in every non-CSS use too. Consider the fix as both a
 language improvement and a port unblocker.
 
-**Status:** Open. Confirmed by measurement. No fix needed before
-Phase 6. **Must be decided before Phase 7.**
+## Resolution (2026-11-12)
+
+**Status:** Interpreter fixed. LLVM/WASM divergence remains, deferred to
+Phase 7 prep.
+
+### Fixed (interpreter)
+
+`src/backends/interpreter/eval.rs::format_float_for_display` now
+implements ECMA-262 §7.1.12.1 (Number::toString).
+
+**Scope note: `print(float)` is not affected by G34 and is not a
+bug.** `print(float)` uses `common::types::print::format_float`,
+which formats with `{:.1}` (one decimal place) — deliberately. The
+interpreter and LLVM/WASM backends already agree on this rule
+(`llvm_format(&Type::Float) == "%.1f\n"`), and
+`common::types::print::tests::float_has_one_decimal_place` pins
+it. `Float.to_string` and `print` are two different operations
+with two different contracts; G34 changes only the former.
+
+Likewise, `frontend/formatter/emit.rs::format_float` formats
+source literals for `algol26 fmt` (preserves `5.0` as `5.0`,
+writes `1.5` as `1.5`) and is out of G34's scope.
+
+The only remaining G34 site is `Float.to_string` on LLVM/WASM
+(below). The
+implementation reuses `format!("{:?}", f)` for shortest-round-trip
+digits and re-emits them per the spec's fixed-vs-exponential rule
+(`< 1e-6` or `>= 1e21` uses exponential; `e+` / `e-` with no
+zero-padding; `NaN`, `Infinity`, `-Infinity` capitalized per JS;
+`±0.0` renders `"0"`).
+
+Verified against a Node.js 22 oracle over 10,000 uniformly-random
+f64 samples plus a hand-picked regime battery:
+
+- `tests/float_to_string_oracle.rs` — the test
+- `tests/float_to_string/oracle.json` — 10,000 `(hex, expected)` pairs
+- `tools/gen_float_oracle.js` — the regeneration script (run with
+  `node`, requires a recent V8; committed output makes the test
+  hermetic)
+
+Accepted divergences: 2/10,000.
+
+### Known divergence (~0.01-0.02% of random samples)
+
+Rust's `{:?}` and V8's ECMA-262 shortest-round-trip implementations
+disagree on an exact-tie pattern: when two same-length decimal
+representations both round-trip to the same f64 (an exact decimal
+midpoint), Rust resolves the last-digit tie toward the value closer
+to the binary mantissa (odd last digit), while V8 uses
+round-half-to-even (even last digit).
+
+Empirically: 1-2 cases per 10,000 uniformly-random f64 samples,
+always the same direction (Rust's last digit = V8's last digit + 1,
+Rust's last digit is odd). Sample from several regenerations:
+
+- `2155494342014890.3` vs `2155494342014890.2`
+- `776647748525147.3` vs `776647748525147.2`
+- `233305898117001.13` vs `233305898117001.12`
+- `1921566535247357.3` vs `1921566535247357.2`
+- `183763293141550.13` vs `183763293141550.12`
+
+The affected magnitude range is roughly 10^14 and above (below that,
+shortest-round-trip digits diverge too rarely for the tie pattern to
+appear in 10k random samples). No CSS value reaches 17-significant-
+digit precision at any magnitude, so the divergence never affects
+the port's output.
+
+The oracle test (`tests/float_to_string_oracle.rs`) tolerates this
+pattern generically rather than via a fixed hex skip-list:
+
+- same digit-string length
+- exactly one byte differs
+- both differing bytes are ASCII digits
+- `Rust's digit == V8's digit + 1` and Rust's digit is odd
+
+Any failure outside that pattern fails the test — so the tolerance
+is narrow enough to catch real formatter bugs while accepting the
+documented tie-break. The oracle JSON can be regenerated
+(`node tools/gen_float_oracle.js`) without needing to edit the
+test's tolerances.
+
+Fixing the divergence outright requires the `ryu-js` crate (a `ryu`
+fork matching V8's tie-break) or decimal-midpoint detection in
+`parse_shortest`. Deferred to a future session; not Phase-6- or
+Phase-7-blocking.
+
+### Not fixed (LLVM/WASM)
+
+`src/backends/llvm_codegen/builtins.rs:2238` still emits
+`sprintf("%.6f")` + `algol26_float_to_string_strip`. This diverges
+from the interpreter on any value outside the `%.6f`-faithful range
+(magnitude < 1e-6 or >= 1e21) and any value whose shortest-round-
+trip differs from 6-decimal truncation. `1/3` is an example: the
+LLVM/WASM backends still produce `"0.333333"` where the interpreter
+now produces `"0.3333333333333333"`.
+
+Closing this requires establishing a build path for `runtime/*.c`
+(nothing compiles them today — no `build.rs` reference, no CI step,
+no makefile rule; the LLVM codegen declares the symbols via
+`add_function` but the C bodies are unreferenced), then adding
+`runtime/float.c` with the same algorithm. Alternative: a
+`build.rs`-linked Rust `extern "C"` helper called by both backends.
+
+Deferred to Phase 7 prep. The differential harness will surface
+the divergence when both backends run on the same fixture; the
+`float_to_string.gol` conformance test currently declares
+`// BACKEND: interpreter llvm wasm` and asserts identical output
+across all three, so it **will** fail on the LLVM/WASM legs until
+this is fixed. The fixture has been annotated to reflect that (see
+below). Closing the LLVM/WASM side is a hard prerequisite for
+enabling that fixture on both backends again.
+
+### Workaround for Phase 6/7 ports
+
+None needed for interpreter parity: the interpreter matches JS for
+all CSS-relevant values. When exercising the LLVM backend on a
+fixture that calls `Float.to_string`, expect divergence on
+`1/3`-style values.
 
 ## G41 — `&mut list[i]` rejected for non-literal index (FIXED)
 
@@ -2150,294 +2285,199 @@ form. `return []` alone produces `List<Unknown>`. `return List<T>
 []` doesn't parse. The `var`-binding form is the only one that
 works.
 
-## G46 — `Map<_, _>` record field corrupts `List<T>` type in sibling functions (Open)
-
-**Symptom.** A file containing:
-
-    pub rec IntentEngine
-        pub custom_keys: Map<String, Bool>
-        ...
-
-    pub proc levenshtein(a: String, b: String, max_dist: Int) -> Int
-        var cur: List[Int] := []
-        ...
-        cur[0] := i
-        ...
-
-fails at IR construction with:
-
-    error[E0002]: Variable 'cur' claimed type Bool but declared as List(Int)
-
-**Minimal repro** (`probe_engine.gol`):
-
-    pub rec IntentEngine
-        pub data: Int
-        pub custom_keys: Map<String, Bool>
-        pub cache: Map<String, Json>
-        pub next_counter: Int
-
-    pub proc levenshtein(a: String, b: String, max_dist: Int) -> Int
-        ...
-        var cur: List[Int] := []
-        ...
-        cur[0] := i
-        ...
-
-**The exact body of `levenshtein`, standalone in a fresh file
-without the `IntentEngine` record, works.** The record's presence
-corrupts the type table for the function.
-
-**Narrowing.** Removing `custom_keys: Map<String, Bool>` from
-the record (replacing with `List<String>`) makes the error
-disappear. The `Bool` type parameter in the record's map value
-position is the trigger.
-
-**Root cause (suspected).** The IR builder's type table walks
-each record's fields and, for reasons not yet traced, conflates
-one field's `Bool` type parameter with a later function's
-`List<Int>` variable's type. This is likely a type-table slot
-reuse or index collision — the `Bool` type parameter from
-`custom_keys` may be stored in a table slot that later gets
-reused for `cur`'s `List[Int]`.
-
-**Workaround.** Two options:
-
-**(a) Change the field type.** Replace `custom_keys: Map<String, Bool>`
-with `custom_keys: List<String>`. A set becomes a list (duplicates
-allowed, but caller can dedup). This works around the bug but
-loses the O(1) set-membership benefit.
-
-**(b) Reorder declarations.** Move `levenshtein` *above* the
-`IntentEngine` record. Since the corruption appears to be forward-
-affecting (record fields processed before functions), putting the
-function first may avoid it. Untested.
-
-**(c)** **The real fix** is in the IR builder's type table — a
-separate compiler session. When fixed, the workaround can be
-reverted.
-
-**Impact.** Any file with a `Map<_, Bool>` record field and a
-function that mutates a `List[Int]` will hit this. This is a
-specific, uncommon combination — but the port has hit it, and
-future ChainCSS files may as well.
-
-**Status:** Open. Workaround in `intent_detector.gol` (field
-retyped to `List<String>` for the moment — see fix commit).
-
-**Discovery.** Found while testing `intent_detector.gol`'s
-`levenshtein` function against the unit-test harness. Five
-progressive bisects narrowed the trigger from "the whole file"
-to "this specific record + this specific function".
-
-
-
-### Correction (2026-11-08) — trigger is nested generic, not `Map<_, Bool>`
-
-The initial diagnosis attributed the corruption to
-`custom_keys: Map<String, Bool>`. **That was wrong.** Changing
-`custom_keys` to `List<String>` did not fix the error.
-
-Bisecting further: replacing `data: IntentData` with a scalar
-(`data_dummy: Int`) makes the error disappear. So the actual
-trigger is **`IntentEngine.data: IntentData`**, and specifically
-`IntentData`'s `value_corrections: Map<String, List<ValueCorrection>>`
-field — **a nested generic (`Map<K, List<V>>`) inside a record
-field, inside another record field**.
-
-The `Map<_, Bool>` observation was a coincidence: `custom_keys`
-appeared in the same record as `data: IntentData`, and the
-manipulation of `custom_keys` in earlier tests gave a false
-positive when combined with other changes.
-
-**The minimal trigger is:**
-
-    pub rec Inner
-        pub m: Map<String, List<Int>>
-
-    pub rec Outer
-        pub inner: Inner
-
-    pub proc f() -> ...
-        var cur: List[Int] := []
-        cur[0] := 1    // ← "cur claimed type Bool"
-
-The exact mechanism is still under investigation. The IR builder
-appears to corrupt the type table when walking a record field
-whose type is `Map<K, List<V>>`, and the corruption is observed
-in the next function's local `List<Int>` variable.
-
-**Workaround for `intent_detector.gol`:** change `IntentData`'s
-`value_corrections` from `Map<String, List<ValueCorrection>>` to
-`Json`. Lossy but avoids the trigger. Revert when the compiler
-bug is fixed.
-
-**Previous workaround (custom_keys as List<String>):** unrelated
-to the actual bug, but still useful — O(n) lookup is fine for
-6 properties. Can stay or revert independently.
-
-### Definitive correction (2026-11-08) — trigger is any `Map` field in a record
-
-After ~15 rounds of bisection, the minimal repro is:
-
-    import "json.gol"
-
-    pub rec Holder
-        pub m: Map<String, Json>
-
-    pub proc test() -> Int
-        var cur: List[Int] := []
-        cur.append(0)
-        cur[0] := 5
-        return cur[0]
-
-**Fails with `error[E0002]: Variable 'cur' claimed type Bool but
-declared as List(Int)`.**
-
-**What triggers it:**
-- `Map<String, Bool>` as a record field → YES
-- `Map<String, Json>` as a record field → YES
-- `Map<String, Int>` as a record field → YES (presumed, same shape)
-- `Map<String, Bool>` as a **proc parameter** (not a record field) → NO (proven by `probe_cur*.gol`)
-- `Map<String, Bool>` as a **local `var`** → NO
-- Record-in-record alone → NO (`probe_rr.gol` passes)
-
-**The distinguishing factor:** `Map<_, _>` as a **record field type**. Not the element type, not the nesting depth. Any map field in a record.
-
-**Why `cur` specifically?** The `cur[0] := 5` line (literal-index list mutation). Any list variable mutated by literal index inside a function, while the file also contains a record with a `Map` field, will fail.
-
-**Root cause hypothesis:** the IR builder's type table has a per-record layout. For each `Map` field, it allocates some type slot (perhaps for the map's internal key-set representation, which may use a `Bool`-typed flag). When the same file's functions allocate `List[Int]` slots for their locals, the slot allocation collides — the `List[Int]` slot inherits the `Bool` from the map field's internal representation.
-
-**Workaround (proven):** keep `Map` fields out of records when a sibling function mutates a list by literal index. Options:
-
-1. **Store maps as `Json`** (change `Map<String, T>` → `Json` in the record). Access via `json_obj_get_*` helpers. Loses type safety but avoids the trigger.
-
-2. **Store maps as flat lists of key-value records** (`List[KVEntry]`). O(n) lookup, avoids the trigger.
-
-3. **Move the map field to a separate non-record container** (e.g., pass it as a proc argument rather than a record field).
-
-4. **Split the file:** put the record (with `Map` field) in one file, the list-mutating function in another. Both files import each other's declarations but the type table for the second file never sees the record's map field.
-
-**Impact:** this affects ANY port file with:
-- A record containing a `Map<_, _>` field
-- Any function that mutates a `List<T>` by literal index
-
-Which means most of `intent_detector.gol`, `intent_normalizer.gol`, `token_lowering.gol`, and probably several others in Phase 5b–8.
-
-**This is the most severe bug found by the port so far.** The workaround is mechanical but pervasive.
-
-**Status:** Open. Compiler fix required — the IR builder's type-table slot allocation for `Map` fields needs to not collide with sibling functions' `List<T>` locals.
-
-### Fix scope (2026-11-08)
-
-The compiler fix requires changing `Stmt::ArrayAssign`'s `array`
-field from `String` to `Expr` — **15 call sites across 9 files**:
-
-- `src/frontend/ast.rs` (definition + span)
-- `src/frontend/parser/stmt.rs` (construction)
-- `src/frontend/formatter/emit.rs` (display)
-- `src/frontend/ast_display.rs` (display)
-- `src/semantics/analyzer/stmt.rs` (analyze — the key site)
-- `src/semantics/analyzer/ownership.rs` (borrow check)
-- `src/semantics/builder/expr.rs` (IR build)
-- `src/compiler.rs` (walk)
-- `src/ir/loop_desugar.rs` (desugar)
-- `src/ir/instantiation_plan.rs` (instantiation)
-- `src/compiler/passes/type_table_complete.rs` (completeness)
-
-Deferred to a dedicated compiler session. The port-side workaround
-(append-based row construction in `levenshtein`) is applied and
-verified.
-
-### Status update
-
-- **Workaround applied** to `intent_detector.gol`'s `levenshtein`.
-- **Compiler fix scoped** (15 sites). Scheduled.
-- **Port unblocked** — Phase 5b Part 1 can proceed.
-
-### G18 addendum — depth limit applies to Map.get matches too
-
-**Discovered:** 2026-11-08, while porting `intent_data.gol`'s
-`load_pattern_ids`.
-
-**Symptom.** A function with 5 levels of nested `match` — `match
-Arr → for → match Obj → match Map.get → match Json` — silently
-fails at the innermost match. The `case Str(s)` arm never fires
-even when the value **IS** `Json.Str`:
-
-    match m.get("pattern_id") {
-        case Some(v) then {
-            match v {
-                case Str(s) then { out.append(s) }    // ← never fires
-                case _ then {
-                    // diagnostic: this fires instead
-                    print(stringify(v))    // prints "flexbox"
-                }
-            }
-        }
-        ...
-    }
-
-`stringify(v)` outputs `"flexbox"` (proving `v` is `Json.Str`),
-but the match says "not Str."
-
-**Root cause.** Same as the main G18 entry: match on a union at
-depth ≥ 2 loses the variant table. The main G18 fix (2026-11-01)
-rewrote union variant payload placeholders in the analyzer — that
-fix handled the case where the union is a *direct* field of another
-union. It did **not** handle the case where the innermost match is
-on a `Map.get(k)` result, because that path goes through a
-different type-inference route.
-
-**Workaround.** Split the innermost extraction into a helper:
-
-    proc extract_pattern_id(item: Json) -> Option[String]
-        match item {
-            case Obj(m) then {
-                match m.get("pattern_id") {
-                    case Some(v) then {
-                        match v {
-                            case Str(s) then { return Some(s) }
-                            case _ then { return None }
-                        }
-                    }
-                    case None then { return None }
-                }
-            }
-            case _ then { return None }
-        }
-
-    proc load_pattern_ids(j: Json) -> List[String]
-        match j {
-            case Arr(items) then {
-                var out: List[String] := []
-                for item in items {
-                    match extract_pattern_id(item) {
-                        case Some(s) then { out.append(s) }
-                        case None then {}
-                    }
-                }
-                return out
-            }
-            case _ then { ... }
-        }
-
-Each helper now has ≤ 3 levels of nested match, well within the
-safe range.
-
-**Impact.** This bug will bite any port code that pattern-matches
-on a `Map.get(k)` result inside a nested match context. In the
-ChainCSS port, that's:
-- `load_pattern_ids` (fixed via split)
-- `load_value_corrections_map` (has similar structure — **check
-  for the same issue**)
-- Any future value-correction or intent-catalog loader
-
-**Status.** Workaround applied. The underlying match-depth limit
-is architectural and needs a dedicated compiler session to diagnose.
-The same class of bug is documented in G12 (IR builder drops
-statements after certain patterns) — the two may share a root
-cause in the analyzer's context handling for deep nested match
-constructs.
+## G46 — `Map<_,_>` in a record field panics LLVM codegen (FIXED)
+
+**Status:** Fixed 2026-11-12.
+
+### Original diagnosis (wrong)
+
+The initial entry described a "type-table slot collision" between a
+`Map<_,_>`'s internal representation and a sibling `List<Int>` local,
+citing `cur[0] := 5` producing a `Bool`-typed `cur`. **There are no
+slots**: `type_table_id` is a `HashMap<ExprId, Type>`
+(`compiler.rs:82`, `analyzer/mod.rs:116`) — a `HashMap` cannot have
+slot collisions. The diagnosis conflated several unrelated symptoms
+observed from the port's error messages, and the port's
+`append`-workaround was working around the *effects* without
+identifying the cause.
+
+### Actual bug
+
+Six parallel `TypeSyntax -> Type` resolvers exist across the compiler,
+each independently maintained:
+
+  1. `src/frontend/ast.rs::TypeSyntax::to_type`
+  2. `src/semantics/analyzer/items.rs::resolve_type_syntax`
+  3. `src/semantics/analyzer/items.rs::resolve_syntax_with_records`
+  4. `src/semantics/builder/mod.rs::resolve_type_syntax`
+  5. `src/backends/llvm_codegen/types.rs::resolve_field_type`
+  6. `src/backends/llvm_codegen/types.rs::resolve_field_type_with_subst`
+
+Every builtin type constructor (`List`, `Option`, `Result`, `Map`,
+`Set`, `Channel`, `Pointer`, `Borrow`, `MutBorrow`) must be present
+in all six. When `Map` was added, it went into the four
+frontend/analyzer/builder resolvers but was **missed in the two
+LLVM-side resolvers**. Additionally, those two resolvers' `_`
+fallback was `Type::record(name, args)` — which silently converts
+any *unrecognized* generic into a `Type::Record` rather than
+failing closed.
+
+The chain of failure for `rec Holder { items: Map<String, Int> }`:
+
+1. `resolve_field_type_with_subst` (the generic path used by
+   `resolve_record_fields`) had no `"map"` arm, so
+   `Map<String, Int>` fell through to
+   `_ => Type::record(name, resolved_args)`.
+2. The field's resolved type became
+   `Type::Record("Map", [String, Int])` instead of
+   `Type::Map(String, Int)`.
+3. LLVM `map_type(Type::Record("Map", ...))` did
+   `self.record_decls.get("Map")` at `types.rs:416`, found nothing,
+   and hit the `unreachable!("unknown record 'Map'")` panic.
+
+The interpreter was unaffected because it type-erases `Map` values
+to `RuntimeValue::Map(HashMap)` — it never reads the declared field
+type. Only LLVM does. So `run --interpreter` succeeded while `run`
+panicked, which is why the port's tests (interpreter-only) never
+caught this.
+
+### Why the port's `append`-workaround didn't help
+
+`intent_detector.gol`'s `levenshtein` was rewritten to avoid
+`Stmt::ArrayAssign` (`cur[idx] := v`), with a comment claiming the
+ArrayAssign analyzer didn't record the array expression's type. That
+comment misidentified the cause: the *actual* failure shape was
+`Map<_,_>` in a record field, which panics with or without an
+`ArrayAssign` in the same function. The workaround happens to
+produce correct output (the `append`-based DP is a valid algorithm),
+but the stated reason was wrong, and the workaround does not fix
+G46 — it just avoids one code path that happened to be present when
+the bug was first observed. Once this fix landed, both `append` and
+`cur[idx] :=` forms work.
+
+### Fix
+
+`src/backends/llvm_codegen/types.rs`:
+
+- Both `resolve_field_type` and `resolve_field_type_with_subst` now
+  recognize the full builtin set (`list`, `option`, `result`,
+  `pointer` / `ptr`, `borrow`, `mutborrow` / `mut_borrow`,
+  `channel`, `map`, `set`).
+- Both now consult `record_decls` only for names that actually
+  resolve to a user record (`_ if self.record_decls.contains_key(name)
+  => Type::record(name, resolved_args)`), and fall through to
+  `Type::Unknown` for unrecognized generics — matching the
+  fail-closed discipline used elsewhere in the compiler. Previously,
+  a typo like `Mapp<String, Int>` silently became
+  `Type::Record("Mapp", ...)` and panicked LLVM with a confusing
+  "unknown record" message; now it becomes `Type::Unknown` and the
+  type-table completeness pass (or a downstream verifier) reports
+  it with a targeted diagnostic.
+
+### Tests
+
+- `tests/chaincss/compiler_bugs/g46_map_field_record.gol` — minimal
+  reproducer (`rec Holder { items: Map<String, Int> }` plus a
+  `Map { "a": 1 }` literal and `.length()`, `.get()`, `.contains()`).
+- `tests/conformance/valid/records/map_field.gol` — end-to-end pin,
+  exercised on both interpreter and LLVM backends (first time a
+  Map-in-record field runs on LLVM in the test suite).
+
+### Cleanup deferred
+
+The six-resolver duplication is a maintenance hazard: adding a new
+builtin type constructor requires touching six independent functions
+with subtly different signatures, and the drift is silent until a
+specific shape reaches codegen. Consolidation into a single
+parameterized resolver (substitution map + records map) is scheduled
+for Phase 7 alongside the `Float.to_string` LLVM/WASM work. **Until
+then, any `TypeSyntax` handling change must audit all six sites.**
+
+### Related gaps exposed
+
+- **`print(Option<T>)` on LLVM** — the reproducer's
+  `print(h.items.get("a"))` fails at LLVM codegen with
+  `cannot print value of type Option(Int)`, while the interpreter
+  prints `Some(1)`. Tracked as **G54** (see below). Not part of G46.
+- **`ArrayAssign` with `Map` field in scope** — the port's workaround
+  claimed this was broken; after G46's fix, both `append` and
+  `cur[idx] :=` forms work with `Map` record fields present. No
+  further bug exists in that combination as tested. The
+  `intent_detector.gol` workaround comment should be updated to note
+  that the fix landed and the workaround is now optional.
+
+---
+
+## G54 — LLVM/WASM cannot print `Option<T>` and other composites (Open)
+
+**Status:** Open. Surfaced 2026-11-12 during G46 verification.
+
+The interpreter renders any `RuntimeValue` via its `Display` impl,
+including `Some(1)`, `None`, `Ok(1)`, `Error("x")`, records, lists
+of records, etc. LLVM and WASM only support `printf` for primitive
+types (`Int`, `Float`, `String`, `Bool`) plus lists of those.
+`print(some_option)` produces:
+
+```
+error[E0002]: LLVM codegen: cannot print value of type Option(Int)
+(no LLVM format mapping; see common::types::print)
+```
+
+**Impact:** any conformance fixture with
+`// BACKEND: interpreter llvm` or `interpreter llvm wasm` that prints
+an `Option`, `Result`, record, or nested composite fails on the
+LLVM/WASM legs. The current fixtures avoid this by printing
+primitives; the port's own tests (`intent_detector.gol`,
+`intent_data.gol`) print only primitives for the same reason, but
+not by policy.
+
+**Workaround for Phase 6/7 ports:** never print non-primitive values
+on LLVM/WASM paths. Add a `.length()` or `.is_some()`-style
+reduction if a value needs to be visible.
+
+**Fix path (Phase 7):** extend the LLVM/WASM print lowering to
+handle composites by calling a runtime formatter. Requires a
+`runtime/print.c` (or similar) implementing per-type formatting and
+a rewrite of the `compile_builtin_value` print arm to dispatch by
+`arg.type_of()`. Alternatively, port the interpreter's `Display`
+rendering to a shared Rust helper invoked via `extern "C"` — same
+shape as the deferred `Float.to_string` LLVM fix (G34).
+
+**Not blocking Phase 6.** The interpreter (where all Phase 6 port
+tests currently run) handles all types. LLVM/WASM print parity is a
+Phase 7 concern.
+
+## G51 — Recursive-union analysis overflows the stack in deep matches
+
+**Status:** Open. Observed 2026-11-12 while writing a G18-addendum
+regression fixture.
+
+A source program with a recursive union (`Json` with
+`Arr(List[Json])` and `Obj(Map<String, Json>)`) compiles fine
+standalone, but type-checking a deeply-nested `match` over the
+same value overflows the test's 8 MB stack. With
+`RUST_MIN_STACK=32 MB` it compiles, but W0002 does not fire (the
+analyzer's G18 fallback resolves the empty table cleanly — see
+the W0002 note above).
+
+This is not the G18-addendum bug (which is a silent runtime
+fallthrough). It is a stack-depth limit in the analyzer's
+recursion through the recursive union's type structure during
+pattern binding. The relationship to the actual port's behavior
+is unclear: `intent_data.gol` compiles today with the split-helper
+workaround, so its match depth stays below the threshold.
+
+Investigation needed:
+- Confirm the overflow is in `bind_pattern_variables` /
+  `check_pattern_type`'s recursion (backtrace).
+- Decide whether to raise the analyzer stack (a
+  `stacker`/`RUST_MIN_STACK`-equivalent) or reduce recursion
+  (iterative variant-table lookup).
+- Determine the depth threshold empirically.
+
+Not Phase-6-blocking: the port doesn't currently hit it. Worth
+logging because it's a worse user experience than the silent
+fallthrough G18-addendum addresses.
 
 ## G50 — LLVM/WASM emit invalid IR for records passed by value
 

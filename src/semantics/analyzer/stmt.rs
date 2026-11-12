@@ -1009,7 +1009,50 @@ impl SemanticAnalyzer {
                     };
                     match effective_variants.iter().find(|(v, _)| v == variant) {
                         Some((_, pts)) => pts.clone(),
-                        None => return Ok(()),
+                        None => {
+                            // G18-addendum (warning). The variant
+                            // table was empty for this match — the
+                            // analyzer's G18 fallback could not
+                            // resolve it from the registry either.
+                            // The arm will not bind its payload
+                            // variables, and any use of them in the
+                            // arm body will surface as an
+                            // "Undefined variable" error far from
+                            // the real cause. Emit a targeted
+                            // warning so the port sees the real
+                            // problem on the first compile, not
+                            // after a bisection session.
+                            //
+                            // Warning-only half of the
+                            // G18-addendum fix; the full fix (a
+                            // variant-table pointer that survives
+                            // match depth) is scheduled after
+                            // Phase 6.
+                            if self.warning_config.is_enabled("W0002") {
+                                self.warnings.push(
+                                    CompileWarning::at(
+                                        self.current_span,
+                                        &format!(
+                                            "variant table is empty at this match; \
+                                             the G18 registry fallback did not resolve \
+                                             union '{}' variant '{}'. Payload \
+                                             variables will not be bound, and the arm \
+                                             will silently fail to match. Known \
+                                             limitation: G18-addendum.",
+                                            name, variant
+                                        ),
+                                        "W0002",
+                                    )
+                                    .with_suggestion(
+                                        "If this arm must match, restructure the \
+                                         nested match into a helper function (the \
+                                         documented workaround), or track the \
+                                         G18-addendum fix.",
+                                    ),
+                                );
+                            }
+                            return Ok(());
+                        }
                     }
                 };
                 for (name, ty) in payload.iter().zip(payload_types.iter()) {

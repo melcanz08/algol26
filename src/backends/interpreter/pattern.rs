@@ -147,7 +147,31 @@ impl Interpreter {
                     }
                     Ok(Some(out))
                 }
-                _ => Ok(None),
+                _ => {
+                    // G18-addendum. This `Ok(None)` is correct when
+                    // `value` is a `RuntimeValue::Union` with a
+                    // different tag (the arm didn't match — try the
+                    // next one). It is the *wrong* answer when
+                    // `value` is not a union at all, because the
+                    // scrutinee's type was lost upstream and this
+                    // arm can never fire. The two cases are
+                    // indistinguishable here: `SemanticPattern::
+                    // VariantWithPayload` does not carry the
+                    // scrutinee's `Type::Union`, so the interpreter
+                    // cannot know which case it is in.
+                    //
+                    // The warning for this lives in the analyzer
+                    // (`bind_pattern_variables`, `Pattern::
+                    // VariantWithBinding`), where the scrutinee's
+                    // type is known and the registry fallback can be
+                    // consulted. Do not add a runtime warning here
+                    // without first threading the union type through
+                    // `VariantWithPayload` — otherwise every
+                    // legitimately-non-matching variant arm
+                    // (e.g. a `Json.Num` arm on a `Json.Null`
+                    // value) fires a false positive.
+                    Ok(None)
+                }
             },
         }
     }

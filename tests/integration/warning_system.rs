@@ -139,3 +139,43 @@ proc pick() -> Int
         result
     );
 }
+
+// ─── G18-addendum: W0002 config plumbing ────
+
+const SHALLOW_MATCH_PROGRAM: &str = r#"
+pub union Json
+    Null
+    Bool(Bool)
+    NumInt(Int)
+    NumFloat(Float)
+    Str(String)
+    Arr(List[Json])
+    Obj(Map<String, Json>)
+
+proc shallow(j: Json) -> Option[String]
+    match j {
+        case Str(s) then { return Some(s) }
+        case _ then { return None }
+    }
+
+proc main
+    val r: Option[String] := shallow(Json.Null)
+    match r {
+        case Some(s) then { print(s) }
+        case None then { print("none") }
+    }
+"#;
+
+#[test]
+fn warning_w0002_not_emitted_on_shallow_match() {
+    // A two-deep match on Json (Str vs _) should not trip the
+    // depth-threshold warning. Denying W0002 on it should leave
+    // compilation successful.
+    let cfg = WarningConfig::new().with_denied(&["W0002"]);
+    let result = run_with_config(SHALLOW_MATCH_PROGRAM, cfg);
+    assert!(
+        result.is_ok(),
+        "shallow match should not emit W0002; got: {:?}",
+        result
+    );
+}

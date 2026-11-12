@@ -1,6 +1,8 @@
-// supported: interpreter
-// `rec Box<T>` — generic records. LLVM/WASM codegen for generic
-// records is a follow-up (ADR 0036 covers non-generic records).
+// supported: interpreter llvm wasm
+// `rec Box<T>` — generic records. `map_type(Type::Record(name, args))`
+// mangles the cache key to distinguish Box<Int> (i64 field) from
+// Box<String> (i8* field); `resolve_field_type_with_subst` resolves
+// `value: T` against the instantiation's concrete type args.
 // Change the header above when the compiled backends lower it.
 rec Box<T>
     value: T

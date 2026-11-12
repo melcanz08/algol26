@@ -225,6 +225,9 @@ impl BackendCapabilities {
         // args(): runtime/args.c; main wrapper stashes argc/argv.
         supported.insert(Feature::References);
         supported.insert(Feature::Records);
+        // Generic records instantiate per concrete type args;
+        // see whether the codegen handles this today.
+        supported.insert(Feature::GenericRecords);
         supported.insert(Feature::IntToString);
         // String.to_int: strict i64 parser (runtime/string.c).
         supported.insert(Feature::StringOps);
@@ -296,6 +299,9 @@ impl BackendCapabilities {
     pub fn wasm() -> Self {
         let mut supported = HashSet::new();
         supported.insert(Feature::Records);
+        // Generic records instantiate per concrete type args;
+        // see whether the codegen handles this today.
+        supported.insert(Feature::GenericRecords);
         supported.insert(Feature::References);
         supported.insert(Feature::IntToString);
         supported.insert(Feature::Option);

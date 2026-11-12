@@ -64,6 +64,49 @@ impl<'ctx> IRCodeGen<'ctx> {
             TypeSyntax::Unknown => Type::Unknown,
         }
     }
+
+    /// Like `resolve_field_type`, but substitutes type parameters
+    /// from `subst` before resolving. Used only when lowering a
+    /// generic record's fields, where the field syntax can name a
+    /// type parameter (`value: T`) that must resolve to the
+    /// instantiation's concrete arg (`Int` for `Box<Int>`).
+    ///
+    /// Non-generic records have `subst.is_empty()`, so this
+    /// delegates to the same behavior as `resolve_field_type`.
+    fn resolve_field_type_with_subst(
+        &self,
+        ts: &crate::frontend::ast::TypeSyntax,
+        subst: &std::collections::HashMap<String, Type>,
+    ) -> Type {
+        use crate::frontend::ast::TypeSyntax;
+        match ts {
+            TypeSyntax::Named(name) => {
+                if let Some(concrete) = subst.get(name) {
+                    return concrete.clone();
+                }
+                self.resolve_field_type(ts)
+            }
+            TypeSyntax::Generic { name, args } => {
+                let resolved_args: Vec<Type> = args
+                    .iter()
+                    .map(|a| self.resolve_field_type_with_subst(a, subst))
+                    .collect();
+                match (name.to_lowercase().as_str(), resolved_args.as_slice()) {
+                    ("list", [inner]) => Type::list(inner.clone()),
+                    ("option", [inner]) => Type::option(inner.clone()),
+                    ("borrow", [inner]) => Type::borrow(inner.clone()),
+                    ("mutborrow", [inner]) | ("mut_borrow", [inner]) => {
+                        Type::mut_borrow(inner.clone())
+                    }
+                    ("result", [ok, error]) => Type::result(ok.clone(), error.clone()),
+                    ("pointer", [inner]) | ("ptr", [inner]) => Type::pointer(inner.clone()),
+                    _ => Type::record(name, resolved_args),
+                }
+            }
+            _ => self.resolve_field_type(ts),
+        }
+    }
+
     /// Map an ALGOL26 type to an LLVM type.
     ///
     /// Fail-closed for the three variants that should not appear in
@@ -336,23 +379,35 @@ impl<'ctx> IRCodeGen<'ctx> {
                 // recursion, but the pattern is the LLVM-recommended
                 // default.
                 //
-                // Non-generic records only in v1 — generic record
-                // types are excluded by ADR 0036's scope boundary.
-                // The `args` vector is ignored here; if a
-                // `Type::Record` with non-empty args reaches this
-                // arm, the caller took a path ADR 0036 didn't cover.
-                assert!(
-                    args.is_empty(),
-                    "LLVM codegen reached generic record type {:?}<{:?}> — \
-                     the capability scan should have refused this program \
-                     (ADR 0036). Reaching this arm means scan.rs failed \
-                     to recognize a generic record, which is a compiler \
-                     bug, not a user error.",
-                    name,
-                    args
-                );
+                // Generic records: `Box<Int>` and `Box<String>` are
+                // distinct LLVM structs (one holds an i64, the other
+                // an i8*). The cache key is the mangled `(name, args)`
+                // pair, so `"Box"` and `"Box_Int"` and `"Box_String"`
+                // are separate cache entries. Fields declared with a
+                // type parameter (`value: T`) resolve against a
+                // substitution map built from the record's declared
+                // `type_params` and the concrete `args`.
+                //
+                // A future session may move to a proper
+                // monomorphization pass that rewrites
+                // `Type::Record("Box", [Int])` into
+                // `Type::Record("Box_Int", [])` in the IR before
+                // codegen (matching ADR 0036's intent). Until then,
+                // the codegen handles the generic form directly.
+                let cache_key = if args.is_empty() {
+                    name.clone()
+                } else {
+                    format!(
+                        "{}_{}",
+                        name,
+                        args.iter()
+                            .map(mangle_type_for_cache)
+                            .collect::<Vec<_>>()
+                            .join("_")
+                    )
+                };
 
-                if let Some(cached) = self.record_struct_types.borrow().get(name) {
+                if let Some(cached) = self.record_struct_types.borrow().get(&cache_key) {
                     return (*cached).into();
                 }
 
@@ -366,22 +421,36 @@ impl<'ctx> IRCodeGen<'ctx> {
                     ),
                 };
 
+                // Build a substitution map for the record's type
+                // parameters. For non-generic records this is empty
+                // and field resolution behaves exactly as before.
+                let subst: std::collections::HashMap<String, Type> = rec
+                    .type_params
+                    .iter()
+                    .zip(args.iter())
+                    .map(|(p, a)| (p.clone(), a.clone()))
+                    .collect();
+
                 // Opaque placeholder inserted before recursing into
                 // fields, so a nested reference to this record's type
-                // resolves to the same StructType.
-                let struct_ty = self.context.opaque_struct_type(name);
+                // resolves to the same StructType. The opaque name is
+                // the cache key (unique per instantiation), so two
+                // instantiations don't share a name.
+                let struct_ty = self.context.opaque_struct_type(&cache_key);
                 self.record_struct_types
                     .borrow_mut()
-                    .insert(name.clone(), struct_ty);
+                    .insert(cache_key.clone(), struct_ty);
 
                 let field_types: Vec<BasicTypeEnum<'ctx>> = rec
                     .fields
                     .iter()
-                    .map(|(_, field_ty, _)| self.map_type(&self.resolve_field_type(field_ty)))
+                    .map(|(_, field_ty, _)| {
+                        let resolved = self.resolve_field_type_with_subst(field_ty, &subst);
+                        self.map_type(&resolved)
+                    })
                     .collect();
 
                 struct_ty.set_body(&field_types, false);
-
                 struct_ty.into()
             }
             Type::Array(inner, size) => {
@@ -531,6 +600,40 @@ fn normalize_unknown_fields(ty: &Type) -> Type {
             Type::list(inner_n)
         }
         other => other.clone(),
+    }
+}
+
+/// Mangle a `Type` into a string suitable for the record struct
+/// cache key. Must be injective: two distinct types must produce
+/// distinct strings, or the cache would hand back the wrong struct.
+fn mangle_type_for_cache(ty: &Type) -> String {
+    match ty {
+        Type::Int => "Int".into(),
+        Type::Float => "Float".into(),
+        Type::String => "String".into(),
+        Type::Bool => "Bool".into(),
+        Type::Char => "Char".into(),
+        Type::Void => "Void".into(),
+        Type::List(inner) => format!("List_{}", mangle_type_for_cache(inner)),
+        Type::Option(inner) => format!("Option_{}", mangle_type_for_cache(inner)),
+        Type::Result { ok, error } => format!(
+            "Result_{}_{}",
+            mangle_type_for_cache(ok),
+            mangle_type_for_cache(error)
+        ),
+        Type::Borrow(inner) => format!("Borrow_{}", mangle_type_for_cache(inner)),
+        Type::MutBorrow(inner) => format!("MutBorrow_{}", mangle_type_for_cache(inner)),
+        Type::Pointer(inner) => format!("Ptr_{}", mangle_type_for_cache(inner)),
+        Type::Record(n, a) if a.is_empty() => n.clone(),
+        Type::Record(n, a) => format!(
+            "{}_{}",
+            n,
+            a.iter()
+                .map(mangle_type_for_cache)
+                .collect::<Vec<_>>()
+                .join("_")
+        ),
+        other => format!("{:?}", other),
     }
 }
 

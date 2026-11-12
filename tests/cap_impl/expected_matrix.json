@@ -87,8 +87,8 @@
     },
     "records.generic": {
       "interpreter": "ok",
-      "llvm": "refused",
-      "wasm": "refused"
+      "llvm": "ok",
+      "wasm": "ok"
     },
     "int.to_string": {
       "interpreter": "ok",

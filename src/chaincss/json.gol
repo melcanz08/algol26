@@ -14,6 +14,7 @@ pub union Json
     Str(String)
     Arr(List<Json>)
     Obj(Map<String, Json>)
+    OrderedObj(List[(String, Json)])
 
 /// Render a Json value to its JSON text representation.
 ///
@@ -28,6 +29,7 @@ pub fn stringify(j: Json) -> String
         case Str(s) then stringify_string(s)
         case Arr(xs) then stringify_array(xs)
         case Obj(m) then stringify_object(m)
+        case OrderedObj(entries) then stringify_ordered_object(entries)
 
 /// Quote and escape a string. Statement body (proc).
 proc stringify_string(s: String) -> String
@@ -117,6 +119,78 @@ proc stringify_object(m: Map<String, Json>) -> String
 /// Now uses `rec` (not a union workaround) thanks to the ALGOL26 fix
 /// recorded as G9 in LANGUAGE_GAPS.md — records can reference unions
 /// in the same file.
+
+/// Serialize an OrderedObj to its JSON text representation.
+///
+/// Per ADR 0066, OrderedObj preserves insertion order in the
+/// in-memory representation. To keep byte-for-byte parity with
+/// `stringify_object` (needed for the Phase 5 parity tests' golden
+/// files), this function sorts its entries by key on serialize.
+/// Both variants therefore emit sorted-key output — the caller sees
+/// uniform behavior regardless of which they hand to `stringify`.
+///
+/// This is a byte-compat choice documented in ADR 0066
+/// ("Stringify" section). A future change to source-order
+/// serialization is a one-line swap (`entries` sorted vs. used
+/// as-is) if the emitter (Phase 7) prefers it.
+proc stringify_ordered_object(entries: List[(String, Json)]) -> String
+    if entries.length() = 0 then
+        return "{}"
+    // Insertion sort by key. Stable — equal keys keep source order,
+    // matching how stringify_object's Map.keys() would order them.
+    var sorted: List[(String, Json)] := []
+    for pair in entries
+        val pair_key := pair.0
+        var inserted := false
+        var next: List[(String, Json)] := []
+        for existing in sorted
+            val existing_key := existing.0
+            if not inserted then
+                if compare_keys(pair_key, existing_key) < 0 then
+                    next.append(pair)
+                    next.append(existing)
+                    inserted := true
+                else
+                    next.append(existing)
+            else
+                next.append(existing)
+        if not inserted then
+            next.append(pair)
+        sorted := next
+    var out := "{"
+    var first := true
+    for pair in sorted
+        if not first then
+            out := out + ","
+        first := false
+        out := out + stringify_string(pair.0)
+        out := out + ":"
+        out := out + stringify(pair.1)
+    out := out + "}"
+    return out
+
+/// Compare two strings lexicographically by byte value. Returns
+/// -1 (a < b), 0 (a = b), or 1 (a > b). Matches the ordering
+/// `Map.keys()` produces (which sorts lexicographically in the
+/// interpreter).
+proc compare_keys(a: String, b: String) -> Int
+    val ac := String.to_chars(a)
+    val bc := String.to_chars(b)
+    var i := 0
+    while i < ac.length() and i < bc.length()
+        val an := Char.to_int(ac[i])
+        val bn := Char.to_int(bc[i])
+        if an < bn then
+            return -1
+        if an > bn then
+            return 1
+        i := i + 1
+    if ac.length() < bc.length() then
+        return -1
+    if ac.length() > bc.length() then
+        return 1
+    return 0
+
 rec ParseOk
     value: Json
     pos: Int

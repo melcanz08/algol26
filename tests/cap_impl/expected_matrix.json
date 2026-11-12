@@ -3,12 +3,12 @@
     "result": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "try_catch": {
       "interpreter": "ok",
       "llvm": "ok",
-      "wasm": "refused"
+      "wasm": "ok"
     },
     "spawn": {
       "interpreter": "ok",

@@ -1,8 +1,8 @@
-// supported: interpreter llvm
+// supported: interpreter llvm wasm
 // try/catch lowers to a Switch on the Result tag plus per-branch
 // blocks. The TryCatchMarker instruction is a no-op in codegen.
-// WASM refuses: Feature::Result is not in wasm().supported
-// (separate gap; Result codegen has never been exercised on WASM).
+// Works on all three backends (interpreter, LLVM, WASM) since the
+// builder path and IRCodeGen are shared.
 
 proc main
     val ok := try

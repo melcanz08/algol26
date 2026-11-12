@@ -309,6 +309,13 @@ impl BackendCapabilities {
         supported.insert(Feature::ListAppend);
         // ADR 0060. Same IR codegen as LLVM (shared IRCodeGen).
         supported.insert(Feature::Unions);
+        // Result<T, E> = { i1 is_ok, T ok, E err } — same
+        // IRCodeGen path as LLVM; TryCatchMarker (if present)
+        // remains a no-op. Feature::TryCatch is separate.
+        supported.insert(Feature::Result);
+        // Builder lowers try/catch into a Switch on the Result tag
+        // plus per-branch blocks; TryCatchMarker is a no-op.
+        supported.insert(Feature::TryCatch);
         // runtime/wasm/host.js provides algol26_string_split
         // and algol26_string_join.
         supported.insert(Feature::StringSplit);

@@ -122,8 +122,8 @@ pub const EXPECTED_MATURITY: &[(&str, Maturity)] = &[
     ("nominal_types", Maturity::AllBackends),
     // option / result
     ("option", Maturity::AllBackends),
-    ("result", Maturity::InterpreterAndLlvm),
-    ("try_catch", Maturity::InterpreterAndLlvm),
+    ("result", Maturity::AllBackends),
+    ("try_catch", Maturity::AllBackends),
     // ownership
     ("borrow", Maturity::AllBackends),
     ("region", Maturity::Universal),

@@ -275,18 +275,18 @@ pub const MATRIX: &[FeatureRow] = &[
         name: "result",
         conformance_dir: Some("result"),
         interpreter: Support::Full,
-        llvm: Support::Partial,
-        wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_result_values"],
-        notes: "Ok/Error construction and match-on-Result lower on LLVM (ADR 0030 v1). try/catch is still interpreter-only (no LLVM lowering). WASM refuses all Result programs, pinned by wasm_rejects_result_values.",
+        llvm: Support::Full,
+        wasm: Support::Full,
+        refusal_tests: &[],
+        notes: "Ok/Error construction and match-on-Result lower on all three backends via the shared IRCodeGen (ADR 0030 v1). try/catch is enabled separately via Feature::TryCatch.",
     },
     FeatureRow {
         name: "try_catch",
         conformance_dir: Some("result"),
         interpreter: Support::Full,
         llvm: Support::Full,
-        wasm: Support::Refused,
-        refusal_tests: &["wasm_rejects_try_catch"],
+        wasm: Support::Full,
+        refusal_tests: &[],
         notes: "try/catch is interpreter-only. The builder lowers it \
                 to a Switch on a Result value plus per-branch blocks, \
                 but emits an `Instruction::TryCatchMarker` at the top \

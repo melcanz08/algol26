@@ -82,13 +82,14 @@ fn llvm_accepts_try_catch() {
 }
 
 #[test]
-fn wasm_rejects_try_catch() {
+fn wasm_accepts_try_catch() {
+    // Shared IRCodeGen; builder lowers via Switch on Result tag.
+    // Feature::Result is now in wasm().supported, so the
+    // underlying payload types have a concrete layout.
     let program = program_with(Instruction::TryCatchMarker, simple_return());
-    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
     assert!(
-        err.message.contains("try/catch"),
-        "expected try/catch in the diagnostic, got: {}",
-        err.message
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept try/catch after Result is enabled",
     );
 }
 
@@ -245,22 +246,23 @@ fn llvm_accepts_ffi() {
 }
 
 #[test]
-fn wasm_rejects_result_values() {
-    // WASM supports nothing today. Result must be refused.
-    let program = program_with(
-        Instruction::Declare {
-            name: "r".to_string(),
-            mutable: false,
-            type_: Type::result(Type::Int, Type::String),
-            value: TypedIRValue::Ok {
-                value: Box::new(TypedIRValue::Int(42)),
-                result_type: Type::result(Type::Int, Type::String),
-            },
-        },
-        simple_return(),
+fn wasm_accepts_result_values() {
+    // Same IRCodeGen path as LLVM. The Result<T, E> struct layout
+    // is { i1 is_ok, T ok, E err }; map_type(Type::Result) handles
+    // Unknown payloads by substituting i64.
+    const SOURCE: &str = r#"
+proc main
+    val r: Result<Int, String> := Ok(42)
+    match r {
+        case Ok(n) then { print(Int.to_string(n)) }
+        case Error(msg) then { print(msg) }
+    }
+"#;
+    let program = build_ir(SOURCE);
+    assert!(
+        check_backend(&program, &BackendCapabilities::wasm()).is_ok(),
+        "WASM should accept Result values",
     );
-    let err = check_backend(&program, &BackendCapabilities::wasm()).unwrap_err();
-    assert!(err.message.contains("Result"), "{}", err.message);
 }
 
 #[test]

@@ -150,3 +150,76 @@ pub proc correction_result_to_json(r: CorrectionResult) -> Json
     m.insert("intent", Json.Str(r.intent))
     m.insert("explanation", Json.Str(r.explanation))
     return Json.Obj(m)
+// ─── Optimization stage (Phase 6) ───────────────────────────────
+//
+// Types consumed and produced by every optimizer pass. The pass
+// *body* is not a record field (G23: ALGOL26 has no function-valued
+// fields) — dispatch happens by name in `optimizer.gol`, matching
+// `unit_normalizer.gol`'s `normalize_units(ir) -> NormalizationResult`
+// convention. See docs/phases/phase-6-optimizer.md §5.
+
+pub rec OptimizationContext
+    pub tokens: Option[Json]
+    pub atomicUsageMap: Option[Json]      // was Map<String, Int>; G1 wrapper
+    pub minify: Option[Bool]
+    pub atomic: Option[Bool]
+    pub threshold: Option[Int]
+    pub extensions: Json
+
+pub rec OptimizationSavings
+    pub rulesEliminated: Int
+    pub declarationsEliminated: Int
+    pub bytesSaved: Int
+
+pub rec OptimizationResult
+    pub ir: StyleIR
+    pub savings: OptimizationSavings
+    pub changes: Int
+
+// Descriptor for the preset table. Bodies live in the pass files.
+pub rec OptimizationPass
+    pub name: String
+    pub cost: String                      // "cheap" | "moderate" | "expensive"
+    pub requiredFor: List[String]         // GenerationTarget[]
+
+// ─── Constructors ───────────────────────────────────────────────
+
+pub proc empty_optimization_context() -> OptimizationContext
+    return OptimizationContext {
+        tokens: None,
+        atomicUsageMap: None,
+        minify: None,
+        atomic: None,
+        threshold: None,
+        extensions: Json.Obj(Map<String, Json> {})
+    }
+
+pub proc zero_savings() -> OptimizationSavings
+    return OptimizationSavings {
+        rulesEliminated: 0,
+        declarationsEliminated: 0,
+        bytesSaved: 0
+    }
+
+pub proc identity_result(ir: StyleIR) -> OptimizationResult
+    return OptimizationResult {
+        ir: ir,
+        savings: zero_savings(),
+        changes: 0
+    }
+
+// ─── Serialization (parity harness) ─────────────────────────────
+
+pub proc savings_to_json(s: OptimizationSavings) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("rulesEliminated", Json.NumInt(s.rulesEliminated))
+    m.insert("declarationsEliminated", Json.NumInt(s.declarationsEliminated))
+    m.insert("bytesSaved", Json.NumInt(s.bytesSaved))
+    return Json.Obj(m)
+
+pub proc optimization_result_to_json(r: OptimizationResult) -> Json
+    var m: Map<String, Json> := Map<String, Json> {}
+    m.insert("ir", style_ir_to_json(r.ir))
+    m.insert("savings", savings_to_json(r.savings))
+    m.insert("changes", Json.NumInt(r.changes))
+    return Json.Obj(m)

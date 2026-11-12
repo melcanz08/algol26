@@ -62,7 +62,12 @@ impl ModuleLoader {
             ErrorCode::E0001,
         )
         .with_suggestion(&format!(
-            "Check if '{}.gol' exists in the current directory or search paths",
+            // The import path is stored with its `.gol` suffix
+            // (e.g. "json.gol"). Appending another ".gol" here
+            // produced "Check if 'json.gol.gol' exists..." — the
+            // user's mistake is almost always in the base name,
+            // not the extension.
+            "Check if '{}' exists in the current directory or search paths",
             import_path
         )))
     }

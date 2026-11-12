@@ -115,3 +115,42 @@ rec Probe
         .parse_program()
         .expect("correct square-bracket close should parse");
 }
+
+#[test]
+fn match_without_body_reports_targeted_diagnostic() {
+    // `match n case 0 then 1 case _ then 2` — the cases appear
+    // directly after the scrutinee with neither `{ ... }` nor an
+    // indented block. Previously, `parse_match_expr` returned a
+    // zero-arm `Match`, and the caller's next `parse_stmt` tripped
+    // on the dangling `Case` token:
+    //     "Unexpected expression: Case"
+    // The fix rejects the match at the missing-body site with a
+    // message that names the actual problem.
+    let source = r#"
+fn f(n: Int) -> Int {
+    match n case 0 then 1 case _ then 2
+}
+"#;
+    let err = parse_expect_err(source);
+
+    assert!(
+        err.message
+            .contains("Expected `{` or an indented block after match value"),
+        "match-brace: expected targeted missing-body diagnostic, got: {:?}",
+        err.message
+    );
+
+    let suggestion = err.suggestion.as_deref().unwrap_or("");
+    assert!(
+        suggestion.contains("match <value>"),
+        "match-brace: suggestion should show the brace form, got: {:?}",
+        suggestion
+    );
+
+    // The old unhelpful message must not appear.
+    assert!(
+        !err.message.contains("Unexpected expression: Case"),
+        "match-brace regression: old generic message leaked. Got: {:?}",
+        err.message
+    );
+}

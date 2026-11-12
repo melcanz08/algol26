@@ -458,6 +458,25 @@ impl Parser {
         // the closer is the right token.
         let closes_with_brace = matches!(self.peek(), Token::LBrace);
 
+        // A `match` with no body is never valid in either form.
+        // Without this check, the parser silently returns a
+        // `Match` with zero cases and the caller's next
+        // `parse_stmt` fails on whatever followed — typically a
+        // `Case` token, yielding the unhelpful
+        // "Unexpected expression: Case" diagnostic. The actual
+        // user error is almost always a missing `{` before the
+        // first `case` (or, in indentation form, a missing
+        // indented body after the scrutinee).
+        if !matches!(self.peek(), Token::Indent) && !closes_with_brace {
+            return Err(self
+                .error("Expected `{` or an indented block after match value")
+                .with_suggestion(
+                    "Write `match <value> { case ... }` (brace form), or \
+                     put the cases on indented lines below the `match` \
+                     (indentation form).",
+                ));
+        }
+
         if matches!(self.peek(), Token::Indent) || closes_with_brace {
             self.advance();
 

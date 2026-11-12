@@ -92,6 +92,22 @@ impl Parser {
                 }
             }
             if is_bracket {
+                // G30 reverse. The user opened with `[` but is
+                // closing with `>`. The generic `expect_token` below
+                // would say "Expected ']', found Gt", which names
+                // what the parser wanted, not what the user did.
+                // Mirror of the `Map<...]` case below.
+                if matches!(self.peek(), Token::Gt) {
+                    return Err(self
+                        .error("Expected ']' to close a bracketed type, found '>'")
+                        .with_suggestion(
+                            "Write `List[...]` with `]` to close \
+                             square-bracketed forms. `>` closes only \
+                             angle-bracketed generics (`Map<K, V>`). \
+                             See tools/lint_generic_brackets.py for the \
+                             same check at source-text level.",
+                        ));
+                }
                 self.expect_token(Token::RBracket, "']'")?;
             } else {
                 // G30. Targeted diagnostic for the `Map<...]` typo
